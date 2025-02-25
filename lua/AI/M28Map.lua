@@ -352,7 +352,7 @@ iLandZoneSegmentSize = 5 --Gets updated by the SetupLandZones - the size of one 
                 subrefGEbDontNeedEngineers = 11
                 subrefbFailedToGetArtiLocation = 12
                 subrefGEbActiveShieldMonitor = 13
-                subrefiCyclesWaitingForEngineer = 14
+                subrefiCyclesWaitingForEngineer = 14 --counts how long we are waiting before we have a valid blueprint we can build; see subrefiCyclesWaitingForConstructionToStart for if we are waiting for construction to start once we have a valid unit
                 subrefGEShieldBlockedFailureCount = 15 --used to stop constantly searching for blocking buildings for a shield
                 subrefGEArtiBlockedFailureCount = 16 --used to stop constantly searching for blocking buildings for an arti
                 subrefGEDefenceBlockedFailureCount = 17
@@ -360,6 +360,8 @@ iLandZoneSegmentSize = 5 --Gets updated by the SetupLandZones - the size of one 
                 subrefGEDefenceUnits = 19 --i.e. any 'size 4' units that have been built in defence locations
                 subrefbHaveTooSmallShields = 20 --true if we have a shield that is too small to cover other shields
                 subrefGEbSACUAssigned = 21 --true if at some point we have assigned an SACU (so we will then check for SACUs wanting upgrades in mass overflow)
+                subrefiCyclesWaitingForConstructionToStart = 22 --counts how long we are waiting for construction to actually start before we last did a reassessment
+                subrefbForceRefreshOfArtiToBuild = 23 --true if want to do a GETemplate reassess
 
 
 
@@ -3223,11 +3225,16 @@ function RecordMidpointAndOtherDataForZone(iPlateau, iZone, tLZData, tOptionalSt
         iMinZ = tMinPosition[3]
         iMaxX = tMaxPosition[1]
         iMaxZ = tMaxPosition[3]
-        for iSegment, tSegmentXZ in tLZData[subrefLZSegments] do
-            if not(iBaseIslandWanted) then iBaseIslandWanted = NavUtils.GetTerrainLabel(refPathingTypeLand, GetPositionFromPathingSegments(tSegmentXZ[1], tSegmentXZ[2])) end
-            break
-        end
         if bDebugMessages == true then LOG(sFunctionRef..': Min and max position: iMinX='..iMinX..'; iMaxX='..iMaxX..'; iMinZ='..iMinZ..'; iMaxZ='..iMaxZ) end
+    end
+    if not(iBaseIslandWanted) then
+        for iSegment, tSegmentXZ in tLZData[subrefLZSegments] do
+            iBaseIslandWanted = NavUtils.GetTerrainLabel(refPathingTypeLand, GetPositionFromPathingSegments(tSegmentXZ[1], tSegmentXZ[2]))
+            if iBaseIslandWanted then
+                if bDebugMessages == true then LOG(sFunctionRef..': Didnt have a valid base island (e.g. no mexes, or the mexes we had are on a very small pool of water) so setting iBaseIslandWanted equal to iSegment recorded in the zone='..iSegment) end
+                break
+            end
+        end
     end
     local bUseStartPosition = false
     if tOptionalStartPositionsInZone then
@@ -3242,6 +3249,7 @@ function RecordMidpointAndOtherDataForZone(iPlateau, iZone, tLZData, tOptionalSt
     end
     if not(bUseStartPosition) then
         tAverage = {(iMinX + iMaxX)*0.5, 0, (iMinZ + iMaxZ) * 0.5}
+        if bDebugMessages == true then LOG(sFunctionRef..': Setting average position based on min and max X and Z='..repru(tAverage)) end
     end
     iAveragePlateau = NavUtils.GetTerrainLabel(refPathingTypeHover, tAverage)
     local iAverageIsland
@@ -3311,6 +3319,7 @@ function RecordMidpointAndOtherDataForZone(iPlateau, iZone, tLZData, tOptionalSt
     if not(iAveragePlateau == iPlateau and iAverageLandZone == iZone) then
         iAveragePlateau, iAverageLandZone = GetPlateauAndLandZoneReferenceFromPosition(tAverage, false)
     end
+    if bDebugMessages == true then LOG(sFunctionRef..': iAveragePlateau='..iAveragePlateau..'; iAverageLandZone='..iAverageLandZone..'; Is table of mex locations empty='..tostring(M28Utilities.IsTableEmpty(tLZData[subrefLZMexLocations]))) end
     if (iAveragePlateau == iPlateau and iAverageLandZone == iZone) or M28Utilities.IsTableEmpty(tLZData[subrefLZMexLocations]) then
         --Either we have a valid location (in which case fine), or we have no mexes to use as a backup so will just use the midpoint (will cause some issues down the line though e.g. with the LZ not registering as being pathable to other land zones)
         tLZData[subrefMidpoint] = {tAverage[1], GetSurfaceHeight(tAverage[1], tAverage[3]), tAverage[3]}
@@ -3657,12 +3666,11 @@ function ConsiderAddingTargetLandZoneToDistanceFromBaseTable(iPlateau, iStartLan
     local sFunctionRef = 'ConsiderAddingTargetLandZoneToDistanceFromBaseTable'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-
     --Have we not already considered this?
     if not(tbTempConsideredLandPathingForLZ[iPlateau][iStartLandZone][iTargetLandZone]) then
         local tEnd = tAllPlateaus[iPlateau][subrefPlateauLandZones][iTargetLandZone][subrefMidpoint]
         local tFullPath, iPathSize, iDistance = NavUtils.PathTo(refPathingTypeLand, tStart, tEnd, nil)
-        if bDebugMessages == true then LOG(sFunctionRef..': Have just tried to get land path from tStart='..repru(tStart)..' to tEnd='..repru(tEnd)..'; iStartLandZone='..iStartLandZone..'; iTargetLandZone='..iTargetLandZone..'; tFullPath='..repru(tFullPath)..'; iPathSize='..iPathSize..'; will draw midpoint of the target LZ, and draw the start point, in blue, iDistance='..iDistance..'; straight line dist='..M28Utilities.GetDistanceBetweenPositions(tStart, tEnd))
+        if bDebugMessages == true then LOG(sFunctionRef..': Have just tried to get land path from tStart='..repru(tStart)..' to tEnd='..repru(tEnd)..'; iStartLandZone='..iStartLandZone..'; iTargetLandZone='..iTargetLandZone..'; tFullPath='..repru(tFullPath)..'; iPathSize='..iPathSize..'; will draw midpoint of the target LZ, and draw the start point, in blue, iDistance='..(iDistance or 'nil')..'; straight line dist='..M28Utilities.GetDistanceBetweenPositions(tStart, tEnd))
             M28Utilities.DrawLocation(tAllPlateaus[iPlateau][subrefPlateauLandZones][iTargetLandZone][subrefMidpoint])
             M28Utilities.DrawLocation(tStart)
         end
