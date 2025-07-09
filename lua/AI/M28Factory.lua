@@ -2424,7 +2424,25 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                                         else iIndirectThreatFactorWanted = iIndirectThreatFactorWanted - 0.5
                                         end
                                     end
-                                    if iDFTotalThreat >= 8000 and iDFTotalThreat > iIndirectTotalThreat * iIndirectThreatFactorWanted and iEnemyAirToGroundThreat <= tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] then
+                                    local iExperimentalDFThreat = 0
+                                    if not(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals])) then
+                                        -- Calculate experimental threat separately
+                                        for _, oExp in M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals] do
+                                            if M28UnitInfo.IsUnitValid(oExp) then
+                                                iExperimentalDFThreat = iExperimentalDFThreat + M28UnitInfo.GetCombatThreatRating({ oExp }, true)
+                                            end
+                                        end
+                                    end
+                                    -- Reduce the impact of experimental threat on the calculation
+                                    local iAdjustedDFThreat = iDFTotalThreat - (iExperimentalDFThreat * 0.35)
+                                    -- Also add a check to ensure we don't build too much artillery
+                                    local iCurrentArtilleryRatio = 0
+                                    if iDFTotalThreat > 0 then
+                                        iCurrentArtilleryRatio = iIndirectTotalThreat / (iDFTotalThreat + iIndirectTotalThreat)
+                                    end
+                                    if iAdjustedDFThreat >= 8000 and iAdjustedDFThreat > iIndirectTotalThreat * iIndirectThreatFactorWanted 
+                                    and iEnemyAirToGroundThreat <= tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] 
+                                    and iCurrentArtilleryRatio < 0.3 then  -- Don't let artillery exceed 30% of combat units
                                         if ConsiderBuildingCategory(M28UnitInfo.refCategoryT3MobileArtillery) then return sBPIDToBuild end
                                     elseif ConsiderBuildingCategory(iCategoryToGet) then
                                         return sBPIDToBuild
@@ -2447,7 +2465,30 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         if M28Utilities.bQuietModActive and iFactoryTechLevel >= 3 and not(bDontConsiderBuildingMAA) then
             -- T3 Mobile Artillery is a bit stronger then it is in FAF, and essential at T3 Phase (due to various factors for M28AI)
             if bDebugMessages == true then LOG(sFunctionRef..': QUIET additional t3 mobile arti builder, tLZTeamData[M28Map.refiEnemyAirToGroundThreat]='..tLZTeamData[M28Map.refiEnemyAirToGroundThreat]..'; tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]='..tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]..'; tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal]='..tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal]..'; tLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal]='..tLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal]) end
-            if tLZTeamData[M28Map.refiEnemyAirToGroundThreat] <= math.min(6000, tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] * 0.5) and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] >= math.max(2000, (tLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal] or 0) * 5) then
+            
+            -- Calculate experimental threat separately to avoid overproduction
+            local iExperimentalDFThreat = 0
+            if not(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals])) then
+                for _, oExp in M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals] do
+                    if M28UnitInfo.IsUnitValid(oExp) then
+                        iExperimentalDFThreat = iExperimentalDFThreat + M28UnitInfo.GetCombatThreatRating({ oExp }, true)
+                    end
+                end
+            end
+            
+            -- Adjust DF threat by reducing experimental impact
+            local iAdjustedDFThreat = tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] - (iExperimentalDFThreat * 0.35)
+            
+            -- Check artillery ratio to prevent overproduction
+            local iCurrentArtilleryRatio = 0
+            if tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] > 0 then
+                iCurrentArtilleryRatio = (tLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal] or 0) / (tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] + (tLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal] or 0))
+            end
+            
+            if tLZTeamData[M28Map.refiEnemyAirToGroundThreat] <= math.min(6000, tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] * 0.5) 
+            and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) 
+            and iAdjustedDFThreat >= math.max(2000, (tLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal] or 0) * 5)
+            and iCurrentArtilleryRatio < 0.3 then  -- Don't let artillery exceed 30% of combat units
                 if ConsiderBuildingCategory(M28UnitInfo.refCategoryT3MobileArtillery) then return sBPIDToBuild end
             end
         end
