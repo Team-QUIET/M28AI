@@ -5119,7 +5119,7 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
         if GetGameTimeSeconds() <= 300 and iFactoryTechLevel == 1 and M28Map.iMapSize >= 512 then
             local iT1BomberCount = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryBomber * categories.TECH1)
             local iEnemyLandUnits = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 100 or tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] > 50
-            local bEnemyHasEngineersExposed = not(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftiWaterZonesForBomberToKillEngis])) or not(tLZTeamData[M28Map.subrefbBaseInSafePosition])
+            local bEnemyHasEngineersExposed = not(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftiWaterZonesForBomberToKillEngis])) or not(tLZTeamData[M28Map.refbBaseInSafePosition])
             
             if bDebugMessages == true then LOG(sFunctionRef..': Early game T1 bomber priority check, iT1BomberCount='..iT1BomberCount..'; iEnemyLandUnits='..tostring(iEnemyLandUnits)..'; bEnemyHasEngineersExposed='..tostring(bEnemyHasEngineersExposed)..'; GameTime='..GetGameTimeSeconds()) end
             
@@ -5127,6 +5127,43 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
             if iT1BomberCount < 6 and (iEnemyLandUnits or bEnemyHasEngineersExposed) and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] < 200 then
                 if bDebugMessages == true then LOG(sFunctionRef..': High priority early T1 bomber production for map control') end
                 if ConsiderBuildingCategory(M28UnitInfo.refCategoryBomber * categories.TECH1) then return sBPIDToBuild end
+            end
+        end
+
+        --Aggressive interceptor production for larger maps to establish air dominance
+        iCurrentConditionToTry = iCurrentConditionToTry + 1
+        if M28Map.iMapSize >= 512 and GetGameTimeSeconds() <= 600 then
+            local iT1InterceptorCount = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryAirAA * categories.TECH1)
+            local iT2InterceptorCount = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryAirAA * categories.TECH2)
+            local iTotalInterceptorCount = iT1InterceptorCount + iT2InterceptorCount
+            local iEnemyAirThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] + M28Team.tTeamData[iTeam][M28Team.refiEnemyAirOtherThreat]
+            local iOurAirAAThreat = M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat]
+            
+            if bDebugMessages == true then LOG(sFunctionRef..': Large map aggressive interceptor check, iT1InterceptorCount='..iT1InterceptorCount..'; iT2InterceptorCount='..iT2InterceptorCount..'; iTotalInterceptorCount='..iTotalInterceptorCount..'; iEnemyAirThreat='..iEnemyAirThreat..'; iOurAirAAThreat='..iOurAirAAThreat..'; MapSize='..M28Map.iMapSize) end
+            
+            -- On large maps, aggressively build interceptors to establish air dominance
+            local iTargetInterceptorCount = 0
+            if M28Map.iMapSize >= 1000 then
+                -- 20km+ maps: very aggressive interceptor production
+                iTargetInterceptorCount = math.max(8, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] * 3)
+            elseif M28Map.iMapSize >= 750 then
+                -- 15km+ maps: aggressive interceptor production
+                iTargetInterceptorCount = math.max(6, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] * 2)
+            else
+                -- 10km+ maps: moderate aggressive interceptor production
+                iTargetInterceptorCount = math.max(4, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] * 1.5)
+            end
+            
+            -- Build interceptors if we're below target and either enemy has air threat or we lack air control
+            if iTotalInterceptorCount < iTargetInterceptorCount and (iEnemyAirThreat > 0 or not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]) or iOurAirAAThreat < 2000) then
+                -- Prioritize T2 interceptors if we have T2 air factory, otherwise T1
+                if iFactoryTechLevel >= 2 and iT2InterceptorCount < math.ceil(iTargetInterceptorCount * 0.6) then
+                    if bDebugMessages == true then LOG(sFunctionRef..': Building T2 interceptor for large map air dominance') end
+                    if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirAA * categories.TECH2) then return sBPIDToBuild end
+                elseif iFactoryTechLevel == 1 and iT1InterceptorCount < math.ceil(iTargetInterceptorCount * 0.8) then
+                    if bDebugMessages == true then LOG(sFunctionRef..': Building T1 interceptor for large map air dominance') end
+                    if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirAA * categories.TECH1) then return sBPIDToBuild end
+                end
             end
         end
 
@@ -5330,16 +5367,49 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
             iCurrentConditionToTry = iCurrentConditionToTry + 1
             if bDebugMessages == true then LOG(sFunctionRef..': Considering if want inties if we have T1 air fac and arent at T3 yet, M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech]='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech]..'; M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] or false)) end
             if iFactoryTechLevel == 1 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] <= 2 and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbOnlyGetASFs]) and not(EntityCategoryContains(categories.AEON, oFactory.UnitId)) then
-                if not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]) and ((M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0) > 0 or (M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] or 0) > 0 or (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] < 1000 and aiBrain:GetCurrentUnits(M28UnitInfo.refCategorySubmarine) * 180 > M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat])) then
+                -- Enhanced interceptor production for larger maps
+                local bWantInterceptors = false
+                if M28Map.iMapSize >= 512 and GetGameTimeSeconds() <= 600 then
+                    -- On large maps, be more aggressive about building interceptors
+                    local iT1InterceptorCount = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryAirAA * categories.TECH1)
+                    local iTargetInterceptors = math.max(3, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] * 1.5)
+                    if iT1InterceptorCount < iTargetInterceptors then
+                        bWantInterceptors = true
+                        if bDebugMessages == true then LOG(sFunctionRef..': Large map aggressive interceptor production - want T1 interceptors') end
+                    end
+                else
+                    -- Standard logic for smaller maps
+                    if not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]) and ((M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0) > 0 or (M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] or 0) > 0 or (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] < 1000 and aiBrain:GetCurrentUnits(M28UnitInfo.refCategorySubmarine) * 180 > M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat])) then
+                        bWantInterceptors = true
+                    end
+                end
+                
+                if bWantInterceptors then
                     if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirAA) then return sBPIDToBuild end
                 end
             end
         else
             --Adjacent LZs - gunship (enemy ground) subject to gunship ratio, or AirAA (enemy air)
             iCurrentConditionToTry = iCurrentConditionToTry + 1
-            if M28Map.iMapSize > 512 and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]) and (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] < 5 * (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat] + M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurT1ToT3BomberThreat] + (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurExpBomberThreat] or 0))  or M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat] + M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurT1ToT3BomberThreat] + (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurExpBomberThreat] or 0) >= 35000)
-                    and (iFactoryTechLevel >= 3 or M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] < 3) and ConsiderBuildingCategory(M28UnitInfo.refCategoryAirAA) then
+            -- Enhanced interceptor priority for larger maps
+            local bWantInterceptorsForAirControl = false
+            if M28Map.iMapSize >= 512 and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]) then
+                -- More aggressive interceptor production on large maps
+                local iOurAirAAThreat = M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat]
+                local iOurAirToGroundThreat = M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat] + M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurT1ToT3BomberThreat] + (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurExpBomberThreat] or 0)
+                
+                -- On large maps, prioritize interceptors more heavily
+                local iInterceptorRatio = M28Map.iMapSize >= 1000 and 3 or (M28Map.iMapSize >= 750 and 2.5 or 2)
+                if iOurAirAAThreat < iInterceptorRatio * iOurAirToGroundThreat or iOurAirToGroundThreat >= 35000 then
+                    bWantInterceptorsForAirControl = true
+                    if bDebugMessages == true then LOG(sFunctionRef..': Large map aggressive interceptor production for air control - ratio='..iInterceptorRatio) end
+                end
+            elseif M28Map.iMapSize > 512 and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]) and (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] < 5 * (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat] + M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurT1ToT3BomberThreat] + (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurExpBomberThreat] or 0))  or M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat] + M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurT1ToT3BomberThreat] + (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurExpBomberThreat] or 0) >= 35000) then
+                bWantInterceptorsForAirControl = true
                 if bDebugMessages == true then LOG(sFunctionRef..': We dont have air control so want to prioritise asfs over bombers/gunships until we have most of our mass invested in airaa') end
+            end
+            
+            if bWantInterceptorsForAirControl and (iFactoryTechLevel >= 3 or M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] < 3) and ConsiderBuildingCategory(M28UnitInfo.refCategoryAirAA) then
                 return sBPIDToBuild
             elseif M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
                 for iEntry, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do

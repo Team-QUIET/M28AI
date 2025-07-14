@@ -1978,7 +1978,7 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
             if bDebugMessages == true then LOG(sFunctionRef..': Mass stored for brain '..aiBrain.Nickname..'='..aiBrain:GetEconomyStored('MASS')..'; Net mass income='..aiBrain[M28Economy.refiNetMassBaseIncome]..'; aiBrain[M28Economy.refiGrossMassBaseIncome]='..aiBrain[M28Economy.refiGrossMassBaseIncome]) end
             
             -- Emergency air factory for early bomber threat detection
-            if GetGameTimeSeconds() <= 180 and aiBrain[M28Economy.refiOurHighestAirFactoryTech] == 0 and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 300 and iLandFactoriesHave >= 1 then
+            if GetGameTimeSeconds() <= 300 and aiBrain[M28Economy.refiOurHighestAirFactoryTech] == 0 and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 300 and iLandFactoriesHave >= 1 then
                 if bDebugMessages == true then LOG(sFunctionRef..': Emergency air factory needed - enemy bomber threat detected ('..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]..' threat)') end
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                 return true
@@ -2163,12 +2163,25 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
                                             else
                                                 iLandFactoriesWantedBeforeAir = 1
                                                 iAirFactoriesForEveryLandFactory = math.min(math.max(iAirFactoriesForEveryLandFactory, 6), iAirFactoriesForEveryLandFactory * 1.5)
+                                                -- Enhanced air factory priority for larger maps
+                                                if M28Map.iMapSize >= 512 then
+                                                    -- More aggressive air factory building on large maps
+                                                    local iMapSizeMultiplier = M28Map.iMapSize >= 1000 and 2.5 or (M28Map.iMapSize >= 750 and 2.0 or 1.5)
+                                                    iAirFactoriesForEveryLandFactory = iAirFactoriesForEveryLandFactory * iMapSizeMultiplier
+                                                    if bDebugMessages == true then LOG(sFunctionRef..': Large map air factory boost - multiplier='..iMapSizeMultiplier..'; MapSize='..M28Map.iMapSize) end
+                                                end
                                                 -- Early game air boost for large maps with enemy bomber threat
                                                 if GetGameTimeSeconds() <= 360 and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 500 and M28Map.iMapSize >= 512 then
                                                     iAirFactoriesForEveryLandFactory = iAirFactoriesForEveryLandFactory * 2
                                                     if bDebugMessages == true then LOG(sFunctionRef..': Early game bomber threat boost - doubling air factory priority') end
                                                 end
                                             end
+                                        end
+                                        -- General large map air factory boost for air dominance
+                                        if M28Map.iMapSize >= 512 and GetGameTimeSeconds() <= 600 then
+                                            local iLargeMapAirBoost = M28Map.iMapSize >= 1000 and 1.8 or (M28Map.iMapSize >= 750 and 1.5 or 1.3)
+                                            iAirFactoriesForEveryLandFactory = iAirFactoriesForEveryLandFactory * iLargeMapAirBoost
+                                            if bDebugMessages == true then LOG(sFunctionRef..': General large map air factory boost - multiplier='..iLargeMapAirBoost..'; MapSize='..M28Map.iMapSize) end
                                         end
                                         if aiBrain[M28Overseer.refbPrioritiseNavy] then iAirFactoriesForEveryLandFactory = math.max(iAirFactoriesForEveryLandFactory, 1) end
                                     end
