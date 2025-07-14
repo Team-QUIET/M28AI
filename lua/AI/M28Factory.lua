@@ -35,6 +35,7 @@ refiFactoryTypeOther = 4
 --Variables against factory
 refiBuildCountByBlueprint = 'M28FacBC' --against oFactory, returns table with key as the unitID, which returns the number of times the factory has been sent an order to build the unit
 refiTotalBuildCount = 'M28FacTotBC' --against oFactory, Total number of units the factory has built
+refsLastBlueprintBuilt = 'M28FLstB' --blueprint the factory last built
 reftFactoryRallyPoint = 'M28FacRally' --against oFactory, Location to send units to when theyre built
 refiFirstTimeOfLastOrder = 'M28FOrTim' --against oFactory, time that we gave an order for the factory to build a unit (cleared when a unit is built or a different blueprint order is given) - used to spot for factories with units blocking them
 refbWantMoreEngineersBeforeUpgrading = 'M28FWnE' --against oFactory, true if have run the factory condition and it concluded wen eeded more engineers before upgrading
@@ -1938,14 +1939,75 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileLandStealth) then return sBPIDToBuild end
     end
 
-    --Want to prioritise sniperbots to deal with enemy land experimental (when enemy lacks fatboy/megalith); exception in QUIET though as land experimentals can be faster
+    --Want to prioritise sniperbots to deal with enemy land experimental (when enemy lacks fatboy/megalith) or ACU; exception in QUIET though as land experimentals can be faster
     iCurrentConditionToTry = iCurrentConditionToTry + 1
     if (M28Utilities.bLoudModActive or EntityCategoryContains(categories.AEON + categories.SERAPHIM, oFactory.UnitId)) and (iFactoryTechLevel == 3 or tLZTeamData[M28Map.subrefLZbCoreBase]) then
         if M28Conditions.PrioritiseSniperBots(tLZData, iTeam, tLZTeamData, iPlateau, iLandZone, true) and (not(bHaveLowMass) or not(aiBrain[M28Overseer.refbPrioritiseAir]) and not(aiBrain[M28Overseer.refbPrioritiseNavy])) then
-            if bDebugMessages == true then LOG(sFunctionRef..': Want to either build sniperbots, or upgrade to t3 so we can build them') end
+            if bDebugMessages == true then LOG(sFunctionRef..': Want to either build sniperbots, or upgrade to t3 so we can build them, unless enemy has lots of nearby t1 spam such that we want to get a small number of DF units') end
             if iFactoryTechLevel < 3 then
                 if ConsiderUpgrading() then  return sBPIDToBuild end
             else
+                --Also check - if we have built a number of sniperbots and enenmy still has T1 spam then we want to get some DF tanks to support them (unless in core base with enemies already here since we probably have ACU and PD to help)
+                local bGetDFSupport = false
+                if oFactory[refsLastBlueprintBuilt] and M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] >= 500 and EntityCategoryContains( M28UnitInfo.refCategorySniperBot, oFactory[refsLastBlueprintBuilt]) and (not(tLZTeamData[M28Map.subrefLZbCoreBase]) or tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] == 0) then
+                    local iFacLifetimeSniperBuild = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategorySniperBot)
+                    if iFacLifetimeSniperBuild >= 3  then
+                        local iDFLifetimeBuild = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryDFTank - M28UnitInfo.refCategorySkirmisher)
+                        if bDebugMessages == true then LOG(sFunctionRef..': iDFLifetimeBuild='..iDFLifetimeBuild..'; iFacLifetimeSniperBuild='..iFacLifetimeSniperBuild) end
+                        if iFacLifetimeSniperBuild > 3 * iDFLifetimeBuild then
+                            if iFacLifetimeSniperBuild > 8*math.max(1,iDFLifetimeBuild) then
+                                if bDebugMessages == true then LOG(sFunctionRef..': Even if we think sniperbots would be best, we have built more than 8 sniperbots for every tank so will get a tank anyway') end
+                                bGetDFSupport = true
+                            else
+                                local iSnipersBuiltPerDF = iFacLifetimeSniperBuild / math.max(0.5, iDFLifetimeBuild)
+                                --Find the zone with the nearest enemies in, and also how much short ranged mobile DF threat we have; if enemy zone has t1 units, then get more DF tanks
+                                function ConsiderCurZone(iCurLandZone)
+                                    local tCurLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iCurLandZone]
+                                    local tCurLZTeamData = tCurLZData[M28Map.subrefLZTeamData][iTeam]
+                                    if bDebugMessages == true then LOG(sFunctionRef..': Considering the amount of very short range mobile DF units enemy has in this zone, iCurLandZone='..iCurLandZone..';  tCurLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal]='.. tCurLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal]) end
+                                    if tCurLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] > 0 then
+                                        local iLowRangeThreat = 0
+                                        local iMediumRangeThreat = 0
+                                        for iRange, iThreat in tCurLZTeamData[M28Map.subrefLZThreatEnemyMobileDFByRange] do
+                                            if iRange <= 26 then --Aurora is best t1 land range at 26; so if use this as the threshold should act as a basic proxy for enemy t1 land threat
+                                                iLowRangeThreat = iLowRangeThreat + iThreat
+                                            elseif iRange <= 70 then
+                                                iMediumRangeThreat = iMediumRangeThreat + iThreat
+                                            else
+                                                break
+                                            end
+                                        end
+                                        if iLowRangeThreat >= 200 and (iMediumRangeThreat < iLowRangeThreat or (iSnipersBuiltPerDF >= 4 and iMediumRangeThreat * 0.7 < iLowRangeThreat) or (iSnipersBuiltPerDF >= 6 and iLowRangeThreat >= 300)) then
+                                            bGetDFSupport = true
+                                        end
+                                        if bDebugMessages == true then LOG(sFunctionRef..': iLowRangeThreat='..iLowRangeThreat..'; iMediumRangeThreat='..iMediumRangeThreat..'; bGetDFSupport='..tostring(bGetDFSupport)) end
+                                        --Return true if enemy has threat here
+                                        return true
+                                    end
+                                end
+                                local bFoundZoneWithEnemyThreat
+                                if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZPathingToOtherLandZones]) == false then
+                                    for iEntry, tSubtable in tLZData[M28Map.subrefLZPathingToOtherLandZones] do
+                                        if tSubtable[M28Map.subrefLZTravelDist] >= 225 then break end
+                                        if ConsiderCurZone(tSubtable[M28Map.subrefLZNumber]) then break end
+                                    end
+                                else
+                                    M28Air.RecordOtherLandAndWaterZonesByDistance(tLZData)
+                                    if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefOtherLandAndWaterZonesByDistance]) == false then
+                                        for _, tSubtable in tLZData[M28Map.subrefOtherLandAndWaterZonesByDistance] do
+                                            if tSubtable[M28Map.subrefiDistance] >= 225 then break end
+                                            if tSubtable[M28Map.subrefiPlateauOrPond] == iPlateau and not(tSubtable[M28Map.subrefbIsWaterZone]) then
+                                                if ConsiderCurZone(tSubtable[M28Map.subrefiLandOrWaterZoneRef]) then break end
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+
+                        end
+                    end
+                end
+                if bGetDFSupport and ConsiderBuildingCategory(M28UnitInfo.refCategoryDFTank - M28UnitInfo.refCategorySkirmisher) then return sBPIDToBuild end
                 if ConsiderBuildingCategory(M28UnitInfo.refCategorySniperBot) then return sBPIDToBuild end
             end
         end
@@ -2408,23 +2470,39 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                                             iEnemyAirToGroundThreat = iEnemyAirToGroundThreat + M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][iTeam][M28Map.refiEnemyAirToGroundThreat]
                                         end
                                     end
-                                    local iIndirectThreatFactorWanted
+                                    local iDirectThreatPerIndirectThreatWanted
                                     if M28Map.iMapSize >= 512 then
-                                        if M28Map.iMapSize >= 1000 then iIndirectThreatFactorWanted = 7
-                                        else iIndirectThreatFactorWanted = 8
-                                        end
-                                        if M28Utilities.bQuietModActive then --Az request for more mobile t3 arti in QUIET
-                                            iIndirectThreatFactorWanted = iIndirectThreatFactorWanted * 0.5
+                                        if M28Map.iMapSize >= 1000 then iDirectThreatPerIndirectThreatWanted = 7
+                                        else iDirectThreatPerIndirectThreatWanted = 8
                                         end
                                     else
-                                        iIndirectThreatFactorWanted = 9
+                                        iDirectThreatPerIndirectThreatWanted = 9
                                     end
                                     if EntityCategoryContains(categories.AEON, oFactory.UnitId) then
-                                        if iIndirectThreatFactorWanted >= 5 then iIndirectThreatFactorWanted = iIndirectThreatFactorWanted - 2
-                                        else iIndirectThreatFactorWanted = iIndirectThreatFactorWanted - 0.5
+                                        if iDirectThreatPerIndirectThreatWanted >= 5 then iDirectThreatPerIndirectThreatWanted = iDirectThreatPerIndirectThreatWanted - 2
+                                        else iDirectThreatPerIndirectThreatWanted = iDirectThreatPerIndirectThreatWanted - 0.5
                                         end
                                     end
-                                    if iDFTotalThreat >= 8000 and iDFTotalThreat > iIndirectTotalThreat * iIndirectThreatFactorWanted and iEnemyAirToGroundThreat <= tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] then
+                                    --If we have just built indirectfire then make it less likely to build another
+                                    if oFactory[refsLastBlueprintBuilt] and EntityCategoryContains(M28UnitInfo.refCategoryIndirect, oFactory[refsLastBlueprintBuilt]) then
+                                        iDirectThreatPerIndirectThreatWanted = iDirectThreatPerIndirectThreatWanted * 2
+                                    end
+
+                                    if M28Utilities.bQuietModActive then --Az request for more mobile t3 arti in QUIET
+                                        iDirectThreatPerIndirectThreatWanted = iDirectThreatPerIndirectThreatWanted * 0.5
+                                    end
+                                    local iIndirectThreatWanted = math.max(100, math.min(10000, iDFTotalThreat) / iDirectThreatPerIndirectThreatWanted)
+                                    if iDFTotalThreat > 10000 then
+                                        iDirectThreatPerIndirectThreatWanted = iDirectThreatPerIndirectThreatWanted * 2
+                                        iIndirectThreatWanted = iIndirectThreatWanted + math.min(30000, iDFTotalThreat - 10000) / iDirectThreatPerIndirectThreatWanted
+                                        if iDFTotalThreat > 40000 then
+                                            iDirectThreatPerIndirectThreatWanted = iDirectThreatPerIndirectThreatWanted * 1.5
+                                            iIndirectThreatWanted = iIndirectThreatWanted + (iDFTotalThreat - 40000) / iDirectThreatPerIndirectThreatWanted
+                                        end
+                                    end
+
+
+                                    if iDFTotalThreat >= 8000 and iIndirectTotalThreat < iIndirectThreatWanted and iEnemyAirToGroundThreat <= tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] then
                                         if ConsiderBuildingCategory(M28UnitInfo.refCategoryT3MobileArtillery) then return sBPIDToBuild end
                                     elseif ConsiderBuildingCategory(iCategoryToGet) then
                                         return sBPIDToBuild
@@ -2448,7 +2526,17 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             -- T3 Mobile Artillery is a bit stronger then it is in FAF, and essential at T3 Phase (due to various factors for M28AI)
             if bDebugMessages == true then LOG(sFunctionRef..': QUIET additional t3 mobile arti builder, tLZTeamData[M28Map.refiEnemyAirToGroundThreat]='..tLZTeamData[M28Map.refiEnemyAirToGroundThreat]..'; tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]='..tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]..'; tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal]='..tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal]..'; tLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal]='..tLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal]) end
             if tLZTeamData[M28Map.refiEnemyAirToGroundThreat] <= math.min(6000, tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] * 0.5) and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] >= math.max(2000, (tLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal] or 0) * 5) then
-                if ConsiderBuildingCategory(M28UnitInfo.refCategoryT3MobileArtillery) then return sBPIDToBuild end
+                --Significantly reduce threat from friendly experimentals in the zone (per Az request)
+                local iExperimentalDFThreat = 0
+                if M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0 and tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] >= 10000 then
+                    local tFriendlyExperimentals = EntityCategoryFilterDown(M28UnitInfo.refCategoryLandExperimental, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
+                    if M28Utilities.IsTableEmpty(tFriendlyExperimentals) == false then
+                        iExperimentalDFThreat = M28UnitInfo.GetCombatThreatRating(tFriendlyExperimentals, false)
+                    end
+                end
+                if iExperimentalDFThreat == 0 or tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] - iExperimentalDFThreat >= math.max(2000, (tLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal] or 0) * 5) then
+                    if ConsiderBuildingCategory(M28UnitInfo.refCategoryT3MobileArtillery) then return sBPIDToBuild end
+                end
             end
         end
 
@@ -6877,6 +6965,7 @@ function UpdateLastBuiltTracker(oFactory, sBlueprint)
         oFactory[refiBuildCountByBlueprint] = {}
     end
     oFactory[refiBuildCountByBlueprint][sBlueprint] = (oFactory[refiBuildCountByBlueprint][sBlueprint] or 0) + 1
+    oFactory[refsLastBlueprintBuilt] = sBlueprint
 
     --facs - track when last built to reduce risk of power stalling by building at multiple all at once (air fac) or mass stalling with land facs
     local aiBrain = oFactory:GetAIBrain()
