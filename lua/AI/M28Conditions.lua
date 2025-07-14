@@ -1976,11 +1976,22 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
         --Early game where ACU wants to go second air - build air fac if low on mass to avoid a case where we stall mass while trying to build 2 different factories at once
         if GetGameTimeSeconds() <= 240 then
             if bDebugMessages == true then LOG(sFunctionRef..': Mass stored for brain '..aiBrain.Nickname..'='..aiBrain:GetEconomyStored('MASS')..'; Net mass income='..aiBrain[M28Economy.refiNetMassBaseIncome]..'; aiBrain[M28Economy.refiGrossMassBaseIncome]='..aiBrain[M28Economy.refiGrossMassBaseIncome]) end
-            if aiBrain[M28Economy.refiOurHighestAirFactoryTech] == 0 and aiBrain[M28Economy.refbGoingSecondAir] and aiBrain:GetEconomyStored('MASS') <= 40 and aiBrain[M28Economy.refiNetMassBaseIncome] < 0 and aiBrain[M28Economy.refiGrossMassBaseIncome] < 2 and M28Map.iMapSize >= 512 and iLandFactoriesHave > 0 and not(M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam]) and not(aiBrain[M28Overseer.refbPrioritiseLowTech]) then
-                --We have a land fac and no air fac, and are in the early game; get the ACU and if it is still doing its initial build order, then check if it is trying to build a land or an air fac
-                if bDebugMessages == true then LOG(sFunctionRef..': Want to go second air') end
+            
+            -- Emergency air factory for early bomber threat detection
+            if GetGameTimeSeconds() <= 180 and aiBrain[M28Economy.refiOurHighestAirFactoryTech] == 0 and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 300 and iLandFactoriesHave >= 1 then
+                if bDebugMessages == true then LOG(sFunctionRef..': Emergency air factory needed - enemy bomber threat detected ('..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]..' threat)') end
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                 return true
+            end
+            
+            -- Relaxed early air conditions - allow air factory if enemy has shown early air or larger maps
+            if aiBrain[M28Economy.refiOurHighestAirFactoryTech] == 0 and aiBrain[M28Economy.refbGoingSecondAir] and M28Map.iMapSize >= 512 and iLandFactoriesHave > 0 and not(M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam]) and not(aiBrain[M28Overseer.refbPrioritiseLowTech]) then
+                -- Relaxed conditions: allow if enemy has any air threat or if we have reasonable economy
+                if (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] > 0 or aiBrain:GetEconomyStored('MASS') <= 40) and (aiBrain[M28Economy.refiNetMassBaseIncome] < 0 or M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 100) and aiBrain[M28Economy.refiGrossMassBaseIncome] < 3 then
+                    if bDebugMessages == true then LOG(sFunctionRef..': Want to go second air (relaxed conditions), enemy air threat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]) end
+                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                    return true
+                end
             end
         end
 
@@ -2048,8 +2059,11 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
                             end
 
                             if bDebugMessages == true then LOG(sFunctionRef..': iOurIsland='..iOurIsland..'; iEnemyIsland='..(iEnemyIsland or 'nil')..'; iOurPlateau='..iOurPlateau..'; iEnemyPlateau='..(iEnemyPlateau or 'nil')..'; air fac tech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech]..'; subrefiTeamAverageEnergyPercentStored%='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored]..'; Dif between our cur gross E, and E when last unable to build from air fac='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] - (M28Team.tTeamData[iTeam][M28Team.refiEnergyWhenAirFactoryLastUnableToBuildAir] or 0)) end
-                            --If already ahve an air fac (or 5km map) then consider building land fac if we have fewer than 3 land facs or dont have full energy, or have less gross energy than when our air facs last failed ot build air:
-                            if (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] > 0 or M28Map.iMapSize < 512) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.9 or (iLandFactoriesHave < 2 and (iLandFactoriesHave == 0 or not(tLZTeamData[M28Map.refbBaseInSafePosition]))) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= (M28Team.tTeamData[iTeam][M28Team.refiEnergyWhenAirFactoryLastUnableToBuildAir] or 0)) and
+                            --If already have an air fac (or 5km map) then consider building land fac if we have fewer than 3 land facs or dont have full energy, or have less gross energy than when our air facs last failed to build air:
+                            -- However, reduce energy gating if there's strategic air benefit (early game with enemy air threat)
+                            local bReduceEnergyGating = GetGameTimeSeconds() <= 420 and M28Map.iMapSize >= 512 and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 200
+                            local iEnergyThreshold = bReduceEnergyGating and 0.7 or 0.9
+                            if (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] > 0 or M28Map.iMapSize < 512) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= iEnergyThreshold or (iLandFactoriesHave < 2 and (iLandFactoriesHave == 0 or not(tLZTeamData[M28Map.refbBaseInSafePosition]))) or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= (M28Team.tTeamData[iTeam][M28Team.refiEnergyWhenAirFactoryLastUnableToBuildAir] or 0) and not(bReduceEnergyGating))) and
                                     --Also require 1 of the following:
                                     --Same island as enemy base with fewer than 4 land facs
                                     ((iOurIsland == iEnemyIsland and iLandFactoriesHave < 4 and (M28Map.iMapSize < 512 or M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] < 2 or (aiBrain[M28Economy.refiOurHighestAirFactoryTech] < 2 or iLandFactoriesHave < 2 or (iLandFactoriesHave == 3 or not(aiBrain[M28Overseer.refbPrioritiseAir]) and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryAirFactory) < 2)))) or
@@ -2149,6 +2163,11 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
                                             else
                                                 iLandFactoriesWantedBeforeAir = 1
                                                 iAirFactoriesForEveryLandFactory = math.min(math.max(iAirFactoriesForEveryLandFactory, 6), iAirFactoriesForEveryLandFactory * 1.5)
+                                                -- Early game air boost for large maps with enemy bomber threat
+                                                if GetGameTimeSeconds() <= 360 and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 500 and M28Map.iMapSize >= 512 then
+                                                    iAirFactoriesForEveryLandFactory = iAirFactoriesForEveryLandFactory * 2
+                                                    if bDebugMessages == true then LOG(sFunctionRef..': Early game bomber threat boost - doubling air factory priority') end
+                                                end
                                             end
                                         end
                                         if aiBrain[M28Overseer.refbPrioritiseNavy] then iAirFactoriesForEveryLandFactory = math.max(iAirFactoriesForEveryLandFactory, 1) end
@@ -3659,31 +3678,6 @@ function PrioritiseSniperBots(tLZData, iTeam, tLZTeamData, iPlateau, iLandZone, 
         else LOG(sFunctionRef..': Enemy has no land exp')
         end
     end
-    
-    -- If QUIET is active and enemy has lots of T3 shields, don't prioritize sniper bots as they are weak versus mobile shields
-    if M28Utilities.bQuietModActive then
-        local iEnemyT3ShieldCount = 0
-        -- Count enemy T3 mobile shields
-        local tEnemyT3Shields = M28Team.GetAllEnemyUnits(M28UnitInfo.refCategoryMobileLandShield * categories.TECH3, iTeam)
-        if not M28Utilities.IsTableEmpty(tEnemyT3Shields) then
-            iEnemyT3ShieldCount = table.getn(tEnemyT3Shields)
-        end
-        -- Also count fixed T3 shields if they're numerous
-        local tEnemyFixedShields = M28Team.GetAllEnemyUnits(M28UnitInfo.refCategoryFixedShield * categories.TECH3, iTeam)
-        if not M28Utilities.IsTableEmpty(tEnemyFixedShields) then
-            iEnemyT3ShieldCount = iEnemyT3ShieldCount + table.getn(tEnemyFixedShields)
-        end
-        
-        if bDebugMessages == true then LOG(sFunctionRef..': QUIET active - Enemy T3 shield count='..iEnemyT3ShieldCount) end
-        
-        -- If enemy has 3+ T3 shields, don't prioritize sniper bots
-        if iEnemyT3ShieldCount >= 3 then
-            if bDebugMessages == true then LOG(sFunctionRef..': QUIET: Enemy has lots of T3 shields ('..iEnemyT3ShieldCount..'), not prioritizing sniper bots') end
-            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-            return false
-        end
-    end
-    
     if tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] < 2600 then --If enemy has lots of sniperbots then we probably lose in a fight (if we check for them), but main purpose of this is ravagers since they now outrange sniperbots in FAF, so better off going for t3 mobile arti
         local bDangerousExperimentalOrACUThreat = false
         local bEnemyHasLongRangeThreat = false

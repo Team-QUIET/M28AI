@@ -5113,6 +5113,22 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
             if ConsiderBuildingCategory(iNormalBomberCategoryToBuild - categories.TECH3) then return sBPIDToBuild end
             if ConsiderBuildingCategory(iBackupAirToGroundCategory) then return sBPIDToBuild end
         end
+        
+        --High priority T1 bomber production for early game mass contestation
+        iCurrentConditionToTry = iCurrentConditionToTry + 1
+        if GetGameTimeSeconds() <= 300 and iFactoryTechLevel == 1 and M28Map.iMapSize >= 512 then
+            local iT1BomberCount = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryBomber * categories.TECH1)
+            local iEnemyLandUnits = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 100 or tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] > 50
+            local bEnemyHasEngineersExposed = not(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftiWaterZonesForBomberToKillEngis])) or not(tLZTeamData[M28Map.subrefbBaseInSafePosition])
+            
+            if bDebugMessages == true then LOG(sFunctionRef..': Early game T1 bomber priority check, iT1BomberCount='..iT1BomberCount..'; iEnemyLandUnits='..tostring(iEnemyLandUnits)..'; bEnemyHasEngineersExposed='..tostring(bEnemyHasEngineersExposed)..'; GameTime='..GetGameTimeSeconds()) end
+            
+            -- Build 4-6 T1 bombers in early game if enemy has land units or exposed economy
+            if iT1BomberCount < 6 and (iEnemyLandUnits or bEnemyHasEngineersExposed) and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] < 200 then
+                if bDebugMessages == true then LOG(sFunctionRef..': High priority early T1 bomber production for map control') end
+                if ConsiderBuildingCategory(M28UnitInfo.refCategoryBomber * categories.TECH1) then return sBPIDToBuild end
+            end
+        end
 
         --Initial engineers
         iCurrentConditionToTry = iCurrentConditionToTry + 1
@@ -5252,9 +5268,21 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
         end
 
         --Upgrade to T2 if at T1 air and have a certain level of mass and energy, and either cant path to enemy by land or it will take a while or we have good gross mass and energy income
+        -- However, delay upgrades if we need more T1 bombers for early game contest
         iCurrentConditionToTry = iCurrentConditionToTry + 1
         if bDebugMessages == true then LOG(sFunctionRef..': Considering whether to upgrade T1 air fac to T2, iFactoryTechLevel='..iFactoryTechLevel..'; aiBrain[M28Economy.refiGrossEnergyBaseIncome]='..aiBrain[M28Economy.refiGrossEnergyBaseIncome]..'; aiBrain[M28Economy.refiGrossMassBaseIncome]='..aiBrain[M28Economy.refiGrossMassBaseIncome]) end
-        if iFactoryTechLevel == 1 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] <= 1 and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 32 and aiBrain[M28Economy.refiGrossMassBaseIncome] >= 2 and (not (M28Team.DoesBrainHaveActiveHQUpgradesOfCategory(aiBrain, M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryAirFactory)) or (aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 100 and aiBrain[M28Economy.refiGrossMassBaseIncome] >= 7 and not(M28Team.DoesBrainHaveActiveHQUpgradesOfCategory(aiBrain, M28UnitInfo.refCategoryAirFactory)))) and ((aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 10 and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 7 and aiBrain[M28Economy.refiOurHighestLandFactoryTech] >= 2) or (aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 45 and not (bHaveLowMass)) or not (aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]) or M28Utilities.GetTravelDistanceBetweenPositions(oFactory:GetPosition(), tLZTeamData[M28Map.reftClosestEnemyBase], M28Map.refPathingTypeLand) >= 375) then
+        
+        local bDelayUpgradeForT1Bombers = false
+        if GetGameTimeSeconds() <= 240 and iFactoryTechLevel == 1 and M28Map.iMapSize >= 512 then
+            local iT1BomberCount = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryBomber * categories.TECH1)
+            local bEnemyAirThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 200
+            if iT1BomberCount < 4 and (bEnemyAirThreat or tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] > 100) then
+                bDelayUpgradeForT1Bombers = true
+                if bDebugMessages == true then LOG(sFunctionRef..': Delaying T2 upgrade to build more T1 bombers, iT1BomberCount='..iT1BomberCount) end
+            end
+        end
+        
+        if not(bDelayUpgradeForT1Bombers) and iFactoryTechLevel == 1 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] <= 1 and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 32 and aiBrain[M28Economy.refiGrossMassBaseIncome] >= 2 and (not (M28Team.DoesBrainHaveActiveHQUpgradesOfCategory(aiBrain, M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryAirFactory)) or (aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 100 and aiBrain[M28Economy.refiGrossMassBaseIncome] >= 7 and not(M28Team.DoesBrainHaveActiveHQUpgradesOfCategory(aiBrain, M28UnitInfo.refCategoryAirFactory)))) and ((aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 10 and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 7 and aiBrain[M28Economy.refiOurHighestLandFactoryTech] >= 2) or (aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 45 and not (bHaveLowMass)) or not (aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]) or M28Utilities.GetTravelDistanceBetweenPositions(oFactory:GetPosition(), tLZTeamData[M28Map.reftClosestEnemyBase], M28Map.refPathingTypeLand) >= 375) then
             --Only upgrade if not in t1 spam mode, and either have a t2 mex or high gross mass
             if bDebugMessages == true then LOG(sFunctionRef..': Considering further conditions, M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam]='..tostring(M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam])..'; tLZTeamData[M28Map.subrefMexCountByTech]='..repru(tLZTeamData[M28Map.subrefMexCountByTech])..'; M28Conditions.ZoneWantsT1Spam(tLZTeamData, iTeam)='..tostring(M28Conditions.ZoneWantsT1Spam(tLZTeamData, iTeam) or false)) end
             if not(M28Conditions.ZoneWantsT1Spam(tLZTeamData, iTeam)) and not(aiBrain[M28Overseer.refbPrioritiseLowTech]) and not(aiBrain[M28Overseer.refbPrioritiseLand]) and (not(aiBrain[M28Overseer.refbPrioritiseNavy]) or aiBrain[M28Economy.refiOurHighestNavalFactoryTech] == 0) and (tLZTeamData[M28Map.subrefMexCountByTech][2] + tLZTeamData[M28Map.subrefMexCountByTech][3] > 0 or aiBrain[M28Economy.refiGrossMassBaseIncome] >= 5 or aiBrain[M28Economy.refiOurHighestLandFactoryTech] > 1 or aiBrain[M28Economy.refiOurHighestAirFactoryTech] > 1 or oFactory[refiTotalBuildCount] >= 25 or ((aiBrain[M28Overseer.refbPrioritiseAir] or aiBrain[M28Overseer.refbPrioritiseHighTech]) and oFactory[refiTotalBuildCount] >= 5)) then
