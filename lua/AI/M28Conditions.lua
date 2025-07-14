@@ -3659,6 +3659,31 @@ function PrioritiseSniperBots(tLZData, iTeam, tLZTeamData, iPlateau, iLandZone, 
         else LOG(sFunctionRef..': Enemy has no land exp')
         end
     end
+    
+    -- If QUIET is active and enemy has lots of T3 shields, don't prioritize sniper bots as they are weak versus mobile shields
+    if M28Utilities.bQuietModActive then
+        local iEnemyT3ShieldCount = 0
+        -- Count enemy T3 mobile shields
+        local tEnemyT3Shields = M28Team.GetAllEnemyUnits(M28UnitInfo.refCategoryMobileLandShield * categories.TECH3, iTeam)
+        if not M28Utilities.IsTableEmpty(tEnemyT3Shields) then
+            iEnemyT3ShieldCount = table.getn(tEnemyT3Shields)
+        end
+        -- Also count fixed T3 shields if they're numerous
+        local tEnemyFixedShields = M28Team.GetAllEnemyUnits(M28UnitInfo.refCategoryFixedShield * categories.TECH3, iTeam)
+        if not M28Utilities.IsTableEmpty(tEnemyFixedShields) then
+            iEnemyT3ShieldCount = iEnemyT3ShieldCount + table.getn(tEnemyFixedShields)
+        end
+        
+        if bDebugMessages == true then LOG(sFunctionRef..': QUIET active - Enemy T3 shield count='..iEnemyT3ShieldCount) end
+        
+        -- If enemy has 3+ T3 shields, don't prioritize sniper bots
+        if iEnemyT3ShieldCount >= 3 then
+            if bDebugMessages == true then LOG(sFunctionRef..': QUIET: Enemy has lots of T3 shields ('..iEnemyT3ShieldCount..'), not prioritizing sniper bots') end
+            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+            return false
+        end
+    end
+    
     if tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] < 2600 then --If enemy has lots of sniperbots then we probably lose in a fight (if we check for them), but main purpose of this is ravagers since they now outrange sniperbots in FAF, so better off going for t3 mobile arti
         local bDangerousExperimentalOrACUThreat = false
         local bEnemyHasLongRangeThreat = false
