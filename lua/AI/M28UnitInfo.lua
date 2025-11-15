@@ -878,11 +878,11 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                             iMassMod = iMassMod * 1.5
                         else
                             iMassMod = iMassMod * 2
-                            if bAntiNavyOnly or (bAddAntiNavy and (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive)) then
+                            if bAntiNavyOnly or (bAddAntiNavy and M28Utilities.bLoudModActive) then
 
                                 --LOUD - looks like T2 torp launcher has 300 DPS,1160 mass cost,5600 health, 68 range; in comparison, a t1 sera sub has540 health,390 mass cost,91 DPS; so justifies similar mod to this
                                 --however, LOUD also crushed T2 destroyers (3 destroyers which cost c.twice as much individually) with a t2 torp launcher, so want to increase threat further; LOUD also has torp launchers outranging destroyers
-                                if M28Utilities.bLoudModActive or M28Utilities.bQuietModActive then
+                                if M28Utilities.bLoudModActive then
                                     iMassMod = iMassMod * 2 --i.e. quadruple mass value
                                 else
                                     iMassMod = iMassMod * 1.25 --increased from 1.1 pre-v128 as if we cant overwhelm the launcher we likely lose every unit
@@ -892,7 +892,7 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                     end
                 end
                 --Experimenatls are weak in LOUD, so adjust their threat rating accordingly
-                if iMassMod > 0 and (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId) then
+                if iMassMod > 0 and M28Utilities.bLoudModActive and EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId) then
                     iMassMod = iMassMod * 0.75
                 end
                 if bDebugMessages == true then LOG(sFunctionRef..': iMassCost='..(iMassCost or 'nil')..'; iMassMod='..(iMassMod or 'nil')) end
@@ -998,7 +998,7 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                                             iMassMod = 0.25 --e.g. for overlayantinavy or submersibles with no attack
                                             if EntityCategoryContains(refCategoryAntiNavy, oUnit.UnitId) then
                                                 iMassMod = 1
-                                                if (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and not(EntityCategoryContains(categories.SUBMERSIBLE, oUnit.UnitId)) then iMassMod = 0.8 end --Destroyers dont seem sa good in a sub vs destroyer war mass for mass
+                                                if M28Utilities.bLoudModActive and not(EntityCategoryContains(categories.SUBMERSIBLE, oUnit.UnitId)) then iMassMod = 0.8 end --Destroyers dont seem sa good in a sub vs destroyer war mass for mass
                                             elseif EntityCategoryContains(categories.LAND * refCategoryAntiNavy, oUnit.UnitId) then
                                                 iMassMod = 0.5 --brick, wagner etc
                                                 --UEF units (which are either really bad or good at antinavy)
@@ -1096,11 +1096,11 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                                         iMassMod = iMassMod * 1.5
                                     else
                                         iMassMod = iMassMod * 2
-                                        if bAntiNavyOnly or (bAddAntiNavy and (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive)) then
+                                        if bAntiNavyOnly or (bAddAntiNavy and M28Utilities.bLoudModActive) then
 
                                             --LOUD - looks like T2 torp launcher has 300 DPS,1160 mass cost,5600 health, 68 range; in comparison, a t1 sera sub has540 health,390 mass cost,91 DPS; so justifies similar mod to this
                                             --however, LOUD also crushed T2 destroyers (3 destroyers which cost c.twice as much individually) with a t2 torp launcher, so want to increase threat further; LOUD also has torp launchers outranging destroyers
-                                            if M28Utilities.bLoudModActive or M28Utilities.bQuietModActive then
+                                            if M28Utilities.bLoudModActive then
                                                 iMassMod = iMassMod * 2 --i.e. quadruple mass value
                                             else
                                                 iMassMod = iMassMod * 1.25 --increased from 1.1 pre-v128 as if we cant overwhelm the launcher we likely lose every unit
@@ -1110,7 +1110,7 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                                 end
                             end
                             --Experimenatls are weak in LOUD, so adjust their threat rating accordingly
-                            if iMassMod > 0 and (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId) then
+                            if iMassMod > 0 and M28Utilities.bLoudModActive and EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId) then
                                 iMassMod = iMassMod * 0.75
                             end
                             if bDebugMessages == true then LOG(sFunctionRef..': iMassCost='..(iMassCost or 'nil')..'; iMassMod='..(iMassMod or 'nil')) end
@@ -1242,7 +1242,7 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                                     elseif sCurUnitBP == 'uaa0310' then iMassMod = 0.55 --Czar
                                     elseif sCurUnitBP == 'xsa0402' then iMassMod = 0.3 --Sera experi bomber
                                     end
-                                elseif EntityCategoryContains(categories.HIGHALTAIR, sCurUnitBP) and (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) then
+                                elseif EntityCategoryContains(categories.HIGHALTAIR, sCurUnitBP) and M28Utilities.bLoudModActive then
                                     --LOUD (and QUIET) - asfs are much worse mass for mass than inties (need 2:1 mass advantage to roughly break even) and t2 fighters (need 1.5:1 mass advantage to roughly break even)
                                     if EntityCategoryContains(categories.TECH1, sCurUnitBP) then iMassMod = 2
                                     elseif EntityCategoryContains(categories.TECH2, sCurUnitBP) then iMassMod = 1.5
@@ -1388,7 +1388,7 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                                 local iHealthPerMass = oBP.Defense.MaxHealth / oBP.Economy.BuildCostMass
                                 if iHealthPerMass >= 6 then
                                     local iMaxHealthFactor = 2.2
-                                    if M28Utilities.bLoudModActive or M28Utilities.bQuietModActive then iMaxHealthFactor = 2.5 end
+                                    if M28Utilities.bLoudModActive then iMaxHealthFactor = 2.5 end
                                     iMassAAFactor = iMassAAFactor * math.min(iMaxHealthFactor, (iHealthPerMass - 6) / 12 + 1) --Main threat of AA unit is the damage, not the health, so cap the amount threat is increased by unit health (e.g. dont want ythotha deterring air attacks just because its high health)
                                 end
                                 if bDebugMessages == true then LOG(sFunctionRef..': considienrg AA threat adjust for unit '..sCurUnitBP..'; iMassMod pre AA dps adj='..iMassMod..'; iMassAAFactor='..iMassAAFactor..'; iHealthPerMass='..iHealthPerMass) end
