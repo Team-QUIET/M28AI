@@ -382,12 +382,12 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                     end
                 elseif sBPIDToBuild == 'url0303' or sBPIDToBuild == 'brmt3bt' then --CybranLightT3DF
                     if (M28Team.tTeamData[iTeam][M28Team.refbEnemyHasHeavyLandT3] and oFactory[refiTotalBuildCount] >= 10) or M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0 or (oFactory[refiTotalBuildCount] >= 5 and M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * (categories.url0303 + categories.brmt3bt)) >= 10 then
-                        if oFactory:CanBuild('xrl0305') or oFactory:CanBuild('brl0307') or oFactory:CanBuild('srl0310') or oFactory:CanBuild('brmt3bm2') then
+                        if oFactory:CanBuild('xrl0305') or oFactory:CanBuild('brl0307') or oFactory:CanBuild('wrl0301') or oFactory:CanBuild('brmt3bm2') then
                             aiBrain[reftBlueprintPriorityOverride]['url0303'] = nil --loyalist
                             aiBrain[reftBlueprintPriorityOverride]['brmt3bt'] = nil --Mastodon
                             aiBrain[reftBlueprintPriorityOverride]['xrl0305'] = 1 --brick
                             aiBrain[reftBlueprintPriorityOverride]['brl0307'] = 1
-                            aiBrain[reftBlueprintPriorityOverride]['srl0310'] = 1
+                            aiBrain[reftBlueprintPriorityOverride]['wrl0301'] = 1
                             aiBrain[reftBlueprintPriorityOverride]['brmt3bm2'] = 1
                             sBPIDToBuild = 'xrl0305'
                             if bDebugMessages == true then LOG(sFunctionRef..': want to build brick instead of loyalist') end
@@ -399,6 +399,7 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                             aiBrain[reftBlueprintPriorityOverride]['uel0303'] = nil --Titan
                             aiBrain[reftBlueprintPriorityOverride]['brnt3bt'] = nil --Bull
                             aiBrain[reftBlueprintPriorityOverride]['xel0305'] = 1 --Percival
+                            aiBrain[reftBlueprintPriorityOverride]['xel0307'] = 1
                             aiBrain[reftBlueprintPriorityOverride]['bel0307'] = 1
                             aiBrain[reftBlueprintPriorityOverride]['wel0305'] = 1
                             sBPIDToBuild = 'xel0305'
@@ -407,10 +408,11 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                     end
                 elseif sBPIDToBuild == 'ual0303' then --AeonLightT3DF
                     if (M28Team.tTeamData[iTeam][M28Team.refbEnemyHasHeavyLandT3] and oFactory[refiTotalBuildCount] >= 10) or M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0 or (oFactory[refiTotalBuildCount] >= 5 and M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * categories.ual0303) >= 10 then
-                        if oFactory:CanBuild('sal0311') or oFactory:CanBuild('bal0310') then
+                        if oFactory:CanBuild('sal0311') or oFactory:CanBuild('bal0310') or oFactory:CanBuild('brot3hm') then
                             aiBrain[reftBlueprintPriorityOverride]['ual0303'] = nil
                             aiBrain[reftBlueprintPriorityOverride]['sal0311'] = 1
                             aiBrain[reftBlueprintPriorityOverride]['bal0310'] = 1
+                            aiBrain[reftBlueprintPriorityOverride]['brot3hm'] = 1
                             sBPIDToBuild = 'sal0311'
                             if bDebugMessages == true then LOG(sFunctionRef..': want to build moldovite instead of harbinger') end
                         end
@@ -4542,7 +4544,7 @@ function SetPriorityPreferredUnitsByCategory(aiBrain)
             aiBrain[reftBlueprintPriorityOverride]['wel0305'] = 1
             --Cybran T3:
             aiBrain[reftBlueprintPriorityOverride]['brl0307'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['srl0311'] = -1 --Az changed mind, apparently they miss a lot
+            aiBrain[reftBlueprintPriorityOverride]['srl0311'] = -1
             aiBrain[reftBlueprintPriorityOverride]['brmt3bm2'] = 1
             --aiBrain[reftBlueprintPriorityOverride]['brmt3bt'] (good tank if you cant afford Bricks/etc but you want something better then loyalist)
             --Aeon T3:
@@ -4608,10 +4610,12 @@ function SetPriorityPreferredUnitsByCategory(aiBrain)
             aiBrain[reftBlueprintPriorityOverride]['brnt3bt'] = 1
             -- aiBrain[reftBlueprintPriorityOverride]['bel0307'] = 1
             -- aiBrain[reftBlueprintPriorityOverride]['wel0305'] = 1
+            -- aiBrain[reftBlueprintPriorityOverride]['xel0307'] = 1
             --Cybran T3:
             aiBrain[reftBlueprintPriorityOverride]['brmt3bt'] = 1
             -- aiBrain[reftBlueprintPriorityOverride]['brl0307'] = 1
-            -- aiBrain[reftBlueprintPriorityOverride]['srl0311'] = -1
+            aiBrain[reftBlueprintPriorityOverride]['srl0311'] = -1 -- overbuilt, clogging out badly needed T3 Mobile Artillery
+            aiBrain[reftBlueprintPriorityOverride]['srl0310'] = -1 -- overbuilt, clogging out badly needed T3 Mobile Artillery
             -- aiBrain[reftBlueprintPriorityOverride]['brmt3bm2'] = 1
             --Aeon T3:
             -- aiBrain[reftBlueprintPriorityOverride]['bal0310'] = 1
@@ -4625,7 +4629,6 @@ function SetPriorityPreferredUnitsByCategory(aiBrain)
             -- aiBrain[reftBlueprintPriorityOverride]['brpt1exm1'] = 1
 
             aiBrain[reftBlueprintPriorityOverride]['ual0204'] = 1 --Aeon T2 sniperbot
-            aiBrain[reftBlueprintPriorityOverride]['xel0307'] = -1000 --UEF T3 Juggernant
             aiBrain[reftBlueprintPriorityOverride]['ssl0403'] = -1000 --experimental reconstruction bot
             aiBrain[reftBlueprintPriorityOverride]['ualx401'] = -1000 --experimental mobile smd
 
@@ -4653,8 +4656,6 @@ function SetPriorityPreferredUnitsByCategory(aiBrain)
                 aiBrain[reftBlueprintPriorityOverride]['sra0314'] = -1
                 aiBrain[reftBlueprintPriorityOverride]['ssa0314'] = -1
             end
-
-            aiBrain[reftBlueprintPriorityOverride]['srl0311'] = 1 --T3 cybran mml?
         end
     end
 end
