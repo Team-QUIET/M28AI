@@ -1504,7 +1504,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     function ConsiderUpgrading()
         --If this is a support factory or T1 factory then only consider upgrading if we have spare idle factories in this LZ, subject to how many factories we have
         local bConsiderUpgrading = true
-        if iFactoryTechLevel == 1 or not(EntityCategoryContains(M28UnitInfo.refCategoryLandHQ, oFactory.UnitId)) or M28Utilities.bLoudModActive or M28Utilities.bQuietModActive or not(tLZTeamData[M28Map.subrefLZbCoreBase]) then
+        if iFactoryTechLevel == 1 or not(EntityCategoryContains(M28UnitInfo.refCategoryLandHQ, oFactory.UnitId)) or M28Utilities.bLoudModActive or not(tLZTeamData[M28Map.subrefLZbCoreBase]) then
             if not(M28Conditions.CheckIfNeedMoreEngineersOrSnipeUnitsBeforeUpgrading(oFactory)) then
                 local iUpgradingLandFactories = 0
                 local iAvailableLandFactories = 0
