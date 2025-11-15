@@ -3141,20 +3141,20 @@ function ConsiderPriorityMexUpgrades(iM28Team)
             --if tTeamData[iM28Team][subrefiTeamGrossMass] >= 2.5 * tTeamData[iM28Team][subrefiActiveM28BrainCount] and iMexesOnMap > 60 then
             iWantedUpgradingMexValue = 1
             if not(tTeamData[iM28Team][subrefbTeamIsStallingEnergy]) then
-                if tTeamData[iM28Team][subrefiTeamGrossMass] >= 12 or M28Utilities.bLoudModActive or M28Utilities.bQuietModActive then
+                if tTeamData[iM28Team][subrefiTeamGrossMass] >= 12 or M28Utilities.bLoudModActive then
                     iWantedUpgradingMexValue = iWantedUpgradingMexValue + 1
                 end
                 if tTeamData[iM28Team][refiMexCountByTech][3] < M28Conditions.GetHighestOtherTeamT3MexCount(iM28Team) then
                     bBehindOnT3OrNotStartedT2Mex = true
                     iWantedUpgradingMexValue = iWantedUpgradingMexValue * 1.5
-                    if M28Utilities.bLoudModActive or M28Utilities.bQuietModActive then iWantedUpgradingMexValue = iWantedUpgradingMexValue + 1 end
+                    if M28Utilities.bLoudModActive then iWantedUpgradingMexValue = iWantedUpgradingMexValue + 1 end
                 end
-                if (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.5 and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 12 * tTeamData[iM28Team][subrefiActiveM28BrainCount] then
+                if (M28Utilities.bLoudModActive) and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.5 and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 12 * tTeamData[iM28Team][subrefiActiveM28BrainCount] then
                     --Further increases
                     if tTeamData[iM28Team][subrefiTeamGrossMass] >= 6 then iWantedUpgradingMexValue = iWantedUpgradingMexValue + 1 end
                 end
             end
-        elseif (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.5 and not(tTeamData[iM28Team][subrefbTeamIsStallingEnergy]) and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 12 * tTeamData[iM28Team][subrefiActiveM28BrainCount] and tTeamData[iM28Team][subrefiTeamGrossMass] >= 1.25 * tTeamData[iM28Team][subrefiActiveM28BrainCount] then
+        elseif (M28Utilities.bLoudModActive) and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.5 and not(tTeamData[iM28Team][subrefbTeamIsStallingEnergy]) and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 12 * tTeamData[iM28Team][subrefiActiveM28BrainCount] and tTeamData[iM28Team][subrefiTeamGrossMass] >= 1.25 * tTeamData[iM28Team][subrefiActiveM28BrainCount] then
             iWantedUpgradingMexValue = 1
             if tTeamData[iM28Team][subrefiTeamGrossMass] >= 6 and (tTeamData[iM28Team][refiMexCountByTech][3] == 0 or tTeamData[iM28Team][refiMexCountByTech][3] >= 4) then iWantedUpgradingMexValue = iWantedUpgradingMexValue + 1 end
             if tTeamData[iM28Team][refiMexCountByTech][3] < M28Conditions.GetHighestOtherTeamT3MexCount(iM28Team) then
@@ -3218,7 +3218,7 @@ function ConsiderPriorityMexUpgrades(iM28Team)
                         local iTechLevelToUpgrade = math.min(3, (tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech] or 1)) - 1 --, (tTeamData[iM28Team][subrefiHighestEnemyMexTech] or 0))) - 1
                         if M28Overseer.bNoRushActive then iTechLevelToUpgrade = math.max(1, iTechLevelToUpgrade) end
 
-                        if (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and (tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 25 * tTeamData[iM28Team][subrefiActiveM28BrainCount] or iMexesOnMap <= 20 * tTeamData[iM28Team][subrefiActiveM28BrainCount]) then
+                        if (M28Utilities.bLoudModActive) and (tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 25 * tTeamData[iM28Team][subrefiActiveM28BrainCount] or iMexesOnMap <= 20 * tTeamData[iM28Team][subrefiActiveM28BrainCount]) then
                             iTechLevelToUpgrade = math.max(1, iTechLevelToUpgrade)
                             if tTeamData[iM28Team][subrefiTeamGrossMass] > tTeamData[iM28Team][subrefiActiveM28BrainCount] * 6 then
                                 iTechLevelToUpgrade = 2
@@ -3227,7 +3227,7 @@ function ConsiderPriorityMexUpgrades(iM28Team)
                             end
                         end
 
-                        if iTechLevelToUpgrade <= 0 and tTeamData[iM28Team][subrefiTeamMassStored] >= 1000 and ( tTeamData[iM28Team][subrefiTeamMassStored] >= 1600 or tTeamData[iM28Team][subrefiTeamNetMass] > 0 or (tTeamData[iM28Team][subrefiTeamMassStored] >= 1250 and tTeamData[iM28Team][subrefiTeamNetMass] > -1)) and (tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.7 or ((M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and tTeamData[iM28Team][subrefiTeamNetEnergy] > 0)) and (tTeamData[iM28Team][subrefiTeamEnergyStored] >= 9000 or tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.9) and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 30 then iTechLevelToUpgrade = 1 end
+                        if iTechLevelToUpgrade <= 0 and tTeamData[iM28Team][subrefiTeamMassStored] >= 1000 and ( tTeamData[iM28Team][subrefiTeamMassStored] >= 1600 or tTeamData[iM28Team][subrefiTeamNetMass] > 0 or (tTeamData[iM28Team][subrefiTeamMassStored] >= 1250 and tTeamData[iM28Team][subrefiTeamNetMass] > -1)) and (tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.7 or ((M28Utilities.bLoudModActive) and tTeamData[iM28Team][subrefiTeamNetEnergy] > 0)) and (tTeamData[iM28Team][subrefiTeamEnergyStored] >= 9000 or tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.9) and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 30 then iTechLevelToUpgrade = 1 end
 
                         --Dont upgrade if have ACUs in rush mode on the team and are already upgrading
                         if iTechLevelToUpgrade >= 1 and M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]) == false then
@@ -3756,7 +3756,7 @@ function ConsiderNormalUpgrades(iM28Team)
                 bLookForMexNotHQ = not(tTeamData[iM28Team][refbFocusOnT1Spam])
 
                 --Get preferred upgrade type - ideally are always improving mass income (if have safe mexes to upgrade)
-                if M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]) == false and (not(M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) or not(M28Conditions.TeamHasLowMass(iM28Team))) then
+                if M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]) == false and (not(M28Utilities.bLoudModActive) or not(M28Conditions.TeamHasLowMass(iM28Team))) then
                     --Already have mexes upgrading - do we want to also upgrade an HQ instead of a mex?
                     if (tTeamData[iM28Team][subrefiTeamGrossMass] >= 2.5 and (tTeamData[iM28Team][subrefiTeamGrossMass] >= 5 and (tTeamData[iM28Team][subrefiLowestFriendlyLandFactoryTech] == 1 or tTeamData[iM28Team][subrefiLowestFriendlyAirFactoryTech] == 1) or (tTeamData[iM28Team][subrefiLowestFriendlyLandFactoryTech] == 1 and tTeamData[iM28Team][subrefiLowestFriendlyAirFactoryTech] == 1))) or ((tTeamData[iM28Team][subrefiLowestFriendlyLandFactoryTech] == 2 or tTeamData[iM28Team][subrefiLowestFriendlyAirFactoryTech] == 2) and tTeamData[iM28Team][subrefiTeamGrossMass] >= 8) then
                         --Do we already ahve a factory HQ upgrading? If so then consider income based on player count
@@ -3879,7 +3879,7 @@ function ConsiderGettingUpgrades(iM28Team)
     if bDebugMessages == true then LOG(sFunctionRef..': Time='..GetGameTimeSeconds()..'; tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored]='..tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored]..'; Stalling energy='..tostring(tTeamData[iM28Team][subrefbTeamIsStallingEnergy])..'; Stalling mass='..tostring(tTeamData[iM28Team][subrefbTeamIsStallingMass])..'; tTeamData[iM28Team][subrefiTeamGrossMass]='..tTeamData[iM28Team][subrefiTeamGrossMass]..'; tTeamData[iM28Team][subrefiTeamGrossEnergy]='..tTeamData[iM28Team][subrefiTeamGrossEnergy]..'; tTeamData[iM28Team][subrefiTeamMassStored]='..tTeamData[iM28Team][subrefiTeamMassStored]..'; tTeamData[iM28Team][subrefiTeamAverageMassPercentStored]='..tTeamData[iM28Team][subrefiTeamAverageMassPercentStored]..'; tTeamData[iM28Team][subrefiTeamNetEnergy]='..tTeamData[iM28Team][subrefiTeamNetEnergy]) end
     if tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.6 and (GetGameTimeSeconds() >= 150 or (GetGameTimeSeconds() >= 60 and GetGameTimeSeconds() >= 150 / tTeamData[iM28Team][refiHighestBrainResourceMultiplier]) or (tTeamData[iM28Team][subrefiTeamGrossMass] >= 3 * tTeamData[iM28Team][subrefiActiveM28BrainCount] and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 50 * tTeamData[iM28Team][subrefiActiveM28BrainCount]) or (tTeamData[iM28Team][subrefiTeamMassStored] >= 700 and tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] >= 0.9 and tTeamData[iM28Team][subrefiTeamNetEnergy] >= 3 and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.95) or (M28Map.bIsLowMexMap and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.5 and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.99 or (tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 6 * tTeamData[iM28Team][subrefiActiveM28BrainCount]))) and not(tTeamData[iM28Team][subrefbTeamIsStallingEnergy]) then
         --Further general eco conditions on upgrading early game
-        if GetGameTimeSeconds() >= 300 or M28Map.bIsCampaignMap or GetGameTimeSeconds() >= 60 + 240 / (0.5 + tTeamData[iM28Team][refiHighestBrainResourceMultiplier] * 0.5) - 30 * math.min(3, math.max(0, tTeamData[iM28Team][subrefiActiveM28BrainCount] - 1.5)) or tTeamData[iM28Team][subrefiTeamGrossMass] >= 6 * tTeamData[iM28Team][subrefiActiveM28BrainCount] * (0.5 + tTeamData[iM28Team][refiHighestBrainResourceMultiplier] * 0.5) or (tTeamData[iM28Team][subrefiTeamMassStored] >= 700 and tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] >= 0.4) or M28Map.bIsLowMexMap or M28Overseer.bNoRushActive or ((M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and GetGameTimeSeconds() >= 200) then
+        if GetGameTimeSeconds() >= 300 or M28Map.bIsCampaignMap or GetGameTimeSeconds() >= 60 + 240 / (0.5 + tTeamData[iM28Team][refiHighestBrainResourceMultiplier] * 0.5) - 30 * math.min(3, math.max(0, tTeamData[iM28Team][subrefiActiveM28BrainCount] - 1.5)) or tTeamData[iM28Team][subrefiTeamGrossMass] >= 6 * tTeamData[iM28Team][subrefiActiveM28BrainCount] * (0.5 + tTeamData[iM28Team][refiHighestBrainResourceMultiplier] * 0.5) or (tTeamData[iM28Team][subrefiTeamMassStored] >= 700 and tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] >= 0.4) or M28Map.bIsLowMexMap or M28Overseer.bNoRushActive or ((M28Utilities.bLoudModActive) and GetGameTimeSeconds() >= 200) then
             if bDebugMessages == true then LOG(sFunctionRef..': Have enough energy that we will check for priority upgrades and then normal upgrades') end
             tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle] = 0
             tTeamData[iM28Team][subrefiEnergyUpgradesStartedThisCycle] = 0
@@ -4975,7 +4975,7 @@ function ConsiderAddingUnitAsSnipeTarget(oUnit, iTeam)
                 iCurHealth = iCurHealth + iCurShield
                 iMaxHealth = iMaxHealth + iMaxShield
                 iHealthPercent = iCurHealth / iMaxHealth
-                if M28Utilities.bLoudModActive or M28Utilities.bQuietModActive then
+                if M28Utilities.bLoudModActive then
                     iBaseHealthThreshold = iBaseHealthThreshold * 0.3 --be much less likely to choose snipe target for a unit that has a shield, especially in LOUD due to the short shield recharge
                 else
                     iBaseHealthThreshold = iBaseHealthThreshold * 0.6 --be less likely to choose snipe target for a unit that has a shield
@@ -5564,8 +5564,6 @@ function ConsiderSpecialStrategyAssignment(iTeam)
                             local tLZTeamData = M28Map.tAllPlateaus[iCurPlateau][M28Map.subrefPlateauLandZones][iCurZone][M28Map.subrefLZTeamData][iTeam]
                             iCurDist = M28Utilities.GetDistanceBetweenPositions(tCurStart, tLZTeamData[M28Map.reftClosestEnemyBase])
                             if bDebugMessages == true then LOG(sFunctionRef..': iCurPlateau='..iCurPlateau..'; iCurZone='..iCurZone..'; tCurStart='..repru(tCurStart)..'; tLZTeamData[M28Map.reftClosestEnemyBase]='..repru(tLZTeamData[M28Map.reftClosestEnemyBase])..'; iCurDist='..iCurDist..'; Time='..GetGameTimeSeconds()..'; If in QUIET will increase curdist for UEF as their bombers are bad') end
-                            --UEF T1 bombers arent good at 1-shotting enemy engineers in QUIET
-                            if M28Utilities.bQuietModActive and oBrain:GetFactionIndex() == M28UnitInfo.refFactionUEF then iCurDist = iCurDist + 100 end
                             if iCurDist < iClosestEnemy then
                                 iClosestEnemy = iCurDist
                                 oM28BrainWithClosestEnemy = oBrain
@@ -5631,7 +5629,7 @@ function ConsiderSpecialStrategyAssignment(iTeam)
         if M28Utilities.bLoudModActive then
             iThreshold = 4
         elseif M28Map.iMapSize <= 1024 and iPlayersAtGameStart >= 5 then
-            if not(M28Utilities.bQuietModActive) and tTeamData[iTeam][refbAssassinationOrSimilar] then
+            if tTeamData[iTeam][refbAssassinationOrSimilar] then
                 iThreshold = 18
             else
                 iThreshold = 9
