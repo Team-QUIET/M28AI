@@ -2252,7 +2252,7 @@ function ConsiderAirAAHoverAttackTowardsTarget(oUnit, oWeapon)
     if M28UnitInfo.IsUnitValid(oTarget) and oTarget:GetFractionComplete() == 1 and not(oUnit[M28UnitInfo.refbSpecialMicroActive]) then
         --LOUD - check unit isn't on ground
         local bProceedWithMicro = true
-        if (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and not(oTarget:IsUnitState('Moving')) and not(oTarget:IsUnitState('Attacking')) then
+        if M28Utilities.bLoudModActive and not(oTarget:IsUnitState('Moving')) and not(oTarget:IsUnitState('Attacking')) then
             local tTargetPosition = oTarget:GetPosition()
             if tTargetPosition[2] - GetSurfaceHeight(tTargetPosition[1], tTargetPosition[3]) < 1 then
                 bProceedWithMicro = false
@@ -2392,7 +2392,7 @@ function ConsiderAirAAHoverAttackTowardsTarget(oUnit, oWeapon)
                             M28Orders.IssueTrackedMove(oUnit, tMoveViaPoint, iReorderDist, false, 'AAHvM', true)
                         elseif bManualAttack then
                             --LOUD - abort as cant actually target air units on the ground
-                            if M28Utilities.bLoudModActive or M28Utilities.bQuietModActive then break end
+                            if M28Utilities.bLoudModActive then break end
                             M28Orders.IssueTrackedAttack(oUnit, oTarget, false, 'AMAHvM', true)
                         else
                             M28Utilities.ErrorHandler('Made mistake have nil move via point')

@@ -576,8 +576,7 @@ function RecordGroundThreatForWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWat
                 iMaxShieldRating = iMaxShieldRating + 0.5 * math.min(5000, tWZTeamData[M28Map.subrefThreatEnemyShield]) --shields are really good in LOUD
             end
             local iShieldMaxFactor = 1
-            if M28Utilities.bQuietModActive then iShieldMaxFactor = 1.75 --mobile shields likely to have better recharge rates than FAF, and wouldn't expect shield structures in water
-            elseif M28Utilities.bLoudModActive then iShieldMaxFactor = 4
+            if M28Utilities.bLoudModActive then iShieldMaxFactor = 4
             end
             if not(iMaxShieldRating) then
                 M28Utilities.ErrorHandler('Dont have a max shield rating for Pond '..iPond..'WZ'..iWaterZone..'; tWZTeamData[M28Map.subrefThreatEnemyShield]='..(tWZTeamData[M28Map.subrefThreatEnemyShield] or 'nil')..'; will use gross WZ value')
@@ -4037,7 +4036,7 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
             local tCombatUnitsNeedingAOEForSubs
             local bConsiderUsingAOE = false
 
-            if not(M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and oNearestEnemyNonHoverToFriendlyBase and (EntityCategoryContains(categories.SUBMERSIBLE, oNearestEnemyNonHoverToFriendlyBase.UnitId) or oNearestEnemyNonHoverToFriendlyBase.UnitId == 'xrb2308' or (M28Map.IsUnderwater({oNearestEnemyNonHoverToFriendlyBase:GetPosition()[1], oNearestEnemyNonHoverToFriendlyBase:GetPosition()[2] + (oNearestEnemyNonHoverToFriendlyBase:GetBlueprint().SizeY or 0) + 1.3, oNearestEnemyNonHoverToFriendlyBase:GetPosition()[3]}, false)) and not(M28Map.IsUnderwater({oNearestEnemyNonHoverToFriendlyBase:GetPosition()[1], oNearestEnemyNonHoverToFriendlyBase:GetPosition()[2] + 1.2 + (oNearestEnemyNonHoverToFriendlyBase:GetBlueprint().SizeY or 0) + 1.3, oNearestEnemyNonHoverToFriendlyBase:GetPosition()[3]}, false))) then
+            if not(M28Utilities.bLoudModActive) and oNearestEnemyNonHoverToFriendlyBase and (EntityCategoryContains(categories.SUBMERSIBLE, oNearestEnemyNonHoverToFriendlyBase.UnitId) or oNearestEnemyNonHoverToFriendlyBase.UnitId == 'xrb2308' or (M28Map.IsUnderwater({oNearestEnemyNonHoverToFriendlyBase:GetPosition()[1], oNearestEnemyNonHoverToFriendlyBase:GetPosition()[2] + (oNearestEnemyNonHoverToFriendlyBase:GetBlueprint().SizeY or 0) + 1.3, oNearestEnemyNonHoverToFriendlyBase:GetPosition()[3]}, false)) and not(M28Map.IsUnderwater({oNearestEnemyNonHoverToFriendlyBase:GetPosition()[1], oNearestEnemyNonHoverToFriendlyBase:GetPosition()[2] + 1.2 + (oNearestEnemyNonHoverToFriendlyBase:GetBlueprint().SizeY or 0) + 1.3, oNearestEnemyNonHoverToFriendlyBase:GetPosition()[3]}, false))) then
                 --Check we have a non-M28Easy on the team
                 for iBrain, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains] do
                     if not(oBrain.M28Easy) then
@@ -4763,7 +4762,7 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
                                         table.insert(tSRUnits, oUnit)
                                     end
                                 end
-                            elseif not(M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and EntityCategoryContains(M28UnitInfo.refCategoryStructure, oNearestEnemySurfaceToFriendlyBase.UnitId) then
+                            elseif not(M28Utilities.bLoudModActive) and EntityCategoryContains(M28UnitInfo.refCategoryStructure, oNearestEnemySurfaceToFriendlyBase.UnitId) then
                                 bUseAOEAttacks = true
                                 if bDebugMessages == true then LOG(sFunctionRef..': The nearest enemy unit has equal range to our best range unit but is a structure, so we will attack it and try to ground fire if possible') end
                                 for iUnit, oUnit in tCombatUnitsOfUse do

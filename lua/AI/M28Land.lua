@@ -598,8 +598,8 @@ function RecordGroundThreatForLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iL
                 iMaxShieldRating = iMaxShieldRating + 0.5 * math.min(5000, tLZTeamData[M28Map.subrefThreatEnemyShield]) --shields are really good in LOUD
             end
             local iShieldMaxFactor = 1
-            if M28Utilities.bQuietModActive then iShieldMaxFactor = 1.25 --Az: Static shields nerfed to FAF values in QUIET; mobile shields not; since shield threat includes both will do 1.25 as a rough approximation/allowance for there potentially being mobile shields that are good for their mass cost
-            elseif M28Utilities.bLoudModActive then iShieldMaxFactor = 4
+            if M28Utilities.bLoudModActive then 
+                iShieldMaxFactor = 4
             end
             if not(iMaxShieldRating) then
                 M28Utilities.ErrorHandler('Dont have a max shield rating for P'..iPlateau..'LZ'..iLandZone..'; tLZTeamData[M28Map.subrefThreatEnemyShield]='..(tLZTeamData[M28Map.subrefThreatEnemyShield] or 'nil')..'; will use gross LZ value')
@@ -6900,7 +6900,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                     end
                                                     if bDebugMessages == true then LOG(sFunctionRef..': iDistToClosestEnemy='..iDistToClosestEnemy..'; oClosestEnemy='..oClosestEnemy.UnitId..M28UnitInfo.GetUnitLifetimeCount(oClosestEnemy)) end
                                                     --QUIET/LOUD - special logic where attack-move towards enemy instead of kiting if it isnt too close (due to fatboy being inaccurate when firing)
-                                                    if (M28Utilities.bQuietModActive or M28Utilities.bLoudModActive) and iDistToClosestEnemy >= oUnit[M28UnitInfo.refiCombatRange] - 25 and (M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoNearestDFEnemies]) or M28Conditions.CloseToEnemyUnit(oUnit:GetPosition(), tLZTeamData[M28Map.reftoNearestDFEnemies], oUnit[M28UnitInfo.refiCombatRange] - 7, iTeam, false, nil, nil, oUnit, nil, false)) then
+                                                    if (M28Utilities.bLoudModActive) and iDistToClosestEnemy >= oUnit[M28UnitInfo.refiCombatRange] - 25 and (M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoNearestDFEnemies]) or M28Conditions.CloseToEnemyUnit(oUnit:GetPosition(), tLZTeamData[M28Map.reftoNearestDFEnemies], oUnit[M28UnitInfo.refiCombatRange] - 7, iTeam, false, nil, nil, oUnit, nil, false)) then
                                                         if bDebugMessages == true then LOG(sFunctionRef..': QUIET/LOUD exception - attackmove as enemy in range but not too close') end
                                                         M28Orders.IssueTrackedAttackMove(oUnit, oClosestEnemy:GetPosition(), 3, false, 'FatbKtQT',false)
                                                     else
@@ -7253,8 +7253,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                                             if bDebugMessages == true then LOG(sFunctionRef..': Will give an attack move order due to how close we are') end
                                                                             M28Orders.IssueTrackedAggressiveMove(oUnit, oNearestEnemyToConsider[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'KMvAe'..iLandZone, false)
                                                                             --Further exception for QUIET/LOUD with a fatboy
-                                                                        elseif oUnit[M28UnitInfo.refiDFRange] >= 90 and iVisibleLandCombatMassInFatboyRange >= 1500 and (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and not(oUnit[M28UnitInfo.refbLastShotBlocked]) and EntityCategoryContains(M28UnitInfo.refCategoryFatboy, oUnit.UnitId) then
-                                                                            if bDebugMessages == true then LOG(sFunctionRef..': QUIET and LOUD fatboy attackmove eception due to firing issues') end
+                                                                        elseif oUnit[M28UnitInfo.refiDFRange] >= 90 and iVisibleLandCombatMassInFatboyRange >= 1500 and M28Utilities.bLoudModActive and not(oUnit[M28UnitInfo.refbLastShotBlocked]) and EntityCategoryContains(M28UnitInfo.refCategoryFatboy, oUnit.UnitId) then
+                                                                            if bDebugMessages == true then LOG(sFunctionRef..': LOUD fatboy attackmove eception due to firing issues') end
                                                                             M28Orders.IssueTrackedAggressiveMove(oUnit, oNearestEnemyToConsider[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'FBKMvAe'..iLandZone, false)
                                                                             --If enemy has no combat attack or is very close then attackmove to avoid friendly fire
                                                                         elseif(((oNearestEnemyToConsider[M28UnitInfo.refiCombatRange] or 0) == 0 and iDistToNearestEnemy <= oUnit[M28UnitInfo.refiCombatRange] - 4) or (iDistToNearestEnemy <= 12 and (oUnit[M28UnitInfo.refiCombatRange] >= 15 or iDistToNearestEnemy <= oUnit[M28UnitInfo.refiCombatRange] - 5))) then
