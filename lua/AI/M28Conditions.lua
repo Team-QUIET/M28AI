@@ -2220,7 +2220,7 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
                                         else
                                             iAirFactoriesForEveryLandFactory = math.min(iAirFactoriesForEveryLandFactory, 2)
                                         end
-                                        if M28Utilities.bQuietModActive then
+                                        --[[if M28Utilities.bQuietModActive then
                                             --If we have seraphim on team will want more air to support bombers
                                             local bHaveSeraphimOnTeam = false
                                             for iBrain, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains] do
@@ -2230,7 +2230,7 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
                                                 end
                                             end
                                             if bHaveSeraphimOnTeam then iAirFactoriesForEveryLandFactory = iAirFactoriesForEveryLandFactory * 2 end
-                                        end
+                                        end ]]--
                                         if not(M28Team.tTeamData[iTeam][M28Team.refbHaveAirControl]) and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 12000 then
                                             iAirFactoriesForEveryLandFactory = iAirFactoriesForEveryLandFactory * 1.5
                                             --[[local iNearbyEnemyGroundAAThreat = 0
