@@ -2230,7 +2230,7 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
                                                 end
                                             end
                                             if bHaveSeraphimOnTeam then iAirFactoriesForEveryLandFactory = iAirFactoriesForEveryLandFactory * 2 end
-                                        end ]]--
+                                        end ]]
                                         if not(M28Team.tTeamData[iTeam][M28Team.refbHaveAirControl]) and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 12000 then
                                             iAirFactoriesForEveryLandFactory = iAirFactoriesForEveryLandFactory * 1.5
                                             --[[local iNearbyEnemyGroundAAThreat = 0
