@@ -3364,7 +3364,7 @@ function GetT3ArtiTarget(oArti, bCalledFromSalvoSize)
             else
                 iMinShieldFactor = 0.1
                 if M28Utilities.bQuietModActive then
-                    iShieldFactor = 5
+                    iShieldFactor = 4
                 else
                     iShieldFactor = 8
                 end
