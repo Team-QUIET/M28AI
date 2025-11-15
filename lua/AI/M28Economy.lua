@@ -3153,7 +3153,23 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
                     iTimeToWait = iTimeToWait - 20
                 end
             end
-        elseif bT3MexCanBeUpgraded and (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and iMexTechLevel == 3 then
+        elseif bT3MexCanBeUpgraded and M28Utilities.bQuietModActive and iMexTechLevel == 3 then
+            -- T3.5 Mass Extractor cost significant mass (1k more then t3 so needs to be treated as if upgrading to t3 again)
+            if aiBrain[refiGrossMassBaseIncome] < 10 and (not(M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) or iMexesOnMap > 20 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) then
+                iTimeToWait = 8 * 60 + 4 * 60 * (10-aiBrain[refiGrossMassBaseIncome]) / 10
+            elseif aiBrain[refiGrossMassBaseIncome] < 5 and iMexesOnMap <= 60 and M28UnitInfo.GetUnitLifetimeCount(oMex) <= 3 then --Prioritise first few t3 mex upgrades
+                iTimeToWait = 2 * 60 + 4 * 60 * (10-aiBrain[refiGrossMassBaseIncome]) / 10
+            else
+                iTimeToWait = 8 * 60
+            end
+            if M28Utilities.bLoudModActive or M28Utilities.bQuietModActive then
+                if iMexesOnMap > 20 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] then
+                    iTimeToWait = iTimeToWait - 40
+                else
+                    iTimeToWait = iTimeToWait - 20
+                end
+            end
+        elseif bT3MexCanBeUpgraded and M28Utilities.bLoudModActive and iMexTechLevel == 3 then
             iTimeToWait = 0
         else --redundancy
             local tLZData = M28Map.GetLandOrWaterZoneData(oMex:GetPosition())
