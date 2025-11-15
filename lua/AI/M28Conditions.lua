@@ -1434,7 +1434,7 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
         end
     elseif M28Map.iMapSize >= 1000 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] < 3 and tLZTeamData[M28Map.subrefMexCountByTech][3] == 0 and tLZTeamData[M28Map.refiModDistancePercent] <= 0.2 then
         for iTech, iValue in tiGrossMassWantedPerFactoryByTech do
-            if not(M28Utilities.bQuietModActive) or M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.02) or aiBrain[M28Overseer.refbPrioritiseNavy] or aiBrain[M28Overseer.refbPrioritiseHighTech] then
+            if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.02) or aiBrain[M28Overseer.refbPrioritiseNavy] or aiBrain[M28Overseer.refbPrioritiseHighTech] then
                 tiGrossMassWantedPerFactoryByTech[iTech] = iValue * 2
             else
                 tiGrossMassWantedPerFactoryByTech[iTech] = iValue * 1.5
@@ -1450,7 +1450,7 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
             if tBaseLZTeamData and tBaseLZData[M28Map.subrefLZOrWZMexCount] >= 6 and tBaseLZData[M28Map.subrefLZOrWZMexCount] > M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauTotalMexCount] * (0.3 / M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) and tBaseLZTeamData[M28Map.subrefMexCountByTech][3] < 2 then
                 if bDebugMessages == true then LOG(sFunctionRef..': Will reduce the number of factories wanted') end
                 for iTech, iValue in tiGrossMassWantedPerFactoryByTech do
-                    if not(M28Utilities.bQuietModActive) or M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.02) or aiBrain[M28Overseer.refbPrioritiseNavy] or aiBrain[M28Overseer.refbPrioritiseHighTech] then
+                    if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.02) or aiBrain[M28Overseer.refbPrioritiseNavy] or aiBrain[M28Overseer.refbPrioritiseHighTech] then
                         tiGrossMassWantedPerFactoryByTech[iTech] = iValue * 2
                     else
                         tiGrossMassWantedPerFactoryByTech[iTech] = iValue * 1.5
@@ -1575,7 +1575,7 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
                 --Dont want more factories unless we want an air fac, have T3 air, and arent mass stalling, and are building air units
                 if bDebugMessages == true then LOG(sFunctionRef..': Have high average number of factories so dont want more') end
                 --Stalling E and have factory in zone - dont want more factories early game
-            elseif M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and iAverageCurAirAndLandFactories >= 1 and (iAverageCurAirAndLandFactories >= 2 or not(tLZTeamData[M28Map.subrefLZbCoreBase])) and (not(M28Utilities.bQuietModActive) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] < 0.3) then
+            elseif M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and iAverageCurAirAndLandFactories >= 1 and (iAverageCurAirAndLandFactories >= 2 or not(tLZTeamData[M28Map.subrefLZbCoreBase])) then
                 if bDebugMessages == true then LOG(sFunctionRef..': Stalling E so dont want more factories at the moment as already have at least one') end
             else
                 --If core base then make sure we have an air fac
@@ -1652,7 +1652,7 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
                             bWantMoreFactories = true
                             if bDebugMessages == true then LOG(sFunctionRef..': Small map and we dont have all the factories we want for gross mass so want more') end
 
-                        elseif iAverageCurAirAndLandFactories >= 2 and not(bIgnoreMainEcoConditions) and iCurIsland == iEnemyIsland and ((M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeAir] or 0) > 0 and HaveLowPower(iTeam)) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.6 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.5 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] < 1) and (not(M28Utilities.bQuietModActive) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.2 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] <= -10) then
+                        elseif iAverageCurAirAndLandFactories >= 2 and not(bIgnoreMainEcoConditions) and iCurIsland == iEnemyIsland and ((M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeAir] or 0) > 0 and HaveLowPower(iTeam)) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.6 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.5 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] < 1) then
                             --Dont want more factories
                             if bDebugMessages == true then LOG(sFunctionRef..': Have low power so dont want more factories') end
 
