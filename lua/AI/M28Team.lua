@@ -5547,9 +5547,9 @@ function ConsiderSpecialStrategyAssignment(iTeam)
         end
         if bDebugMessages == true then LOG(sFunctionRef..': iBomberChance='..iBomberChance..'; ScenarioInfo.Options.Score='..ScenarioInfo.Options.Score) end
         if iBomberChance * 100 >= math.random(1, 100) then
-            --Consider early bomber strategy for brain with closest enemy (unless in LOUD since bombers suck in LOUD)
+            --Consider early bomber strategy for brain with closest enemy (unless in LOUD since bombers suck in LOUD or QUIET because you stall doing Bomber build order even with 1.1 AIx)
             if bDebugMessages == true then LOG(sFunctionRef..': Considering if want to go first bomber, M28Utilities.bQuietModActive='..tostring(M28Utilities.bQuietModActive or false)..'; Time='..GetGameTimeSeconds()) end
-            if not(M28Utilities.bLoudModActive) then
+            if not(M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) then
                 local iClosestEnemy = 700 --Dont want to consider if enemy is further away than this; e.g. burial mounds in LOUD players were 792 apart, and is probably at a borderline distnce for if want to
                 local oM28BrainWithClosestEnemy, iCurDist, iCurPlateau, iCurZone
                 local tFirstClosestEnemyBase
