@@ -3393,6 +3393,9 @@ function CloakUnit(oUnit, bDontClearExistingOrders, bUpdateTracking)
         if not(bDontClearExistingOrders) then import('/mods/M28AI/lua/AI/M28Orders.lua').IssueTrackedClearCommands(oUnit) end
         if M28Utilities.bFAFActive and oUnit.HideUnit then
             oUnit:HideUnit()
+        elseif M28Utilities.bLoudModActive or M28Utilities.bQuietModActive then
+            -- For LOUD/QUIET, use SetScriptBit to enable cloaking
+            EnableUnitStealth(oUnit)
         elseif oUnit.InvisState then
             oUnit:InvisState()
         else
