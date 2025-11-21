@@ -10339,31 +10339,61 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 iDFLZToSupport = ReviseTargetLZIfFarAway(tLZData, iTeam, iPlateau, iLandZone, iDFLZToSupport, 2)
                 if bDebugMessages == true then LOG(sFunctionRef..': iDFLZToSupport after revising target for far away LZ='..iDFLZToSupport..'; Midpoint of this zone='..repru(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport][M28Map.subrefMidpoint])) end
 
+                --Check if we should commit staged reinforcements or continue staging
+                local iTargetZoneEnemyThreat = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport][M28Map.subrefLZTeamData][iTeam][M28Map.subrefTThreatEnemyCombatTotal] or 0
+                local bShouldCommitReinforcements = M28Team.ShouldCommitStagedReinforcements(iTeam, iPlateau, iDFLZToSupport, iTargetZoneEnemyThreat)
+
+                if bDebugMessages == true then LOG(sFunctionRef..': Should commit reinforcements='..tostring(bShouldCommitReinforcements)..'; Target zone enemy threat='..iTargetZoneEnemyThreat) end
+
+                --If committing, clear the staging table so units aren't tracked as staged anymore
+                if bShouldCommitReinforcements then
+                    M28Team.ClearStagedReinforcements(iTeam, iPlateau, iDFLZToSupport)
+                end
+
                 for iUnit, oUnit in tDFUnits do
                     --Remove assignment value if the unit isnt part of this zone
                     if not(oUnit[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2] == iLandZone) then
                         oUnit[refiCurrentAssignmentValue] = 0
                     else
-                        --Attack-move if very long range (unless negligible nearby enemy threat)
-                        if (oUnit[M28UnitInfo.refiDFRange] >= 60 and (not(oUnit[M28UnitInfo.refbLastShotBlocked]) or oUnit[M28UnitInfo.refiDFRange] >= 130)) or (oUnit[M28UnitInfo.refiDFMinRange] or 0) >= 20 then
-                            --jericho - workaround for attackmove not working
-                            if not(oUnit.UnitId == 'xnl0403') or DontHaveJerichoAttackTarget(oUnit) then
-                                if bDebugMessages == true then LOG(sFunctionRef..': Will send unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' towards iDFLZToSupport='..iDFLZToSupport..' (unless ignoring due to being stuck)') end
-                                if GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastWeaponEvent] or 0) <= 10 and M28Conditions.HaveSignificantEnemyThreatWithinRange(tLZData, tLZTeamData, iPlateau, iTeam, oUnit[M28UnitInfo.refiDFRange] + 3, oUnit:GetPosition(), 1500, M28UnitInfo.refCategoryLandCombat * categories.TECH3 + M28UnitInfo.refCategoryLandExperimental + M28UnitInfo.refCategoryT2PlusPD + M28UnitInfo.refCategoryFixedT2Arti + M28UnitInfo.refCategoryNavalSurface - categories.TECH1 + categories.COMMAND, tUnitsNearFatboyInFurtherAwayZones) then
-                                    if not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                                        M28Orders.IssueTrackedAggressiveMove(oUnit, M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport][M28Map.subrefMidpoint], 6, false, 'DFAMvLZ'..iDFLZToSupport..';'..iLandZone)
+                        --Decide whether to stage or commit this unit
+                        if bShouldCommitReinforcements then
+                            --Commit staged reinforcements to combat
+                            if bDebugMessages == true then LOG(sFunctionRef..': Committing unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' to combat at LZ '..iDFLZToSupport) end
+                            --Attack-move if very long range (unless negligible nearby enemy threat)
+                            if (oUnit[M28UnitInfo.refiDFRange] >= 60 and (not(oUnit[M28UnitInfo.refbLastShotBlocked]) or oUnit[M28UnitInfo.refiDFRange] >= 130)) or (oUnit[M28UnitInfo.refiDFMinRange] or 0) >= 20 then
+                                --jericho - workaround for attackmove not working
+                                if not(oUnit.UnitId == 'xnl0403') or DontHaveJerichoAttackTarget(oUnit) then
+                                    if GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastWeaponEvent] or 0) <= 10 and M28Conditions.HaveSignificantEnemyThreatWithinRange(tLZData, tLZTeamData, iPlateau, iTeam, oUnit[M28UnitInfo.refiDFRange] + 3, oUnit:GetPosition(), 1500, M28UnitInfo.refCategoryLandCombat * categories.TECH3 + M28UnitInfo.refCategoryLandExperimental + M28UnitInfo.refCategoryT2PlusPD + M28UnitInfo.refCategoryFixedT2Arti + M28UnitInfo.refCategoryNavalSurface - categories.TECH1 + categories.COMMAND, tUnitsNearFatboyInFurtherAwayZones) then
+                                        if not(IgnoreOrderDueToStuckUnit(oUnit)) then
+                                            M28Orders.IssueTrackedAggressiveMove(oUnit, M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport][M28Map.subrefMidpoint], 6, false, 'DFAMvLZ'..iDFLZToSupport..';'..iLandZone)
+                                        end
+                                    else
+                                        --Negligible enemy threat so just move
+                                        if not(IgnoreOrderDueToStuckUnit(oUnit)) then
+                                            M28Orders.IssueTrackedMove(oUnit, M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport][M28Map.subrefMidpoint], 6, false, 'DFXMvLZ'..iDFLZToSupport..';'..iLandZone)
+                                        end
                                     end
-                                else
-                                    --Negligible enemy threat so just move
-                                    if not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                                        M28Orders.IssueTrackedMove(oUnit, M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport][M28Map.subrefMidpoint], 6, false, 'DFXMvLZ'..iDFLZToSupport..';'..iLandZone)
-                                    end
+                                end
+                            else
+                                if not(IgnoreOrderDueToStuckUnit(oUnit)) then
+                                    M28Orders.IssueTrackedMove(oUnit, M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport][M28Map.subrefMidpoint], 6, false, 'DFMovLZ'..iDFLZToSupport..';'..iLandZone)
                                 end
                             end
                         else
-                            if not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                                if bDebugMessages == true then LOG('About to issue tracked moved to unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Special micro active='..tostring(oUnit[M28UnitInfo.refbSpecialMicroActive])) end
-                                M28Orders.IssueTrackedMove(oUnit, M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport][M28Map.subrefMidpoint], 6, false, 'DFMovLZ'..iDFLZToSupport..';'..iLandZone)
+                            --Stage unit at rally point
+                            local tRallyPoint = GetNearestLandRallyPoint(tLZData, iTeam, iPlateau, iLandZone, 2)
+                            if tRallyPoint then
+                                if bDebugMessages == true then LOG(sFunctionRef..': Staging unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' at rally point for LZ '..iDFLZToSupport) end
+                                if not(IgnoreOrderDueToStuckUnit(oUnit)) then
+                                    M28Orders.IssueTrackedMove(oUnit, tRallyPoint, 6, false, 'DFStgLZ'..iDFLZToSupport..';'..iLandZone)
+                                    M28Team.AddUnitToStagedReinforcements(iTeam, iPlateau, iDFLZToSupport, oUnit)
+                                end
+                            else
+                                --No rally point available, send directly
+                                if bDebugMessages == true then LOG(sFunctionRef..': No rally point available, sending unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' directly to LZ '..iDFLZToSupport) end
+                                if not(IgnoreOrderDueToStuckUnit(oUnit)) then
+                                    M28Orders.IssueTrackedMove(oUnit, M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport][M28Map.subrefMidpoint], 6, false, 'DFMovLZ'..iDFLZToSupport..';'..iLandZone)
+                                end
                             end
                         end
                     end
@@ -10406,6 +10436,15 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     end
                     if bDebugMessages == true then LOG(sFunctionRef..': oLRUnitToAttackInstead after check='..(oLRUnitToAttackInstead.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oLRUnitToAttackInstead) or 'nil')) end
                 end
+                --Check if we should commit staged reinforcements for indirect fire units
+                local iTargetZoneEnemyThreat = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iIndirectLZToSupport][M28Map.subrefLZTeamData][iTeam][M28Map.subrefTThreatEnemyCombatTotal] or 0
+                local bShouldCommitIndirectReinforcements = M28Team.ShouldCommitStagedReinforcements(iTeam, iPlateau, iIndirectLZToSupport, iTargetZoneEnemyThreat)
+
+                --If committing, clear the staging table
+                if bShouldCommitIndirectReinforcements then
+                    M28Team.ClearStagedReinforcements(iTeam, iPlateau, iIndirectLZToSupport)
+                end
+
                 for iUnit, oUnit in tIndirectUnits do
                     if not(oUnit[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2] == iLandZone) then
                         if bDebugMessages == true then LOG(sFunctionRef..': Unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' is in a different zone to this so will set its asisgnment value to 0 so it can be assigned by that zone') end
@@ -10413,11 +10452,27 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     else
                         if bDebugMessages == true then LOG(sFunctionRef..': Do we want to ignore orders due to having a stuck unit? oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Ignore due to stuck unit='..tostring(IgnoreOrderDueToStuckUnit(oUnit) or false)) end
                         if not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                            if bConsiderAttackMoveForNearbyUnits then UpdateLongRangeUnitToAttackInstead(oUnit) end
-                            if oLRUnitToAttackInstead then
-                                M28Orders.IssueTrackedAggressiveMove(oUnit, oLRUnitToAttackInstead:GetPosition(), 6, false, 'IFMvAtLR'..iLandZone)
+                            if bShouldCommitIndirectReinforcements then
+                                --Commit indirect fire reinforcements
+                                if bDebugMessages == true then LOG(sFunctionRef..': Committing indirect unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' to combat at LZ '..iIndirectLZToSupport) end
+                                if bConsiderAttackMoveForNearbyUnits then UpdateLongRangeUnitToAttackInstead(oUnit) end
+                                if oLRUnitToAttackInstead then
+                                    M28Orders.IssueTrackedAggressiveMove(oUnit, oLRUnitToAttackInstead:GetPosition(), 6, false, 'IFMvAtLR'..iLandZone)
+                                else
+                                    M28Orders.IssueTrackedMove(oUnit, M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iIndirectLZToSupport][M28Map.subrefMidpoint], 6, false, 'IFMovLZ'..iIndirectLZToSupport..';'..iLandZone)
+                                end
                             else
-                                M28Orders.IssueTrackedMove(oUnit, M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iIndirectLZToSupport][M28Map.subrefMidpoint], 6, false, 'IFMovLZ'..iIndirectLZToSupport..';'..iLandZone)
+                                --Stage indirect fire unit at rally point
+                                local tRallyPoint = GetNearestLandRallyPoint(tLZData, iTeam, iPlateau, iLandZone, 2)
+                                if tRallyPoint then
+                                    if bDebugMessages == true then LOG(sFunctionRef..': Staging indirect unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' at rally point for LZ '..iIndirectLZToSupport) end
+                                    M28Orders.IssueTrackedMove(oUnit, tRallyPoint, 6, false, 'IFStgLZ'..iIndirectLZToSupport..';'..iLandZone)
+                                    M28Team.AddUnitToStagedReinforcements(iTeam, iPlateau, iIndirectLZToSupport, oUnit)
+                                else
+                                    --No rally point available, send directly
+                                    if bDebugMessages == true then LOG(sFunctionRef..': No rally point for indirect unit, sending directly to LZ '..iIndirectLZToSupport) end
+                                    M28Orders.IssueTrackedMove(oUnit, M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iIndirectLZToSupport][M28Map.subrefMidpoint], 6, false, 'IFMovLZ'..iIndirectLZToSupport..';'..iLandZone)
+                                end
                             end
                         end
                     end

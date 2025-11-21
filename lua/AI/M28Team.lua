@@ -183,6 +183,11 @@ tTeamData = {} --[x] is the aiBrain.M28Team number - stores certain team-wide in
     subrefiLandZonesWantingMAAByPlateau = 'M28TeamLZWantingMAA' --[x] is the plateau ,ref, [y] is the land zone ref, returns true if we want MAA support for the plateau
     subrefiWaterZonesWantingSignificantMAAByPlateau = 'M28TeamWZWantingMAA' --[x] is the PLATEAU ref, [y] is the wawter zone ref, returns true if want significant MAA support for the plateau
     subrefiRallyPointLandZonesByPlateau = 'M28TeamLZRallyPoint' --[x] is the plateau ref, then returns a table orderd 1, 2... of land zones that are rally points
+    --Reinforcement staging system
+    subreftStagedReinforcementsByPlateauAndZone = 'M28TeamStagedReinf' --[iPlateau][iLandZone] returns table of units staged at rally point waiting to reinforce
+    subrefiStagedReinforcementThreatByPlateauAndZone = 'M28TeamStagedReinfThreat' --[iPlateau][iLandZone] returns total mass cost of staged reinforcements
+    subrefiTimeReinforcementStagingStartedByPlateauAndZone = 'M28TeamReinfStageTime' --[iPlateau][iLandZone] returns gametimeseconds when first unit started staging
+    subrefiMinReinforcementThreatByPlateauAndZone = 'M28TeamMinReinfThreat' --[iPlateau][iLandZone] returns minimum threat threshold before committing reinforcements
     refiLastTimeNoShieldTargetsByIsland = 'M28TeamLastTimeNoShieldTargets' --[x] is the island ref (i.e. navutils.getlabel(M28Map.refPathingTypeLand...), returns gametime seconds
     refiLastTimeNoShieldBoatTargetsByPond = 'M28TeamLastTimeNoShieldBoatTargets' --[x] is the pond ref, returns gametimeseconds
     refiLastTimeNoStealthTargetsByPlateau = 'M28TeamLastTimeNoStealthTargets' --[x] is the plateau ref, returns gametime seconds
@@ -5777,6 +5782,227 @@ function MonitorEnemyTeleportUpgrade(oACU, iTeam, sEnhancement)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
         if bDebugMessages == true then LOG(sFunctionRef..': End of loop at time='..GetGameTimeSeconds()..'; Is ACU valid='..tostring(M28UnitInfo.IsUnitValid(oACU))..'; oM28Brain.IsDefeated='..tostring(oM28Brain.IsDefeated or false)..'; Enemy has teleport='..tostring(tTeamData[iTeam][refbEnemyHasTeleport] or false)..'; ACU unit state='..M28UnitInfo.GetUnitState(oACU)) end
     end
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+end
+
+function AddUnitToStagedReinforcements(iTeam, iPlateau, iLandZone, oUnit)
+    --Add a unit to the staged reinforcements table for a specific land zone
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'AddUnitToStagedReinforcements'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Adding unit '..oUnit.UnitId..' to staged reinforcements for plateau '..iPlateau..' LZ '..iLandZone) end
+
+    --Initialize tables if needed
+    if not(tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone]) then tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone] = {} end
+    if not(tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone][iPlateau]) then tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone][iPlateau] = {} end
+    if not(tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone][iPlateau][iLandZone]) then tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone][iPlateau][iLandZone] = {} end
+
+    if not(tTeamData[iTeam][subrefiStagedReinforcementThreatByPlateauAndZone]) then tTeamData[iTeam][subrefiStagedReinforcementThreatByPlateauAndZone] = {} end
+    if not(tTeamData[iTeam][subrefiStagedReinforcementThreatByPlateauAndZone][iPlateau]) then tTeamData[iTeam][subrefiStagedReinforcementThreatByPlateauAndZone][iPlateau] = {} end
+    if not(tTeamData[iTeam][subrefiStagedReinforcementThreatByPlateauAndZone][iPlateau][iLandZone]) then tTeamData[iTeam][subrefiStagedReinforcementThreatByPlateauAndZone][iPlateau][iLandZone] = 0 end
+
+    if not(tTeamData[iTeam][subrefiTimeReinforcementStagingStartedByPlateauAndZone]) then tTeamData[iTeam][subrefiTimeReinforcementStagingStartedByPlateauAndZone] = {} end
+    if not(tTeamData[iTeam][subrefiTimeReinforcementStagingStartedByPlateauAndZone][iPlateau]) then tTeamData[iTeam][subrefiTimeReinforcementStagingStartedByPlateauAndZone][iPlateau] = {} end
+
+    --Add unit to table
+    table.insert(tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone][iPlateau][iLandZone], oUnit)
+
+    --Update threat value
+    local iUnitMass = M28UnitInfo.GetUnitMassCost(oUnit)
+    tTeamData[iTeam][subrefiStagedReinforcementThreatByPlateauAndZone][iPlateau][iLandZone] = tTeamData[iTeam][subrefiStagedReinforcementThreatByPlateauAndZone][iPlateau][iLandZone] + iUnitMass
+
+    --Record start time if this is the first unit
+    if not(tTeamData[iTeam][subrefiTimeReinforcementStagingStartedByPlateauAndZone][iPlateau][iLandZone]) then
+        tTeamData[iTeam][subrefiTimeReinforcementStagingStartedByPlateauAndZone][iPlateau][iLandZone] = GetGameTimeSeconds()
+        if bDebugMessages == true then LOG(sFunctionRef..': Started staging timer at '..GetGameTimeSeconds()) end
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+end
+
+function RemoveUnitFromStagedReinforcements(iTeam, iPlateau, iLandZone, oUnit)
+    --Remove a unit from the staged reinforcements table
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'RemoveUnitFromStagedReinforcements'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    if tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone] and
+       tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone][iPlateau] and
+       tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone][iPlateau][iLandZone] then
+
+        for iEntry, oStagedUnit in tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone][iPlateau][iLandZone] do
+            if oStagedUnit == oUnit then
+                table.remove(tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone][iPlateau][iLandZone], iEntry)
+
+                --Update threat value
+                local iUnitMass = M28UnitInfo.GetUnitMassCost(oUnit)
+                tTeamData[iTeam][subrefiStagedReinforcementThreatByPlateauAndZone][iPlateau][iLandZone] =
+                    math.max(0, tTeamData[iTeam][subrefiStagedReinforcementThreatByPlateauAndZone][iPlateau][iLandZone] - iUnitMass)
+
+                if bDebugMessages == true then LOG(sFunctionRef..': Removed unit '..oUnit.UnitId..' from staged reinforcements') end
+                break
+            end
+        end
+
+        --Clear staging timer if no units left
+        if M28Utilities.IsTableEmpty(tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone][iPlateau][iLandZone]) then
+            tTeamData[iTeam][subrefiTimeReinforcementStagingStartedByPlateauAndZone][iPlateau][iLandZone] = nil
+            if bDebugMessages == true then LOG(sFunctionRef..': Cleared staging timer - no units left') end
+        end
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+end
+
+function GetMinimumReinforcementThreshold(iTeam, iPlateau, iLandZone, iEnemyThreat)
+    --Calculate minimum reinforcement threshold dynamically based on enemy threat and tech level
+    --Uses a fully dynamic, threat-proportional approach rather than fixed base thresholds
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'GetMinimumReinforcementThreshold'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    --Determine tech level based on highest friendly factory tech
+    local iHighestTech = tTeamData[iTeam][subrefiHighestFriendlyLandFactoryTech] or 1
+
+    --Tech-level-based scaling factors (what fraction of enemy threat we need before committing)
+    --Higher tech units are more efficient, so need less mass to counter same threat
+    --T1: Need 0.9x enemy threat (less efficient units, need near-parity)
+    --T2: Need 0.7x enemy threat (better units, can fight with less mass)
+    --T3: Need 0.5x enemy threat (much better units, can fight outnumbered)
+    local iTechScalingFactor = 0.9
+    if iHighestTech >= 3 then
+        iTechScalingFactor = 0.5
+    elseif iHighestTech >= 2 then
+        iTechScalingFactor = 0.7
+    end
+
+    --Calculate base threshold as a proportion of enemy threat
+    local iMinThreshold = 0
+    if iEnemyThreat and iEnemyThreat > 0 then
+        iMinThreshold = iEnemyThreat * iTechScalingFactor
+    else
+        --No enemy threat detected, use minimal staging thresholds
+        --This prevents waiting forever when there's no immediate threat
+        if iHighestTech >= 3 then
+            iMinThreshold = 500  --T3: minimal staging
+        elseif iHighestTech >= 2 then
+            iMinThreshold = 300  --T2: minimal staging
+        else
+            iMinThreshold = 200  --T1: minimal staging
+        end
+    end
+
+    --Apply continuous threat-based multiplier for very high threats
+    --As enemy threat increases, we want proportionally more units (diminishing returns)
+    --This creates a smooth curve rather than discrete jumps
+    local iThreatMultiplier = 1.0
+    if iEnemyThreat then
+        if iEnemyThreat > 10000 then
+            --Extreme threat: cap multiplier to prevent unreasonable wait times
+            iThreatMultiplier = 1.4
+        elseif iEnemyThreat > 5000 then
+            --Very high threat: scale from 1.2 to 1.4 based on threat
+            --Linear interpolation: 1.2 + (threat - 5000) / (10000 - 5000) * (1.4 - 1.2)
+            iThreatMultiplier = 1.2 + ((iEnemyThreat - 5000) / 5000) * 0.2
+        elseif iEnemyThreat > 2000 then
+            --High threat: scale from 1.0 to 1.2 based on threat
+            iThreatMultiplier = 1.0 + ((iEnemyThreat - 2000) / 3000) * 0.2
+        elseif iEnemyThreat > 500 then
+            --Medium threat: scale from 0.9 to 1.0 based on threat
+            iThreatMultiplier = 0.9 + ((iEnemyThreat - 500) / 1500) * 0.1
+        else
+            --Low threat: slightly reduce threshold to be more aggressive
+            iThreatMultiplier = 0.9
+        end
+    end
+
+    iMinThreshold = iMinThreshold * iThreatMultiplier
+
+    --Apply absolute bounds to prevent edge cases
+    --Minimum: Don't wait for less than this (prevents tiny groups)
+    local iAbsoluteMinimum = 150
+    if iHighestTech >= 3 then
+        iAbsoluteMinimum = 400  --T3 units are expensive, need reasonable minimum
+    elseif iHighestTech >= 2 then
+        iAbsoluteMinimum = 250
+    end
+
+    --Maximum: Don't wait for more than this (prevents waiting forever vs overwhelming force)
+    local iAbsoluteMaximum = 8000
+    if iHighestTech >= 3 then
+        iAbsoluteMaximum = 6000  --T3: lower cap since units are more valuable
+    elseif iHighestTech >= 2 then
+        iAbsoluteMaximum = 7000
+    end
+
+    --Clamp to bounds
+    iMinThreshold = math.max(iAbsoluteMinimum, math.min(iAbsoluteMaximum, iMinThreshold))
+
+    if bDebugMessages == true then
+        LOG(sFunctionRef..': Calculated min threshold='..iMinThreshold..' for tech='..iHighestTech..' enemyThreat='..tostring(iEnemyThreat or 0)..'; techScalingFactor='..iTechScalingFactor..'; threatMultiplier='..string.format("%.2f", iThreatMultiplier))
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return iMinThreshold
+end
+
+function ShouldCommitStagedReinforcements(iTeam, iPlateau, iLandZone, iEnemyThreat)
+    --Determine if staged reinforcements should be committed to combat
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'ShouldCommitStagedReinforcements'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local bShouldCommit = false
+
+    --Check if we have any staged reinforcements
+    if not(tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone]) or
+       not(tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone][iPlateau]) or
+       not(tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone][iPlateau][iLandZone]) or
+       M28Utilities.IsTableEmpty(tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone][iPlateau][iLandZone]) then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    local iStagedThreat = tTeamData[iTeam][subrefiStagedReinforcementThreatByPlateauAndZone][iPlateau][iLandZone] or 0
+    local iMinThreshold = GetMinimumReinforcementThreshold(iTeam, iPlateau, iLandZone, iEnemyThreat)
+    local iTimeStaging = GetGameTimeSeconds() - (tTeamData[iTeam][subrefiTimeReinforcementStagingStartedByPlateauAndZone][iPlateau][iLandZone] or GetGameTimeSeconds())
+
+    --Timeout: commit after 60 seconds regardless of threshold
+    local iMaxStagingTime = 60
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Staged threat='..iStagedThreat..' min threshold='..iMinThreshold..' time staging='..iTimeStaging) end
+
+    --Commit if we've reached threshold OR timeout
+    if iStagedThreat >= iMinThreshold then
+        bShouldCommit = true
+        if bDebugMessages == true then LOG(sFunctionRef..': Committing - threshold reached') end
+    elseif iTimeStaging >= iMaxStagingTime then
+        bShouldCommit = true
+        if bDebugMessages == true then LOG(sFunctionRef..': Committing - timeout reached') end
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return bShouldCommit
+end
+
+function ClearStagedReinforcements(iTeam, iPlateau, iLandZone)
+    --Clear all staged reinforcements for a land zone (called when they are committed)
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'ClearStagedReinforcements'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    if tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone] and
+       tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone][iPlateau] and
+       tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone][iPlateau][iLandZone] then
+
+        if bDebugMessages == true then LOG(sFunctionRef..': Clearing staged reinforcements for plateau '..iPlateau..' LZ '..iLandZone) end
+
+        tTeamData[iTeam][subreftStagedReinforcementsByPlateauAndZone][iPlateau][iLandZone] = {}
+        tTeamData[iTeam][subrefiStagedReinforcementThreatByPlateauAndZone][iPlateau][iLandZone] = 0
+        tTeamData[iTeam][subrefiTimeReinforcementStagingStartedByPlateauAndZone][iPlateau][iLandZone] = nil
+    end
+
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
