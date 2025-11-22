@@ -1269,6 +1269,46 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     if bDebugMessages == true then
         LOG(sFunctionRef .. ': Considering if we want to ignore getting any MAA, tLZTeamData[M28Map.refiEnemyAirToGroundThreat]=' .. tLZTeamData[M28Map.refiEnemyAirToGroundThreat] .. '; Time since last had no MAA targets for this island=' .. GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiLastTimeNoMAATargetsByIsland][tLZData[M28Map.subrefLZIslandRef]] or -10) .. '; tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]=' .. tostring(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]))
     end
+
+    -- Check total AA coverage (mobile + static) vs enemy air threat
+    -- This prevents overbuilding mobile AA when we already have sufficient static AA coverage
+    local iTotalMobileAA = M28Team.tTeamData[iTeam][M28Team.subrefiAlliedMAAThreat] or 0
+    local iStaticAA = 0
+    -- Count static AA structures in this and adjacent zones
+    if not M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) then
+        local tStaticAAUnits = EntityCategoryFilterDown(categories.STRUCTURE * categories.ANTIAIR, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
+        if not M28Utilities.IsTableEmpty(tStaticAAUnits) then
+            iStaticAA = M28UnitInfo.GetAirThreatLevel(tStaticAAUnits, false, false, true, false, false, false, false, false)
+        end
+    end
+    -- Also check adjacent zones for static AA
+    if not M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) then
+        for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
+            local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
+            if not M28Utilities.IsTableEmpty(tAdjLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) then
+                local tAdjStaticAA = EntityCategoryFilterDown(categories.STRUCTURE * categories.ANTIAIR, tAdjLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
+                if not M28Utilities.IsTableEmpty(tAdjStaticAA) then
+                    iStaticAA = iStaticAA + M28UnitInfo.GetAirThreatLevel(tAdjStaticAA, false, false, true, false, false, false, false, false)
+                end
+            end
+        end
+    end
+    local iTotalAACoverage = iTotalMobileAA + iStaticAA
+    local iEnemyAirThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0
+    local iEnemyGroundThreat = (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)
+
+    if bDebugMessages == true then
+        LOG(sFunctionRef .. ': MAA check: iTotalMobileAA=' .. iTotalMobileAA .. '; iStaticAA=' .. iStaticAA .. '; iTotalAACoverage=' .. iTotalAACoverage .. '; iEnemyAirThreat=' .. iEnemyAirThreat .. '; iEnemyGroundThreat=' .. iEnemyGroundThreat)
+    end
+
+    -- If we have good AA coverage relative to enemy air threat, and enemy ground threat is higher, prioritize ground units
+    if iTotalAACoverage >= iEnemyAirThreat * 1.5 and iEnemyGroundThreat > iEnemyAirThreat then
+        bDontConsiderBuildingMAA = true
+        if bDebugMessages == true then
+            LOG(sFunctionRef .. ': Sufficient AA coverage detected (total AA=' .. iTotalAACoverage .. ' vs enemy air=' .. iEnemyAirThreat .. '), and enemy ground threat is higher (' .. iEnemyGroundThreat .. '), prioritizing ground combat units')
+        end
+    end
+
     local iMinMAARatioFactor = 10
     if iFactoryTechLevel == 1 then
         if M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] <= 200 and M28Map.iMapSize <= 500 then
@@ -1285,7 +1325,34 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         end
     end
 
-    if tLZTeamData[M28Map.refiEnemyAirToGroundThreat] == 0 and M28Team.tTeamData[iTeam][M28Team.subrefiAlliedMAAThreat] * iMinMAARatioFactor > M28Team.tTeamData[iTeam][M28Team.subrefiAlliedDFThreat] then
+    -- Don't build more MAA if we already have sufficient mobile AA relative to ground combat units
+    -- This prevents starving ground unit production when we have good mobile AA coverage
+    if not(bDontConsiderBuildingMAA) then
+        local iMobileAACount = aiBrain:GetCurrentUnits(categories.MOBILE * categories.ANTIAIR - categories.SCOUT)
+        local iGroundCombatCount = aiBrain:GetCurrentUnits(categories.MOBILE * categories.LAND * (categories.DIRECTFIRE + categories.INDIRECTFIRE) - categories.ENGINEER - categories.SCOUT)
+
+        -- If we have more than 1 mobile AA for every 8 ground combat units, and enemy air threat is low, stop building MAA
+        if iMobileAACount > 0 and iGroundCombatCount > 0 then
+            local iMAAToGroundRatio = iMobileAACount / math.max(1, iGroundCombatCount)
+            local iDesiredMAAToGroundRatio = 0.125 -- 1 MAA per 8 ground units
+
+            -- Adjust desired ratio based on enemy air threat
+            if iEnemyAirThreat > 1000 then
+                iDesiredMAAToGroundRatio = 0.2 -- Allow more MAA if significant air threat
+            elseif iEnemyAirThreat > 2000 then
+                iDesiredMAAToGroundRatio = 0.25
+            end
+
+            if iMAAToGroundRatio >= iDesiredMAAToGroundRatio and iEnemyGroundThreat > iEnemyAirThreat then
+                bDontConsiderBuildingMAA = true
+                if bDebugMessages == true then
+                    LOG(sFunctionRef .. ': Mobile AA to ground unit ratio check: iMobileAACount=' .. iMobileAACount .. '; iGroundCombatCount=' .. iGroundCombatCount .. '; Ratio=' .. iMAAToGroundRatio .. '; Desired=' .. iDesiredMAAToGroundRatio .. '; Prioritizing ground combat units')
+                end
+            end
+        end
+    end
+
+    if not(bDontConsiderBuildingMAA) and tLZTeamData[M28Map.refiEnemyAirToGroundThreat] == 0 and M28Team.tTeamData[iTeam][M28Team.subrefiAlliedMAAThreat] * iMinMAARatioFactor > M28Team.tTeamData[iTeam][M28Team.subrefiAlliedDFThreat] then
         if not(M28Team.tTeamData[iTeam][M28Team.refbEnemyEarlyT3AirSpottedRecently]) and (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] > 0 or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] <= 1 and (iFactoryTechLevel == 1 and (iFactoryTechLevel < M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] or M28Map.iMapSize <= 256 or (bHaveLowMass and M28Team.tTeamData[iTeam][M28Team.subrefiAlliedMAAThreat] > M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]))) and ((GetGameTimeSeconds() <= 480 and M28Team.tTeamData[iTeam][M28Team.subrefiAlliedMAAThreat] > M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]) or M28Team.tTeamData[iTeam][M28Team.subrefiAlliedMAAThreat] * 0.5 > M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]))) then
             if bDebugMessages == true then LOG(sFunctionRef..': Have enemies here or adjacent LZ or have enough MAA for enemy air ot ground threat, iMinMAARatioFactor='..iMinMAARatioFactor..'; tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal]='..tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal]..'; ') end
             bDontConsiderBuildingMAA = true
