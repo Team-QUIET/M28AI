@@ -5867,15 +5867,14 @@ function GetMinimumReinforcementThreshold(iTeam, iPlateau, iLandZone, iEnemyThre
     local iHighestTech = tTeamData[iTeam][subrefiHighestFriendlyLandFactoryTech] or 1
 
     --Tech-level-based scaling factors (what fraction of enemy threat we need before committing)
-    --Higher tech units are more efficient, so need less mass to counter same threat
-    --T1: Need 0.9x enemy threat (less efficient units, need near-parity)
-    --T2: Need 0.7x enemy threat (better units, can fight with less mass)
-    --T3: Need 0.5x enemy threat (much better units, can fight outnumbered)
-    local iTechScalingFactor = 0.9
+    --T1: Need 1.1x enemy threat
+    --T2: Need 1.275x enemy threat
+    --T3: Need 1.35x enemy threat
+    local iTechScalingFactor = 1.1
     if iHighestTech >= 3 then
-        iTechScalingFactor = 0.5
+        iTechScalingFactor = 1.35
     elseif iHighestTech >= 2 then
-        iTechScalingFactor = 0.7
+        iTechScalingFactor = 1.275
     end
 
     --Calculate base threshold as a proportion of enemy threat
@@ -5886,11 +5885,11 @@ function GetMinimumReinforcementThreshold(iTeam, iPlateau, iLandZone, iEnemyThre
         --No enemy threat detected, use minimal staging thresholds
         --This prevents waiting forever when there's no immediate threat
         if iHighestTech >= 3 then
-            iMinThreshold = 500  --T3: minimal staging
+            iMinThreshold = 3000  --T3: minimal staging
         elseif iHighestTech >= 2 then
-            iMinThreshold = 300  --T2: minimal staging
+            iMinThreshold = 1500  --T2: minimal staging
         else
-            iMinThreshold = 200  --T1: minimal staging
+            iMinThreshold = 500  --T1: minimal staging
         end
     end
 
@@ -5924,17 +5923,17 @@ function GetMinimumReinforcementThreshold(iTeam, iPlateau, iLandZone, iEnemyThre
     --Minimum: Don't wait for less than this (prevents tiny groups)
     local iAbsoluteMinimum = 150
     if iHighestTech >= 3 then
-        iAbsoluteMinimum = 400  --T3 units are expensive, need reasonable minimum
+        iAbsoluteMinimum = 1000
     elseif iHighestTech >= 2 then
-        iAbsoluteMinimum = 250
+        iAbsoluteMinimum = 750
     end
 
     --Maximum: Don't wait for more than this (prevents waiting forever vs overwhelming force)
     local iAbsoluteMaximum = 8000
     if iHighestTech >= 3 then
-        iAbsoluteMaximum = 6000  --T3: lower cap since units are more valuable
+        iAbsoluteMaximum = 15000 
     elseif iHighestTech >= 2 then
-        iAbsoluteMaximum = 7000
+        iAbsoluteMaximum = 10000
     end
 
     --Clamp to bounds
