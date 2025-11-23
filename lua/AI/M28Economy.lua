@@ -748,7 +748,7 @@ function UpdateMassStorageAdjacencyValues(oStorage, bDestroyed)
 end
 
 function ConsiderHydroUpgradeLoop(oUnit)
-    --Every 10s consider upgrading unit
+    --Every 30s consider upgrading unit
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ConsiderHydroUpgradeLoop'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -770,27 +770,28 @@ function ConsiderHydroUpgradeLoop(oUnit)
                 local iMassPerTickWanted = 0.1 * (oUpgradedBP.Economy.BuildCostMass * iBuildPower / oUpgradedBP.Economy.BuildTime) * iBrainCount * 2
                 local iEnergyPerTickWanted = 0.1 * (oUpgradedBP.Economy.BuildCostEnergy * iBuildPower / oUpgradedBP.Economy.BuildTime ) * iBrainCount * 2
                 local iStoredMassAlternative = oUpgradedBP.Economy.BuildCostMass * 4
-                local iDelay = 10
+
+                local iDelay = 30
                 local tLZData, tLZTeamData = M28Map.GetLandOrWaterZoneData(oUnit:GetPosition(), true, iTeam)
                 if tLZTeamData[M28Map.refiModDistancePercent] >= 0.3 then
                     local iUnitTechLevel = M28UnitInfo.GetUnitTechLevel(oUnit)
                     local iResourceFactorAdjust = 1.5
                     if tLZTeamData[M28Map.refiModDistancePercent] >= 0.45 then
                         if iUnitTechLevel >= 2 then
-                            iDelay = 120
-                            iResourceFactorAdjust = 6
+                            iDelay = 240
+                            iResourceFactorAdjust = 10
                         else
-                            iDelay = 60
-                            iResourceFactorAdjust = 3
+                            iDelay = 120
+                            iResourceFactorAdjust = 5
                         end
 
                     else
                         if iUnitTechLevel >= 2 then
-                            iDelay = 60
-                            iResourceFactorAdjust = 2.5
+                            iDelay = 120
+                            iResourceFactorAdjust = 4
                         else
-                            iDelay = 30
-                            iResourceFactorAdjust = 1.75
+                            iDelay = 60
+                            iResourceFactorAdjust = 3
                         end
                     end
                     iMassPerTickWanted = iMassPerTickWanted * iResourceFactorAdjust
@@ -808,7 +809,10 @@ function ConsiderHydroUpgradeLoop(oUnit)
 
                 while M28UnitInfo.IsUnitValid(oUnit) do
                     if bDebugMessages == true then LOG(sFunctionRef..': Deciding if want to upgrade at time='..GetGameTimeSeconds()..'; Unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Brain='..aiBrain.Nickname..'; Want more power='..tostring(M28Conditions.WantMorePower(iTeam))..'; Net energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy]..'; iEnergyPerTickWanted='..iEnergyPerTickWanted..'; Net mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass]..'; iMassPerTickWanted='..iMassPerTickWanted..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]) end
-                    if M28Conditions.WantMorePower(iTeam) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] >= iEnergyPerTickWanted or (iEnergyPerTickWanted > 0 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= iGrossEnergyPerTickAlternative) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] >= iMassPerTickWanted or ((aiBrain:GetEconomyStored('MASS') >= iStoredMassAlternative and (aiBrain:GetEconomyStored('MASS') >= iStoredMassAlternative * 2 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] >= -1)) or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] > 0 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= iGrossMassPerTickAlternative)))) then
+
+                    local bExcellentEconomy = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.7
+
+                    if bExcellentEconomy and M28Conditions.WantMorePower(iTeam) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] >= iEnergyPerTickWanted or (iEnergyPerTickWanted > 0 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= iGrossEnergyPerTickAlternative) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] >= iMassPerTickWanted or ((aiBrain:GetEconomyStored('MASS') >= iStoredMassAlternative and (aiBrain:GetEconomyStored('MASS') >= iStoredMassAlternative * 2 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] >= -1)) or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] > 0 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= iGrossMassPerTickAlternative)))) then
                         UpgradeUnit(oUnit, false)
                         break
                     end
