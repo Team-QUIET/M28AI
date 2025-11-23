@@ -5985,14 +5985,48 @@ function ManageBombers(iTeam, iAirSubteam)
                                         iMaxModDist = 0.4
                                     end
                                 else
-                                    if M28Map.iMapSize >= 1000 then iMaxModDist = 0.45
-                                    elseif M28Map.iMapSize <= 256 then iMaxModDist = 0.7
-                                    else iMaxModDist = 0.55
+                                    -- Contested air - reduce max mod dist to prevent suicide runs into backlines
+                                    if M28Map.iMapSize >= 1000 then iMaxModDist = 0.35
+                                    elseif M28Map.iMapSize <= 256 then iMaxModDist = 0.5
+                                    else iMaxModDist = 0.45
                                     end
                                 end
 
                                 if bDebugMessages == true then LOG(sFunctionRef..': About to cycle through other zones by distance, iMaxModDist='..iMaxModDist) end
+
+                                -- Create a table mapping zones to their priority scores for front line bias
+                                local toZonePriorityScores = {}
                                 for iEntry, tPathingDetails in tRallyLZOrWZData[M28Map.subrefOtherLandAndWaterZonesByDistance] do
+                                    local iOtherPlateauOrZero = tPathingDetails[M28Map.subrefiPlateauOrPond]
+                                    local iOtherLZOrWZ = tPathingDetails[M28Map.subrefiLandOrWaterZoneRef]
+                                    if tPathingDetails[M28Map.subrefbIsWaterZone] then iOtherPlateauOrZero = 0 end
+
+                                    if iOtherLZOrWZ and not(tbZonesConsideredByPlateau[iRallyPlateauOrZero][iOtherLZOrWZ]) and not(tbZoneByPlateauHasTooMuchAA[iOtherPlateauOrZero][iOtherLZOrWZ]) then
+                                        local tOtherLZOrWZTeamData
+                                        if iOtherPlateauOrZero == 0 then
+                                            local tOtherLZOrWZData = M28Map.tPondDetails[tPathingDetails[M28Map.subrefiPlateauOrPond]][M28Map.subrefPondWaterZones][iOtherLZOrWZ]
+                                            tOtherLZOrWZTeamData = tOtherLZOrWZData[M28Map.subrefWZTeamData][iTeam]
+                                        else
+                                            local tOtherLZOrWZData = M28Map.tAllPlateaus[iOtherPlateauOrZero][M28Map.subrefPlateauLandZones][iOtherLZOrWZ]
+                                            tOtherLZOrWZTeamData = tOtherLZOrWZData[M28Map.subrefLZTeamData][iTeam]
+                                        end
+
+                                        -- Calculate front line priority score (lower mod dist = higher priority)
+                                        -- Score = distance - (modDist * distance * frontLineBiasFactor)
+                                        -- This makes closer-to-friendly zones more attractive even if slightly farther in absolute distance
+                                        local iFrontLineBiasFactor = 0.5 -- Adjust this to control how much we prefer front line zones
+                                        local iModDist = tOtherLZOrWZTeamData[M28Map.refiModDistancePercent] or 0.5
+                                        local iDistance = tPathingDetails[M28Map.subrefiDistance] or 0
+                                        local iPriorityScore = iDistance - (iModDist * iDistance * iFrontLineBiasFactor)
+
+                                        -- Use entry index as key to maintain unique entries
+                                        toZonePriorityScores[iEntry] = iPriorityScore
+                                    end
+                                end
+
+                                -- Iterate through zones sorted by priority score (lower score = higher priority = attack first)
+                                for iEntry, iPriorityScore in M28Utilities.SortTableByValue(toZonePriorityScores, false) do
+                                    local tPathingDetails = tRallyLZOrWZData[M28Map.subrefOtherLandAndWaterZonesByDistance][iEntry]
                                     local iOtherPlateauOrZero = tPathingDetails[M28Map.subrefiPlateauOrPond]
                                     local iOtherLZOrWZ = tPathingDetails[M28Map.subrefiLandOrWaterZoneRef]
                                     if tPathingDetails[M28Map.subrefbIsWaterZone] then iOtherPlateauOrZero = 0 end
@@ -6667,22 +6701,82 @@ function AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam
         local iTotalStrikeDamageWanted
         if bDebugMessages == true then LOG(sFunctionRef..': About to cycle through torp bomber targets, iEnemyTargetSize='..iEnemyTargetSize..'; Time='..GetGameTimeSeconds()) end
 
-        --First order enemy units by distance
+        --First order enemy units by composite target value score
         local tRallyPoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
-        local toEnemyUnitsByDistance = {}
-        for iUnit, oUnit in tEnemyTargets do
-            toEnemyUnitsByDistance[iUnit] = GetRoughDistanceBetweenPositions(oUnit:GetPosition(), tRallyPoint)
+        local toEnemyUnitsByScore = {}
+        local aiBrain
+        if tAvailableBombers[1] then
+            aiBrain = tAvailableBombers[1]:GetAIBrain()
         end
 
-        local aiBrain
+        for iUnit, oUnit in tEnemyTargets do
+            -- Calculate composite target score (lower score = higher priority)
+            local iDistanceToRally = GetRoughDistanceBetweenPositions(oUnit:GetPosition(), tRallyPoint)
+
+            -- Get strategic value multiplier based on unit category
+            local iStrategicValue = 1.0
+            if EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId) then
+                iStrategicValue = 0.3
+            elseif EntityCategoryContains(M28UnitInfo.refCategoryGroundAA + M28UnitInfo.refCategoryFixedShield, oUnit.UnitId) then
+                iStrategicValue = 0.6
+            elseif EntityCategoryContains(categories.FACTORY, oUnit.UnitId) then
+                iStrategicValue = 0.5
+            elseif EntityCategoryContains(categories.ARTILLERY + categories.STRATEGIC, oUnit.UnitId) then
+                iStrategicValue = 0.4
+            elseif EntityCategoryContains(categories.ENGINEER, oUnit.UnitId) then
+                iStrategicValue = 0.7
+            elseif EntityCategoryContains(categories.DEFENSE, oUnit.UnitId) then
+                iStrategicValue = 0.4
+            end
+
+            -- Get zone mod distance (front line bias)
+            local iModDist = 0.5 -- Default if we can't determine
+            if aiBrain then
+                local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnit:GetPosition())
+                if iPlateauOrZero and iLandOrWaterZone then
+                    local tLZOrWZTeamData
+                    if iPlateauOrZero == 0 then
+                        local tWZData = M28Map.tPondDetails[M28Map.tiPondByWaterZone[iLandOrWaterZone]]
+                        if tWZData then
+                            tLZOrWZTeamData = tWZData[M28Map.subrefPondWaterZones][iLandOrWaterZone][M28Map.subrefWZTeamData][aiBrain.M28Team]
+                        end
+                    else
+                        local tLZData = M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iLandOrWaterZone]
+                        if tLZData then
+                            tLZOrWZTeamData = tLZData[M28Map.subrefLZTeamData][aiBrain.M28Team]
+                        end
+                    end
+                    if tLZOrWZTeamData then
+                        iModDist = tLZOrWZTeamData[M28Map.refiModDistancePercent] or 0.5
+                    end
+                end
+            end
+
+            -- Get mass cost factor (higher mass = higher priority)
+            local iMassCost = M28UnitInfo.GetUnitMassCost(oUnit) or 100
+            local iMassFactor = math.max(0.5, math.min(2.0, 500 / iMassCost)) -- Normalize: 500 mass = 1.0, lower mass = higher factor (lower priority)
+
+            -- Composite score calculation:
+            -- Score = (distance * 0.4) + (modDist * distance * 0.4) + (strategicValue * distance * 0.3) + (massFactor * distance * 0.2)
+            -- This prioritizes:
+            -- 1. Closer targets (distance component)
+            -- 2. Front line targets (modDist component - lower modDist = lower score)
+            -- 3. High-value targets (strategicValue component - lower value = lower score)
+            -- 4. High-mass targets (massFactor component - higher mass = lower factor = lower score)
+            local iCompositeScore = (iDistanceToRally * 0.4) + (iModDist * iDistanceToRally * 0.4) + (iStrategicValue * iDistanceToRally * 0.3) + (iMassFactor * iDistanceToRally * 0.2)
+
+            toEnemyUnitsByScore[iUnit] = iCompositeScore
+        end
+
+        -- Note: aiBrain already set above during score calculation
         local bTorpBombers = false
         local iUnitTorpDefenceCount
         if tAvailableBombers[1] then
-            aiBrain = tAvailableBombers[1]:GetAIBrain()
+            if not(aiBrain) then aiBrain = tAvailableBombers[1]:GetAIBrain() end
             if EntityCategoryContains(M28UnitInfo.refCategoryTorpBomber, tAvailableBombers[1].UnitId) then
                 bTorpBombers = true
                 iUnitTorpDefenceCount = 0
-                for iUnit, oUnit in toEnemyUnitsByDistance do
+                for iUnit, oUnit in toEnemyUnitsByScore do
                     if oUnit[M28UnitInfo.refiTorpedoDefenceCount] then iUnitTorpDefenceCount = iUnitTorpDefenceCount + oUnit[M28UnitInfo.refiTorpedoDefenceCount] end
                 end
             end
@@ -6693,12 +6787,12 @@ function AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam
             end
         end
         local bIssueAttackUnitOrder
-        --Go through enemy units by distance to rally point (so target the nearest ones first)
+        --Go through enemy units by composite target score (so target the highest priority ones first)
         local bDontCheckPlayableArea = not(M28Map.bIsCampaignMap)
         local iEnemyTorpDefenceCount, bAlreadyRecorded
         local bBlockingShoreline, iAngleToRally
 
-        for iCurEnemyUnit, iDistance in M28Utilities.SortTableByValue(toEnemyUnitsByDistance, false) do
+        for iCurEnemyUnit, iScore in M28Utilities.SortTableByValue(toEnemyUnitsByScore, false) do
             --for iCurEnemyUnit = iEnemyTargetSize, 1, -1 do
             iClosestUnitDist = 100000
             local oEnemyUnit = tEnemyTargets[iCurEnemyUnit]
