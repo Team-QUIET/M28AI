@@ -4252,6 +4252,14 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
 
             local iPlateauOrZero, iLandOrWaterZone
             local iDistanceToZoneEdgeToConsider = 60 --i.e. when deciding whether to consider adjacent zones, will only consdier an adjacent zone if the unit is within this distance of the edge of that zone
+            -- Increase zone edge distance in contested air when enemy has active bomber/gunship threats
+            -- This allows earlier detection of incoming bombers crossing zone boundaries
+            if not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]) and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]) then
+                local iEnemyAirToGroundThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0
+                if iEnemyAirToGroundThreat >= 500 then
+                    iDistanceToZoneEdgeToConsider = 90 -- Extend detection range for bombers/gunships in contested air
+                end
+            end
             --Cybran M6 specific - suicide into czar if it is close to control centre
             if bDebugMessages == true then LOG(sFunctionRef..': Considering if want to suicide into czar for campaign, M28Utilities.IsTableEmpty(tAvailableAirAA)='..tostring(M28Utilities.IsTableEmpty(tAvailableAirAA))..'; Is experimental air objectives table still valid='..tostring(M28Conditions.IsTableOfUnitsStillValid(M28Team.tTeamData[iTeam][M28Team.reftoEnemyExperimentalAirObjectives]))..'; Is czar valid='..tostring(M28UnitInfo.IsUnitValid(ScenarioInfo.Czar))..'; Is control centre still valid='..tostring(M28UnitInfo.IsUnitValid(ScenarioInfo.ControlCenter))) end
             if M28Map.bIsCampaignMap and M28Utilities.IsTableEmpty(tAvailableAirAA) == false and M28Conditions.IsTableOfUnitsStillValid(M28Team.tTeamData[iTeam][M28Team.reftoEnemyExperimentalAirObjectives]) then
@@ -4564,7 +4572,14 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                 end
 
                 local bConsiderAdjacentZones = not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir])
-                if bConsiderAdjacentZones and iAvailableAndInCombatAirAAThreat < M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] * 0.8 then bConsiderAdjacentZones = false end
+                if bConsiderAdjacentZones and iAvailableAndInCombatAirAAThreat < M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] * 0.8 then
+                    -- In contested air, still consider adjacent zones if enemy has significant bomber/gunship threat
+                    -- This helps intercept incoming bombers before they reach our base
+                    local iEnemyAirToGroundThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0
+                    if iEnemyAirToGroundThreat < 500 then
+                        bConsiderAdjacentZones = false
+                    end
+                end
 
                 for iBrain, oBrain in M28Team.tAirSubteamData[iAirSubteam][M28Team.subreftoFriendlyM28Brains] do
                     local tStartPoint = M28Map.GetPlayerStartPosition(oBrain)
@@ -4732,9 +4747,18 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                             end
                             if M28Team.tTeamData[iTeam][M28Team.refbDontHaveBuildingsOrACUInPlayableArea] then iAASearchType = refiIgnoreAllAA end
                             if not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]) then
-                                if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] then iMaxModDist = 0.45
+                                if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] then
+                                    iMaxModDist = 0.45
                                 else
-                                    iMaxModDist = 0.6
+                                    -- Contested air scenario - increase range to detect bomber/gunship threats earlier
+                                    -- Check if there are significant enemy air-to-ground threats that we need to respond to faster
+                                    local iEnemyAirToGroundThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0
+                                    if iEnemyAirToGroundThreat >= 500 then
+                                        -- Enemy has active bomber/gunship force - extend detection range to intercept before they reach our units
+                                        iMaxModDist = 0.75
+                                    else
+                                        iMaxModDist = 0.6
+                                    end
                                 end
                             end
                             local iOtherLandZoneGroundAAThreshold
