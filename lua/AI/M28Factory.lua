@@ -5992,12 +5992,17 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
 
                 -- T2 bomber production - prioritize T2 bombers when we have air control or contested air and enemy has ground targets - QUIET
                 iCurrentConditionToTry = iCurrentConditionToTry + 1
-                if M28Utilities.bQuietModActive and iFactoryTechLevel == 2 and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]) and M28Team.tTeamData[iTeam][M28Team.refiEnemyGroundThreat] > 100 then
-                    local iCurT2Bombers = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryBomber * categories.TECH2)
-                    -- Build more T2 bombers if we have fewer than 8, or if we have air control and fewer than 15
-                    if iCurT2Bombers < 8 or (M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] and iCurT2Bombers < 15) then
-                        if bDebugMessages == true then LOG(sFunctionRef..': want more T2 bomber production, iCurT2Bombers='..iCurT2Bombers..'; Enemy ground threat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyGroundThreat]) end
-                        if ConsiderBuildingCategory(iNormalBomberCategoryToBuild * categories.TECH2) then return sBPIDToBuild end
+                if M28Utilities.bQuietModActive and iFactoryTechLevel == 2 and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]) then
+                    -- Does enemy have T2+ ground tech or land experimentals?
+                    local bEnemyHasGroundTargets = (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] >= 2) or (M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]) == false)
+
+                    if bEnemyHasGroundTargets then
+                        local iCurT2Bombers = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryBomber * categories.TECH2)
+                        -- Build more T2 bombers if we have fewer than 8, or if we have air control and fewer than 15
+                        if iCurT2Bombers < 8 or (M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] and iCurT2Bombers < 15) then
+                            if bDebugMessages == true then LOG(sFunctionRef..': want more T2 bomber production, iCurT2Bombers='..iCurT2Bombers..'; Enemy has ground targets (T2+ or experimentals)') end
+                            if ConsiderBuildingCategory(iNormalBomberCategoryToBuild * categories.TECH2) then return sBPIDToBuild end
+                        end
                     end
                 end
 
