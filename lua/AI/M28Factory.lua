@@ -5990,6 +5990,17 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
                     if ConsiderBuildingCategory(M28UnitInfo.refCategoryGunship) then return sBPIDToBuild end
                 end
 
+                -- T2 bomber production - prioritize T2 bombers when we have air control or contested air and enemy has ground targets - QUIET
+                iCurrentConditionToTry = iCurrentConditionToTry + 1
+                if M28Utilities.bQuietModActive and iFactoryTechLevel == 2 and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]) and M28Team.tTeamData[iTeam][M28Team.refiEnemyGroundThreat] > 100 then
+                    local iCurT2Bombers = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryBomber * categories.TECH2)
+                    -- Build more T2 bombers if we have fewer than 8, or if we have air control and fewer than 15
+                    if iCurT2Bombers < 8 or (M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] and iCurT2Bombers < 15) then
+                        if bDebugMessages == true then LOG(sFunctionRef..': want more T2 bomber production, iCurT2Bombers='..iCurT2Bombers..'; Enemy ground threat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyGroundThreat]) end
+                        if ConsiderBuildingCategory(iNormalBomberCategoryToBuild * categories.TECH2) then return sBPIDToBuild end
+                    end
+                end
+
                 --Bombers if dont have at least 2 and either losses dont exceed kills, or thye're more effective than gunships, subject to our air subteam having bombers
                 iCurrentConditionToTry = iCurrentConditionToTry + 1
                 if bDebugMessages == true then LOG(sFunctionRef..': Min bomber count, subrefiOurT1ToT3BomberThreat='..M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurT1ToT3BomberThreat]..'; refbHaveAirControl='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl])) end

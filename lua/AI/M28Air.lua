@@ -5972,23 +5972,23 @@ function ManageBombers(iTeam, iAirSubteam)
                                 local iMaxModDist --In addition to searchsize which limits by distance, will also avoid attacking enemy base if we lack air control
                                 if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] then
                                     if iOurBomberThreat <= 3000 and not(bHaveT3Bombers) and not(M28UnitInfo.IsUnitValid(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontT3Bomber])) then
-                                        iMaxModDist = 0.75 --Dont want to be too aggressive early on with bombers even if we have air control
+                                        iMaxModDist = 0.85 --Dont want to be too aggressive early on with bombers even if we have air control
                                     else
                                         iMaxModDist = 10 --Can go over 1 mod dist for zones behind enemy base, so doing 10 to be safe
                                     end
                                 elseif M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] then
                                     if M28Map.iMapSize >= 1000 then
-                                        iMaxModDist = 0.3
-                                    elseif M28Map.iMapSize <= 256 then
-                                        iMaxModDist = 0.55
-                                    else
                                         iMaxModDist = 0.4
+                                    elseif M28Map.iMapSize <= 256 then
+                                        iMaxModDist = 0.65
+                                    else
+                                        iMaxModDist = 0.5
                                     end
                                 else
-                                    -- Contested air - reduce max mod dist to prevent suicide runs into backlines
-                                    if M28Map.iMapSize >= 1000 then iMaxModDist = 0.35
-                                    elseif M28Map.iMapSize <= 256 then iMaxModDist = 0.5
-                                    else iMaxModDist = 0.45
+                                    -- Contested air - reduced max mod dist to prevent suicide runs into backlines
+                                    if M28Map.iMapSize >= 1000 then iMaxModDist = 0.5
+                                    elseif M28Map.iMapSize <= 256 then iMaxModDist = 0.65
+                                    else iMaxModDist = 0.6
                                     end
                                 end
 
