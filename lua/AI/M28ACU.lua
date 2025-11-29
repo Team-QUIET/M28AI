@@ -731,6 +731,10 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
                         --Dont go second air
                     elseif tLZOrWZData[M28Map.subrefLZOrWZMexCount] > 12 then
                         --Dont go second air as lots of mexes
+                    --QUIET mod: Check energy economy before committing to second air factory (air factories are more expensive)
+                    elseif M28Utilities.bQuietModActive and (aiBrain[M28Economy.refiGrossEnergyBaseIncome] < 18 * iResourceMod or aiBrain:GetEconomyStoredRatio('ENERGY') < 0.5 or (aiBrain[M28Economy.refiNetEnergyBaseIncome] < 2 and aiBrain:GetEconomyStored('ENERGY') < 1500)) then
+                        --Dont go second air in QUIET mod if energy economy is weak
+                        if bDebugMessages == true then LOG(sFunctionRef..': QUIET mod - skipping second air due to insufficient energy. Gross='..aiBrain[M28Economy.refiGrossEnergyBaseIncome]..'; Stored%='..aiBrain:GetEconomyStoredRatio('ENERGY')..'; Net='..aiBrain[M28Economy.refiNetEnergyBaseIncome]) end
                     else
                         bGoSecondAir = true
                     end
@@ -753,7 +757,14 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
                 if bGoSecondAir then
                     aiBrain[M28Economy.refbGoingSecondAir] = true
                     if bDebugMessages == true then LOG(sFunctionRef..': Going second air, net energy base income='..aiBrain[M28Economy.refiNetEnergyBaseIncome]..'; Energy stored='..aiBrain:GetEconomyStored('ENERGY')) end
-                    if aiBrain[M28Economy.refiNetEnergyBaseIncome] >= 4.5 and aiBrain:GetEconomyStored('ENERGY') >= 1800 then
+                    --QUIET mod: Higher energy thresholds for air factory due to increased energy costs
+                    if M28Utilities.bQuietModActive then
+                        if aiBrain[M28Economy.refiNetEnergyBaseIncome] >= 6 and aiBrain:GetEconomyStored('ENERGY') >= 2500 then
+                            iMinEnergyPerTickWanted = 24 * math.min(iResourceMod, aiBrain[M28Economy.refiBrainBuildRateMultiplier])
+                        else
+                            iMinEnergyPerTickWanted = 28 * math.min(iResourceMod, aiBrain[M28Economy.refiBrainBuildRateMultiplier]) --QUIET air factories need more energy
+                        end
+                    elseif aiBrain[M28Economy.refiNetEnergyBaseIncome] >= 4.5 and aiBrain:GetEconomyStored('ENERGY') >= 1800 then
                         iMinEnergyPerTickWanted = 20 * math.min(iResourceMod, aiBrain[M28Economy.refiBrainBuildRateMultiplier]) --Can get away with 4 pgens in some casese, even if engineers have managed to get some tree reclaim
                     else
                         iMinEnergyPerTickWanted = 22 * math.min(iResourceMod, aiBrain[M28Economy.refiBrainBuildRateMultiplier]) --ACU gives 2E, want equiv of 10 PGens, assuming build rate is same as resource rate

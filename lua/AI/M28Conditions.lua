@@ -2163,6 +2163,21 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
             end
         end
 
+        --QUIET mod: Check energy economy before allowing air factory - air factories are more expensive
+        if M28Utilities.bQuietModActive and iLandFactoriesHave >= 1 then
+            local iMinGrossEnergyForAir = 20 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]
+            local iMinEnergyStoredPercent = 0.4
+            local iMinNetEnergy = 2
+            --If we don't have enough energy, prefer land factory
+            if M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < iMinGrossEnergyForAir or
+               M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] < iMinEnergyStoredPercent or
+               (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] < iMinNetEnergy and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] < 0.8) then
+                if bDebugMessages == true then LOG(sFunctionRef..': QUIET mod - insufficient energy for air factory. GrossE='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; StoredE%='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored]..'; NetE='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy]) end
+                M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                return false
+            end
+        end
+
         --Air personality - get air; land personality - get land if have air
         if aiBrain[M28Overseer.refbPrioritiseAir] and iLandFactoriesHave > 0 and aiBrain[M28Economy.refiOurHighestLandFactoryTech] > 0 then
             if bDebugMessages == true then LOG(sFunctionRef..': Assigned brain is air, so want to get air fac') end
