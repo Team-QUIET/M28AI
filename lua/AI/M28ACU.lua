@@ -1529,7 +1529,7 @@ function GetUpgradePathForACU(oACU, bWantToDoTeleSnipe)
     --QUIET mod BlackOps ACU upgrade paths
     elseif M28Utilities.bQuietModActive and oBP.Enhancements['EXCombatEngineering'] then
         --QUIET uses BlackOps ACUs with different enhancement names
-        local bWantCombatPath = GetGameTimeSeconds() <= 1200 or M28Team.tTeamData[aiBrain.M28Team][M28Team.refbAssassinationOrSimilar] or M28Conditions.ACULikelyToWantCombatUpgradeOrShield(oACU)
+        local bWantCombatPath = GetGameTimeSeconds() <= 2000 or M28Team.tTeamData[aiBrain.M28Team][M28Team.refbAssassinationOrSimilar] or M28Conditions.ACULikelyToWantCombatUpgradeOrShield(oACU)
         if EntityCategoryContains(categories.UEF, oACU.UnitId) then
             --UEF BlackOps ACU: Gatling path + Shield path
             if bWantCombatPath then
