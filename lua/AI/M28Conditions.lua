@@ -1387,6 +1387,127 @@ function TeamIsFarBehindOnAir(iTeam)
 
 end
 
+function TeamHasContestedNavy(iTeam)
+    --Returns true if there is active naval combat or enemy naval presence in contested waters
+    --Checks all water zones for enemy naval threats or combat activity
+    if M28Utilities.IsTableEmpty(M28Map.tPondDetails) then return false end
+
+    local iEnemyNavalThreat = 0
+    local iAllyNavalThreat = 0
+    local bEnemyPresenceDetected = false
+
+    for iPond, tPondSubtable in M28Map.tPondDetails do
+        if M28Utilities.IsTableEmpty(tPondSubtable[M28Map.subrefPondWaterZones]) == false then
+            for iWaterZone, tWZData in tPondSubtable[M28Map.subrefPondWaterZones] do
+                if tWZData[M28Map.subrefWZTeamData] and tWZData[M28Map.subrefWZTeamData][iTeam] then
+                    local tWZTeamData = tWZData[M28Map.subrefWZTeamData][iTeam]
+                    --Check for enemy naval presence
+                    local iZoneEnemyThreat = (tWZTeamData[M28Map.subrefWZThreatEnemyAntiNavy] or 0) +
+                                             (tWZTeamData[M28Map.subrefWZThreatEnemySubmersible] or 0) +
+                                             (tWZTeamData[M28Map.subrefWZThreatEnemyVsSurface] or 0) +
+                                             (tWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)
+                    local iZoneAllyThreat = (tWZTeamData[M28Map.subrefWZThreatAlliedAntiNavy] or 0) +
+                                            (tWZTeamData[M28Map.subrefWZThreatAlliedSubmersible] or 0) +
+                                            (tWZTeamData[M28Map.subrefWZThreatAlliedSurface] or 0) +
+                                            (tWZTeamData[M28Map.subrefWZTThreatAllyCombatTotal] or 0)
+
+                    iEnemyNavalThreat = iEnemyNavalThreat + iZoneEnemyThreat
+                    iAllyNavalThreat = iAllyNavalThreat + iZoneAllyThreat
+
+                    --Check for enemies in this or adjacent water zones
+                    if tWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentWZ] then
+                        bEnemyPresenceDetected = true
+                    end
+                end
+            end
+        end
+    end
+
+    --Navy is contested if:
+    --1. Enemy has any naval presence (even minor) AND we have naval forces, OR
+    --2. Both sides have significant naval forces
+    if bEnemyPresenceDetected and iAllyNavalThreat > 0 then return true end
+    if iEnemyNavalThreat >= 100 and iAllyNavalThreat >= 100 then return true end
+
+    return false
+end
+
+function TeamIsBehindOnNavy(iTeam)
+    --Returns true if team's naval strength is significantly behind enemy's naval strength
+    if M28Utilities.IsTableEmpty(M28Map.tPondDetails) then return false end
+
+    local iEnemyNavalThreat = 0
+    local iAllyNavalThreat = 0
+
+    for iPond, tPondSubtable in M28Map.tPondDetails do
+        if M28Utilities.IsTableEmpty(tPondSubtable[M28Map.subrefPondWaterZones]) == false then
+            for iWaterZone, tWZData in tPondSubtable[M28Map.subrefPondWaterZones] do
+                if tWZData[M28Map.subrefWZTeamData] and tWZData[M28Map.subrefWZTeamData][iTeam] then
+                    local tWZTeamData = tWZData[M28Map.subrefWZTeamData][iTeam]
+                    --Aggregate enemy naval threat
+                    iEnemyNavalThreat = iEnemyNavalThreat +
+                                        (tWZTeamData[M28Map.subrefWZThreatEnemyAntiNavy] or 0) +
+                                        (tWZTeamData[M28Map.subrefWZThreatEnemySubmersible] or 0) +
+                                        (tWZTeamData[M28Map.subrefWZThreatEnemyVsSurface] or 0) +
+                                        (tWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)
+                    --Aggregate ally naval threat
+                    iAllyNavalThreat = iAllyNavalThreat +
+                                       (tWZTeamData[M28Map.subrefWZThreatAlliedAntiNavy] or 0) +
+                                       (tWZTeamData[M28Map.subrefWZThreatAlliedSubmersible] or 0) +
+                                       (tWZTeamData[M28Map.subrefWZThreatAlliedSurface] or 0) +
+                                       (tWZTeamData[M28Map.subrefWZTThreatAllyCombatTotal] or 0)
+                end
+            end
+        end
+    end
+
+    --Consider behind on navy if enemy has 50%+ more naval threat than us
+    --and enemy has at least 500 threat (to avoid triggering on trivial amounts)
+    if iEnemyNavalThreat >= 500 and iEnemyNavalThreat >= iAllyNavalThreat * 1.5 then
+        return true
+    end
+
+    --Also consider behind if enemy has T3 navy and we don't
+    if M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyNavyTech] >= 3 and
+       M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyNavalFactoryTech] < 3 then
+        return true
+    end
+
+    return false
+end
+
+function ShouldRushT3AirForNaval(iTeam)
+    --Returns true if we should prioritize rushing T3 air factory for torpedo bomber production
+    --Conditions: Behind on navy, have adequate economy, don't already have T3 air
+
+    --Already have T3 air factory - no need to rush
+    if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] >= 3 then
+        return false
+    end
+
+    --Not behind on navy - no need to rush
+    if not TeamIsBehindOnNavy(iTeam) then
+        return false
+    end
+
+    --Check economic constraints - need positive mass trend and not stalling
+    if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] then
+        return false
+    end
+
+    --Need at least T2 air factory to upgrade
+    if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] < 2 then
+        return false
+    end
+
+    --Need reasonable economy to support T3 air production
+    if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0) < 8 then
+        return false
+    end
+
+    return true
+end
+
 function ZoneWantsT1Spam(tLZTeamData, iTeam)
     local bWantT1Spam = false
     if M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam] then

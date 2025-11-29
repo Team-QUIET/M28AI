@@ -6050,6 +6050,50 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
                     end
                 end
 
+                --Naval air support: Mixed torpedo bomber + ASF production when navy is contested
+                iCurrentConditionToTry = iCurrentConditionToTry + 1
+                if M28Conditions.TeamHasContestedNavy(iTeam) then
+                    if bDebugMessages == true then LOG(sFunctionRef..': Navy is contested, considering mixed torp bomber + ASF production. FarBehindOnAir='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir])..'; HaveAirControl='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl])..'; OurTorpBomberThreat='..M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurTorpBomberThreat]..'; OurAirAAThreat='..M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat]) end
+
+                    --Priority 1: If far behind on air, prioritize ASFs first
+                    if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] then
+                        --Get ASFs until we have reasonable air coverage, then mix in some torps
+                        if M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] < 3000 then
+                            if bDebugMessages == true then LOG(sFunctionRef..': Contested navy but far behind on air - prioritizing ASFs') end
+                            if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirAA) then return sBPIDToBuild end
+                        else
+                            --Have some air coverage, alternate between ASFs and torps (favor ASFs 2:1)
+                            if M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurTorpBomberThreat] < M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] * 0.5 then
+                                if bDebugMessages == true then LOG(sFunctionRef..': Contested navy, behind on air but have some coverage - getting torp bombers') end
+                                if ConsiderBuildingCategory(M28UnitInfo.refCategoryTorpBomber) then return sBPIDToBuild end
+                            else
+                                if bDebugMessages == true then LOG(sFunctionRef..': Contested navy, behind on air - getting more ASFs') end
+                                if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirAA) then return sBPIDToBuild end
+                            end
+                        end
+                    --Priority 2: Adequate air superiority - produce mixed torp bombers + ASFs
+                    elseif M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] or M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] >= 2000 then
+                        --Maintain a healthy ratio of torps to ASFs (roughly 1:1 by threat value)
+                        if M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurTorpBomberThreat] < M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] * 0.8 then
+                            if bDebugMessages == true then LOG(sFunctionRef..': Contested navy with air control - getting torp bombers to balance ratio') end
+                            if ConsiderBuildingCategory(M28UnitInfo.refCategoryTorpBomber) then return sBPIDToBuild end
+                        else
+                            if bDebugMessages == true then LOG(sFunctionRef..': Contested navy with air control - getting ASFs to maintain air superiority') end
+                            if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirAA) then return sBPIDToBuild end
+                        end
+                    --Priority 3: Contested air (not far behind, not in control) - balanced production
+                    else
+                        --Alternate between ASFs and torps, slightly favoring ASFs
+                        if M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurTorpBomberThreat] < M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] * 0.6 then
+                            if bDebugMessages == true then LOG(sFunctionRef..': Contested navy and contested air - getting torp bombers') end
+                            if ConsiderBuildingCategory(M28UnitInfo.refCategoryTorpBomber) then return sBPIDToBuild end
+                        else
+                            if bDebugMessages == true then LOG(sFunctionRef..': Contested navy and contested air - getting ASFs') end
+                            if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirAA) then return sBPIDToBuild end
+                        end
+                    end
+                end
+
                 --Bombers if dont have at least 2 and either losses dont exceed kills, or thye're more effective than gunships, subject to our air subteam having bombers
                 iCurrentConditionToTry = iCurrentConditionToTry + 1
                 if bDebugMessages == true then LOG(sFunctionRef..': Min bomber count, subrefiOurT1ToT3BomberThreat='..M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurT1ToT3BomberThreat]..'; refbHaveAirControl='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl])) end
@@ -6110,6 +6154,21 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
                             if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirAA) then return sBPIDToBuild end
                             if ConsiderBuildingCategory(M28UnitInfo.refCategoryTorpBomber) then return sBPIDToBuild end
                         end
+                    end
+                end
+
+                --T3 torpedo bomber mass production when behind on navy and have T3 air
+                iCurrentConditionToTry = iCurrentConditionToTry + 1
+                if iFactoryTechLevel == 3 and M28Conditions.TeamIsBehindOnNavy(iTeam) and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]) then
+                    if bDebugMessages == true then LOG(sFunctionRef..': Behind on navy with T3 air factory - mass producing T3 torpedo bombers. OurTorpBomberThreat='..M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurTorpBomberThreat]..'; OurAirAAThreat='..M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat]) end
+                    --Maintain air superiority while mass producing torps (2:1 ratio torps to ASFs)
+                    if M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurTorpBomberThreat] < M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] * 2 then
+                        if bDebugMessages == true then LOG(sFunctionRef..': Behind on navy - prioritizing T3 torpedo bombers') end
+                        if ConsiderBuildingCategory(M28UnitInfo.refCategoryTorpBomber * categories.TECH3) then return sBPIDToBuild end
+                    else
+                        --Have enough torps relative to ASFs, get more ASFs to maintain air cover
+                        if bDebugMessages == true then LOG(sFunctionRef..': Behind on navy - getting ASFs to maintain air cover for torp bombers') end
+                        if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirAA * categories.TECH3) then return sBPIDToBuild end
                     end
                 end
 
