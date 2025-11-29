@@ -541,6 +541,31 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                     sBPIDToBuild = nil
                 end
             end
+            --QUIET mod: Limit early game engineers - prioritize combat units over engineers during T1/T2 phases
+            if M28Utilities.bQuietModActive and sBPIDToBuild and iFactoryTechLevel <= 2 and aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] then
+                if not(iCurEngineers) then iCurEngineers = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer) end
+                local iCurCombat = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandCombat)
+                --Early game (first 5 minutes): limit engineers to 1:2 ratio with combat units, max 6 engineers
+                --(5-10 minutes): limit engineers to 1:1.5 ratio with combat units, max 10 engineers
+                local iGameTime = GetGameTimeSeconds()
+                local iMaxEngineers, iEngiToCombatRatio
+                if iGameTime <= 300 then
+                    iMaxEngineers = 6
+                    iEngiToCombatRatio = 0.5 --1 engi per 2 combat
+                elseif iGameTime <= 600 then
+                    iMaxEngineers = 10
+                    iEngiToCombatRatio = 0.67 --1 engi per 1.5 combat
+                else
+                    iMaxEngineers = 15
+                    iEngiToCombatRatio = 1 --1:1 ratio
+                end
+                if iCurEngineers >= iMaxEngineers or (iCurCombat > 0 and iCurEngineers > iCurCombat * iEngiToCombatRatio) then
+                    if aiBrain:GetEconomyStoredRatio('MASS') < 0.7 then
+                        if bDebugMessages == true then LOG(sFunctionRef..': QUIET mod early game engineer limit, iCurEngineers='..iCurEngineers..'; iCurCombat='..iCurCombat..'; iMaxEngineers='..iMaxEngineers..'; iEngiToCombatRatio='..iEngiToCombatRatio) end
+                        sBPIDToBuild = nil
+                    end
+                end
+            end
 
             --Engineers - restrict tech level to the tech level that the LZ is flagged as wanting, unless we are trying to build an engineer of our highest tech level
             if bDebugMessages == true then
@@ -945,21 +970,21 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, iPlateau, iLandZone, 
                         elseif tLZTargetTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] then
                             -- When enemies are nearby, check if we should switch to skirmishers
                             local iCurSkirmishersOfTech = oFactory:GetAIBrain():GetCurrentUnits(M28UnitInfo.refCategorySkirmisher * iTechCategory)
-                            local iCurDFTankOfTech = oFactory:GetAIBrain():GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand * iTechCategory)
+                            local iCurDFOfTech = oFactory:GetAIBrain():GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand * iTechCategory)
 
                             -- Only consider skirmishers if we have a good direct-fire base (at least 2:1 ratio)
-                            if iCurDFTankOfTech >= iCurSkirmishersOfTech * 2 and iCurDFTankOfTech >= 6 then
+                            if iCurDFOfTech >= iCurSkirmishersOfTech * 2 and iCurDFOfTech >= 6 then
                                 -- We have a solid direct-fire core, can consider skirmishers
                                 iBaseCategoryWanted = M28UnitInfo.refCategorySkirmisher * iTechCategory
-                                if bDebugMessages == true then LOG(sFunctionRef..': Have solid direct-fire core (DF='..iCurDFTankOfTech..', Skirmishers='..iCurSkirmishersOfTech..'), can build skirmishers') end
+                                if bDebugMessages == true then LOG(sFunctionRef..': Have solid DF core (DF='..iCurDFOfTech..', Skirmishers='..iCurSkirmishersOfTech..'), can build skirmishers') end
                             else
                                 -- Keep building direct-fire units
-                                if bDebugMessages == true then LOG(sFunctionRef..': Need more direct-fire units before skirmishers (DF='..iCurDFTankOfTech..', Skirmishers='..iCurSkirmishersOfTech..')') end
+                                if bDebugMessages == true then LOG(sFunctionRef..': Need more DF units before skirmishers (DF='..iCurDFOfTech..', Skirmishers='..iCurSkirmishersOfTech..')') end
                             end
                         else
-                            -- No nearby enemies, can build some skirmishers if we have enough direct-fire
-                            local iCurDFTankOfTech = oFactory:GetAIBrain():GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand * iTechCategory)
-                            if iCurDFTankOfTech >= 4 then
+                            -- No nearby enemies, can build some skirmishers if we have enough direct-fire units
+                            local iCurDFOfTech = oFactory:GetAIBrain():GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand * iTechCategory)
+                            if iCurDFOfTech >= 4 then
                                 iBaseCategoryWanted = M28UnitInfo.refCategorySkirmisher * iTechCategory
                                 if bDebugMessages == true then LOG(sFunctionRef..': No nearby enemies and have enough DF units, can build skirmishers') end
                             end
