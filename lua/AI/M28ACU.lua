@@ -1526,6 +1526,40 @@ function GetUpgradePathForACU(oACU, bWantToDoTeleSnipe)
             oACU[reftPreferredUpgrades] = {'RateOfFire', 'BlastAttack', 'Teleporter'}
         else M28Utilities.ErrorHandler('Trying to do telesnipe without a cybran or seraphim ACU')
         end
+    --QUIET mod BlackOps ACU upgrade paths
+    elseif M28Utilities.bQuietModActive and oBP.Enhancements['EXCombatEngineering'] then
+        --QUIET uses BlackOps ACUs with different enhancement names
+        local bWantCombatPath = GetGameTimeSeconds() <= 1200 or M28Team.tTeamData[aiBrain.M28Team][M28Team.refbAssassinationOrSimilar] or M28Conditions.ACULikelyToWantCombatUpgradeOrShield(oACU)
+        if EntityCategoryContains(categories.UEF, oACU.UnitId) then
+            --UEF BlackOps ACU: Gatling path + Shield path
+            if bWantCombatPath then
+                oACU[reftPreferredUpgrades] = {'EXGattlingEnergyCannon', 'EXShieldBubble', 'EXImprovedCoolingSystem', 'EXActiveSkinShield', 'EXEnergyShellHardener', 'EXAdvancedSkinShield'}
+            else
+                oACU[reftPreferredUpgrades] = {'EXImprovedEngineering', 'EXAdvancedEngineering', 'EXShieldBubble', 'EXExperimentalEngineering', 'EXActiveSkinShield'}
+            end
+        elseif EntityCategoryContains(categories.AEON, oACU.UnitId) then
+            --Aeon BlackOps ACU: Beam path + Shield path
+            if bWantCombatPath then
+                oACU[reftPreferredUpgrades] = {'EXBeamPhason', 'EXShieldBubble', 'EXImprovedCoolingSystem', 'EXActiveSkinShield', 'EXPowerBooster', 'EXAdvancedSkinShield'}
+            else
+                oACU[reftPreferredUpgrades] = {'EXImprovedEngineering', 'EXAdvancedEngineering', 'EXShieldBubble', 'EXExperimentalEngineering', 'EXActiveSkinShield'}
+            end
+        elseif EntityCategoryContains(categories.CYBRAN, oACU.UnitId) then
+            --Cybran BlackOps ACU: Laser path + Stealth/Regen path
+            if bWantCombatPath then
+                oACU[reftPreferredUpgrades] = {'EXMasor', 'EXAgilityPackage', 'EXImprovedCoolingSystem', 'EXArmorPlating', 'EXAdvancedEmitterArray', 'EXRegenPackage'}
+            else
+                oACU[reftPreferredUpgrades] = {'EXImprovedEngineering', 'EXAdvancedEngineering', 'EXStealthField', 'EXExperimentalEngineering', 'EXCloakingSubsystems'}
+            end
+        elseif EntityCategoryContains(categories.SERAPHIM, oACU.UnitId) then
+            --Seraphim BlackOps ACU: Storm Cannon path + Lambda path
+            if bWantCombatPath then
+                oACU[reftPreferredUpgrades] = {'EXStormCannon', 'EXL1Lambda', 'EXStormCannonII', 'EXL2Lambda', 'EXStormCannonIII'}
+            else
+                oACU[reftPreferredUpgrades] = {'EXImprovedEngineering', 'EXAdvancedEngineering', 'EXL1Lambda', 'EXExperimentalEngineering', 'EXL2Lambda'}
+            end
+        end
+        if bDebugMessages == true then LOG(sFunctionRef..': QUIET BlackOps ACU path selected, bWantCombatPath='..tostring(bWantCombatPath)..'; upgrades='..repru(oACU[reftPreferredUpgrades])) end
         --Unusually cheap upgrades - get the best possible ones available
     elseif oBP.Enhancements.AdvancedEngineering.BuildCostMass <= 10 and oBP.Enhancements.ResourceAllocation.BuildCostMass <= 10 then
         if EntityCategoryContains(categories.UEF, oACU.UnitId) then
