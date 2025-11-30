@@ -2563,10 +2563,13 @@ function DoesACUWantToRun(iPlateau, iLandZone, tLZData, tLZTeamData, oACU)
                             end
                             if not(bWantToRun) then
                                 --Run if non-full share or last ACU, are past 15m in-game, mod dist is >=0.4, and we are far from base
-                                if bDebugMessages == true then LOG(sFunctionRef..': Considering if want to run when in assassination, moddist%='..(tLZTeamData[M28Map.refiModDistancePercent] or 'nil')..'; Upgrade count='..(oACU[refiUpgradeCount] or 'nil')..'; oACU='..(oACU.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oACU) or 'nil')..' owned by '..oACU:GetAIBrain().Nickname..'; iPercentageToFriendlyBase='..(iPercentageToFriendlyBase or 'nil')..'; iDistToFriendlyBase='..(iDistToFriendlyBase or 'nil')..'; M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]='..(M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] or 'nil')..'; M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech]='..(M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] or 'nil')..'; M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech]='..(M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] or 'nil')..'; Assassination='..tostring(M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar] or false)..'; Brain gross mass='..(oACU:GetAIBrain()[M28Economy.refiGrossMassBaseIncome] or 'nil')) end
-                                if tLZTeamData[M28Map.refiModDistancePercent] >= 0.35 + 0.04*(oACU[refiUpgradeCount] or 0) and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.toActiveSnipeTargets]) and iPercentageToFriendlyBase >= 0.35 and iDistToFriendlyBase >= (200 + 75 * (oACU[refiUpgradeCount] or 0)) and (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 3 or M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] >= 3 or M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3 or (GetGameTimeSeconds() >= 900 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] > 1)) and (not(M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar]) or oACU:GetAIBrain()[M28Economy.refiGrossMassBaseIncome] >= 25)
+                                --QUIET: Upgrades count double for aggression (QUIET upgrades are more powerful)
+                                local iEffectiveUpgradeCount = oACU[refiUpgradeCount] or 0
+                                if M28Utilities.bQuietModActive then iEffectiveUpgradeCount = iEffectiveUpgradeCount * 2 end
+                                if bDebugMessages == true then LOG(sFunctionRef..': Considering if want to run when in assassination, moddist%='..(tLZTeamData[M28Map.refiModDistancePercent] or 'nil')..'; Upgrade count='..(oACU[refiUpgradeCount] or 'nil')..'; iEffectiveUpgradeCount='..iEffectiveUpgradeCount..'; oACU='..(oACU.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oACU) or 'nil')..' owned by '..oACU:GetAIBrain().Nickname..'; iPercentageToFriendlyBase='..(iPercentageToFriendlyBase or 'nil')..'; iDistToFriendlyBase='..(iDistToFriendlyBase or 'nil')..'; M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]='..(M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] or 'nil')..'; M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech]='..(M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] or 'nil')..'; M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech]='..(M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] or 'nil')..'; Assassination='..tostring(M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar] or false)..'; Brain gross mass='..(oACU:GetAIBrain()[M28Economy.refiGrossMassBaseIncome] or 'nil')) end
+                                if tLZTeamData[M28Map.refiModDistancePercent] >= 0.35 + 0.04*iEffectiveUpgradeCount and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.toActiveSnipeTargets]) and iPercentageToFriendlyBase >= 0.35 and iDistToFriendlyBase >= (200 + 75 * iEffectiveUpgradeCount) and (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 3 or M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] >= 3 or M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3 or (GetGameTimeSeconds() >= 900 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] > 1)) and (not(M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar]) or oACU:GetAIBrain()[M28Economy.refiGrossMassBaseIncome] >= 25)
                                         --Exception - if enemy isnt at t3 land yet, and we have a mobile shield assigned to guncom ACU with full health
-                                        and (oACU[refiUpgradeCount] == 0 or M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] >= 3 or oACU:GetAIBrain()[M28Economy.refiGrossMassBaseIncome] >= 30 or tLZTeamData[M28Map.refiModDistancePercent] >= 0.6 or not(M28UnitInfo.IsUnitValid(oACU[M28Land.refoAssignedMobileShield])) or M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.97) then
+                                        and (iEffectiveUpgradeCount == 0 or M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] >= 3 or oACU:GetAIBrain()[M28Economy.refiGrossMassBaseIncome] >= 30 or tLZTeamData[M28Map.refiModDistancePercent] >= 0.6 or not(M28UnitInfo.IsUnitValid(oACU[M28Land.refoAssignedMobileShield])) or M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.97) then
                                     bWantToRun = true
                                     if bDebugMessages == true then LOG(sFunctionRef..': ACU owned by '..oACU:GetAIBrain().Nickname..' is getting a bit far from base so want to run, time='..GetGameTimeSeconds()) end
                                 end
@@ -7287,25 +7290,37 @@ function DoWeStillWantToBeAggressiveWithACU(oACU)
         else
             --If we are going all-in on T1 spam then want to be aggressive with ACU if it has a gun
             local tLZOrWZData, tLZOrWZTeamData = M28Map.GetLandOrWaterZoneData(oACU:GetPosition(), true, oACU:GetAIBrain().M28Team)
-            if oACU[refiUpgradeCount] > 0 and M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam) and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.7 and GetGameTimeSeconds() <= 1000 and tLZOrWZTeamData[M28Map.refiModDistancePercent] < 0.6 then
+            --QUIET: Upgrades count double for aggression decisions (QUIET upgrades are more powerful)
+            local iEffectiveUpgradeCount = oACU[refiUpgradeCount] or 0
+            if M28Utilities.bQuietModActive then iEffectiveUpgradeCount = iEffectiveUpgradeCount * 2 end
+            if iEffectiveUpgradeCount > 0 and M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam) and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.7 and GetGameTimeSeconds() <= 1000 and tLZOrWZTeamData[M28Map.refiModDistancePercent] < 0.6 then
                 --Will remain aggressive
+            --QUIET: Stay aggressive with 1+ upgrade regardless of other conditions (upgraded ACU is very strong)
+            elseif M28Utilities.bQuietModActive and iEffectiveUpgradeCount >= 2 and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.6 then
+                bStillBeAggressive = true
             elseif M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] >= 3 and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.9 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] < 3 and (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] or 0) < 3 and (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] or 0) < 2 and (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyNavyTech] or 0) < 2 and not(M28Team.tTeamData[iTeam][M28Team. refbAssassinationOrSimilar]) then
                 bStillBeAggressive = true --redundancy
             else
                 --If significant time elapsed then remove this flag
-                if GetGameTimeSeconds() >= 900 then
+                --QUIET: Extended time before removing aggression (1200 vs 900), and with 1+ upgrade stay aggressive even longer (1800)
+                --QUIET: Scale time threshold with upgrades - 1200s base, +450s per effective upgrade
+                local iTimeThreshold = M28Utilities.bQuietModActive and (1200 + iEffectiveUpgradeCount * 450) or 900
+                if GetGameTimeSeconds() >= iTimeThreshold then
                     bStillBeAggressive = false
                 else
                     local iThresholdFactor = 1 + ((M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1) - 1) * 0.25
+                    --QUIET: Upgrades increase the threshold factor (more upgrades = harder to lose aggression)
+                    if M28Utilities.bQuietModActive then iThresholdFactor = iThresholdFactor + iEffectiveUpgradeCount * 0.5 end
                     if tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim] > 350 then iThresholdFactor = iThresholdFactor + 0.4 end
                     if M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.3 then bStillBeAggressive = false
                     elseif aiBrain[M28Economy.refiGrossMassBaseIncome] >= 5 * iThresholdFactor or (aiBrain[M28Economy.refiOurHighestFactoryTechLevel] >= 2 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryEngineer + M28UnitInfo.refCategoryAllAir + M28UnitInfo.refCategoryLandCombat - categories.TECH1) >= 4) then
                         bStillBeAggressive = false
-                    elseif M28Map.iMapSize > 512 and tLZOrWZTeamData[M28Map.refiModDistancePercent] >= 0.4 then
+                    --QUIET: With upgrades, don't care about map distance (push far with upgraded ACU)
+                    elseif M28Map.iMapSize > 512 and tLZOrWZTeamData[M28Map.refiModDistancePercent] >= 0.4 and not(M28Utilities.bQuietModActive and iEffectiveUpgradeCount > 0) then
                         bStillBeAggressive = false
                     elseif not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]) then
                         bStillBeAggressive = false
-                    elseif M28Team.tTeamData[iTeam][M28Team.refbEnemyHasUpgradedACU] and (oACU[refiUpgradeCount] or 0) == 0 then
+                    elseif M28Team.tTeamData[iTeam][M28Team.refbEnemyHasUpgradedACU] and iEffectiveUpgradeCount == 0 then
                         bStillBeAggressive = false
                     elseif M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat) >= 50 * iThresholdFactor then
                         bStillBeAggressive = false
