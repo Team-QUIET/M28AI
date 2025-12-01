@@ -177,6 +177,12 @@ tTeamData = {} --[x] is the aiBrain.M28Team number - stores certain team-wide in
         subrefiNearbyPlateauAndLandZones = 'NrbyPLZ' --ordered 1, 2 etc. in order that added, returning {iPlateau, iLandZone} for any land zone that shoudl consider itself in range of the firebase in question
         subrefbInRangeOfCoreLZ = 'NearCLZ' --true if one of the land zones this firebase is likely in range of is a core land zone
         subrefiNearbyWaterZones = 'NrbyWZ' --ordered 1, 2, etc., returns iWaterZone
+    --Firebase bomber response tracking
+    refbHaveActiveFirebaseTarget = 'M28TeamHasFBTgt' --True if we have an active Firebase target for bombers
+    reftActiveFirebaseTarget = 'M28TeamFBTgt' --{iPlateau, iLandZone} of the current Firebase target for bombers
+    refiFirebaseBomberPriority = 'M28TeamFBBmbPri' --Priority level for Firebase bomber production (0=none, 1=low, 2=medium, 3=high)
+    refiTimeFirebaseDetected = 'M28TeamFBDetTime' --Gametimeseconds when Firebase was first detected for bomber response
+    refiFirebaseTotalThreat = 'M28TeamFBThreat' --Total threat value of the current Firebase target (T2 arti + shields + PD)
 
     --Land combat related
     subrefiLandZonesWantingSupportByPlateau = 'M28TeamLZWantingSupport' --[x] is the plateau ref, [y] is the land zone ref, returns true if we want support for the plateau
@@ -678,6 +684,11 @@ function CreateNewTeam(aiBrain)
     tTeamData[iTotalTeamCount][refiLastTimeNoMAATargetsByIsland] = {}
     tTeamData[iTotalTeamCount][refiEnemyHighestMobileLandHealth] = 300
     tTeamData[iTotalTeamCount][reftEnemyFirebaseByPlateauAndLZ] = {}
+    tTeamData[iTotalTeamCount][refbHaveActiveFirebaseTarget] = false
+    tTeamData[iTotalTeamCount][reftActiveFirebaseTarget] = nil
+    tTeamData[iTotalTeamCount][refiFirebaseBomberPriority] = 0
+    tTeamData[iTotalTeamCount][refiTimeFirebaseDetected] = nil
+    tTeamData[iTotalTeamCount][refiFirebaseTotalThreat] = 0
     tTeamData[iTotalTeamCount][reftEnemyTML] = {}
     tTeamData[iTotalTeamCount][reftEnemyLandExperimentals] = {}
     tTeamData[iTotalTeamCount][reftEnemyArtiAndExpStructure] = {}

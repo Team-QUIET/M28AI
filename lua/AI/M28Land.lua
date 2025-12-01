@@ -12644,6 +12644,86 @@ function RemoveEnemyFirebase(iTeam, iPlateau, iLandZone)
             end
         end
     end
+    --Update Firebase bomber priority after removal
+    UpdateFirebaseBomberPriority(iTeam)
+end
+
+function UpdateFirebaseBomberPriority(iTeam)
+    --Updates the Firebase bomber priority based on active Firebases
+    --Priority levels: 0=none, 1=low (1 Firebase), 2=medium (2+ Firebases), 3=high (Firebase near core base)
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
+    local sFunctionRef = 'UpdateFirebaseBomberPriority'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local iFirebaseCount = 0
+    local bNearCoreBase = false
+    local tBestFirebaseTarget = nil
+    local iBestFirebaseThreat = 0
+
+    --Count active Firebases and find the best target
+    for iPlateau, tPlateauData in M28Team.tTeamData[iTeam][M28Team.reftEnemyFirebaseByPlateauAndLZ] do
+        for iLandZone, tFirebaseData in tPlateauData do
+            if tFirebaseData then
+                iFirebaseCount = iFirebaseCount + 1
+                if tFirebaseData[M28Team.subrefbInRangeOfCoreLZ] then
+                    bNearCoreBase = true
+                end
+                --Calculate Firebase threat (T2 arti + shields + PD in the zone)
+                local tLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone]
+                if tLZData then
+                    local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
+                    if tLZTeamData and tLZTeamData[M28Map.subrefTEnemyUnits] then
+                        local iFirebaseThreat = 0
+                        local tFirebaseUnits = EntityCategoryFilterDown(M28UnitInfo.refCategoryFixedT2Arti + M28UnitInfo.refCategoryFixedShield + M28UnitInfo.refCategoryPD, tLZTeamData[M28Map.subrefTEnemyUnits])
+                        if M28Utilities.IsTableEmpty(tFirebaseUnits) == false then
+                            iFirebaseThreat = M28UnitInfo.GetMassCostOfUnits(tFirebaseUnits)
+                        end
+                        --Prioritize Firebases near core base, then by threat level
+                        if tFirebaseData[M28Team.subrefbInRangeOfCoreLZ] or iFirebaseThreat > iBestFirebaseThreat then
+                            if tFirebaseData[M28Team.subrefbInRangeOfCoreLZ] and (not tBestFirebaseTarget or not M28Team.tTeamData[iTeam][M28Team.reftEnemyFirebaseByPlateauAndLZ][tBestFirebaseTarget[1]][tBestFirebaseTarget[2]][M28Team.subrefbInRangeOfCoreLZ]) then
+                                tBestFirebaseTarget = {iPlateau, iLandZone}
+                                iBestFirebaseThreat = iFirebaseThreat
+                            elseif iFirebaseThreat > iBestFirebaseThreat and (not tBestFirebaseTarget or not M28Team.tTeamData[iTeam][M28Team.reftEnemyFirebaseByPlateauAndLZ][tBestFirebaseTarget[1]][tBestFirebaseTarget[2]][M28Team.subrefbInRangeOfCoreLZ]) then
+                                tBestFirebaseTarget = {iPlateau, iLandZone}
+                                iBestFirebaseThreat = iFirebaseThreat
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    --Set priority level
+    local iPriority = 0
+    if iFirebaseCount > 0 then
+        if bNearCoreBase then
+            iPriority = 3 --High priority - Firebase threatening core base
+        elseif iFirebaseCount >= 2 then
+            iPriority = 2 --Medium priority - multiple Firebases
+        else
+            iPriority = 1 --Low priority - single Firebase
+        end
+    end
+
+    --Update team data
+    M28Team.tTeamData[iTeam][M28Team.refiFirebaseBomberPriority] = iPriority
+    M28Team.tTeamData[iTeam][M28Team.refiFirebaseTotalThreat] = iBestFirebaseThreat
+
+    if tBestFirebaseTarget then
+        M28Team.tTeamData[iTeam][M28Team.refbHaveActiveFirebaseTarget] = true
+        M28Team.tTeamData[iTeam][M28Team.reftActiveFirebaseTarget] = tBestFirebaseTarget
+        if not M28Team.tTeamData[iTeam][M28Team.refiTimeFirebaseDetected] then
+            M28Team.tTeamData[iTeam][M28Team.refiTimeFirebaseDetected] = GetGameTimeSeconds()
+        end
+    else
+        M28Team.tTeamData[iTeam][M28Team.refbHaveActiveFirebaseTarget] = false
+        M28Team.tTeamData[iTeam][M28Team.reftActiveFirebaseTarget] = nil
+        M28Team.tTeamData[iTeam][M28Team.refiTimeFirebaseDetected] = nil
+    end
+
+    if bDebugMessages == true then LOG(sFunctionRef..': iTeam='..iTeam..'; iFirebaseCount='..iFirebaseCount..'; iPriority='..iPriority..'; iBestFirebaseThreat='..iBestFirebaseThreat..'; tBestFirebaseTarget='..reprs(tBestFirebaseTarget)) end
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
 function ConsiderIfHaveEnemyFirebase(iTeam, oT2Arti)
@@ -12702,6 +12782,8 @@ function ConsiderIfHaveEnemyFirebase(iTeam, oT2Arti)
             if bDebugMessages == true then LOG(sFunctionRef..': Will record firebase if havent already, is it nil for this plateau and zone='..tostring(M28Team.tTeamData[iTeam][M28Team.reftEnemyFirebaseByPlateauAndLZ][iPlateau][iLandZone] == nil)) end
             if not(M28Team.tTeamData[iTeam][M28Team.reftEnemyFirebaseByPlateauAndLZ][iPlateau][iLandZone]) then
                 RecordEnemyFirebase(iTeam, iPlateau, iLandZone)
+                --Update Firebase bomber priority after recording new Firebase
+                UpdateFirebaseBomberPriority(iTeam)
             end
         elseif M28Team.tTeamData[iTeam][M28Team.reftEnemyFirebaseByPlateauAndLZ][iPlateau][iLandZone] then
             --If we have recorded a firebase for this LZ then need to remove it

@@ -6075,6 +6075,48 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
                     end
                 end
 
+                --Firebase bomber response - prioritize bomber production when enemy Firebase detected - QUIET
+                iCurrentConditionToTry = iCurrentConditionToTry + 1
+                if M28Utilities.bQuietModActive and M28Team.tTeamData[iTeam][M28Team.refbHaveActiveFirebaseTarget] and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]) then
+                    local iFirebasePriority = M28Team.tTeamData[iTeam][M28Team.refiFirebaseBomberPriority] or 0
+                    local iFirebaseThreat = M28Team.tTeamData[iTeam][M28Team.refiFirebaseTotalThreat] or 0
+                    local iOurBomberThreat = M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurT1ToT3BomberThreat] or 0
+                    local iOurAirAAThreat = M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] or 0
+
+                    if bDebugMessages == true then LOG(sFunctionRef..': Firebase bomber response check, iFirebasePriority='..iFirebasePriority..'; iFirebaseThreat='..iFirebaseThreat..'; iOurBomberThreat='..iOurBomberThreat..'; iOurAirAAThreat='..iOurAirAAThreat) end
+
+                    --Scale bomber production based on Firebase priority and threat
+                    --Priority 3 (high) = Firebase near core base, need bombers urgently
+                    --Priority 2 (medium) = Multiple Firebases, need bombers
+                    --Priority 1 (low) = Single Firebase, build bombers if economically viable
+                    local iBomberThreatWanted = 0
+                    if iFirebasePriority >= 3 then
+                        iBomberThreatWanted = math.max(5000, iFirebaseThreat * 1.5) --Need significant bomber force for high priority
+                    elseif iFirebasePriority >= 2 then
+                        iBomberThreatWanted = math.max(3000, iFirebaseThreat * 1.0) --Need moderate bomber force
+                    elseif iFirebasePriority >= 1 then
+                        iBomberThreatWanted = math.max(2000, iFirebaseThreat * 0.75) --Need some bombers
+                    end
+
+                    --Only build bombers if we have adequate air superiority (at least 1:1 ratio with enemy air)
+                    local bHaveAdequateAirCover = iOurAirAAThreat >= 1000 or M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]
+
+                    if iOurBomberThreat < iBomberThreatWanted and bHaveAdequateAirCover then
+                        --Prefer T3 bombers if available, otherwise T2
+                        if iFactoryTechLevel >= 3 then
+                            if bDebugMessages == true then LOG(sFunctionRef..': Firebase response - building T3 strategic bombers, iOurBomberThreat='..iOurBomberThreat..'; iBomberThreatWanted='..iBomberThreatWanted) end
+                            if ConsiderBuildingCategory(iNormalBomberCategoryToBuild * categories.TECH3) then return sBPIDToBuild end
+                        elseif iFactoryTechLevel >= 2 then
+                            if bDebugMessages == true then LOG(sFunctionRef..': Firebase response - building T2 tactical bombers, iOurBomberThreat='..iOurBomberThreat..'; iBomberThreatWanted='..iBomberThreatWanted) end
+                            if ConsiderBuildingCategory(iNormalBomberCategoryToBuild * categories.TECH2) then return sBPIDToBuild end
+                        end
+                    elseif not bHaveAdequateAirCover and iFirebasePriority >= 2 then
+                        --Need air cover first before committing bombers to Firebase strike
+                        if bDebugMessages == true then LOG(sFunctionRef..': Firebase response - need air cover first, building ASFs') end
+                        if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirAA) then return sBPIDToBuild end
+                    end
+                end
+
                 --Naval air support: Mixed torpedo bomber + ASF production when navy is contested
                 iCurrentConditionToTry = iCurrentConditionToTry + 1
                 if M28Conditions.TeamHasContestedNavy(iTeam) then
