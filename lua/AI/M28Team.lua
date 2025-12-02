@@ -3051,6 +3051,21 @@ function ConsiderPriorityAirFactoryUpgrades(iM28Team)
                         end
                     end
                 end
+                --Rush T3 air factory if enemy has T3 air and we don't (tech disparity response)
+                if not(bWantUpgrade) and M28Conditions.ShouldRushT3AirForTechDisparity(iM28Team) then
+                    if bDebugMessages == true then LOG(sFunctionRef..': Enemy has T3 air tech disparity, rushing T3 air factory for ASF production') end
+                    for iBrain, oBrain in tTeamData[iM28Team][subreftoFriendlyActiveM28Brains] do
+                        if oBrain[M28Economy.refiOurHighestAirFactoryTech] == 2 then
+                            --Do we have any active air factory upgrades?
+                            bWantUpgrade = not(DoesBrainHaveActiveHQUpgradesOfCategory(oBrain, M28UnitInfo.refCategoryAirHQ))
+                            if bDebugMessages == true then LOG(sFunctionRef..': Tech disparity T3 rush - bWantUpgrade='..tostring(bWantUpgrade)..'; Brain='..oBrain.Nickname) end
+                            if bWantUpgrade then
+                                --Rush upgrade with minimal unit build requirement (only 2 units needed) - urgent response to tech rush
+                                M28Economy.FindAndUpgradeUnitOfCategory(oBrain, M28UnitInfo.refCategoryAirHQ * categories.TECH2, 2)
+                            end
+                        end
+                    end
+                end
                 if not(bWantUpgrade) then
                     --Prioritise air fac if we already have T2 land and at least 4 mass per tick and 70 power per tick, or if we have 6 mass and 100 power, provided no current HQ upgrades
                     if bDebugMessages == true then LOG(sFunctionRef..': Our highest tech level='..tTeamData[iM28Team][subrefiHighestFriendlyAirFactoryTech]..'; Enemy highest tech='..tTeamData[iM28Team][subrefiHighestEnemyAirTech]..'; Gross energy='..tTeamData[iM28Team][subrefiTeamGrossEnergy]..'; Highest resource mult='.. tTeamData[iM28Team][refiHighestBrainResourceMultiplier]..'; Team T2+ engi lifetime count='..M28Conditions.GetTeamLifetimeBuildCount(iM28Team, M28UnitInfo.refCategoryEngineer - categories.TECH1)) end

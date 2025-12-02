@@ -1824,6 +1824,23 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         if ConsiderBuildingCategory(M28UnitInfo.refCategoryMAA - categories.TECH3) then return sBPIDToBuild end
     end
 
+    --Emergency AA production when facing T3 air tech disparity (tech rush response)
+    --This is a high priority check that triggers when enemy has T3 air and we lack adequate AA coverage
+    iCurrentConditionToTry = iCurrentConditionToTry + 1
+    if bDebugMessages == true then LOG(sFunctionRef..': Checking emergency AA for T3 air tech disparity, ShouldPrioritizeEmergencyAA='..tostring(M28Conditions.ShouldPrioritizeEmergencyAA(iTeam))..'; iFactoryTechLevel='..iFactoryTechLevel..'; bDontConsiderBuildingMAA='..tostring(bDontConsiderBuildingMAA)) end
+    if M28Conditions.ShouldPrioritizeEmergencyAA(iTeam) and iFactoryTechLevel >= 2 then
+        --Prioritize T2/T3 MAA production when facing T3 air threat with inadequate AA coverage
+        --This overrides the normal bDontConsiderBuildingMAA flag since this is an emergency response
+        local iMAACategory = M28UnitInfo.refCategoryMAA
+        if M28Conditions.WantT3MAAInsteadOfT2(oFactory, iTeam) then
+            iMAACategory = M28UnitInfo.refCategoryMAA * categories.TECH3
+        else
+            iMAACategory = M28UnitInfo.refCategoryMAA - categories.TECH1
+        end
+        if bDebugMessages == true then LOG(sFunctionRef..': Emergency AA production triggered - building MAA to counter T3 air tech disparity') end
+        if ConsiderBuildingCategory(iMAACategory) then return sBPIDToBuild end
+    end
+
     --Engineers for transport - build engineers as high priority if no enemies in this zone and no nearby long range threats
     iCurrentConditionToTry = iCurrentConditionToTry + 1
     if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoTransportsWaitingForUnits]) == false and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftLZEnemyAirUnits]) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTEnemyUnits]) and ((tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 0) == 0 or iFactoryTechLevel == 1) then

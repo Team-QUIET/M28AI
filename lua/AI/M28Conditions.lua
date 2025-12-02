@@ -1508,6 +1508,97 @@ function ShouldRushT3AirForNaval(iTeam)
     return true
 end
 
+function ShouldRushT3AirForTechDisparity(iTeam)
+    --Returns true if we should prioritize rushing T3 air factory due to enemy having T3 air while we don't
+    --This is a more aggressive response than the normal upgrade logic, designed to counter tech rushing
+    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'ShouldRushT3AirForTechDisparity'
+
+    --Already have T3 air factory - no need to rush
+    if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] >= 3 then
+        return false
+    end
+
+    --Need at least T2 air factory to upgrade
+    if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] < 2 then
+        return false
+    end
+
+    --Enemy doesn't have T3 air - no tech disparity
+    if M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] < 3 then
+        return false
+    end
+
+    --Check if enemy has significant T3 air threat (not just 1 scout or similar)
+    --Use the early T3 air flag or check actual threat levels
+    local bSignificantT3AirThreat = false
+    if M28Team.tTeamData[iTeam][M28Team.refbEnemyEarlyT3AirSpottedRecently] then
+        bSignificantT3AirThreat = true
+    end
+
+    if not bSignificantT3AirThreat then
+        return false
+    end
+
+    --Check economic constraints - need positive mass trend and not severely stalling
+    if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] < 0.1 then
+        return false
+    end
+
+    --Need reasonable economy to support T3 air production (lower threshold than naval rush since this is more urgent)
+    if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0) < 5 then
+        return false
+    end
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Returning true - enemy has T3 air tech disparity, rushing T3 air factory') end
+    return true
+end
+
+function ShouldPrioritizeEmergencyAA(iTeam)
+    --Returns true if we should prioritize building ground AA and mobile AA due to T3 air threat
+    --This is triggered when enemy has T3 air-to-ground units and we lack adequate AA coverage
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'ShouldPrioritizeEmergencyAA'
+
+    --Check if enemy has early T3 air threat
+    if not M28Team.tTeamData[iTeam][M28Team.refbEnemyEarlyT3AirSpottedRecently] then
+        --Also check for significant T3 air-to-ground threat even if flag expired
+        if M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] < 3 then
+            return false
+        end
+        if M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] < 1000 then
+            return false
+        end
+    end
+
+    --Check if we already have adequate AA coverage
+    --Compare our ground AA threat to enemy air-to-ground threat
+    local iOurGroundAAThreat = 0
+    if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subrefAirSubteamsInTeam]) == false then
+        for iEntry, iAirSubteam in M28Team.tTeamData[iTeam][M28Team.subrefAirSubteamsInTeam] do
+            iOurGroundAAThreat = iOurGroundAAThreat + (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] or 0)
+        end
+    end
+
+    local iEnemyAirToGroundThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0
+
+    --If our AA threat is less than 50% of enemy air-to-ground threat, we need more AA
+    if iOurGroundAAThreat >= iEnemyAirToGroundThreat * 0.5 then
+        return false
+    end
+
+    --Also check if we have T3 air ourselves - if so, less urgent need for ground AA
+    if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] >= 3 then
+        --We have T3 air, so can produce ASF - less urgent need for emergency AA
+        if iOurGroundAAThreat >= iEnemyAirToGroundThreat * 0.25 then
+            return false
+        end
+    end
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Returning true - need emergency AA, our AA='..iOurGroundAAThreat..'; enemy air-to-ground='..iEnemyAirToGroundThreat) end
+    return true
+end
+
 function ZoneWantsT1Spam(tLZTeamData, iTeam)
     local bWantT1Spam = false
     if M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam] then
