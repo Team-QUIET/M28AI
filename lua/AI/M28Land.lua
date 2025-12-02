@@ -12743,7 +12743,7 @@ function ConsiderIfHaveEnemyFirebase(iTeam, oT2Arti)
         if bDebugMessages == true then LOG(sFunctionRef..': Is table of all T2 arti for this zone empty='..tostring(M28Utilities.IsTableEmpty(tAllT2Arti))) end
         if M28Utilities.IsTableEmpty(tAllT2Arti) == false then
             if bDebugMessages == true then LOG(sFunctionRef..': Table size='.. table.getn(tAllT2Arti)) end
-            if (M28Utilities.bQuietModActive and table.getn(tAllT2Arti) >= 4) or (not(M28Utilities.bQuietModActive) and table.getn(tAllT2Arti) >= 3) then
+            if table.getn(tAllT2Arti) >= 3 then
                 bHaveFirebase = true
             else
                 local iConstructedT2Arti = 0
