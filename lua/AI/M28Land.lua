@@ -12741,7 +12741,37 @@ function ConsiderIfHaveEnemyFirebase(iTeam, oT2Arti)
         local tArtiLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][iTeam]
         local tAllT2Arti = EntityCategoryFilterDown(M28UnitInfo.refCategoryFixedT2Arti, tArtiLZTeamData[M28Map.subrefTEnemyUnits])
         if bDebugMessages == true then LOG(sFunctionRef..': Is table of all T2 arti for this zone empty='..tostring(M28Utilities.IsTableEmpty(tAllT2Arti))) end
-        if M28Utilities.IsTableEmpty(tAllT2Arti) == false then
+
+        --QUIET mod: Additional firebase detection for heavily fortified T3 defensive positions
+        if M28Utilities.bQuietModActive and not(bHaveFirebase) then
+            local tEnemyUnits = tArtiLZTeamData[M28Map.subrefTEnemyUnits]
+            if M28Utilities.IsTableEmpty(tEnemyUnits) == false then
+                --Check for T3 PD (1 or more triggers firebase)
+                local tT3PD = EntityCategoryFilterDown(M28UnitInfo.refCategoryT3PD, tEnemyUnits)
+                if M28Utilities.IsTableEmpty(tT3PD) == false then
+                    bHaveFirebase = true
+                    if bDebugMessages == true then LOG(sFunctionRef..': QUIET mod - Firebase detected due to T3 PD count='..table.getn(tT3PD)) end
+                end
+                --Check for T3 artillery (refCategoryFixedT2Arti includes T3 size 8 arti, so filter for TECH3)
+                if not(bHaveFirebase) then
+                    local tT3Arti = EntityCategoryFilterDown(M28UnitInfo.refCategoryFixedT2Arti * categories.TECH3, tEnemyUnits)
+                    if M28Utilities.IsTableEmpty(tT3Arti) == false then
+                        bHaveFirebase = true
+                        if bDebugMessages == true then LOG(sFunctionRef..': QUIET mod - Firebase detected due to T3 artillery count='..table.getn(tT3Arti)) end
+                    end
+                end
+                --Check for significant T2+ PD presence (3 or more T2+ PD even without artillery)
+                if not(bHaveFirebase) then
+                    local tT2PlusPD = EntityCategoryFilterDown(M28UnitInfo.refCategoryT2PlusPD, tEnemyUnits)
+                    if M28Utilities.IsTableEmpty(tT2PlusPD) == false and table.getn(tT2PlusPD) >= 3 then
+                        bHaveFirebase = true
+                        if bDebugMessages == true then LOG(sFunctionRef..': QUIET mod - Firebase detected due to significant T2+ PD count='..table.getn(tT2PlusPD)) end
+                    end
+                end
+            end
+        end
+
+        if M28Utilities.IsTableEmpty(tAllT2Arti) == false and not(bHaveFirebase) then
             if bDebugMessages == true then LOG(sFunctionRef..': Table size='.. table.getn(tAllT2Arti)) end
             if table.getn(tAllT2Arti) >= 3 then
                 bHaveFirebase = true
