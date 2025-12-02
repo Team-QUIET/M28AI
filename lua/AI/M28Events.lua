@@ -2410,7 +2410,7 @@ function OnConstructed(oEngineer, oJustBuilt)
                         --If this is a cheap experimental then only count as partial experimental
                         local iExpMassCost = M28UnitInfo.GetUnitMassCost(oJustBuilt)
                         if iExpMassCost <= 50000 and EntityCategoryContains(M28UnitInfo.refCategoryT2PlusPD, oJustBuilt.UnitId) then
-                            M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] = M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] + 0.2
+                            M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] = M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] + (M28Utilities.bQuietModActive and 0.1 or 0.2)
                         elseif iExpMassCost <= 50000 and EntityCategoryContains(M28UnitInfo.refCategoryFixedShield, oJustBuilt.UnitId) then
                             M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] = M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] + 0.35
                         elseif iExpMassCost < 20000 then

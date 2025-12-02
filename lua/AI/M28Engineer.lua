@@ -2334,6 +2334,11 @@ function BuildStructureNearLocation(aiBrain, oEngineer, iCategoryToBuild, iMaxAr
         local iDistanceFromStart = M28Utilities.GetDistanceBetweenPositions(oEngineer:GetPosition(), M28Map.PlayerStartPoints[aiBrain:GetArmyIndex()])
         local bBuildNearToEnemy = false
         if iDistanceFromStart <= 80 then bBuildNearToEnemy = true end
+        --QUIET mod: Build experimental PD more forward/aggressively alongside other PD instead of in rear
+        if M28Utilities.bQuietModActive and EntityCategoryContains(M28UnitInfo.refCategoryPD * categories.EXPERIMENTAL, sBlueprintToBuild) then
+            bBuildNearToEnemy = true
+            if bDebugMessages == true then LOG(sFunctionRef..': QUIET mod - forcing T4 PD to build near enemy for aggressive placement') end
+        end
 
         --Check we're not trying to buidl a mex or hydro or mass storage or mass fab
         local bMexHydroOrStorage = false
@@ -3084,7 +3089,18 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
 
             --QUIET and LOUD (or FAF mods that give experimental PD) - consider experimental PD if dont have already
             if bDebugMessages == true then LOG(sFunctionRef..': Considering whether to get experimental PD or AA, bHaveAllFactionExpPD='..tostring(M28Building.bHaveAllFactionExpPD)..'; M28Building.bHaveAllFactionExperimentalSAM='..tostring(M28Building.bHaveAllFactionExperimentalSAM)..'; refiEnemyMobileDFThreatNearOurSide='..M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide]..'; tLZOrWZTeamData[M28Map.subrefMexCountByTech][3]='..tLZOrWZTeamData[M28Map.subrefMexCountByTech][3]..'; bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats='..tostring(bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats)..'; tLZOrWZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]='..tLZOrWZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]..'; Far behind on air='..tostring(M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbFarBehindOnAir])..'; Enemy air to ground threat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]..'; tLZOrWZData[M28Map.subrefLZOrWZMexCount]='..tLZOrWZData[M28Map.subrefLZOrWZMexCount]) end
-            if M28Building.bHaveAllFactionExpPD and (bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats or M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] >= 30000 or (aiBrain[M28Overseer.refbPrioritiseDefence] and M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] >= 10000))  and not(tLZOrWZTeamData[M28Map.refbBaseInSafePosition]) and (aiBrain[M28Overseer.refbPrioritiseDefence] or M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] >= 10000) and (aiBrain[M28Overseer.refbPrioritiseDefence] or (tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] >= math.max(2, math.min(4, tLZOrWZData[M28Map.subrefLZOrWZMexCount])) and (tLZOrWZTeamData[M28Map.subrefLZbCoreBase] or (tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] >= 4 and M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] >= 40000)))) then
+            --QUIET mod: Significantly reduce T4 PD priority - require experimental production parity with enemies before considering T4 PD
+            local bQuietT4PDAllowed = true
+            if M28Utilities.bQuietModActive then
+                local iEnemyExpCount = table.getn(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]) + table.getn(M28Team.tTeamData[iTeam][M28Team.reftEnemyAirExperimentals])
+                local iFriendlyExpCount = M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount]
+                --Only allow T4 PD if we have built at least as many experimentals as enemies have, and have built at least 2 experimentals
+                if iFriendlyExpCount < iEnemyExpCount or iFriendlyExpCount < 2 then
+                    bQuietT4PDAllowed = false
+                    if bDebugMessages == true then LOG(sFunctionRef..': QUIET mod blocking T4 PD - behind on experimentals. iFriendlyExpCount='..iFriendlyExpCount..'; iEnemyExpCount='..iEnemyExpCount) end
+                end
+            end
+            if bQuietT4PDAllowed and M28Building.bHaveAllFactionExpPD and (bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats or M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] >= (M28Utilities.bQuietModActive and 60000 or 30000) or (aiBrain[M28Overseer.refbPrioritiseDefence] and M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] >= (M28Utilities.bQuietModActive and 30000 or 10000)))  and not(tLZOrWZTeamData[M28Map.refbBaseInSafePosition]) and (aiBrain[M28Overseer.refbPrioritiseDefence] or M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] >= (M28Utilities.bQuietModActive and 30000 or 10000)) and (aiBrain[M28Overseer.refbPrioritiseDefence] or (tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] >= math.max(2, math.min(4, tLZOrWZData[M28Map.subrefLZOrWZMexCount])) and (tLZOrWZTeamData[M28Map.subrefLZbCoreBase] or (tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] >= 4 and M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] >= (M28Utilities.bQuietModActive and 80000 or 40000))))) then
                 local iFriendlyPDThreat = 0
                 if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefLZThreatAllyStructureDFByRange]) == false then
                     for iRange, iThreat in tLZOrWZTeamData[M28Map.subrefLZThreatAllyStructureDFByRange] do
@@ -3092,10 +3108,14 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                     end
                 end
                 if bDebugMessages == true then LOG(sFunctionRef..': iFriendlyPDThreat='..iFriendlyPDThreat..'; Enemy land threat near our side='..M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide]) end
-                if iFriendlyPDThreat < 30000 or (aiBrain[M28Overseer.refbPrioritiseDefence] and iFriendlyPDThreat < math.max(60000, M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] * 0.7) and (bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats or iFriendlyPDThreat < M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] * 0.5)) then
+                --QUIET mod: Raise friendly PD threat thresholds significantly to reduce T4 PD spam
+                local iMinPDThreatForT4PD = M28Utilities.bQuietModActive and 60000 or 30000
+                local iMaxPDThreatForMoreT4PD = M28Utilities.bQuietModActive and 200000 or 100000
+                local iSecondaryPDThreatThreshold = M28Utilities.bQuietModActive and 90000 or 45000
+                if iFriendlyPDThreat < iMinPDThreatForT4PD or (aiBrain[M28Overseer.refbPrioritiseDefence] and iFriendlyPDThreat < math.max(60000, M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] * 0.7) and (bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats or iFriendlyPDThreat < M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] * 0.5)) then
                     iCategoryWanted = M28UnitInfo.refCategoryPD * categories.EXPERIMENTAL
                     if bDebugMessages == true then LOG(sFunctionRef..': will get long ranged PD') end
-                elseif iFriendlyPDThreat < M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] and (iFriendlyPDThreat < 100000 or aiBrain[M28Overseer.refbPrioritiseDefence]) and (iFriendlyPDThreat < 45000 or tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) then
+                elseif iFriendlyPDThreat < M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] and (iFriendlyPDThreat < iMaxPDThreatForMoreT4PD or aiBrain[M28Overseer.refbPrioritiseDefence]) and (iFriendlyPDThreat < iSecondaryPDThreatThreshold or tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) then
                     iCategoryWanted = M28UnitInfo.refCategoryPD * categories.EXPERIMENTAL
                     if bDebugMessages == true then LOG(sFunctionRef..': will get more long ranged PD') end
                 end
