@@ -2060,6 +2060,11 @@ function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAl
                                 RecordEnemyT2ArtiAgainstNearbyZones(aiBrain.M28Team, oUnit)
                             end
 
+                            --QUIET mod: Check for firebase when detecting T2+ PD or T3 PD
+                            if M28Utilities.bQuietModActive and EntityCategoryContains(M28UnitInfo.refCategoryT2PlusPD, oUnit.UnitId) then
+                                M28Land.ConsiderIfHaveEnemyFirebase(aiBrain.M28Team, oUnit)
+                            end
+
                             --Track potential TML targets and TMD for decision on whether to build TML (TML target selection uses more precise approach
                             if EntityCategoryContains(M28UnitInfo.refCategoryTMD * categories.STRUCTURE, oUnit.UnitId) then
                                 local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnit:GetPosition())

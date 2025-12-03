@@ -250,6 +250,10 @@ function OnKilled(oUnitKilled, instigator, type, overkillRatio)
                             local iTeam = oUnitKilled:GetAIBrain().M28Team
                             --Tracking for certain units that are killed - T2 arti and gunships:
                             if EntityCategoryContains(M28UnitInfo.refCategoryFixedT2Arti, oKillerUnit.UnitId) then M28Land.ConsiderIfHaveEnemyFirebase(iTeam, oKillerUnit) end
+                            --QUIET mod: Also check for firebase when killed by T3 PD or T2+ PD
+                            if M28Utilities.bQuietModActive and EntityCategoryContains(M28UnitInfo.refCategoryT2PlusPD, oKillerUnit.UnitId) then
+                                M28Land.ConsiderIfHaveEnemyFirebase(iTeam, oKillerUnit)
+                            end
                             --Track non-experimental air units
                             if EntityCategoryContains(M28UnitInfo.refCategoryGunship + M28UnitInfo.refCategoryBomber - M28UnitInfo.refCategoryTorpBomber - categories.EXPERIMENTAL, oUnitKilled.UnitId) then
                                 if EntityCategoryContains(M28UnitInfo.refCategoryBomber, oUnitKilled.UnitId) then

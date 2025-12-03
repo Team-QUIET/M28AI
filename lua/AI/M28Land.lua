@@ -12768,6 +12768,20 @@ function ConsiderIfHaveEnemyFirebase(iTeam, oT2Arti)
                         if bDebugMessages == true then LOG(sFunctionRef..': QUIET mod - Firebase detected due to significant T2+ PD count='..table.getn(tT2PlusPD)) end
                     end
                 end
+                --Check for any high veteran T2+ PD or T2+ artillery (vet level 2+ triggers firebase regardless of count)
+                if not(bHaveFirebase) then
+                    local tT2PlusDefense = EntityCategoryFilterDown(M28UnitInfo.refCategoryT2PlusPD + M28UnitInfo.refCategoryFixedT2Arti, tEnemyUnits)
+                    if M28Utilities.IsTableEmpty(tT2PlusDefense) == false then
+                        for iUnit, oUnit in tT2PlusDefense do
+                            local iVetLevel = (oUnit.VeteranLevel or oUnit.Sync.VeteranLevel or 0)
+                            if iVetLevel >= 2 then
+                                bHaveFirebase = true
+                                if bDebugMessages == true then LOG(sFunctionRef..': QUIET mod - Firebase detected due to high vet unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; VetLevel='..iVetLevel) end
+                                break
+                            end
+                        end
+                    end
+                end
             end
         end
 
