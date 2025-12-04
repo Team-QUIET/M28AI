@@ -5769,13 +5769,13 @@ function ManageBombers(iTeam, iAirSubteam)
                     local iFirebasePriority = M28Team.tTeamData[iTeam][M28Team.refiFirebaseBomberPriority] or 1
 
                     --Minimum bombers needed scales with threat - build up a massive strike package
-                    local iMinBombersForStrike = 10
+                    local iMinBombersForStrike = 5
                     if iFirebasePriority >= 3 then
-                        iMinBombersForStrike = math.max(20, math.min(100, 10 + math.floor(iFirebaseThreat / 50)))
+                        iMinBombersForStrike = math.max(15, math.min(100, 15 + math.floor(iFirebaseThreat / 125)))
                     elseif iFirebasePriority >= 2 then
-                        iMinBombersForStrike = math.max(15, math.min(75, 8 + math.floor(iFirebaseThreat / 60)))
+                        iMinBombersForStrike = math.max(10, math.min(75, 10 + math.floor(iFirebaseThreat / 175)))
                     else
-                        iMinBombersForStrike = math.max(10, math.min(50, 6 + math.floor(iFirebaseThreat / 80)))
+                        iMinBombersForStrike = math.max(5, math.min(50, 5 + math.floor(iFirebaseThreat / 250)))
                     end
 
                     local iAvailableBomberCount = M28Utilities.IsTableEmpty(tAvailableBombers) and 0 or table.getn(tAvailableBombers)
