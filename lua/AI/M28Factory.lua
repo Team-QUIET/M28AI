@@ -5248,8 +5248,14 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
 
         --Torp bomber if LC is <=2 and enemy has torp threat
         iCurrentConditionToTry = iCurrentConditionToTry + 1
-        if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbNoAvailableTorpsForEnemies] and M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurTorpBomberThreat] < 400 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTorpBomber) < 2 then
-            if bDebugMessages == true then LOG(sFunctionRef..': Wnat a torp bomber') end
+        local iTorpBomberThreatThreshold = 400
+        local iTorpBomberLCThreshold = 2
+        if M28Utilities.bQuietModActive then
+            iTorpBomberThreatThreshold = 1200
+            iTorpBomberLCThreshold = 4
+        end
+        if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbNoAvailableTorpsForEnemies] and M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurTorpBomberThreat] < iTorpBomberThreatThreshold and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTorpBomber) < iTorpBomberLCThreshold then
+            if bDebugMessages == true then LOG(sFunctionRef..': Want a torp bomber') end
             if ConsiderBuildingCategory(M28UnitInfo.refCategoryTorpBomber) then return sBPIDToBuild end
         end
 
@@ -5559,7 +5565,13 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
 
         --Torp bomber if LC is <=2 and enemy has torp threat
         iCurrentConditionToTry = iCurrentConditionToTry + 1
-        if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbNoAvailableTorpsForEnemies] and M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurTorpBomberThreat] < 400 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTorpBomber) < 2 then
+        local iTorpBomberThreatThreshold2 = 400
+        local iTorpBomberLCThreshold2 = 2
+        if M28Utilities.bQuietModActive then
+            iTorpBomberThreatThreshold2 = 1200
+            iTorpBomberLCThreshold2 = 4
+        end
+        if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbNoAvailableTorpsForEnemies] and M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurTorpBomberThreat] < iTorpBomberThreatThreshold2 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTorpBomber) < iTorpBomberLCThreshold2 then
             if ConsiderBuildingCategory(M28UnitInfo.refCategoryTorpBomber) then return sBPIDToBuild end
         end
 
@@ -6696,10 +6708,17 @@ function GetBlueprintToBuildForNavalFactory(aiBrain, oFactory)
         iCombatCategory = M28UnitInfo.refCategoryFrigate
         if iCurFrigates >= 75 then
             bConsiderBuildingMoreCombat = false
-            --Consider building subs instead early on
+            --Consider building subs instead early on - but prioritize frigates more heavily
         elseif (M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] or 0) == 0 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] < 3 and M28Team.tTeamData[iTeam][M28Team.subrefiLowestFriendlyNavalFactoryTech] < 3 then
             local iSubLC = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategorySubmarine)
-            if iSubLC <= 6 or (iSubLC <= 12 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] < 2 and M28Team.tTeamData[iTeam][M28Team.subrefiLowestFriendlyNavalFactoryTech] < 2) then
+            local iFrigateLC = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryFrigate)
+            local iSubLimit = 4
+            local iSubLimitExtended = 8
+            if M28Utilities.bQuietModActive then
+                iSubLimit = 3
+                iSubLimitExtended = 6
+            end
+            if (iSubLC <= iSubLimit or (iSubLC <= iSubLimitExtended and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] < 2 and M28Team.tTeamData[iTeam][M28Team.subrefiLowestFriendlyNavalFactoryTech] < 2)) and iFrigateLC >= iSubLC * 2 then
                 --Check no nearby hover
                 local bNearbyHover = tWZTeamData[M28Map.subrefbWZOnlyHoverEnemies]
 
@@ -6717,7 +6736,7 @@ function GetBlueprintToBuildForNavalFactory(aiBrain, oFactory)
                     if bDebugMessages == true then LOG(sFunctionRef..': will have subs as our main combat unit not frigates') end
                 end
             end
-            if bDebugMessages == true then LOG(sFunctionRef..' Cnosidering if want to build subs as main combat category instead of frigates, iSubLC='..iSubLC..'; iCurFrigates='..iCurFrigates) end
+            if bDebugMessages == true then LOG(sFunctionRef..' Cnosidering if want to build subs as main combat category instead of frigates, iSubLC='..iSubLC..'; iCurFrigates='..iCurFrigates..'; iFrigateLC='..iFrigateLC) end
         else
             if bDebugMessages == true then LOG(sFunctionRef..' Combat category is to just build frigates') end
         end
@@ -6725,8 +6744,15 @@ function GetBlueprintToBuildForNavalFactory(aiBrain, oFactory)
         local iCurDestroyer = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryDestroyer)
         local iCurCruiser = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryCruiser)
         local iCurT3Surface = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryNavalSurface * categories.TECH3)
-
-        if iCurFrigates < 75 and not(aiBrain[M28Overseer.refbCloseToUnitCap]) and iCurDestroyer > 0 and iCurFrigates < iCurDestroyer * 4 + iCurCruiser * 2 + iCurT3Surface * 5 then
+        local iFrigatePerDestroyerRatio = 4
+        local iFrigatePerCruiserRatio = 2
+        local iFrigatePerT3Ratio = 5
+        if M28Utilities.bQuietModActive then
+            iFrigatePerDestroyerRatio = 8
+            iFrigatePerCruiserRatio = 4
+            iFrigatePerT3Ratio = 6
+        end
+        if iCurFrigates < 75 and not(aiBrain[M28Overseer.refbCloseToUnitCap]) and iCurDestroyer > 0 and iCurFrigates < iCurDestroyer * iFrigatePerDestroyerRatio + iCurCruiser * iFrigatePerCruiserRatio + iCurT3Surface * iFrigatePerT3Ratio then
             iCombatCategory = M28UnitInfo.refCategoryFrigate
             if bDebugMessages == true then LOG(sFunctionRef..' Combat category is to build frigates instead of destroyers') end
         else
@@ -6885,6 +6911,30 @@ function GetBlueprintToBuildForNavalFactory(aiBrain, oFactory)
         end
     end
 
+    --Frigate screening for T2/T3 factories - build frigates if we don't have enough to screen our destroyers/capital ships
+    iCurrentConditionToTry = iCurrentConditionToTry + 1
+    if iFactoryTechLevel >= 2 and not(aiBrain[M28Overseer.refbCloseToUnitCap]) then
+        local iCurDestroyerCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryDestroyer)
+        local iCurCruiserCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryCruiser)
+        local iCurBattleshipCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryBattleship)
+        local iCurBattlecruiserCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryBattlecruiser)
+        --Calculate frigates needed based on capital ship counts
+        local iFrigatePerDestroyerRatio = 4
+        local iFrigatePerCruiserRatio = 2
+        local iFrigatePerCapitalRatio = 5
+        if M28Utilities.bQuietModActive then
+            iFrigatePerDestroyerRatio = 6
+            iFrigatePerCruiserRatio = 3
+            iFrigatePerCapitalRatio = 6
+        end
+        local iFrigatesNeeded = iCurDestroyerCount * iFrigatePerDestroyerRatio + iCurCruiserCount * iFrigatePerCruiserRatio + (iCurBattleshipCount + iCurBattlecruiserCount) * iFrigatePerCapitalRatio
+        if bDebugMessages == true then LOG(sFunctionRef..': Frigate screening check - iCurFrigates='..iCurFrigates..'; iFrigatesNeeded='..iFrigatesNeeded..'; Destroyers='..iCurDestroyerCount..'; Cruisers='..iCurCruiserCount..'; Battleships='..iCurBattleshipCount..'; Battlecruisers='..iCurBattlecruiserCount) end
+        if iCurFrigates < 75 and iCurFrigates < iFrigatesNeeded and (iCurDestroyerCount > 0 or iCurBattleshipCount > 0 or iCurBattlecruiserCount > 0) then
+            if bDebugMessages == true then LOG(sFunctionRef..': Need more frigates for screening, will try to build') end
+            if ConsiderBuildingCategory(M28UnitInfo.refCategoryFrigate) then return sBPIDToBuild end
+        end
+    end
+
     --Have at least 1 of the current combat category unit
     iCurrentConditionToTry = iCurrentConditionToTry + 1
     if bDebugMessages == true then
@@ -6899,10 +6949,26 @@ function GetBlueprintToBuildForNavalFactory(aiBrain, oFactory)
 
     --Upgrade naval fac as priority if enemy has better navy tech than us or we ahve lots of naval units, or are at T1 and enemy has torps; also in high mass scenarios where we already have T3 navy
     iCurrentConditionToTry = iCurrentConditionToTry + 1
-    if bDebugMessages == true then LOG(sFunctionRef .. ': iCurrentConditionToTry=' .. iCurrentConditionToTry .. '; About ot check if want to upgrade factory, iFactoryTechLevel=' .. iFactoryTechLevel .. '; Is table of active upgrades for WZ empty=' .. tostring(M28Utilities.IsTableEmpty(tWZTeamData[M28Map.subreftoActiveUpgrades]))..'; Are we stalling mass='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass])..'; Does this brain have active naval upgrade='..tostring(M28Team.DoesBrainHaveActiveHQUpgradesOfCategory(aiBrain, M28UnitInfo.refCategoryNavalFactory))..'; Highest enemy naval tech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyNavyTech]..'; Build count='..oFactory[refiTotalBuildCount]..'; Brain gross mass='..aiBrain[M28Economy.refiGrossMassBaseIncome]..'; Is this primary factory='..tostring((oFactory[refbPrimaryFactoryForIslandOrPond] or false))) end
-    if iFactoryTechLevel < 3 and (oFactory[refiTotalBuildCount] >= 5 or iFactoryTechLevel < aiBrain[M28Economy.refiOurHighestNavalFactoryTech] or (GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadBombardmentModeByPond][iPond] or -10) <= 4.1) or (iFactoryTechLevel == 1 and M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] > 0)
+    local iMinBuildCountForUpgrade = 5
+    local iMinBuildCountForEnemyT2Response = 2
+    local iMinBuildCountForEnemyT2ResponseAlt = 4
+    if M28Utilities.bQuietModActive and iFactoryTechLevel == 1 then
+        if M28Map.iMapSize <= 512 then
+            --10km or smaller maps - require even more T1 units
+            iMinBuildCountForUpgrade = 12
+            iMinBuildCountForEnemyT2Response = 8
+            iMinBuildCountForEnemyT2ResponseAlt = 10
+        elseif M28Map.iMapSize <= 1024 then
+            --20km maps - require more T1 units before T2 upgrade
+            iMinBuildCountForUpgrade = 10
+            iMinBuildCountForEnemyT2Response = 6
+            iMinBuildCountForEnemyT2ResponseAlt = 8
+        end
+    end
+    if bDebugMessages == true then LOG(sFunctionRef .. ': iCurrentConditionToTry=' .. iCurrentConditionToTry .. '; About ot check if want to upgrade factory, iFactoryTechLevel=' .. iFactoryTechLevel .. '; Is table of active upgrades for WZ empty=' .. tostring(M28Utilities.IsTableEmpty(tWZTeamData[M28Map.subreftoActiveUpgrades]))..'; Are we stalling mass='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass])..'; Does this brain have active naval upgrade='..tostring(M28Team.DoesBrainHaveActiveHQUpgradesOfCategory(aiBrain, M28UnitInfo.refCategoryNavalFactory))..'; Highest enemy naval tech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyNavyTech]..'; Build count='..oFactory[refiTotalBuildCount]..'; Brain gross mass='..aiBrain[M28Economy.refiGrossMassBaseIncome]..'; Is this primary factory='..tostring((oFactory[refbPrimaryFactoryForIslandOrPond] or false))..'; iMinBuildCountForUpgrade='..iMinBuildCountForUpgrade) end
+    if iFactoryTechLevel < 3 and (oFactory[refiTotalBuildCount] >= iMinBuildCountForUpgrade or iFactoryTechLevel < aiBrain[M28Economy.refiOurHighestNavalFactoryTech] or (GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadBombardmentModeByPond][iPond] or -10) <= 4.1) or (iFactoryTechLevel == 1 and M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] > 0)
             --Primary factory, and enemy is getting t2 navy, and we have o ther factories in this WZ, and we are at t1
-            or (iFactoryTechLevel == 1 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyNavyTech] > 1 and oFactory[refiTotalBuildCount] >= 2 and (oFactory[refbPrimaryFactoryForIslandOrPond] or oFactory[refiTotalBuildCount] >= 4) and M28Utilities.IsTableEmpty(tWZTeamData[M28Map.subreftoActiveUpgrades]) and aiBrain[M28Economy.refiOurHighestNavalFactoryTech] == 1 and aiBrain[M28Economy.refiGrossMassBaseIncome] >= 4.5 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and not(M28Team.DoesBrainHaveActiveHQUpgradesOfCategory(aiBrain, M28UnitInfo.refCategoryNavalFactory)))
+            or (iFactoryTechLevel == 1 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyNavyTech] > 1 and oFactory[refiTotalBuildCount] >= iMinBuildCountForEnemyT2Response and (oFactory[refbPrimaryFactoryForIslandOrPond] or oFactory[refiTotalBuildCount] >= iMinBuildCountForEnemyT2ResponseAlt) and M28Utilities.IsTableEmpty(tWZTeamData[M28Map.subreftoActiveUpgrades]) and aiBrain[M28Economy.refiOurHighestNavalFactoryTech] == 1 and aiBrain[M28Economy.refiGrossMassBaseIncome] >= 4.5 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and not(M28Team.DoesBrainHaveActiveHQUpgradesOfCategory(aiBrain, M28UnitInfo.refCategoryNavalFactory)))
     ) then
         local iActiveFactoryUpgrades = 0
         if M28Utilities.IsTableEmpty(tWZTeamData[M28Map.subreftoActiveUpgrades]) == false then
