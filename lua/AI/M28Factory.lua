@@ -6975,7 +6975,7 @@ function GetBlueprintToBuildForNavalFactory(aiBrain, oFactory)
         if M28Utilities.bQuietModActive then
             iFrigatePerDestroyerRatio = 6
             iFrigatePerCruiserRatio = 3
-            iFrigatePerCapitalRatio = 6
+            iFrigatePerCapitalRatio = 12
         end
         local iFrigatesNeeded = iCurDestroyerCount * iFrigatePerDestroyerRatio + iCurCruiserCount * iFrigatePerCruiserRatio + (iCurBattleshipCount + iCurBattlecruiserCount) * iFrigatePerCapitalRatio
         if bDebugMessages == true then LOG(sFunctionRef..': Frigate screening check - iCurFrigates='..iCurFrigates..'; iFrigatesNeeded='..iFrigatesNeeded..'; Destroyers='..iCurDestroyerCount..'; Cruisers='..iCurCruiserCount..'; Battleships='..iCurBattleshipCount..'; Battlecruisers='..iCurBattlecruiserCount) end
