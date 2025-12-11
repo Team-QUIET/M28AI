@@ -36,7 +36,8 @@ reftBlockedShotLocationByPond = 'M28BlShPn' --[x] is the pond ref; returns a pos
 refbSpecialStuckTrackingActive = 'M28NStcTr' --true if we are considering if the unit is stuck
 refbFrigateScreeningActive = 'M28NFrgScr' --true if frigate is actively screening for long-range support
 refiTimeLastFrigateScreening = 'M28NFrgScrT' --GameTimeSeconds when frigate screening was last active
-refiScreeningWaterZone = 'M28NFrgScrWZ' --Water zone this frigate is currently screening for (prevents conflicting orders from adjacent zones)
+refiScreeningWaterZone = 'M28NFrgScrWZ' --Water zone this unit is currently screening for (prevents conflicting orders from adjacent zones)
+refiTimeLastLRScreening = 'M28NLRScrT' --GameTimeSeconds when LR unit screening was last active
 
 --aiBrian variables
 refiPriorityPondRef = 'M28PriorityPondRef' --against aibrain, returns the pond ref (naval segment group) that we think is most important to that aibrain (only recorded for M27 brains)
@@ -2657,15 +2658,20 @@ function ConsiderOrdersForUnitsWithNoTarget(tWZData, iPond, iWaterZone, iTeam, t
             end
         else
             local tSupportWZData = M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones][iWZToSupport]
+            local iCurTime = math.floor(GetGameTimeSeconds())
             for iUnit, oUnit in tUnitsWithAntiNavyAndSurface do
                 if not(oUnit[M28UnitInfo.reftAssignedWaterZoneByTeam][iTeam] == iWaterZone) then
                     --Unit is from a different zone - need to change the value of its assignment so it is considered for orders by the zone that it is part of
                     oUnit[refiCurrentWZAssignmentValue] = 0
                 else
-                    if EntityCategoryContains(categories.HOVER, oUnit.UnitId) then iOrderReissueDistToUse = iResisueOrderDistanceHover
-                    else iOrderReissueDistToUse = iReissueOrderDistanceStandard
+                    --Skip units that are actively screening for another zone (within last 5 seconds)
+                    local bActivelyScreening = oUnit[refiTimeLastLRScreening] and (iCurTime - oUnit[refiTimeLastLRScreening]) < 5
+                    if not(bActivelyScreening) then
+                        if EntityCategoryContains(categories.HOVER, oUnit.UnitId) then iOrderReissueDistToUse = iResisueOrderDistanceHover
+                        else iOrderReissueDistToUse = iReissueOrderDistanceStandard
+                        end
+                        M28Orders.IssueTrackedMove(oUnit, tSupportWZData[M28Map.subrefMidpoint], iOrderReissueDistToUse, false, 'NSFBMovWZ' .. iWZToSupport .. ';' .. iWaterZone)
                     end
-                    M28Orders.IssueTrackedMove(oUnit, tSupportWZData[M28Map.subrefMidpoint], iOrderReissueDistToUse, false, 'NSFBMovWZ' .. iWZToSupport .. ';' .. iWaterZone)
                 end
             end
         end
@@ -4597,7 +4603,17 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
                                 end
                                 if tAdjWZTeamData[M28Map.subrefWZbSubsInScenario2] then
                                     --Check dist from closest surface unit to this WZ is closer than from our midpoint
-                                    if (not(oNearestEnemyNonHoverToFriendlyBase) and tAdjWZTeamData[M28Map.subrefWZThreatEnemySubmersible] > 0) or M28Utilities.GetDistanceBetweenPositions(oNearestEnemyNonHoverToFriendlyBase:GetPosition(), M28Map.tPondDetails[M28Map.tiPondByWaterZone[iAdjWZ]][M28Map.subrefPondWaterZones][iAdjWZ][M28Map.subrefMidpoint]) < M28Utilities.GetDistanceBetweenPositions(tWZData[M28Map.subrefMidpoint], M28Map.tPondDetails[M28Map.tiPondByWaterZone[iAdjWZ]][M28Map.subrefPondWaterZones][iAdjWZ][M28Map.subrefMidpoint]) then
+                                    local bShouldCheckAdjZone = false
+                                    if not(oNearestEnemyNonHoverToFriendlyBase) then
+                                        if tAdjWZTeamData[M28Map.subrefWZThreatEnemySubmersible] > 0 then
+                                            bShouldCheckAdjZone = true
+                                        end
+                                    else
+                                        if M28Utilities.GetDistanceBetweenPositions(oNearestEnemyNonHoverToFriendlyBase:GetPosition(), M28Map.tPondDetails[M28Map.tiPondByWaterZone[iAdjWZ]][M28Map.subrefPondWaterZones][iAdjWZ][M28Map.subrefMidpoint]) < M28Utilities.GetDistanceBetweenPositions(tWZData[M28Map.subrefMidpoint], M28Map.tPondDetails[M28Map.tiPondByWaterZone[iAdjWZ]][M28Map.subrefPondWaterZones][iAdjWZ][M28Map.subrefMidpoint]) then
+                                            bShouldCheckAdjZone = true
+                                        end
+                                    end
+                                    if bShouldCheckAdjZone then
                                         if not(oNearestEnemyNonHoverToFriendlyBase) and M28Utilities.IsTableEmpty(tAdjWZTeamData[M28Map.subrefTEnemyUnits]) == false then
                                             local iCurDist
                                             local iClosestDist = 10000
@@ -4940,18 +4956,35 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
                             if bDebugFrigScr == true then LOG(sFunctionRef..': Issuing support orders to '..table.getn(tLongRangeUnitsForSupport)..' long-range units') end
                             for iUnit, oLRUnit in tLongRangeUnitsForSupport do
                                 if not(oLRUnit.Dead) then
-                                    local iOrderReissueDistLR = iLRScreeningReissueDistance
-                                    if EntityCategoryContains(categories.HOVER, oLRUnit.UnitId) then iOrderReissueDistLR = math.max(iLRScreeningReissueDistance, iResisueOrderDistanceHover) end
-
-                                    local tLRUnitPos = oLRUnit:GetPosition()
-                                    local iDistToEnemy = 10000
-                                    if tCombatZoneMidpoint then
-                                        iDistToEnemy = M28Utilities.GetDistanceBetweenPositions(tLRUnitPos, tCombatZoneMidpoint)
+                                    --Check if this LR unit is already screening for a DIFFERENT zone (within last 3 seconds)
+                                    --If so, skip to prevent conflicting orders from adjacent zones
+                                    local bAlreadyScreeningElsewhere = false
+                                    if oLRUnit[refiScreeningWaterZone] and oLRUnit[refiScreeningWaterZone] ~= iWaterZone then
+                                        if oLRUnit[refiTimeLastLRScreening] and (iCurTime - oLRUnit[refiTimeLastLRScreening]) < 3 then
+                                            bAlreadyScreeningElsewhere = true
+                                            if bDebugFrigScr == true then LOG(sFunctionRef..': Skipping LR unit '..oLRUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oLRUnit)..' - already screening for WZ '..oLRUnit[refiScreeningWaterZone]) end
+                                        end
                                     end
-                                    local iUnitRange = oLRUnit[M28UnitInfo.refiCombatRange] or oLRUnit[M28UnitInfo.refiDFRange] or 60
-                                    local iIdealDistance = iUnitRange - 10 --Stay 10 units inside max range for safety margin
 
-                                    if not(IgnoreOrderDueToStuckUnit(oLRUnit)) then
+                                    if bAlreadyScreeningElsewhere then
+                                        --Skip this unit
+                                    else
+                                        --Mark this LR unit as screening for this zone
+                                        oLRUnit[refiScreeningWaterZone] = iWaterZone
+                                        oLRUnit[refiTimeLastLRScreening] = iCurTime
+
+                                        local iOrderReissueDistLR = iLRScreeningReissueDistance
+                                        if EntityCategoryContains(categories.HOVER, oLRUnit.UnitId) then iOrderReissueDistLR = math.max(iLRScreeningReissueDistance, iResisueOrderDistanceHover) end
+
+                                        local tLRUnitPos = oLRUnit:GetPosition()
+                                        local iDistToEnemy = 10000
+                                        if tCombatZoneMidpoint then
+                                            iDistToEnemy = M28Utilities.GetDistanceBetweenPositions(tLRUnitPos, tCombatZoneMidpoint)
+                                        end
+                                        local iUnitRange = oLRUnit[M28UnitInfo.refiCombatRange] or oLRUnit[M28UnitInfo.refiDFRange] or 60
+                                        local iIdealDistance = iUnitRange - 10 --Stay 10 units inside max range for safety margin
+
+                                        if not(IgnoreOrderDueToStuckUnit(oLRUnit)) then
                                         if iDistToEnemy <= iUnitRange + 5 and iDistToEnemy >= iIdealDistance - 10 then
                                             --IDEAL POSITION: In range but not too close - hold position and attack
                                             if M28UnitInfo.IsUnitValid(oNearestEnemyToFriendlyBase) and M28UnitInfo.CanSeeUnit(aiBrain, oNearestEnemyToFriendlyBase) then
@@ -5022,6 +5055,7 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
                                             end
                                         end
                                     end
+                                    end --end of else block for bAlreadyScreeningElsewhere
                                 end
                             end
                         end
