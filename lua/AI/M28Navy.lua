@@ -36,6 +36,7 @@ reftBlockedShotLocationByPond = 'M28BlShPn' --[x] is the pond ref; returns a pos
 refbSpecialStuckTrackingActive = 'M28NStcTr' --true if we are considering if the unit is stuck
 refbFrigateScreeningActive = 'M28NFrgScr' --true if frigate is actively screening for long-range support
 refiTimeLastFrigateScreening = 'M28NFrgScrT' --GameTimeSeconds when frigate screening was last active
+refiScreeningWaterZone = 'M28NFrgScrWZ' --Water zone this frigate is currently screening for (prevents conflicting orders from adjacent zones)
 
 --aiBrian variables
 refiPriorityPondRef = 'M28PriorityPondRef' --against aibrain, returns the pond ref (naval segment group) that we think is most important to that aibrain (only recorded for M27 brains)
@@ -69,7 +70,7 @@ refiClosestNonHoverToMidpointByRange = 0
 refiOverallClosestSurfaceRangeDist = 0
 
 --Frigate screening constants
-bDebugFrigateScreening = false --Set to true to enable debug logging for frigate screening behavior
+bDebugFrigateScreening = true --Set to true to enable debug logging for frigate screening behavior
 iMinLongRangeSupportRatio = 0.25 --25% of heavy ship mass must be long-range
 iMinLongRangeSupportCount = 1 --Minimum number of long-range support units needed (lowered from 3 because units spread across water zones)
 iLongRangeBattleshipThreshold = 80 --Battleships with 80+ range qualify as long-range support
@@ -4902,18 +4903,31 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
                         --Process frigate screening units first if active
                         if bUseFrigateScreening and M28Utilities.IsTableEmpty(tFrigatesForScreening) == false then
                             local tEnemyPosition = tCombatZoneMidpoint or tWZData[M28Map.subrefMidpoint]
+                            --Use higher order reissue distance for screening to prevent stutter from shifting combat midpoint
+                            local iScreeningReissueDistance = 30
                             if bDebugFrigScr == true then LOG(sFunctionRef..': Issuing aggressive screening orders to '..table.getn(tFrigatesForScreening)..' frigates, target='..repru(tEnemyPosition)) end
                             for iUnit, oFrigate in tFrigatesForScreening do
                                 if not(oFrigate.Dead) then
-                                    local iOrderReissueDistFrigate = iReissueOrderDistanceStandard
-                                    if EntityCategoryContains(categories.HOVER, oFrigate.UnitId) then iOrderReissueDistFrigate = iResisueOrderDistanceHover end
-                                    --Frigates aggressively rush enemy position - no kiting, no retreat
-                                    --Mark frigate as actively screening so it won't retreat
-                                    oFrigate[refbFrigateScreeningActive] = true
-                                    oFrigate[refiTimeLastFrigateScreening] = iCurTime
-                                    if not(IgnoreOrderDueToStuckUnit(oFrigate)) then
-                                        M28Orders.IssueTrackedAggressiveMove(oFrigate, tEnemyPosition, iOrderReissueDistFrigate, false, 'WFrigScr'..iWaterZone)
-                                        if bDebugFrigScr == true then LOG(sFunctionRef..': Frigate '..oFrigate.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFrigate)..' screening to '..repru(tEnemyPosition)) end
+                                    --Check if this frigate is already screening for a DIFFERENT zone (within last 3 seconds)
+                                    --If so, skip to prevent conflicting orders from adjacent zones
+                                    local bAlreadyScreeningElsewhere = false
+                                    if oFrigate[refiScreeningWaterZone] and oFrigate[refiScreeningWaterZone] ~= iWaterZone then
+                                        if oFrigate[refiTimeLastFrigateScreening] and (iCurTime - oFrigate[refiTimeLastFrigateScreening]) < 3 then
+                                            bAlreadyScreeningElsewhere = true
+                                            if bDebugFrigScr == true then LOG(sFunctionRef..': Skipping frigate '..oFrigate.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFrigate)..' - already screening for WZ '..oFrigate[refiScreeningWaterZone]) end
+                                        end
+                                    end
+
+                                    if not(bAlreadyScreeningElsewhere) then
+                                        --Frigates aggressively rush enemy position - no kiting, no retreat
+                                        --Mark frigate as actively screening so it won't retreat
+                                        oFrigate[refbFrigateScreeningActive] = true
+                                        oFrigate[refiTimeLastFrigateScreening] = iCurTime
+                                        oFrigate[refiScreeningWaterZone] = iWaterZone
+                                        if not(IgnoreOrderDueToStuckUnit(oFrigate)) then
+                                            M28Orders.IssueTrackedAggressiveMove(oFrigate, tEnemyPosition, iScreeningReissueDistance, false, 'WFrigScr'..iWaterZone)
+                                            if bDebugFrigScr == true then LOG(sFunctionRef..': Frigate '..oFrigate.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFrigate)..' screening to '..repru(tEnemyPosition)..' (reissue dist='..iScreeningReissueDistance..')') end
+                                        end
                                     end
                                 end
                             end
@@ -4921,12 +4935,13 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
 
                         --Process long-range support units if screening is active
                         if bUseFrigateScreening and M28Utilities.IsTableEmpty(tLongRangeUnitsForSupport) == false then
-                            --Long-range units stay at max range behind frigates and provide fire support
+                            --Use higher order reissue distance to prevent stutter from shifting combat midpoint
+                            local iLRScreeningReissueDistance = 25
                             if bDebugFrigScr == true then LOG(sFunctionRef..': Issuing support orders to '..table.getn(tLongRangeUnitsForSupport)..' long-range units') end
                             for iUnit, oLRUnit in tLongRangeUnitsForSupport do
                                 if not(oLRUnit.Dead) then
-                                    local iOrderReissueDistLR = iReissueOrderDistanceStandard
-                                    if EntityCategoryContains(categories.HOVER, oLRUnit.UnitId) then iOrderReissueDistLR = iResisueOrderDistanceHover end
+                                    local iOrderReissueDistLR = iLRScreeningReissueDistance
+                                    if EntityCategoryContains(categories.HOVER, oLRUnit.UnitId) then iOrderReissueDistLR = math.max(iLRScreeningReissueDistance, iResisueOrderDistanceHover) end
 
                                     local tLRUnitPos = oLRUnit:GetPosition()
                                     local iDistToEnemy = 10000
@@ -4995,8 +5010,9 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
                                                 end
                                             end
                                             if tApproachPosition then
-                                                M28Orders.IssueTrackedAggressiveMove(oLRUnit, tApproachPosition, iOrderReissueDistLR, false, 'WLRScrAppr'..iWaterZone)
-                                                if bDebugFrigScr == true then LOG(sFunctionRef..': LR unit '..oLRUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oLRUnit)..' TOO FAR - approaching to '..repru(tApproachPosition)..', range='..iUnitRange..', distToEnemy='..iDistToEnemy) end
+                                                -- Used a regular move here because sometimes ships could get stuck in positions engaging the enemy instead of retreating.
+                                                M28Orders.IssueTrackedMove(oLRUnit, tApproachPosition, iOrderReissueDistLR, false, 'WLRScrAppr'..iWaterZone)
+                                                if bDebugFrigScr == true then LOG(sFunctionRef..': LR unit '..oLRUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oLRUnit)..' TOO FAR - moving to support position '..repru(tApproachPosition)..', range='..iUnitRange..', distToEnemy='..iDistToEnemy..', idealDist='..iIdealDistance) end
                                             else
                                                 --Can't find valid approach position - hold and attack if target visible, DON'T dive in
                                                 if M28UnitInfo.IsUnitValid(oNearestEnemyToFriendlyBase) and M28UnitInfo.CanSeeUnit(aiBrain, oNearestEnemyToFriendlyBase) then
