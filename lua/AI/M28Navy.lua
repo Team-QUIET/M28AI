@@ -71,7 +71,7 @@ refiClosestNonHoverToMidpointByRange = 0
 refiOverallClosestSurfaceRangeDist = 0
 
 --Frigate screening constants
-bDebugFrigateScreening = true --Set to true to enable debug logging for frigate screening behavior
+bDebugFrigateScreening = false --Set to true to enable debug logging for frigate screening behavior
 iMinLongRangeSupportRatio = 0.25 --25% of heavy ship mass must be long-range
 iMinLongRangeSupportCount = 1 --Minimum number of long-range support units needed (lowered from 3 because units spread across water zones)
 iLongRangeBattleshipThreshold = 80 --Battleships with 80+ range qualify as long-range support
