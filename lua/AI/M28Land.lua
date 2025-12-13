@@ -23,6 +23,7 @@ local M28Factory = import('/mods/M28AI/lua/AI/M28Factory.lua')
 local M28Micro = import('/mods/M28AI/lua/AI/M28Micro.lua')
 local M28Logic = import('/mods/M28AI/lua/AI/M28Logic.lua')
 local M28Overseer = import('/mods/M28AI/lua/AI/M28Overseer.lua')
+local M28Intel = import('/mods/M28AI/lua/AI/M28Intel.lua')
 
 --Global
 tLZRefreshCountByTeam = {}
@@ -434,6 +435,10 @@ function RecordAirThreatForLandZone(tLZTeamData, iTeam, iPlateau, iLandZone)
     tLZTeamData[M28Map.refiEnemyAirAAThreat] = M28UnitInfo.GetAirThreatLevel(tLZTeamData[M28Map.reftLZEnemyAirUnits],           true,       true,               false,              false,              false,                   false)
     tLZTeamData[M28Map.refiEnemyAirOtherThreat] = M28UnitInfo.GetAirThreatLevel(tLZTeamData[M28Map.reftLZEnemyAirUnits],        true,       false,               false,              false,              true,                   true)
 
+    -- Update threat type tracking for intel decay calculation
+    local iAirThreat = tLZTeamData[M28Map.refiEnemyAirToGroundThreat] + tLZTeamData[M28Map.refiEnemyAirAAThreat] + tLZTeamData[M28Map.refiEnemyAirOtherThreat]
+    M28Intel.UpdateThreatTypeTracking(tLZTeamData, M28Intel.refiThreatTypeAir, iAirThreat)
+
     if bDebugMessages == true then LOG(sFunctionRef..': Finished updating enemy air threat values for iTeam '..iTeam..' iPlateau '..iPlateau..'; iLandZOne '..iLandZone..'; AirToGround threat='.. tLZTeamData[M28Map.refiEnemyAirToGroundThreat]..'; Other air threat='..tLZTeamData[M28Map.refiEnemyAirOtherThreat]..'; Is table of enemy air units empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftLZEnemyAirUnits]))) end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -446,7 +451,8 @@ function RecordGroundThreatForLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iL
     local sFunctionRef = 'RecordGroundThreatForLandZone'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-
+    -- Capture previous threat for intel surprise detection
+    local iPreviousEnemyCombatThreat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
 
     --Track team total threat - first remove the previous entry, then add in the new entry
     M28Team.tTeamData[iTeam][M28Team.subrefiAlliedDFThreat] = M28Team.tTeamData[iTeam][M28Team.subrefiAlliedDFThreat] - tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal]
@@ -859,6 +865,28 @@ function RecordGroundThreatForLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iL
     end
 
     tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] = bNearbyEnemies
+
+    -- Compare new threat against what we thought was there
+    local iNewEnemyCombatThreat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+    if M28Intel.DetectIntelSurprise(tLZTeamData, iTeam, iNewEnemyCombatThreat, iPreviousEnemyCombatThreat) then
+        -- Request priority scouting for this and adjacent zones
+        M28Intel.RequestPriorityScoutingForZone(iPlateau, iLandZone, iTeam, M28Intel.iArmyDestinationScoutBoost + 20)
+        if bDebugMessages == true then LOG(sFunctionRef..': INTEL SURPRISE detected in P'..iPlateau..'Z'..iLandZone..': Previous='..iPreviousEnemyCombatThreat..', New='..iNewEnemyCombatThreat) end
+    end
+
+    -- Update threat type tracking for land forces
+    local iLandThreat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+    M28Intel.UpdateThreatTypeTracking(tLZTeamData, M28Intel.refiThreatTypeLand, iLandThreat)
+
+    -- Check for experimentals and track separately
+    if tLZTeamData[M28Map.subrefTEnemyUnits] then
+        local tExperimentals = EntityCategoryFilterDown(M28UnitInfo.refCategoryLandExperimental, tLZTeamData[M28Map.subrefTEnemyUnits])
+        if M28Utilities.IsTableEmpty(tExperimentals) == false then
+            local iExpThreat = M28UnitInfo.GetCombatThreatRating(tExperimentals, true)
+            M28Intel.UpdateThreatTypeTracking(tLZTeamData, M28Intel.refiThreatTypeExperimental, iExpThreat)
+        end
+    end
+
     if bDebugMessages == true then LOG(sFunctionRef..': End of code, tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFByRange]='..repru(tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFByRange])..'; bNearbyEnemies='..tostring(bNearbyEnemies)..'; Allied combat='..(tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 'nil')..'; tLZTeamData[M28Map.subrefLZMAAThreatWanted]='..tLZTeamData[M28Map.subrefLZMAAThreatWanted]..'; tLZTeamData[M28Map.refiEnemyAirToGroundThreat]='..tLZTeamData[M28Map.refiEnemyAirToGroundThreat]..'; tLZTeamData[M28Map.refiEnemyAirOtherThreat]='..tLZTeamData[M28Map.refiEnemyAirOtherThreat]) end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
@@ -6203,6 +6231,21 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         end
                     end
                 end
+
+                -- Boost assumed enemy threat when we have low intel confidence
+                local iIntelConfidence = M28Intel.GetZoneIntelConfidence(tLZTeamData, iTeam, 5)
+                local iIntelLevel = M28Intel.GetIntelConfidenceLevel(iIntelConfidence)
+                if iIntelLevel == M28Intel.refiIntelLow then
+                    -- Low intel means enemy could have more units than we know about - be more cautious
+                    local iThreatMultiplier = 1.3 -- Assume 30% more threat when intel is poor
+                    iEnemyCombatThreat = iEnemyCombatThreat * iThreatMultiplier
+                    if bDebugMessages == true then LOG(sFunctionRef..': Low intel confidence ('..iIntelConfidence..') - boosting enemy threat estimate by 30%') end
+                elseif iIntelLevel == M28Intel.refiIntelMedium then
+                    -- Medium intel - slight caution
+                    local iThreatMultiplier = 1.1
+                    iEnemyCombatThreat = iEnemyCombatThreat * iThreatMultiplier
+                    if bDebugMessages == true then LOG(sFunctionRef..': Medium intel confidence ('..iIntelConfidence..') - boosting enemy threat estimate by 10%') end
+                end
             end
 
             if oNearestEnemyToFriendlyBase and M28Conditions.IsLocationInPlayableArea(oNearestEnemyToFriendlyBase:GetPosition()) then
@@ -6354,6 +6397,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         bAreInScenario1 = false
                         if tLZTeamData[M28Map.refiRadarCoverage] < iIntelThresholdForPriorityScout then
                             tLZTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] = GetGameTimeSeconds()
+                            -- Request priority scouting for this zone and adjacent zones
+                            M28Intel.RequestPriorityScoutingForZone(iPlateau, iLandZone, iTeam, M28Intel.iArmyDestinationScoutBoost)
                         end
                         if M28Utilities.GetDistanceBetweenPositions(oNearestEnemyToFriendlyBase:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]) <= 3 then
                             bAreInScenario1 = true
@@ -9359,6 +9404,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                             if not(M28UnitInfo.CanSeeUnit(oUnit:GetAIBrain(), oEnemyToConsiderAdvancingTowards, false)) then
                                                                 if tLZTeamData[M28Map.refiRadarCoverage] < iIntelThresholdForPriorityScout then
                                                                     tLZTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] = GetGameTimeSeconds()
+                                                                    -- Request priority scouting for this zone
+                                                                    M28Intel.RequestPriorityScoutingForZone(iPlateau, iLandZone, iTeam, M28Intel.iArmyProximityScoutBoost)
                                                                 end
                                                             else
                                                                 --If we move to be in range of the enemy will the closest enemy combat unit be able to reach us?
@@ -10418,9 +10465,33 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 iDFLZToSupport = ReviseTargetLZIfFarAway(tLZData, iTeam, iPlateau, iLandZone, iDFLZToSupport, 2)
                 if bDebugMessages == true then LOG(sFunctionRef..': iDFLZToSupport after revising target for far away LZ='..iDFLZToSupport..'; Midpoint of this zone='..repru(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport][M28Map.subrefMidpoint])) end
 
+                --Check intel confidence for target zone
+                local tTargetLZDataForIntel = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport]
+                local tTargetLZTeamDataForIntel = tTargetLZDataForIntel[M28Map.subrefLZTeamData][iTeam]
+                local iTargetIntelConfidence = M28Intel.GetZoneIntelConfidence(tTargetLZTeamDataForIntel, iTeam, 2)
+                local iIntelConfidenceLevel = M28Intel.GetIntelConfidenceLevel(iTargetIntelConfidence)
+
+                -- If intel is low, request priority scouting for that zone
+                if iIntelConfidenceLevel == M28Intel.refiIntelLow then
+                    M28Intel.RequestPriorityScoutingForZone(iPlateau, iDFLZToSupport, iTeam, M28Intel.iArmyDestinationScoutBoost)
+                    if bDebugMessages == true then LOG(sFunctionRef..': Intel confidence LOW ('..iTargetIntelConfidence..') for target LZ '..iDFLZToSupport..', requested priority scouting') end
+                end
+
                 --Check if we should commit staged reinforcements or continue staging
                 local iTargetZoneEnemyThreat = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport][M28Map.subrefLZTeamData][iTeam][M28Map.subrefTThreatEnemyCombatTotal] or 0
                 local bShouldCommitReinforcements = M28Team.ShouldCommitStagedReinforcements(iTeam, iPlateau, iDFLZToSupport, iTargetZoneEnemyThreat)
+
+                -- Delay committing if intel confidence is critically low (unless we have overwhelming force)
+                if bShouldCommitReinforcements and iIntelConfidenceLevel == M28Intel.refiIntelLow then
+                    local iOurThreat = 0
+                    for iUnit, oUnit in tDFUnits do
+                        iOurThreat = iOurThreat + (oUnit[M28UnitInfo.refiUnitMassCost] or 50)
+                    end
+                    if M28Intel.ShouldWaitForIntel(tTargetLZTeamDataForIntel, iTeam, iOurThreat) then
+                        bShouldCommitReinforcements = false
+                        if bDebugMessages == true then LOG(sFunctionRef..': Holding reinforcements due to low intel confidence in target zone, waiting for scouts') end
+                    end
+                end
 
                 if bDebugMessages == true then LOG(sFunctionRef..': Should commit reinforcements='..tostring(bShouldCommitReinforcements)..'; Target zone enemy threat='..iTargetZoneEnemyThreat) end
 
@@ -10742,7 +10813,16 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
         end
     end
 
-    if bDebugMessages == true then LOG(sFunctionRef..': End of code for iLandZOne '..iLandZone..', bWantReinforcements='..tostring(bWantReinforcements)..'; bWantIndirectReinforcements='..tostring(bWantIndirectReinforcements)) end
+    -- Boost reinforcement desire if intel is low in this zone
+    local iIntelConfidence = M28Intel.GetZoneIntelConfidence(tLZTeamData, iTeam, 2)
+    local iIntelLevel = M28Intel.GetIntelConfidenceLevel(iIntelConfidence)
+    if iIntelLevel == M28Intel.refiIntelLow and tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] then
+        -- Low intel with potential enemies - want more reinforcements as buffer
+        bWantReinforcements = true
+        if bDebugMessages == true then LOG(sFunctionRef..': Boosting reinforcement desire due to LOW intel confidence ('..iIntelConfidence..') with potential enemies nearby') end
+    end
+
+    if bDebugMessages == true then LOG(sFunctionRef..': End of code for iLandZOne '..iLandZone..', bWantReinforcements='..tostring(bWantReinforcements)..'; bWantIndirectReinforcements='..tostring(bWantIndirectReinforcements)..'; iIntelConfidence='..iIntelConfidence) end
     local bWantDFReinforcements = bWantReinforcements
     if bWantReinforcements then
         --Do we want to get indirect fire instead of direct fire as an override?

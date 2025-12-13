@@ -23,6 +23,7 @@ local M28Config = import('/mods/M28AI/lua/M28Config.lua')
 local M28Navy = import('/mods/M28AI/lua/AI/M28Navy.lua')
 local M28ACU = import('/mods/M28AI/lua/AI/M28ACU.lua')
 local M28Chat = import('/mods/M28AI/lua/AI/M28Chat.lua')
+local M28Intel = import('/mods/M28AI/lua/AI/M28Intel.lua')
 
 
 --Team data variables
@@ -123,6 +124,7 @@ tTeamData = {} --[x] is the aiBrain.M28Team number - stores certain team-wide in
     subrefiLongestOverdueScoutingTarget = 'M28TmLngSct' --Longest overdue scouting target in seconds
     subrefbUseFrigatesAsScoutsByPond = 'M28UseFrgAsScout' --[x] is the pond ref, returns true if frigates should be used as scouts
     iEnemyT3MAAActiveCount = 'M28EnT3MAACn' --Number of enemy T3 MAA (approximate measure)
+    reftPriorityScoutZones = 'M28PriScZn' --Array of {iPlateau, iZone, iUrgency, iTimeRequested} for zones needing priority scouting from army movement
     reftRecentEnemyTeleportDetails = 'M28EnTelD' --contains subtables for recent enemy teleports, [x] = 1,2,3,...; returns {oUnitTeleporting, tTeleportDestination, iTimeOfTeleport}
         subrefoTeleportUnit = 1
         subreftTeleportTarget = 2

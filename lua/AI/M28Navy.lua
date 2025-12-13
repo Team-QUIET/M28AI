@@ -22,6 +22,7 @@ local M28Air = import('/mods/M28AI/lua/AI/M28Air.lua')
 local M28Building = import('/mods/M28AI/lua/AI/M28Building.lua')
 local M28Micro = import('/mods/M28AI/lua/AI/M28Micro.lua')
 local M28Factory = import('/mods/M28AI/lua/AI/M28Factory.lua')
+local M28Intel = import('/mods/M28AI/lua/AI/M28Intel.lua')
 
 --Unit variables
 refiTimeOfLastWZAssignment = 'M28WZLastAssignmentTime' --GameTimeSeconds
@@ -659,6 +660,9 @@ function RecordAirThreatForWaterZone(tWZTeamData, iTeam, iPond, iWaterZone)
 
     if bDebugMessages == true then LOG(sFunctionRef..': Finished updating enemy air threat values for iTeam '..iTeam..' iPond '..iPond..'; iWaterZOne '..iWaterZone..'; AirToGround threat='.. tWZTeamData[M28Map.refiEnemyAirToGroundThreat]..'; Other air threat='..tWZTeamData[M28Map.refiEnemyAirOtherThreat]..'; Is table of enemy air units empty='..tostring(M28Utilities.IsTableEmpty(tWZTeamData[M28Map.reftWZEnemyAirUnits]))..'; GameTime='..GetGameTimeSeconds()) end
 
+    -- Track air threat for intel system
+    M28Intel.UpdateThreatTypeTracking(tWZTeamData, M28Intel.refiThreatTypeAir, tWZTeamData[M28Map.refiEnemyAirToGroundThreat])
+
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
@@ -669,7 +673,8 @@ function RecordGroundThreatForWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWat
     local sFunctionRef = 'RecordGroundThreatForWaterZone'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-
+    -- Capture previous threat for intel surprise detection
+    local iPreviousNavalThreat = tWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
 
     --Track team total threat - first remove the previous entry, then add in the new entry
     --M28Team.tTeamData[iTeam][M28Team.subrefiAlliedDFThreat] = M28Team.tTeamData[iTeam][M28Team.subrefiAlliedDFThreat] - tWZTeamData[M28Map.subrefWZThreatAllyMobileDFTotal]
@@ -770,6 +775,19 @@ function RecordGroundThreatForWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWat
     end
 
     tWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] = tWZTeamData[M28Map.subrefWZThreatEnemyVsSurface] + tWZTeamData[M28Map.subrefWZThreatEnemySubmersible]
+
+    -- Detect unexpected enemy appearances
+    local iCurrentNavalThreat = tWZTeamData[M28Map.subrefTThreatEnemyCombatTotal]
+    if iCurrentNavalThreat > iPreviousNavalThreat then
+        M28Intel.DetectIntelSurprise(tWZTeamData, iTeam, iPreviousNavalThreat, iCurrentNavalThreat, nil, iWaterZone)
+    end
+
+    -- Track threat by unit type for naval zones (submarines vs surface)
+    M28Intel.UpdateThreatTypeTracking(tWZTeamData, M28Intel.refiThreatTypeNaval, iCurrentNavalThreat)
+    -- Also track submersible threat separately for better intel on sub movements
+    if tWZTeamData[M28Map.subrefWZThreatEnemySubmersible] > 0 then
+        M28Intel.UpdateThreatTypeTracking(tWZTeamData, M28Intel.refiThreatTypeNavalSubmersible, tWZTeamData[M28Map.subrefWZThreatEnemySubmersible])
+    end
 
     --Record allied unit data
     tWZTeamData[M28Map.subrefWZBestAlliedDFRange] = 0
@@ -1827,6 +1845,22 @@ function ManageSpecificWaterZone(aiBrain, iTeam, iPond, iWaterZone)
     RecordAirThreatForWaterZone(tWZTeamData, iTeam, iPond, iWaterZone) --need to call first since ground threat references air threat for certain values when determining subrefWZMAAThreatWanted
     RecordGroundThreatForWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWaterZone)
 
+    -- Boost assumed enemy threat when intel is low
+    -- Submarines are particularly hard to track so we should be more cautious with low intel
+    local iIntelConfidence = M28Intel.GetZoneIntelConfidence(tWZTeamData, iTeam, 5)
+    local iIntelLevel = M28Intel.GetIntelConfidenceLevel(iIntelConfidence)
+    if iIntelLevel == M28Intel.refiIntelLow then
+        -- Low sonar/intel means submarines could be lurking - boost enemy threat estimate
+        local iThreatMultiplier = 1.4 -- Higher caution for naval due to submarine ambush risk
+        tWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] = tWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] * iThreatMultiplier
+        tWZTeamData[M28Map.subrefWZThreatEnemySubmersible] = tWZTeamData[M28Map.subrefWZThreatEnemySubmersible] * iThreatMultiplier
+        if bDebugMessages == true then LOG(sFunctionRef..': Low naval intel confidence ('..iIntelConfidence..') - boosting enemy naval threat by 40%') end
+    elseif iIntelLevel == M28Intel.refiIntelMedium then
+        local iThreatMultiplier = 1.15
+        tWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] = tWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] * iThreatMultiplier
+        if bDebugMessages == true then LOG(sFunctionRef..': Medium naval intel confidence ('..iIntelConfidence..') - boosting enemy naval threat by 15%') end
+    end
+
     tWZTeamData[M28Map.subrefWZTAlliedCombatUnits] = {}
     tWZTeamData[M28Map.reftoWZUnitsWantingMobileShield] = {}
     tWZTeamData[M28Map.refbWZWantsMobileShield] = false --will change later
@@ -2584,11 +2618,28 @@ function ConsiderOrdersForUnitsWithNoTarget(tWZData, iPond, iWaterZone, iTeam, t
         end
     end
 
+    --Check intel confidence for target water zones and request scouting if needed
+    local iTargetWZIntelConfidence = 100
+    local bLowIntelTargetWZ = false
+    if iWZToSupport then
+        local tTargetWZData = M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones][iWZToSupport]
+        local tTargetWZTeamData = tTargetWZData[M28Map.subrefWZTeamData][iTeam]
+        iTargetWZIntelConfidence = M28Intel.GetZoneIntelConfidence(tTargetWZTeamData, iTeam, 2)
+        local iIntelLevel = M28Intel.GetIntelConfidenceLevel(iTargetWZIntelConfidence)
+
+        if iIntelLevel == M28Intel.refiIntelLow then
+            bLowIntelTargetWZ = true
+            -- Request priority air scouting for this water zone
+            M28Intel.RequestPriorityNavalScouting(iPond, iWZToSupport, iTeam, M28Intel.iArmyDestinationScoutBoost)
+            if bDebugMessages == true then LOG(sFunctionRef..': Target WZ '..iWZToSupport..' has LOW intel confidence ('..iTargetWZIntelConfidence..'), requested priority scouting') end
+        end
+    end
+
     --Decide on what to do based on the units we have:
     --Subs
     if M28Utilities.IsTableEmpty(tUnitsWithOnlyAntiNavy) == false then
         --Subs - send to nearest WZ wanting sub support; if is none, then send to nearest WZ wanting support; if is none, then do nothing
-        if bDebugMessages == true then LOG(sFunctionRef..': Sending subs to nearest WZ wanting sub support, or if none then nearest WZ wanting support, iSubmersibleWZToSupport='..(iSubmersibleWZToSupport or 'nil')..'; iWZToSupport='..(iWZToSupport or 'nil')) end
+        if bDebugMessages == true then LOG(sFunctionRef..': Sending subs to nearest WZ wanting sub support, or if none then nearest WZ wanting support, iSubmersibleWZToSupport='..(iSubmersibleWZToSupport or 'nil')..'; iWZToSupport='..(iWZToSupport or 'nil')..'; bLowIntelTargetWZ='..tostring(bLowIntelTargetWZ)) end
         if not(iSubmersibleWZToSupport) then iSubmersibleWZToSupport = iWZToSupport end
         if iSubmersibleWZToSupport then
             local tSupportWZData = M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones][iSubmersibleWZToSupport]

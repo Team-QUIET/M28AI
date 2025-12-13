@@ -21,6 +21,7 @@ local M28Orders = import('/mods/M28AI/lua/AI/M28Orders.lua')
 local M28Micro = import('/mods/M28AI/lua/AI/M28Micro.lua')
 local M28Building = import('/mods/M28AI/lua/AI/M28Building.lua')
 local M28Navy = import('/mods/M28AI/lua/AI/M28Navy.lua')
+local M28Intel = import('/mods/M28AI/lua/AI/M28Intel.lua')
 local NavUtils = M28Utilities.NavUtils
 
 
@@ -2906,8 +2907,12 @@ end
 
 function GlobalOverseer()
     --Called once at initial setup if we have an M28 in the game; can be used for tracking things on a global basis (instead of per brain or team)
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'GlobalOverseer'
     local iSlowCycleThreshold = 30
     local iCurSlowCycle = 0
+    local iIntelRefreshCycle = 0
+    local iIntelRefreshThreshold = 5 -- Refresh intel every 5 seconds
 
     --Set time between refreshing
     M28Land.iTicksPerLandCycle = tonumber((ScenarioInfo.Options.M28TimeBetweenOrders or 1))*10+1
@@ -2917,10 +2922,25 @@ function GlobalOverseer()
     --ForkThread(DebugCheckProfiling) = true --will  output cur tick each log
     while M28Utilities.bM28AIInGame do
         iCurSlowCycle = iCurSlowCycle + 1
+        iIntelRefreshCycle = iIntelRefreshCycle + 1
+
         if iCurSlowCycle >= iSlowCycleThreshold then
             iCurSlowCycle = 0
             ForkThread(ConsiderSlowdownForHighUnitCount)
         end
+
+        -- Periodic intel confidence refresh for all teams
+        if iIntelRefreshCycle >= iIntelRefreshThreshold then
+            iIntelRefreshCycle = 0
+            for iTeam, tTeamData in M28Team.tTeamData do
+                if tTeamData[M28Team.subrefiActiveM28BrainCount] and tTeamData[M28Team.subrefiActiveM28BrainCount] > 0 then
+                    if bDebugMessages == true then LOG(sFunctionRef..': Refreshing intel confidence for team '..iTeam) end
+                    M28Intel.RefreshAllLandZoneIntelConfidence(iTeam)
+                    M28Intel.RefreshAllWaterZoneIntelConfidence(iTeam)
+                end
+            end
+        end
+
         WaitSeconds(1) --in case want to add per second logic in the future
     end
 end

@@ -21,6 +21,7 @@ local M28Engineer = import('/mods/M28AI/lua/AI/M28Engineer.lua')
 local M28Economy = import('/mods/M28AI/lua/AI/M28Economy.lua')
 local M28Building = import('/mods/M28AI/lua/AI/M28Building.lua')
 local M28Micro = import('/mods/M28AI/lua/AI/M28Micro.lua')
+local M28Intel = import('/mods/M28AI/lua/AI/M28Intel.lua')
 
 --Global
 tAirZonePathingFromZoneToZone = {} --[x]: 1 if land zone start, 0 if water; [y]: Plateau (if land) or 0 if water; [z]: Land/Water zone; [a]: 1 if land zone end, 0 if water; [b]: Plateau (if land) end, 0 if water; [c]: Land/water zone; returns table that contains subreftPlateauAndLandZonesInPath and subreftWaterZonesInPath, each of which will list out in no order the land and water zones that will come across or near
@@ -8936,6 +8937,77 @@ function UpdateScoutingShortlist(iTeam)
         end
 
         M28Team.tTeamData[iTeam][M28Team.subrefiLongestOverdueScoutingTarget] = iLongestOverdueScoutingTarget
+
+        -- Add priority scout requests from army movement
+        local tPriorityRequests = M28Intel.GetPriorityScoutZoneRequests(iTeam)
+        if M28Utilities.IsTableEmpty(tPriorityRequests) == false then
+            if bDebugMessages == true then LOG(sFunctionRef..': Adding '..table.getn(tPriorityRequests)..' priority scout requests from army intel needs') end
+            -- Add priority zones at the BEGINNING of shortlist for faster scouting
+            for iReq, tRequest in tPriorityRequests do
+                -- Check if already in shortlist
+                local bAlreadyInList = false
+                for iEntry, tEntry in tShortlist do
+                    if tEntry[1] == tRequest.iPlateau and tEntry[2] == tRequest.iZone then
+                        -- Move to front of list if it's a priority request
+                        table.remove(tShortlist, iEntry)
+                        table.insert(tShortlist, 1, {tRequest.iPlateau, tRequest.iZone})
+                        bAlreadyInList = true
+                        break
+                    end
+                end
+                if not(bAlreadyInList) then
+                    -- Insert at beginning for priority
+                    table.insert(tShortlist, 1, {tRequest.iPlateau, tRequest.iZone})
+                    if bDebugMessages == true then LOG(sFunctionRef..': Added priority scout target P'..tRequest.iPlateau..'Z'..tRequest.iZone..' with urgency='..tRequest.iUrgency) end
+                end
+            end
+        end
+
+        -- Also add zones needing urgent scouting near army positions
+        local tArmyScoutZones = M28Intel.GetZonesNeedingArmyScouting(iTeam, 5)
+        if M28Utilities.IsTableEmpty(tArmyScoutZones) == false then
+            if bDebugMessages == true then LOG(sFunctionRef..': Found '..table.getn(tArmyScoutZones)..' zones needing army proximity scouting') end
+            for iEntry, tZoneData in tArmyScoutZones do
+                local iPlateau = tZoneData[1]
+                local iZone = tZoneData[2]
+                -- Check if already in shortlist
+                local bAlreadyInList = false
+                for iExisting, tExisting in tShortlist do
+                    if tExisting[1] == iPlateau and tExisting[2] == iZone then
+                        bAlreadyInList = true
+                        break
+                    end
+                end
+                if not(bAlreadyInList) then
+                    -- Insert after priority requests but before normal entries
+                    local iInsertPos = math.min(table.getn(tPriorityRequests or {}) + iEntry, table.getn(tShortlist) + 1)
+                    table.insert(tShortlist, iInsertPos, {iPlateau, iZone})
+                end
+            end
+        end
+
+        -- Also add water zones needing urgent scouting near naval forces
+        local tNavyScoutZones = M28Intel.GetWaterZonesNeedingNavyScouting(iTeam, 5)
+        if M28Utilities.IsTableEmpty(tNavyScoutZones) == false then
+            if bDebugMessages == true then LOG(sFunctionRef..': Found '..table.getn(tNavyScoutZones)..' water zones needing naval proximity scouting') end
+            for iEntry, tZoneData in tNavyScoutZones do
+                local iPond = tZoneData[1]
+                local iWaterZone = tZoneData[2]
+                -- Check if already in shortlist (water zones use plateau 0)
+                local bAlreadyInList = false
+                for iExisting, tExisting in tShortlist do
+                    if tExisting[1] == 0 and tExisting[2] == iWaterZone then
+                        bAlreadyInList = true
+                        break
+                    end
+                end
+                if not(bAlreadyInList) then
+                    -- Insert after land army zones but before normal entries
+                    local iInsertPos = math.min(table.getn(tPriorityRequests or {}) + table.getn(tArmyScoutZones or {}) + iEntry, table.getn(tShortlist) + 1)
+                    table.insert(tShortlist, iInsertPos, {0, iWaterZone})
+                end
+            end
+        end
 
         if bDebugMessages == true then
             if M28Utilities.IsTableEmpty(tShortlist) == false then
