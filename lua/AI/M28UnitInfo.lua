@@ -13,8 +13,9 @@ local M28Utilities = import('/mods/M28AI/lua/AI/M28Utilities.lua')
 --Threat values
 tUnitThreatByIDAndType = {} --Calculated at the start of the game
 tiThreatRefsCalculated = {} --table of the threat ID references that have done blueprint checks on
-bCustomThreatFactor = false --true if ScenarioInfo.Options.M28Aggression is not 1
+bCustomThreatFactor = false --true if using a custom threat factor (either from lobby option or RNG)
 iThreatFactor = 1
+bThreatFactorInitialized = false --true once the threat factor has been set (to prevent re-randomization)
 
 tbBuildOnLandLayerCaps = {['Land'] = true, ['Air'] = true, ['9'] = true, ['3'] = true, ['11'] = true} --used to translate the result of UnitBlueprint.Physics.BuildOnLayerCaps which doesnt return the table shown in the blueprint but instead returns one of these values (or 'Air' - which is what a czar returns)
 tbBuildOnWaterLayerCaps = {['Water'] = true, ['9'] = true, ['3'] = true, ['11'] = true, ['12'] = true}
@@ -413,6 +414,89 @@ refCategoryLongRangeMobile = refCategoryLongRangeDFLand + refCategoryNavalSurfac
 refCategoryShortRangeMobile = refCategoryLandCombat + refCategoryFrigate - refCategoryLongRangeMobile
 refCategoryReclaimable = categories.RECLAIMABLE - refCategoryAllAir
 refCategoryVolatile = categories.VOLATILE --needed as LOUD doesnt have this category so want to expand this to add specific unit categories
+
+function GenerateRandomThreatFactor()
+    --[[
+    Generates a random threat factor with the following weighted distribution:
+    - 70% chance: value between 0.5 and 1.0 (normal/slightly aggressive play)
+    - 20% chance: value between 0.1 and 0.5 (very aggressive play)
+    - 10% chance: value between 1.0 and 5.0 (cautious/defensive play - rare)
+
+    Note: Lower values = AI underestimates enemy threat = more aggressive
+          Higher values = AI overestimates enemy threat = more cautious
+
+    Returns: number between 0.1 and 5.0
+    ]]
+    local iRoll = math.random(1, 100)
+    local iThreatFactorResult
+    
+    if iRoll <= 70 then
+        local iSubRoll = math.random()
+        iThreatFactorResult = 0.5 + (iSubRoll * iSubRoll) * 0.5
+    elseif iRoll <= 90 then
+        iThreatFactorResult = 0.1 + math.random() * 0.4
+    else
+        local iSubRoll = math.random()
+        iThreatFactorResult = 1.0 + math.sqrt(iSubRoll) * 4.0
+    end
+    
+    iThreatFactorResult = math.floor(iThreatFactorResult * 100 + 0.5) / 100
+    return iThreatFactorResult
+end
+
+function InitializeRandomThreatFactor()
+    --[[
+    Initializes the threat factor with a random value at game start.
+    This should only be called once per game, during initial setup.
+    If a lobby option override is set, it will be used instead of RNG.
+
+    Returns: the threat factor that was set
+    ]]
+    local bDebugMessages = true
+    local sFunctionRef = 'InitializeRandomThreatFactor'
+
+    -- Prevent re-initialization
+    if bThreatFactorInitialized then
+        if bDebugMessages then LOG(sFunctionRef..': Threat factor already initialized to '..iThreatFactor..', skipping') end
+        return iThreatFactor
+    end
+
+    -- Check if lobby option overrides RNG
+    local sLobbyAggression = ScenarioInfo.Options.M28Aggression
+    if sLobbyAggression and not(tonumber(sLobbyAggression) == 1) then
+        -- Lobby option is set to something other than 1.0, use it instead of RNG
+        iThreatFactor = tonumber(sLobbyAggression)
+        bCustomThreatFactor = true
+        bThreatFactorInitialized = true
+        LOG(sFunctionRef..': Using lobby option threat factor: '..iThreatFactor..' (RNG disabled)')
+        return iThreatFactor
+    end
+
+    -- Generate random threat factor
+    iThreatFactor = GenerateRandomThreatFactor()
+    bCustomThreatFactor = true
+    bThreatFactorInitialized = true
+
+    -- Determine play style description for logging
+    -- Note: Lower threat factor = more aggressive (underestimates enemy)
+    --       Higher threat factor = more cautious (overestimates enemy)
+    local sPlayStyle
+    if iThreatFactor < 0.5 then
+        sPlayStyle = 'VERY AGGRESSIVE'
+    elseif iThreatFactor < 0.8 then
+        sPlayStyle = 'AGGRESSIVE'
+    elseif iThreatFactor <= 1.0 then
+        sPlayStyle = 'BALANCED'
+    elseif iThreatFactor <= 2.0 then
+        sPlayStyle = 'CAUTIOUS'
+    else
+        sPlayStyle = 'VERY CAUTIOUS/DEFENSIVE'
+    end
+
+    LOG(sFunctionRef..': RNG threat factor initialized to '..iThreatFactor..' ('..sPlayStyle..')')
+
+    return iThreatFactor
+end
 
 function GetUnitLifetimeCount(oUnit)
 --Returns what unique (for the unit's aiBrain) count the unit has, i.e. based on the number of previous units with the same blueprint ID

@@ -57,6 +57,545 @@ refbGivenUnitRelatedMessage = 'M28ChtUnitMs' --true if given unitspecific messag
 --Other global variables
 iNukeGloatingMessagesSent = 0
 
+-- Playstyle constants (tied to threat factor from M28UnitInfo)
+refiPlaystyleVeryAggressive = 1  -- < 0.5 threat factor
+refiPlaystyleAggressive = 2      -- 0.5-0.8 threat factor
+refiPlaystyleBalanced = 3        -- 0.8-1.0 threat factor
+refiPlaystyleCautious = 4        -- 1.0-2.0 threat factor
+refiPlaystyleVeryDefensive = 5   -- > 2.0 threat factor
+
+-- Message event type constants
+refsEventGameStart = 'GameStart'
+refsEventExpansion = 'Expansion'
+refsEventAttack = 'Attack'
+refsEventDefense = 'Defense'
+refsEventVictory = 'Victory'
+refsEventDefeat = 'Defeat'
+refsEventTaunt = 'Taunt'
+refsEventKilledUnit = 'KilledUnit'
+refsEventLostUnit = 'LostUnit'
+
+-- Playstyle names for logging
+tsPlaystyleNames = {
+    [refiPlaystyleVeryAggressive] = 'VERY AGGRESSIVE',
+    [refiPlaystyleAggressive] = 'AGGRESSIVE',
+    [refiPlaystyleBalanced] = 'BALANCED',
+    [refiPlaystyleCautious] = 'CAUTIOUS',
+    [refiPlaystyleVeryDefensive] = 'VERY CAUTIOUS/DEFENSIVE'
+}
+
+-- Message pools by playstyle and event type
+-- Structure: tPlaystyleMessages[iPlaystyle][sEventType] = {message1, message2, ...}
+tPlaystyleMessages = {
+    --=============================================================================
+    -- VERY AGGRESSIVE (< 0.5 threat factor) - Toxic, overconfident, trash-talking
+    --=============================================================================
+    [refiPlaystyleVeryAggressive] = {
+        [refsEventGameStart] = {
+            "LOL you actually showed up? This won't take long.",
+            "I hope you brought tissues because you're gonna cry.",
+            "My units are already bored waiting to destroy you.",
+            "GG EZ - calling it now.",
+            "Try not to embarrass yourself too badly.",
+            "I've seen training simulations put up more of a fight.",
+            "Surrender button is top right, save yourself the humiliation.",
+            "Oh look, fresh meat.",
+            "This is gonna be fun... for me.",
+            "You should probably just leave now."
+        },
+        [refsEventAttack] = {
+            "Surprise! Just kidding, you never had a chance.",
+            "Your base looked lonely, thought I'd visit.",
+            "Is that supposed to be a defense? Pathetic.",
+            "Running away won't save you!",
+            "I'm barely even trying and you're already losing.",
+            "Knock knock. It's your destruction.",
+            "Time to take out the trash!",
+            "Here comes the pain train!"
+        },
+        [refsEventDefense] = {
+            "Fine, I'll humor you for a minute.",
+            "Lucky shot. Won't happen twice.",
+            "You got one hit in. Feeling proud?",
+            "That tickled.",
+            "Is that seriously the best you've got?",
+            "Cute attempt. My turn now.",
+            "Did you think that would actually work?"
+        },
+        [refsEventVictory] = {
+            "Told you. GG EZ.",
+            "Thanks for wasting my time.",
+            "Next time bring friends. You'll still lose.",
+            "Uninstall recommended.",
+            "That wasn't even fun, you were so bad.",
+            "Another victim added to the list.",
+            "Was that supposed to be a challenge?"
+        },
+        [refsEventDefeat] = {
+            "Whatever, I wasn't even trying.",
+            "Lag. Definitely lag.",
+            "You got lucky. VERY lucky.",
+            "I let you win so you wouldn't quit gaming forever.",
+            "Rematch. Now. I dare you.",
+            "Fluke. Total fluke.",
+            "My keyboard stopped working, that's the only explanation."
+        },
+        [refsEventTaunt] = {
+            "Are you AFK? Attack me already, coward!",
+            "Building more units won't help when you don't know how to use them.",
+            "My grandmother builds faster than you.",
+            "Did you fall asleep at your keyboard?",
+            "Stop trying. It's painful to watch.",
+            "Is your strategy 'wait until I die of boredom'?",
+            "I could win this with half my units.",
+            "You call that an army? I've seen parades scarier than that."
+        },
+        [refsEventKilledUnit] = {
+            "LOL get rekt!",
+            "That's what happens when you challenge me.",
+            "Another one bites the dust!",
+            "Too easy!",
+            "Did that hurt? Good.",
+            "Keep sending units, I need the target practice."
+        },
+        [refsEventLostUnit] = {
+            "That unit was garbage anyway.",
+            "I meant to do that. Tactical sacrifice.",
+            "One unit? That's all you got?",
+            "Barely felt it.",
+            "Cost me nothing, that was expendable."
+        },
+        [refsEventExpansion] = {
+            "Taking this spot. Try to stop me. Actually, don't bother.",
+            "More territory for me, less for you. Math is hard, I know.",
+            "Expanding because I can and you can't stop me.",
+            "Mine now. Problem?",
+            "I'll just take this. And this. And everything."
+        }
+    },
+    --=============================================================================
+    -- AGGRESSIVE (0.5-0.8 threat factor) - Confident, competitive, slightly cocky
+    --=============================================================================
+    [refiPlaystyleAggressive] = {
+        [refsEventGameStart] = {
+            "Let's see what you've got.",
+            "Hope you're ready for a fight.",
+            "Don't expect me to go easy on you.",
+            "Time to prove who's the better commander.",
+            "This should be interesting.",
+            "May the best commander win. Spoiler: it's me.",
+            "Ready when you are.",
+            "Let's make this a good one."
+        },
+        [refsEventAttack] = {
+            "Here I come!",
+            "No mercy!",
+            "You left yourself wide open.",
+            "Push forward! Give them no quarter!",
+            "Taking what's mine.",
+            "Offense is the best defense!",
+            "Time to press the advantage!",
+            "Your defenses won't hold!"
+        },
+        [refsEventDefense] = {
+            "Fall back and regroup.",
+            "They got through... won't happen again.",
+            "Adjusting strategy.",
+            "Nice move. I'll remember that.",
+            "That was clever, I'll give you that.",
+            "Temporary setback. Nothing more.",
+            "You've earned my attention now."
+        },
+        [refsEventVictory] = {
+            "Good fight. I win.",
+            "Better luck next time.",
+            "That's game.",
+            "Victory is mine.",
+            "Well fought, but not well enough.",
+            "GG. Close one.",
+            "Another victory for the record."
+        },
+        [refsEventDefeat] = {
+            "You earned that one.",
+            "Well played.",
+            "I underestimated you. Won't happen again.",
+            "GG. Rematch?",
+            "Next time will be different.",
+            "Respect. You outplayed me.",
+            "I'll learn from this."
+        },
+        [refsEventTaunt] = {
+            "Come on, is that all you've got?",
+            "I expected more from you.",
+            "You're making this too easy.",
+            "Keep up, if you can.",
+            "Getting bored over here.",
+            "Show me something impressive!",
+            "Don't disappoint me now."
+        },
+        [refsEventKilledUnit] = {
+            "One down!",
+            "Keep 'em coming!",
+            "That's how it's done!",
+            "Nice try defending that.",
+            "Boom! Direct hit!",
+            "Your units can't keep up with mine."
+        },
+        [refsEventLostUnit] = {
+            "That stings, but I'll recover.",
+            "You'll pay for that one.",
+            "Acceptable losses.",
+            "That unit served its purpose.",
+            "Won't make that mistake twice."
+        },
+        [refsEventExpansion] = {
+            "Claiming this territory.",
+            "Expanding my domain.",
+            "More ground, more power.",
+            "Strategic acquisition complete.",
+            "This position is mine now."
+        }
+    },
+    --=============================================================================
+    -- BALANCED (0.8-1.0 threat factor) - Neutral, professional, strategic
+    --=============================================================================
+    [refiPlaystyleBalanced] = {
+        [refsEventGameStart] = {
+            "Analyzing tactical options.",
+            "May the best commander win.",
+            "Beginning operations.",
+            "Initiating strategic protocols.",
+            "Commencing battle procedures.",
+            "All systems online. Ready to proceed.",
+            "Acknowledged. Engaging.",
+            "Strategic assessment complete. Proceeding."
+        },
+        [refsEventAttack] = {
+            "Initiating offensive operation.",
+            "Advancing to target coordinates.",
+            "Engaging hostile forces.",
+            "Strike force deployed.",
+            "Executing attack pattern.",
+            "Offensive underway.",
+            "Moving to engage.",
+            "Attack vector confirmed."
+        },
+        [refsEventDefense] = {
+            "Defensive positions established.",
+            "Tactical withdrawal in progress.",
+            "Reinforcing perimeter.",
+            "Regrouping forces.",
+            "Adjusting defensive matrix.",
+            "Consolidating position.",
+            "Defense holding.",
+            "Repositioning assets."
+        },
+        [refsEventVictory] = {
+            "Objectives complete. Victory achieved.",
+            "Mission accomplished.",
+            "Hostiles eliminated.",
+            "Strategic victory secured.",
+            "Battle concluded successfully.",
+            "Victory confirmed.",
+            "Engagement successful."
+        },
+        [refsEventDefeat] = {
+            "Strategic miscalculation detected.",
+            "Mission failure. Analyzing errors.",
+            "Defeat acknowledged.",
+            "Insufficient forces for victory.",
+            "Tactical errors led to defeat.",
+            "Defeat logged. Adjusting parameters.",
+            "Engagement unsuccessful."
+        },
+        [refsEventTaunt] = {
+            "Your strategy has weaknesses.",
+            "I have calculated multiple paths to victory.",
+            "Your move.",
+            "Interesting tactical choice.",
+            "That decision may cost you.",
+            "Noted. Adjusting response.",
+            "Predictable maneuver."
+        },
+        [refsEventKilledUnit] = {
+            "Target eliminated.",
+            "Hostile unit destroyed.",
+            "Enemy asset neutralized.",
+            "Confirmed kill.",
+            "Target down.",
+            "Elimination successful."
+        },
+        [refsEventLostUnit] = {
+            "Unit lost. Compensating.",
+            "Asset destroyed. Adjusting strategy.",
+            "Casualty noted.",
+            "Loss acceptable within parameters.",
+            "Recalculating force disposition."
+        },
+        [refsEventExpansion] = {
+            "Establishing new operational zone.",
+            "Expanding territorial control.",
+            "New base location secured.",
+            "Resource acquisition point established.",
+            "Strategic expansion proceeding."
+        }
+    },
+    --=============================================================================
+    -- CAUTIOUS (1.0-2.0 threat factor) - Defensive, analytical, careful
+    --=============================================================================
+    [refiPlaystyleCautious] = {
+        [refsEventGameStart] = {
+            "Assessing threat levels... significant.",
+            "We should be careful here.",
+            "I'm detecting multiple threats.",
+            "Defense will be key to survival.",
+            "Let's not rush into anything.",
+            "Analyzing enemy capabilities...",
+            "Proceeding with caution.",
+            "This requires a measured approach."
+        },
+        [refsEventAttack] = {
+            "Moving forward... carefully.",
+            "Probing their defenses.",
+            "Limited offensive underway.",
+            "Testing enemy response.",
+            "Cautious advance initiated.",
+            "Hope this works...",
+            "Advancing, but maintaining fallback options.",
+            "Attacking, but ready to retreat if needed."
+        },
+        [refsEventDefense] = {
+            "Too dangerous. Falling back.",
+            "We need more forces before attacking.",
+            "Reinforcing critical positions.",
+            "Cannot risk a direct assault.",
+            "Consolidating our position.",
+            "Holding the line.",
+            "Defense is our priority.",
+            "Not taking any chances."
+        },
+        [refsEventVictory] = {
+            "We... we actually won?",
+            "Victory! Though it was closer than I'd like.",
+            "Threat eliminated. Finally.",
+            "That was more difficult than expected.",
+            "Survived against the odds.",
+            "Relief. It's finally over.",
+            "Victory achieved, but at what cost?"
+        },
+        [refsEventDefeat] = {
+            "I knew this would happen.",
+            "We needed more defenses.",
+            "Should have been more careful.",
+            "The threat was too great.",
+            "I warned about their strength.",
+            "Overwhelming enemy force.",
+            "We weren't prepared enough."
+        },
+        [refsEventTaunt] = {
+            "You're stronger than my analysis suggested.",
+            "I'm watching you very carefully.",
+            "My scouts report concerning activity.",
+            "What are you planning over there?",
+            "I don't like how quiet it is.",
+            "Something doesn't feel right...",
+            "I sense a trap."
+        },
+        [refsEventKilledUnit] = {
+            "One threat neutralized. Many remain.",
+            "Got one, but stay alert.",
+            "Small victory. Can't get complacent.",
+            "Target down. Scanning for more.",
+            "Don't celebrate yet, plenty more out there."
+        },
+        [refsEventLostUnit] = {
+            "We can't afford losses like that!",
+            "This is concerning...",
+            "We need to reinforce immediately.",
+            "Unacceptable casualties.",
+            "That was a valuable asset!"
+        },
+        [refsEventExpansion] = {
+            "Expanding... hope it's safe.",
+            "New position, new vulnerabilities.",
+            "Establishing defenses at new location first.",
+            "Careful expansion underway.",
+            "Securing this area before proceeding."
+        }
+    },
+    --=============================================================================
+    -- VERY DEFENSIVE (> 2.0 threat factor) - Timid, apologetic, overly polite
+    --=============================================================================
+    [refiPlaystyleVeryDefensive] = {
+        [refsEventGameStart] = {
+            "Oh dear, this looks dangerous...",
+            "Maybe we could negotiate instead?",
+            "I really hope they don't attack...",
+            "Please don't hurt me...",
+            "I'm sure we can work this out peacefully?",
+            "This is fine. Everything is fine. Probably.",
+            "Is it too late to surrender?",
+            "I have a bad feeling about this..."
+        },
+        [refsEventAttack] = {
+            "Um... attacking? Are you sure that's wise?",
+            "Advancing... very slowly... very carefully...",
+            "I really hope this works...",
+            "Sorry about this, but I have to attack...",
+            "Please don't be too angry about this attack...",
+            "Here goes nothing...",
+            "This is probably a terrible idea...",
+            "Forgive me for this aggression!"
+        },
+        [refsEventDefense] = {
+            "RETREAT! Everyone fall back!",
+            "We're all going to die!",
+            "Need more walls! MORE WALLS!",
+            "They're coming! They're coming!",
+            "Maybe if I hide they'll go away?",
+            "This is exactly what I was afraid of!",
+            "Quick, build more defenses!",
+            "I knew we should have built more shields!"
+        },
+        [refsEventVictory] = {
+            "Wait... I won? Really?",
+            "Oh thank goodness it's over!",
+            "I can't believe we survived!",
+            "That was terrifying. Never again.",
+            "Victory? I was sure we'd lose!",
+            "We... we did it? How?",
+            "I need to lie down after that..."
+        },
+        [refsEventDefeat] = {
+            "I knew it. I KNEW this would happen.",
+            "I tried my best... it wasn't enough.",
+            "At least it's over now.",
+            "You were very strong. I never had a chance.",
+            "Please go easy on me next time?",
+            "I'm sorry I couldn't do better.",
+            "As expected... too powerful..."
+        },
+        [refsEventTaunt] = {
+            "Please don't attack me...",
+            "Can we maybe... not fight?",
+            "Your army is very... impressive. And scary.",
+            "I'm just going to stay over here, okay?",
+            "Those are a lot of units you have there...",
+            "Nice base you have. Very... threatening.",
+            "I come in peace! Mostly!"
+        },
+        [refsEventKilledUnit] = {
+            "Oh! I actually got one!",
+            "Sorry about that! ...Actually, not sorry.",
+            "Did that just happen?!",
+            "I... I did it?",
+            "One down! Only... many more to go. Oh dear."
+        },
+        [refsEventLostUnit] = {
+            "No no no no no!",
+            "We're doomed!",
+            "That was my favorite unit!",
+            "This is a disaster!",
+            "Everything is falling apart!"
+        },
+        [refsEventExpansion] = {
+            "Expanding... please don't notice...",
+            "Just... quietly taking this spot...",
+            "Hope nobody attacks my new base...",
+            "Building here. Very nervously.",
+            "New expansion. New things to worry about."
+        }
+    }
+}
+
+function GetCurrentPlaystyle()
+    --[[
+    Returns the playstyle constant based on the current threat factor from M28UnitInfo.
+    Lower threat factor = more aggressive playstyle
+    Higher threat factor = more cautious/defensive playstyle
+    ]]
+    local iThreatFactor = M28UnitInfo.iThreatFactor or 1
+
+    if iThreatFactor < 0.5 then
+        return refiPlaystyleVeryAggressive
+    elseif iThreatFactor < 0.8 then
+        return refiPlaystyleAggressive
+    elseif iThreatFactor <= 1.0 then
+        return refiPlaystyleBalanced
+    elseif iThreatFactor <= 2.0 then
+        return refiPlaystyleCautious
+    else
+        return refiPlaystyleVeryDefensive
+    end
+end
+
+function GetPlaystyleMessage(sEventType)
+    --[[
+    Returns a random message for the current playstyle and event type.
+
+    Parameters:
+        sEventType: One of the refsEvent* constants (e.g., refsEventGameStart)
+
+    Returns:
+        string: A randomly selected message, or nil if no messages available
+    ]]
+    local iPlaystyle = GetCurrentPlaystyle()
+
+    if not(tPlaystyleMessages[iPlaystyle]) then
+        return nil
+    end
+
+    local tMessages = tPlaystyleMessages[iPlaystyle][sEventType]
+
+    if M28Utilities.IsTableEmpty(tMessages) then
+        return nil
+    end
+
+    local iRand = math.random(1, table.getn(tMessages))
+    return tMessages[iRand]
+end
+
+function SendPlaystyleMessage(aiBrain, sEventType, iOptionalDelayBeforeSending, iOptionalCooldown, bOnlySendToTeam)
+    --[[
+    Sends a playstyle-appropriate message for the given event type.
+
+    Parameters:
+        aiBrain: The AI brain sending the message
+        sEventType: One of the refsEvent* constants
+        iOptionalDelayBeforeSending: Seconds to wait before sending (default: 0)
+        iOptionalCooldown: Minimum seconds between messages of this type (default: 120)
+        bOnlySendToTeam: If true, only send to allies (default: false)
+    ]]
+    local sFunctionRef = 'SendPlaystyleMessage'
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+
+    local sMessage = GetPlaystyleMessage(sEventType)
+
+    if not(sMessage) then
+        if bDebugMessages then LOG(sFunctionRef..': No message found for event type '..sEventType) end
+        return
+    end
+
+    local iPlaystyle = GetCurrentPlaystyle()
+    local sMessageType = 'Playstyle'..sEventType..iPlaystyle
+
+    if bDebugMessages then
+        LOG(sFunctionRef..': Sending playstyle message. Event='..sEventType..'; Playstyle='..tsPlaystyleNames[iPlaystyle]..'; Message='..sMessage)
+    end
+
+    -- Use the existing SendMessage function
+    SendMessage(aiBrain, sMessageType, sMessage, iOptionalDelayBeforeSending or 0, iOptionalCooldown or 120, bOnlySendToTeam or false)
+end
+
+function GetPlaystyleDescription()
+    --[[
+    Returns a human-readable description of the current playstyle.
+    Useful for debugging and logging.
+    ]]
+    local iPlaystyle = GetCurrentPlaystyle()
+    return tsPlaystyleNames[iPlaystyle] or 'UNKNOWN'
+end
+
 function SendSuicideMessage(aiBrain)
     --See the taunt.lua for a full list of taunts; recommended to manually use these via soundcue and bank info so can avoid voice audio overlapping
     --Below was based on M27 - not actually used so commented out
@@ -418,6 +957,12 @@ function SendGloatingMessage(aiBrain, iDelayBeforeSending, iMinDelayBetweenSimil
             local iRand = math.random(1, table.getn(tsPotentialTeamMessages))
             --SendMessage(aiBrain, sMessageType, sMessage,                          iOptionalDelayBeforeSending, iOptionalTimeBetweenMessageType, bOnlySendToTeam, bWaitUntilHaveACU, sOptionalSoundCue, sOptionalSoundBank)
             SendMessage(oBrainToSendMessage, oBrainToSendMessage.M28Team..'Taunt'..(oBrainToSendMessage[refiAssignedPersonality] or 0), tsPotentialTeamMessages[iRand], iDelayBeforeSending, iMinDelayBetweenSimilarMessages, true, M28Map.bIsCampaignMap, tsTeamCueIndex[iRand], tsTeamBankIndex[iRand])
+        end
+
+        -- Also send a playstyle-based taunt message (50% chance, to avoid too many messages)
+        if oBrainToSendMessage and oBrainToSendMessage.M28AI and not(M28Map.bIsCampaignMap) and math.random(1, 2) == 1 then
+            if bDebugMessages then LOG(sFunctionRef..': Sending playstyle taunt message. Playstyle='..GetPlaystyleDescription()) end
+            SendPlaystyleMessage(oBrainToSendMessage, refsEventTaunt, (iDelayBeforeSending or 0) + 3, iMinDelayBetweenSimilarMessages or 120, false)
         end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -1056,6 +1601,18 @@ function ConsiderEndOfGameMessage(oBrainDefeated)
             --SendMessage(aiBrain, sMessageType, sMessage,                          iOptionalDelayBeforeSending, iOptionalTimeBetweenMessageType, bOnlySendToTeam, bWaitUntilHaveACU, sOptionalSoundCue, sOptionalSoundBank)
             SendMessage(oBrainToSendMessage, 'Team'..oBrainToSendMessage.M28Team..'Death', tsPotentialTeamMessages[iRand], 5, 60, true, M28Map.bIsCampaignMap, tsTeamCueIndex[iRand], tsTeamBankIndex[iRand])
         end
+
+        -- Send playstyle-based victory/defeat message (in addition to personality message)
+        if oBrainToSendMessage and oBrainToSendMessage.M28AI and not(M28Map.bIsCampaignMap) then
+            local sEventType
+            if bLastM28OnTeamToDie then
+                sEventType = refsEventDefeat
+            else
+                sEventType = refsEventVictory
+            end
+            if bDebugMessages then LOG(sFunctionRef..': Sending playstyle end-of-game message. Event='..sEventType..'; Playstyle='..GetPlaystyleDescription()) end
+            SendPlaystyleMessage(oBrainToSendMessage, sEventType, 3, 60, false)
+        end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
@@ -1588,6 +2145,15 @@ function SendStartOfGameMessage(oOrigBrain, iOptionalExtraDelayInSeconds, sOptio
         SendMessage(oBrainToSendMessage, (sOptionalMessageTypePrefix or '')..'Team'..(aiBrain.M28Team or 1)..'Start', tsPotentialTeamMessages[iRand], 0, 60, true, M28Map.bIsCampaignMap, tsTeamCueIndex[iRand], tsTeamBankIndex[iRand])
     end
 
+    -- Send playstyle-based game start message (in addition to personality message)
+    -- Only send if we have an M28 brain and it's not a campaign map
+    if oBrainToSendMessage and oBrainToSendMessage.M28AI and not(M28Map.bIsCampaignMap) then
+        local iPlaystyle = GetCurrentPlaystyle()
+        if bDebugMessages then LOG(sFunctionRef..': Sending playstyle game start message. Playstyle='..GetPlaystyleDescription()..'; ThreatFactor='..(M28UnitInfo.iThreatFactor or 1)) end
+        -- Send with a slight delay after the personality message to avoid overlapping
+        SendPlaystyleMessage(oBrainToSendMessage, refsEventGameStart, 5, 120, false)
+    end
+
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
@@ -1737,6 +2303,12 @@ function ConsiderMessageForACUInTrouble(oACU, aiBrain)
             --SendMessage(aiBrain, sMessageType, sMessage,                          iOptionalDelayBeforeSending, iOptionalTimeBetweenMessageType, bOnlySendToTeam, bWaitUntilHaveACU, sOptionalSoundCue, sOptionalSoundBank)
             SendMessage(oBrainToSendMessage, oBrainToSendMessage.M28Team..'LostUnit'..(oBrainToSendMessage[refiAssignedPersonality] or 0), tsPotentialTeamMessages[iRand], 3, 1200, true, M28Map.bIsCampaignMap, tsTeamCueIndex[iRand], tsTeamBankIndex[iRand])
         end
+
+        -- Also send a playstyle-based defense message (ACU in trouble = defensive situation)
+        if oBrainToSendMessage and oBrainToSendMessage.M28AI and not(M28Map.bIsCampaignMap) then
+            if bDebugMessages then LOG(sFunctionRef..': Sending playstyle defense message. Playstyle='..GetPlaystyleDescription()) end
+            SendPlaystyleMessage(oBrainToSendMessage, refsEventDefense, 2, 180, false)
+        end
     end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -1838,6 +2410,12 @@ function JustLostValuableUnit(oUnitID, oKilledUnitBrain, oKillerBrain)
             local iRand = math.random(1, table.getn(tsPotentialTeamMessages))
             --SendMessage(aiBrain, sMessageType, sMessage,                          iOptionalDelayBeforeSending, iOptionalTimeBetweenMessageType, bOnlySendToTeam, bWaitUntilHaveACU, sOptionalSoundCue, sOptionalSoundBank)
             SendMessage(oBrainToSendMessage, oBrainToSendMessage.M28Team..'LostUnit'..(oBrainToSendMessage[refiAssignedPersonality] or 0), tsPotentialTeamMessages[iRand], 3, 1200, true, M28Map.bIsCampaignMap, tsTeamCueIndex[iRand], tsTeamBankIndex[iRand])
+        end
+
+        -- Also send a playstyle-based lost unit message (33% chance, to avoid spam)
+        if oBrainToSendMessage and oBrainToSendMessage.M28AI and not(M28Map.bIsCampaignMap) and math.random(1, 3) == 1 then
+            if bDebugMessages then LOG(sFunctionRef..': Sending playstyle lost unit message. Playstyle='..GetPlaystyleDescription()) end
+            SendPlaystyleMessage(oBrainToSendMessage, refsEventLostUnit, 2, 300, false)
         end
     end
 
@@ -2039,6 +2617,12 @@ function JustKilledEnemyValuableUnit(oUnitID, oKilledUnitBrain, oKillerBrain)
             local iRand = math.random(1, table.getn(tsPotentialTeamMessages))
             --SendMessage(aiBrain, sMessageType, sMessage,                          iOptionalDelayBeforeSending, iOptionalTimeBetweenMessageType, bOnlySendToTeam, bWaitUntilHaveACU, sOptionalSoundCue, sOptionalSoundBank)
             SendMessage(oBrainToSendMessage, oBrainToSendMessage.M28Team..'KilledUnit'..(oBrainToSendMessage[refiAssignedPersonality] or 0), tsPotentialTeamMessages[iRand], 3, 1200, true, M28Map.bIsCampaignMap, tsTeamCueIndex[iRand], tsTeamBankIndex[iRand])
+        end
+
+        -- Also send a playstyle-based killed unit message (33% chance, to avoid spam)
+        if oBrainToSendMessage and oBrainToSendMessage.M28AI and not(M28Map.bIsCampaignMap) and math.random(1, 3) == 1 then
+            if bDebugMessages then LOG(sFunctionRef..': Sending playstyle killed unit message. Playstyle='..GetPlaystyleDescription()) end
+            SendPlaystyleMessage(oBrainToSendMessage, refsEventKilledUnit, 2, 300, false)
         end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
