@@ -24,6 +24,7 @@ local M28Micro = import('/mods/M28AI/lua/AI/M28Micro.lua')
 local M28Logic = import('/mods/M28AI/lua/AI/M28Logic.lua')
 local M28Overseer = import('/mods/M28AI/lua/AI/M28Overseer.lua')
 local M28Intel = import('/mods/M28AI/lua/AI/M28Intel.lua')
+local M28Config = import('/mods/M28AI/lua/M28Config.lua')
 
 --Global
 tLZRefreshCountByTeam = {}
@@ -11626,8 +11627,78 @@ function ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
                 RetreatOtherUnits(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, tAvailableCombatUnits)
             else
                 if bDebugMessages == true then LOG(sFunctionRef..': About to manage combat units in the LZ, iOurBestIndirectRange='..(iOurBestIndirectRange or 'nil')..'; bConsiderAdjacentIndirect='..tostring(bConsiderAdjacentIndirect or false)..'; iAvailableCombatCount='..iAvailableCombatCount) end
-                --ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, tAvailableCombatUnits, iFriendlyBestMobileDFRange, iFriendlyBestMobileIndirectRange, bWantIndirectReinforcements, tUnavailableUnitsInThisLZ, bDelayOrdersForHover, bHaveCombatUnitsFromAdjZone)
-                ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, tAvailableCombatUnits, iOurBestDFRange, iOurBestIndirectRange, bConsiderAdjacentIndirect, tUnavailableUnitsInThisLZ, iAvailableCombatCount >= 30, bHaveCombatUnitsFromAdjZone)
+
+                -- RAIDING SYSTEM: Filter out active raiders and consider launching new raids
+                -- First, filter out any units already assigned as raiders
+                local tNonRaiderCombatUnits = FilterOutRaiders(tAvailableCombatUnits)
+                local iNonRaiderCount = table.getn(tNonRaiderCombatUnits)
+                local bJustLaunchedRaid = false
+                local iCurrentTime = GetGameTimeSeconds()
+
+                -- Consider launching a raid if we have enough non-raider units and zone is relatively safe
+                -- Only raid from zones that are not under immediate threat
+                local bZoneUnderThreat = (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) > 500 or
+                                         (tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] and (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) > 200)
+
+                if not(bZoneUnderThreat) and iNonRaiderCount >= 15 then
+                    local tNewRaiders = ConsiderLaunchingRaid(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, tNonRaiderCombatUnits)
+                    if tNewRaiders then
+                        bJustLaunchedRaid = true
+                        -- Remove raiders from the available combat units
+                        tNonRaiderCombatUnits = FilterOutRaiders(tNonRaiderCombatUnits)
+                        if bDebugMessages == true then LOG(sFunctionRef..': Launched raid with '..table.getn(tNewRaiders)..' units, remaining combat units='..table.getn(tNonRaiderCombatUnits)) end
+                    end
+                end
+
+                -- Consider reinforcing existing raids if we didn't just launch one and zone is safe
+                if not(bJustLaunchedRaid) and not(bZoneUnderThreat) and iNonRaiderCount >= 5 then
+                    local tReinforcements = ConsiderReinforcingRaid(tLZTeamData, tNonRaiderCombatUnits, iTeam, iPlateau, iLandZone)
+                    if tReinforcements then
+                        tNonRaiderCombatUnits = FilterOutRaiders(tNonRaiderCombatUnits)
+                        if bDebugMessages == true then LOG(sFunctionRef..': Sent '..table.getn(tReinforcements)..' reinforcements to raid') end
+                    end
+                end
+
+                -- Manage active raiders that are in this zone
+                -- Raiders are managed from their CURRENT zone (where they physically are)
+                -- Group them by target so each raid group gets managed together
+                local tActiveRaiders = GetActiveRaidersInZone(tLZTeamData)
+                if M28Utilities.IsTableEmpty(tActiveRaiders) == false then
+                    -- Group raiders by their target zone
+                    local tRaidsByTarget = {}
+                    for iUnit, oUnit in tActiveRaiders do
+                        local iTargetPlateau = oUnit[refiRaidTargetPlateau]
+                        local iTargetLZ = oUnit[refiRaidTargetLandZone]
+                        if iTargetPlateau and iTargetLZ then
+                            -- Skip raiders assigned in the last 5 seconds (still getting initial orders)
+                            local iAssignTime = oUnit[refiRaidAssignmentTime] or 0
+                            if iCurrentTime - iAssignTime > 5 then
+                                local sKey = iTargetPlateau..'-'..iTargetLZ
+                                if not(tRaidsByTarget[sKey]) then
+                                    tRaidsByTarget[sKey] = {iPlateau = iTargetPlateau, iLandZone = iTargetLZ, tRaiders = {}}
+                                end
+                                table.insert(tRaidsByTarget[sKey].tRaiders, oUnit)
+                            end
+                        end
+                    end
+
+                    -- Manage each raid group separately
+                    for sKey, tRaidInfo in tRaidsByTarget do
+                        local tRaidersTargetingHere = tRaidInfo.tRaiders
+
+                        if M28Utilities.IsTableEmpty(tRaidersTargetingHere) == false then
+                            -- All these raiders have the same target, so manage them as one group
+                            -- Pass the TARGET zone (from tRaidInfo), not the current zone
+                            local bRaidActive = ManageRaidingForce(tRaidersTargetingHere, tRaidInfo.iPlateau, tRaidInfo.iLandZone, iTeam)
+                            if bDebugMessages == true then LOG(sFunctionRef..': Managed raid targeting P'..tRaidInfo.iPlateau..'Z'..tRaidInfo.iLandZone..' from current zone P'..iPlateau..'Z'..iLandZone..' active='..tostring(bRaidActive)..' raiders='..table.getn(tRaidersTargetingHere)) end
+                        end
+                    end
+                end
+
+                -- Use non-raider units for main combat management
+                if M28Utilities.IsTableEmpty(tNonRaiderCombatUnits) == false then
+                    ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, tNonRaiderCombatUnits, iOurBestDFRange, iOurBestIndirectRange, bConsiderAdjacentIndirect, tUnavailableUnitsInThisLZ, table.getn(tNonRaiderCombatUnits) >= 30, bHaveCombatUnitsFromAdjZone)
+                end
                 bUpdateEnemyDataHere = false
             end
         end
@@ -13815,4 +13886,1037 @@ function HaveAttackingExperimentalToSupport(tLZTeamData)
             end
         end
     end
+end
+
+--=============================================================================
+-- RAIDING FORCE SYSTEM
+-- Autonomous raiding forces that split off from main armies to attack
+-- weak or undefended high-value economic targets
+--=============================================================================
+
+-- Unit tracking for raiders
+refbIsRaider = 'M28RaidIsRdr' -- true if unit is currently assigned as a raider
+refiRaidTargetPlateau = 'M28RaidTrgPlt' -- Plateau of raid target
+refiRaidTargetLandZone = 'M28RaidTrgLZ' -- Land zone of raid target
+refiRaidAssignmentTime = 'M28RaidAsgnTm' -- GameTimeSeconds when assigned to raid
+refiRaidRetreatTime = 'M28RaidRtrtTm' -- GameTimeSeconds when retreat was triggered
+refiRaidLastRetargetTime = 'M28RaidRetrgTm' -- GameTimeSeconds when target was last re-evaluated
+
+-- Raiding configuration constants
+local iMinRaiderSpeed = 1.75 -- Minimum blueprint speed for raider eligibility
+local iMaxRaiderFraction = 0.35 -- Maximum fraction of combat force to use as raiders
+local iMinRaiderCount = 4 -- Minimum raiders needed to LAUNCH a raid
+local iRaidEndThreshold = 2 -- Minimum raiders needed to CONTINUE a raid
+local iMaxRaiderCount = 20 -- Maximum raiders per raid group
+local iRaidCooldownSeconds = 45 -- Minimum time between raid assignments for a zone
+local iRaidMaxDuration = 120 -- Maximum seconds a raid can last before units return
+local iRaidRetreatThreshold = 0.4 -- Retreat if raiders lose this fraction of initial strength
+local iMinEnemyMexValue = 100 -- Minimum enemy structure mass value to consider raiding
+local iMaxDefenseThreat = 200 -- Maximum enemy combat threat for a zone to be raidable
+local iMaxStructureDefenseThreat = 150 -- Maximum enemy structure DF threat for raidable zone
+local iRaidRetargetInterval = 15 -- Seconds between target re-evaluations
+local iRetargetValueThreshold = 1.5 -- New target must be this many times better to switch
+
+function GetUnitBlueprintSpeed(oUnit)
+    --Returns the blueprint max speed of a unit (not current velocity)
+    local tBlueprint = oUnit:GetBlueprint()
+    if tBlueprint and tBlueprint.Physics and tBlueprint.Physics.MaxSpeed then
+        return tBlueprint.Physics.MaxSpeed
+    end
+    return 0
+end
+
+function IsUnitEligibleForRaiding(oUnit)
+    --Returns true if unit is suitable for raiding (fast, mobile, not experimental/artillery)
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'IsUnitEligibleForRaiding'
+
+    if not(M28UnitInfo.IsUnitValid(oUnit)) then return false end
+
+    -- Exclude experimentals
+    if EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental, oUnit.UnitId) then
+        if bDebugMessages == true then LOG(sFunctionRef..': Unit '..oUnit.UnitId..' excluded - is experimental') end
+        return false
+    end
+
+    -- Exclude T3 artillery/indirect fire
+    if EntityCategoryContains(M28UnitInfo.refCategoryIndirect + categories.TECH3, oUnit.UnitId) then
+        if bDebugMessages == true then LOG(sFunctionRef..': Unit '..oUnit.UnitId..' excluded - is indirect fire') end
+        return false
+    end
+
+    -- Exclude mobile shields
+    if EntityCategoryContains(M28UnitInfo.refCategoryMobileLandShield, oUnit.UnitId) then
+        if bDebugMessages == true then LOG(sFunctionRef..': Unit '..oUnit.UnitId..' excluded - is mobile shield') end
+        return false
+    end
+
+    -- Exclude engineers
+    if EntityCategoryContains(categories.ENGINEER, oUnit.UnitId) then
+        if bDebugMessages == true then LOG(sFunctionRef..': Unit '..oUnit.UnitId..' excluded - is engineer') end
+        return false
+    end
+
+    -- Check speed requirement
+    local iSpeed = GetUnitBlueprintSpeed(oUnit)
+    if iSpeed < iMinRaiderSpeed then
+        if bDebugMessages == true then LOG(sFunctionRef..': Unit '..oUnit.UnitId..' excluded - speed '..iSpeed..' < '..iMinRaiderSpeed) end
+        return false
+    end
+
+    -- Must be direct fire land unit
+    if not(EntityCategoryContains(M28UnitInfo.refCategoryMobileDFLand, oUnit.UnitId)) then
+        if bDebugMessages == true then LOG(sFunctionRef..': Unit '..oUnit.UnitId..' excluded - not mobile DF land') end
+        return false
+    end
+
+    -- Unit is already assigned as a raider
+    if oUnit[refbIsRaider] then
+        if bDebugMessages == true then LOG(sFunctionRef..': Unit '..oUnit.UnitId..' excluded - already a raider') end
+        return false
+    end
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Unit '..oUnit.UnitId..' is eligible for raiding, speed='..iSpeed) end
+    return true
+end
+
+function IdentifyRaidableZones(iTeam, iPlateau, iSourceLandZone)
+    --Returns table of {iPlateau, iLandZone, iValue, iDistance} for zones suitable for raiding
+    --Sorted by value/distance ratio (best targets first)
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'IdentifyRaidableZones'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local tRaidableZones = {}
+    local tSourceLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iSourceLandZone]
+    local tSourceMidpoint = tSourceLZData[M28Map.subrefMidpoint]
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Searching for raidable zones from P'..iPlateau..'Z'..iSourceLandZone) end
+
+    -- Check all land zones on this plateau
+    for iLandZone, tLZData in M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones] do
+        if iLandZone ~= iSourceLandZone then
+            local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
+
+            -- Check if zone has enemy economic value
+            local iEnemyStructureMass = tLZTeamData[M28Map.subrefThreatEnemyStructureTotalMass] or 0
+
+            if iEnemyStructureMass >= iMinEnemyMexValue then
+                -- Check if zone is weakly defended
+                local iEnemyCombatThreat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+                local iEnemyStructureDFThreat = tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0
+
+                if bDebugMessages == true then
+                    LOG(sFunctionRef..': Zone P'..iPlateau..'Z'..iLandZone..
+                        ' EnemyMass='..iEnemyStructureMass..
+                        ' EnemyCombat='..iEnemyCombatThreat..
+                        ' EnemyStructDF='..iEnemyStructureDFThreat)
+                end
+
+                if iEnemyCombatThreat <= iMaxDefenseThreat and iEnemyStructureDFThreat <= iMaxStructureDefenseThreat then
+                    -- Calculate distance to target zone
+                    local iDistance = M28Utilities.GetDistanceBetweenPositions(tSourceMidpoint, tLZData[M28Map.subrefMidpoint])
+
+                    -- Check if we have pathing to this zone
+                    local bHasPathing = false
+                    if tSourceLZData[M28Map.subrefLZPathingToOtherLZEntryRef] and
+                       tSourceLZData[M28Map.subrefLZPathingToOtherLZEntryRef][iLandZone] then
+                        bHasPathing = true
+                    end
+
+                    if bHasPathing or iDistance <= 300 then
+                        -- Calculate raid value (higher is better target)
+                        -- Value = enemy mass / (distance * (1 + enemy threat/100))
+                        local iThreatPenalty = 1 + (iEnemyCombatThreat + iEnemyStructureDFThreat) / 100
+                        local iRaidValue = iEnemyStructureMass / (math.max(50, iDistance) * iThreatPenalty)
+
+                        table.insert(tRaidableZones, {
+                            iPlateau = iPlateau,
+                            iLandZone = iLandZone,
+                            iValue = iRaidValue,
+                            iDistance = iDistance,
+                            iEnemyMass = iEnemyStructureMass,
+                            iEnemyThreat = iEnemyCombatThreat + iEnemyStructureDFThreat
+                        })
+
+                        if bDebugMessages == true then
+                            LOG(sFunctionRef..': Added raidable zone P'..iPlateau..'Z'..iLandZone..
+                                ' Value='..iRaidValue..' Dist='..iDistance)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Sort by raid value (highest first)
+    table.sort(tRaidableZones, function(a, b) return a.iValue > b.iValue end)
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Found '..table.getn(tRaidableZones)..' raidable zones') end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return tRaidableZones
+end
+
+function SelectRaidingUnits(tAvailableCombatUnits, iMaxRaiders)
+    --Selects fast units suitable for raiding from available combat units
+    --Returns table of selected raiders
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'SelectRaidingUnits'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local tEligibleUnits = {}
+    local tSelectedRaiders = {}
+
+    -- First pass: identify all eligible units with their speeds
+    for iUnit, oUnit in tAvailableCombatUnits do
+        if IsUnitEligibleForRaiding(oUnit) then
+            local iSpeed = GetUnitBlueprintSpeed(oUnit)
+            table.insert(tEligibleUnits, {oUnit = oUnit, iSpeed = iSpeed})
+        end
+    end
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Found '..table.getn(tEligibleUnits)..' eligible units') end
+
+    -- Add visual debug for raider selection
+    if M28Config.M28ShowRaidingDebug and table.getn(tEligibleUnits) > 0 then
+        LOG('M28 RAID SELECTION: '..table.getn(tEligibleUnits)..' eligible from '..table.getn(tAvailableCombatUnits)..' available, want '..iMaxRaiders)
+    end
+
+    -- Sort by speed (fastest first)
+    table.sort(tEligibleUnits, function(a, b) return a.iSpeed > b.iSpeed end)
+
+    -- Select up to iMaxRaiders of the fastest units
+    local iSelectedCount = 0
+    for iEntry, tUnitData in tEligibleUnits do
+        if iSelectedCount >= iMaxRaiders then break end
+        table.insert(tSelectedRaiders, tUnitData.oUnit)
+        iSelectedCount = iSelectedCount + 1
+    end
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Selected '..table.getn(tSelectedRaiders)..' raiders') end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return tSelectedRaiders
+end
+
+function AssignUnitsToRaid(tRaiders, iTargetPlateau, iTargetLandZone)
+    --Marks units as raiders and records their target
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'AssignUnitsToRaid'
+
+    local iCurrentTime = GetGameTimeSeconds()
+
+    for iUnit, oUnit in tRaiders do
+        oUnit[refbIsRaider] = true
+        oUnit[refiRaidTargetPlateau] = iTargetPlateau
+        oUnit[refiRaidTargetLandZone] = iTargetLandZone
+        oUnit[refiRaidAssignmentTime] = iCurrentTime
+        oUnit[refiRaidRetreatTime] = nil
+
+        if bDebugMessages == true then
+            LOG(sFunctionRef..': Assigned '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..
+                ' to raid P'..iTargetPlateau..'Z'..iTargetLandZone)
+        end
+    end
+end
+
+function ClearRaiderStatus(oUnit)
+    --Removes raider status from a unit
+    oUnit[refbIsRaider] = nil
+    oUnit[refiRaidTargetPlateau] = nil
+    oUnit[refiRaidTargetLandZone] = nil
+    oUnit[refiRaidAssignmentTime] = nil
+    oUnit[refiRaidRetreatTime] = nil
+    oUnit[refiRaidLastRetargetTime] = nil
+end
+
+function GetNextRaidWaypoint(iCurrentPlateau, iCurrentLZ, iTargetPlateau, iTargetLandZone, iTeam, iRaiderStrength)
+    --Returns the next zone to move to on the path from current zone to target zone
+    --Avoids zones with enemy threat greater than raider strength
+    --Returns: iNextLZ, bPathBlocked, iBlockingLZ
+    --  iNextLZ = next land zone to move to (nil if at target or path blocked)
+    --  bPathBlocked = true if path is blocked by enemy threat
+    --  iBlockingLZ = the land zone that is blocking the path (if blocked)
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'GetNextRaidWaypoint'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    -- If already at target zone, return nil (no waypoint needed)
+    if iCurrentLZ == iTargetLandZone and iCurrentPlateau == iTargetPlateau then
+        if bDebugMessages == true then LOG(sFunctionRef..': Already at target zone P'..iTargetPlateau..'Z'..iTargetLandZone) end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return nil, false, nil
+    end
+
+    -- Different plateaus not supported for now
+    if iCurrentPlateau ~= iTargetPlateau then
+        if bDebugMessages == true then LOG(sFunctionRef..': Different plateaus not supported, current='..iCurrentPlateau..' target='..iTargetPlateau) end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return nil, true, nil
+    end
+
+    local tCurrentLZData = M28Map.tAllPlateaus[iCurrentPlateau][M28Map.subrefPlateauLandZones][iCurrentLZ]
+    local tTargetLZData = M28Map.tAllPlateaus[iTargetPlateau][M28Map.subrefPlateauLandZones][iTargetLandZone]
+    local tTargetMidpoint = tTargetLZData[M28Map.subrefMidpoint]
+
+    local iNextLZ = nil
+    local bPathBlocked = false
+    local iBlockingLZ = nil
+
+    -- Try to use pre-computed pathing data first
+    local bHasPathingData = false
+    if tCurrentLZData[M28Map.subrefLZPathingToOtherLZEntryRef] and tCurrentLZData[M28Map.subrefLZPathingToOtherLZEntryRef][iTargetLandZone] then
+        local iPathingRef = tCurrentLZData[M28Map.subrefLZPathingToOtherLZEntryRef][iTargetLandZone]
+        local tPathData = tCurrentLZData[M28Map.subrefLZPathingToOtherLandZones][iPathingRef]
+        if tPathData and tPathData[M28Map.subrefLZPath] then
+            bHasPathingData = true
+            -- Iterate through path zones and find the next safe zone
+            for iEntry, iPathLZ in tPathData[M28Map.subrefLZPath] do
+                local tPathLZData = M28Map.tAllPlateaus[iCurrentPlateau][M28Map.subrefPlateauLandZones][iPathLZ]
+                local tPathLZTeamData = tPathLZData[M28Map.subrefLZTeamData][iTeam]
+
+                -- Calculate enemy threat in this zone
+                local iEnemyCombatThreat = tPathLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+                local iEnemyStructureDFThreat = tPathLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0
+                local iTotalEnemyThreat = iEnemyCombatThreat + iEnemyStructureDFThreat
+
+                if bDebugMessages == true then
+                    LOG(sFunctionRef..': Checking path zone LZ'..iPathLZ..
+                        ' EnemyCombat='..iEnemyCombatThreat..' EnemyStructDF='..iEnemyStructureDFThreat..
+                        ' Total='..iTotalEnemyThreat..' RaiderStrength='..iRaiderStrength)
+                end
+
+                -- Check if this zone is safe to pass through
+                if iTotalEnemyThreat > iRaiderStrength * 0.8 then
+                    bPathBlocked = true
+                    iBlockingLZ = iPathLZ
+                    break
+                else
+                    iNextLZ = iPathLZ
+                    break -- Only move one zone at a time
+                end
+            end
+        end
+    end
+
+    -- If no pathing data, use adjacent zones to find closest zone toward target
+    if not bHasPathingData then
+        if bDebugMessages == true then LOG(sFunctionRef..': No pathing data, using adjacent zones') end
+
+        -- Check if target is adjacent first
+        if M28Utilities.IsTableEmpty(tCurrentLZData[M28Map.subrefLZAdjacentLandZones]) == false then
+            local iBestAdjLZ = nil
+            local iBestDist = math.huge
+            local tCurrentMidpoint = tCurrentLZData[M28Map.subrefMidpoint]
+
+            for _, iAdjLZ in tCurrentLZData[M28Map.subrefLZAdjacentLandZones] do
+                local tAdjLZData = M28Map.tAllPlateaus[iCurrentPlateau][M28Map.subrefPlateauLandZones][iAdjLZ]
+                local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][iTeam]
+
+                -- Calculate threat in adjacent zone
+                local iEnemyCombatThreat = tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+                local iEnemyStructureDFThreat = tAdjLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0
+                local iTotalEnemyThreat = iEnemyCombatThreat + iEnemyStructureDFThreat
+
+                -- Check if this zone is safe enough
+                if iTotalEnemyThreat <= iRaiderStrength * 0.8 then
+                    local tAdjMidpoint = tAdjLZData[M28Map.subrefMidpoint]
+                    local iDistToTarget = M28Utilities.GetDistanceBetweenPositions(tAdjMidpoint, tTargetMidpoint)
+
+                    -- If this is the target zone, go there directly
+                    if iAdjLZ == iTargetLandZone then
+                        iBestAdjLZ = iAdjLZ
+                        break
+                    end
+
+                    -- Otherwise, prefer zones that get us closer to target
+                    if iDistToTarget < iBestDist then
+                        iBestDist = iDistToTarget
+                        iBestAdjLZ = iAdjLZ
+                    end
+                else
+                    -- This adjacent zone has threats - might be blocking
+                    if not iBlockingLZ then
+                        iBlockingLZ = iAdjLZ
+                    end
+                end
+            end
+
+            if iBestAdjLZ then
+                iNextLZ = iBestAdjLZ
+                bPathBlocked = false
+                iBlockingLZ = nil
+            else
+                -- All adjacent zones are blocked
+                bPathBlocked = true
+            end
+        end
+    end
+
+    if bDebugMessages == true then
+        LOG(sFunctionRef..': Result - NextLZ='..(iNextLZ or 'nil')..' PathBlocked='..tostring(bPathBlocked)..' BlockingLZ='..(iBlockingLZ or 'nil'))
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return iNextLZ, bPathBlocked, iBlockingLZ
+end
+
+function GetRetreatZone(iCurrentPlateau, iCurrentLZ, iTeam)
+    --Finds a safe zone to retreat to (toward friendly base)
+    --Returns the land zone reference to retreat to, or nil if no safe retreat
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'GetRetreatZone'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local tCurrentLZData = M28Map.tAllPlateaus[iCurrentPlateau][M28Map.subrefPlateauLandZones][iCurrentLZ]
+    local tCurrentLZTeamData = tCurrentLZData[M28Map.subrefLZTeamData][iTeam]
+
+    -- Get the closest friendly base position
+    local tClosestFriendlyBase = tCurrentLZTeamData[M28Map.reftClosestFriendlyBase]
+    if not tClosestFriendlyBase then
+        if bDebugMessages == true then LOG(sFunctionRef..': No closest friendly base found') end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return nil
+    end
+
+    -- Find adjacent zone that is closest to friendly base and has low threat
+    local iBestRetreatLZ = nil
+    local iBestRetreatDist = 100000
+
+    if M28Utilities.IsTableEmpty(tCurrentLZData[M28Map.subrefLZAdjacentLandZones]) == false then
+        for _, iAdjLZ in tCurrentLZData[M28Map.subrefLZAdjacentLandZones] do
+            local tAdjLZData = M28Map.tAllPlateaus[iCurrentPlateau][M28Map.subrefPlateauLandZones][iAdjLZ]
+            local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][iTeam]
+
+            -- Check if this zone is safe (low enemy threat)
+            local iEnemyThreat = (tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) +
+                                 (tAdjLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0)
+
+            -- Only consider zones with low threat
+            if iEnemyThreat < 200 then
+                local iDistToBase = M28Utilities.GetDistanceBetweenPositions(tAdjLZData[M28Map.subrefMidpoint], tClosestFriendlyBase)
+                -- Prefer zones closer to our base
+                if iDistToBase < iBestRetreatDist then
+                    iBestRetreatDist = iDistToBase
+                    iBestRetreatLZ = iAdjLZ
+                end
+            end
+        end
+    end
+
+    if bDebugMessages == true then
+        LOG(sFunctionRef..': Best retreat zone='..(iBestRetreatLZ or 'nil')..' dist='..iBestRetreatDist)
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return iBestRetreatLZ
+end
+
+function ManageRaidingForce(tRaiders, iTargetPlateau, iTargetLandZone, iTeam)
+    --Manages raider movement and behavior
+    --Returns true if raid is still active, false if raid should end
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'ManageRaidingForce'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local iCurrentTime = GetGameTimeSeconds()
+    local tTargetLZData = M28Map.tAllPlateaus[iTargetPlateau][M28Map.subrefPlateauLandZones][iTargetLandZone]
+    local tTargetLZTeamData = tTargetLZData[M28Map.subrefLZTeamData][iTeam]
+    local tTargetMidpoint = tTargetLZData[M28Map.subrefMidpoint]
+
+    -- Count valid raiders and calculate current strength
+    local tValidRaiders = {}
+    local iInitialStrength = 0
+    local iCurrentStrength = 0
+
+    for iUnit, oUnit in tRaiders do
+        if M28UnitInfo.IsUnitValid(oUnit) and oUnit[refbIsRaider] then
+            table.insert(tValidRaiders, oUnit)
+            iCurrentStrength = iCurrentStrength + (oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit))
+            if oUnit[refiRaidAssignmentTime] then
+                -- Estimate initial strength based on assignment time
+                iInitialStrength = iInitialStrength + (oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit))
+            end
+        end
+    end
+
+    if bDebugMessages == true then
+        LOG(sFunctionRef..': Managing raid to P'..iTargetPlateau..'Z'..iTargetLandZone..
+            ' ValidRaiders='..table.getn(tValidRaiders)..' Strength='..iCurrentStrength)
+    end
+
+    -- Debug: Show what's happening with the raiders
+    if M28Config.M28ShowRaidingDebug then
+        local iInputCount = 0
+        local iValidCount = 0
+        local iIsRaiderCount = 0
+        for iUnit, oUnit in tRaiders do
+            iInputCount = iInputCount + 1
+            if M28UnitInfo.IsUnitValid(oUnit) then
+                iValidCount = iValidCount + 1
+                if oUnit[refbIsRaider] then
+                    iIsRaiderCount = iIsRaiderCount + 1
+                end
+            end
+        end
+        if iInputCount ~= table.getn(tValidRaiders) then
+            LOG('M28 RAID DEBUG: Input raiders='..iInputCount..' Valid='..iValidCount..' HasRaiderFlag='..iIsRaiderCount..' Final='..table.getn(tValidRaiders))
+        end
+    end
+
+    -- Check if raid should end (use lower threshold than launch to allow some casualties)
+    if table.getn(tValidRaiders) < iRaidEndThreshold then
+        if bDebugMessages == true then LOG(sFunctionRef..': Raid ending - too few raiders remaining') end
+        if M28Config.M28ShowRaidingDebug then
+            LOG('M28 RAID ENDED: Too few raiders remaining ('..table.getn(tValidRaiders)..'/'..iRaidEndThreshold..') for P'..iTargetPlateau..'Z'..iTargetLandZone)
+            M28Utilities.DrawCircleAtTarget(tTargetMidpoint, 3, 50, 6) -- Black circle = raid ended
+        end
+        for iUnit, oUnit in tValidRaiders do
+            ClearRaiderStatus(oUnit)
+        end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    -- Check raid duration
+    local iRaidDuration = iCurrentTime - (tValidRaiders[1][refiRaidAssignmentTime] or iCurrentTime)
+    if iRaidDuration > iRaidMaxDuration then
+        if bDebugMessages == true then LOG(sFunctionRef..': Raid ending - max duration exceeded') end
+        if M28Config.M28ShowRaidingDebug then
+            LOG('M28 RAID ENDED: Max duration exceeded for P'..iTargetPlateau..'Z'..iTargetLandZone)
+            M28Utilities.DrawCircleAtTarget(tTargetMidpoint, 3, 50, 6) -- Black circle = raid ended
+        end
+        for iUnit, oUnit in tValidRaiders do
+            ClearRaiderStatus(oUnit)
+        end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    -- Check if target zone is now heavily defended
+    local iEnemyCombatThreat = tTargetLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+    local iEnemyStructureDFThreat = tTargetLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0
+    local iTotalEnemyThreat = iEnemyCombatThreat + iEnemyStructureDFThreat
+
+    -- Retreat if enemy threat is too high relative to our strength
+    if iTotalEnemyThreat > iCurrentStrength * 0.8 then
+        if bDebugMessages == true then
+            LOG(sFunctionRef..': Raid retreating - enemy threat '..iTotalEnemyThreat..' > strength '..iCurrentStrength)
+        end
+        if M28Config.M28ShowRaidingDebug then
+            LOG('M28 RAID RETREATING: Enemy threat '..iTotalEnemyThreat..' > raider strength '..iCurrentStrength..' at P'..iTargetPlateau..'Z'..iTargetLandZone)
+            M28Utilities.DrawCircleAtTarget(tTargetMidpoint, 7, 80, 10) -- Yellow/white circle = retreat
+        end
+        -- Mark retreat time and clear raider status
+        for iUnit, oUnit in tValidRaiders do
+            oUnit[refiRaidRetreatTime] = iCurrentTime
+            ClearRaiderStatus(oUnit)
+        end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    -- Check if target zone no longer has valuable targets
+    local iEnemyStructureMass = tTargetLZTeamData[M28Map.subrefThreatEnemyStructureTotalMass] or 0
+    if iEnemyStructureMass < iMinEnemyMexValue * 0.5 then
+        if bDebugMessages == true then LOG(sFunctionRef..': Raid ending - target destroyed or no longer valuable') end
+        if M28Config.M28ShowRaidingDebug then
+            LOG('M28 RAID SUCCESS: Target destroyed at P'..iTargetPlateau..'Z'..iTargetLandZone)
+            M28Utilities.DrawCircleAtTarget(tTargetMidpoint, 1, 100, 12) -- Green circle = success
+        end
+        for iUnit, oUnit in tValidRaiders do
+            ClearRaiderStatus(oUnit)
+        end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    -- Re-evaluate target periodically to find better opportunities
+    local iLastRetargetTime = tValidRaiders[1][refiRaidLastRetargetTime] or 0
+    if iCurrentTime - iLastRetargetTime >= iRaidRetargetInterval then
+        -- Get current raider position (average of all raiders)
+        local iAvgX, iAvgZ, iCount = 0, 0, 0
+        for iUnit, oUnit in tValidRaiders do
+            local tPos = oUnit:GetPosition()
+            iAvgX = iAvgX + tPos[1]
+            iAvgZ = iAvgZ + tPos[3]
+            iCount = iCount + 1
+        end
+        if iCount > 0 then
+            iAvgX = iAvgX / iCount
+            iAvgZ = iAvgZ / iCount
+        end
+
+        -- Find which zone the raiders are currently in
+        local iCurrentPlateau, iCurrentLZ = M28Map.GetClosestPlateauOrZeroAndZoneToPosition({iAvgX, 0, iAvgZ})
+        if iCurrentPlateau and iCurrentPlateau > 0 and iCurrentLZ then
+            -- Get current target's value for comparison
+            local iThreatPenalty = 1 + iTotalEnemyThreat / 100
+            local iCurrentTargetDist = M28Utilities.GetDistanceBetweenPositions({iAvgX, 0, iAvgZ}, tTargetMidpoint)
+            local iCurrentTargetValue = iEnemyStructureMass / (math.max(50, iCurrentTargetDist) * iThreatPenalty)
+
+            -- Find other raidable zones from current position
+            local tAlternateTargets = IdentifyRaidableZones(iTeam, iCurrentPlateau, iCurrentLZ)
+
+            if M28Utilities.IsTableEmpty(tAlternateTargets) == false then
+                local tBestTarget = tAlternateTargets[1] -- Already sorted by value
+
+                -- Check if best alternate target is significantly better than current
+                -- (use threshold to avoid constantly switching)
+                if tBestTarget.iValue > iCurrentTargetValue * iRetargetValueThreshold then
+                    -- Switch to new target
+                    local iNewPlateau = tBestTarget.iPlateau
+                    local iNewLZ = tBestTarget.iLandZone
+
+                    if bDebugMessages == true then
+                        LOG(sFunctionRef..': Retargeting raid from P'..iTargetPlateau..'Z'..iTargetLandZone..
+                            ' to P'..iNewPlateau..'Z'..iNewLZ..' (value '..tBestTarget.iValue..' > '..iCurrentTargetValue..')')
+                    end
+
+                    if M28Config.M28ShowRaidingDebug then
+                        LOG('M28 RAID RETARGET: Switching from P'..iTargetPlateau..'Z'..iTargetLandZone..
+                            ' to P'..iNewPlateau..'Z'..iNewLZ..' (value '..math.floor(tBestTarget.iValue)..' vs '..math.floor(iCurrentTargetValue)..')')
+                        -- Draw line from old target to new target (cyan/light blue)
+                        local tNewTargetMidpoint = M28Map.tAllPlateaus[iNewPlateau][M28Map.subrefPlateauLandZones][iNewLZ][M28Map.subrefMidpoint]
+                        ForkThread(M28Utilities.ForkedDrawLine, tTargetMidpoint, tNewTargetMidpoint, 4, 60) -- Cyan line
+                    end
+
+                    -- Update all raiders with new target
+                    for iUnit, oUnit in tValidRaiders do
+                        oUnit[refiRaidTargetPlateau] = iNewPlateau
+                        oUnit[refiRaidTargetLandZone] = iNewLZ
+                        oUnit[refiRaidLastRetargetTime] = iCurrentTime
+                    end
+
+                    -- Update local variables for this tick
+                    iTargetPlateau = iNewPlateau
+                    iTargetLandZone = iNewLZ
+                    tTargetLZData = M28Map.tAllPlateaus[iTargetPlateau][M28Map.subrefPlateauLandZones][iTargetLandZone]
+                    tTargetLZTeamData = tTargetLZData[M28Map.subrefLZTeamData][iTeam]
+                    tTargetMidpoint = tTargetLZData[M28Map.subrefMidpoint]
+                else
+                    -- No better target found, update retarget time anyway to avoid rechecking
+                    for iUnit, oUnit in tValidRaiders do
+                        oUnit[refiRaidLastRetargetTime] = iCurrentTime
+                    end
+                end
+            else
+                -- No alternate targets, update retarget time
+                for iUnit, oUnit in tValidRaiders do
+                    oUnit[refiRaidLastRetargetTime] = iCurrentTime
+                end
+            end
+        end
+    end
+
+    -- Visual debug: Draw circle at raid target zone (red, colour 5)
+    if M28Config.M28ShowRaidingDebug then
+        M28Utilities.DrawCircleAtTarget(tTargetMidpoint, 5, 50, 8) -- Red circle at target zone
+    end
+
+    -- Get average raider position to determine current zone
+    local iAvgX, iAvgZ, iCount = 0, 0, 0
+    for iUnit, oUnit in tValidRaiders do
+        local tPos = oUnit:GetPosition()
+        iAvgX = iAvgX + tPos[1]
+        iAvgZ = iAvgZ + tPos[3]
+        iCount = iCount + 1
+    end
+    if iCount > 0 then
+        iAvgX = iAvgX / iCount
+        iAvgZ = iAvgZ / iCount
+    end
+
+    local iCurrentPlateau, iCurrentLZ = M28Map.GetClosestPlateauOrZeroAndZoneToPosition({iAvgX, 0, iAvgZ})
+
+    -- Determine movement based on zone-based pathfinding
+    local iNextLZ, bPathBlocked, iBlockingLZ = nil, false, nil
+    local tMovementTarget = tTargetMidpoint
+    local bAtTargetZone = false
+
+    if iCurrentPlateau and iCurrentPlateau > 0 and iCurrentLZ then
+        -- Check if we're at the target zone
+        if iCurrentLZ == iTargetLandZone and iCurrentPlateau == iTargetPlateau then
+            bAtTargetZone = true
+            if bDebugMessages == true then LOG(sFunctionRef..': Raiders at target zone, attacking structures') end
+        else
+            -- Get next waypoint using zone-based pathfinding
+            iNextLZ, bPathBlocked, iBlockingLZ = GetNextRaidWaypoint(iCurrentPlateau, iCurrentLZ, iTargetPlateau, iTargetLandZone, iTeam, iCurrentStrength)
+
+            if M28Config.M28ShowRaidingDebug then
+                LOG('M28 RAID PATHING: CurrentLZ='..iCurrentLZ..' TargetLZ='..iTargetLandZone..' NextLZ='..(iNextLZ or 'nil')..' Blocked='..tostring(bPathBlocked))
+            end
+
+            if bPathBlocked then
+                -- Path is blocked, need to retreat or find alternate route
+                if bDebugMessages == true then
+                    LOG(sFunctionRef..': Path blocked at LZ'..(iBlockingLZ or 'nil')..', retreating')
+                end
+                if M28Config.M28ShowRaidingDebug then
+                    LOG('M28 RAID PATH BLOCKED: Threat at LZ'..(iBlockingLZ or 'nil')..' blocks path to P'..iTargetPlateau..'Z'..iTargetLandZone)
+                    if iBlockingLZ then
+                        local tBlockingMidpoint = M28Map.tAllPlateaus[iCurrentPlateau][M28Map.subrefPlateauLandZones][iBlockingLZ][M28Map.subrefMidpoint]
+                        M28Utilities.DrawCircleAtTarget(tBlockingMidpoint, 7, 60, 8) -- Yellow circle at blocking zone
+                    end
+                end
+
+                -- Try to find a retreat zone
+                local iRetreatLZ = GetRetreatZone(iCurrentPlateau, iCurrentLZ, iTeam)
+                if iRetreatLZ then
+                    tMovementTarget = M28Map.tAllPlateaus[iCurrentPlateau][M28Map.subrefPlateauLandZones][iRetreatLZ][M28Map.subrefMidpoint]
+                    if M28Config.M28ShowRaidingDebug then
+                        LOG('M28 RAID RETREATING: Moving to safe zone LZ'..iRetreatLZ)
+                        ForkThread(M28Utilities.ForkedDrawLine, {iAvgX, 0, iAvgZ}, tMovementTarget, 7, 50) -- Yellow line to retreat
+                    end
+                    -- Clear raider status since we're retreating
+                    for iUnit, oUnit in tValidRaiders do
+                        oUnit[refiRaidRetreatTime] = iCurrentTime
+                        ClearRaiderStatus(oUnit)
+                    end
+                    -- Issue retreat orders
+                    for iUnit, oUnit in tValidRaiders do
+                        M28Orders.IssueTrackedMove(oUnit, tMovementTarget, 6, false, 'RaidRetreat', false)
+                    end
+                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                    return false
+                else
+                    -- No safe retreat, just clear status and let normal combat logic take over
+                    if M28Config.M28ShowRaidingDebug then
+                        LOG('M28 RAID ENDED: No safe retreat path, disbanding')
+                    end
+                    for iUnit, oUnit in tValidRaiders do
+                        ClearRaiderStatus(oUnit)
+                    end
+                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                    return false
+                end
+            elseif iNextLZ then
+                -- Move to next zone in path
+                tMovementTarget = M28Map.tAllPlateaus[iCurrentPlateau][M28Map.subrefPlateauLandZones][iNextLZ][M28Map.subrefMidpoint]
+                if bDebugMessages == true then
+                    LOG(sFunctionRef..': Moving to next zone LZ'..iNextLZ..' on path to target')
+                end
+                if M28Config.M28ShowRaidingDebug then
+                    -- Draw path: green line to next waypoint, dotted to final target
+                    ForkThread(M28Utilities.ForkedDrawLine, {iAvgX, 0, iAvgZ}, tMovementTarget, 1, 30) -- Green line to next waypoint
+                    ForkThread(M28Utilities.ForkedDrawLine, tMovementTarget, tTargetMidpoint, 4, 30) -- Cyan line to final target
+                end
+            else
+                -- No waypoint returned and path not blocked - this means no pathing data exists
+                -- Fall back to direct movement toward target
+                if M28Config.M28ShowRaidingDebug then
+                    LOG('M28 RAID DIRECT: No pathing data from LZ'..iCurrentLZ..' to target, moving directly')
+                end
+                -- tMovementTarget already set to tTargetMidpoint as default
+            end
+        end
+    end
+
+    -- Issue movement/attack orders to raiders
+    for iUnit, oUnit in tValidRaiders do
+        -- Visual debug: Draw circle around each raider (green, colour 1)
+        if M28Config.M28ShowRaidingDebug then
+            local tUnitPos = oUnit:GetPosition()
+            M28Utilities.DrawCircleAtTarget(tUnitPos, 1, 30, 2) -- Green circle around raider
+        end
+
+        if bAtTargetZone then
+            -- At target zone - find and attack enemy structures
+            local oTargetUnit = nil
+            local iClosestDist = 100000
+
+            if M28Utilities.IsTableEmpty(tTargetLZTeamData[M28Map.subrefTEnemyUnits]) == false then
+                local tEnemyStructures = EntityCategoryFilterDown(categories.STRUCTURE, tTargetLZTeamData[M28Map.subrefTEnemyUnits])
+                if M28Utilities.IsTableEmpty(tEnemyStructures) == false then
+                    for iEnemy, oEnemy in tEnemyStructures do
+                        if M28UnitInfo.IsUnitValid(oEnemy) then
+                            local iDist = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oEnemy:GetPosition())
+                            if iDist < iClosestDist then
+                                iClosestDist = iDist
+                                oTargetUnit = oEnemy
+                            end
+                        end
+                    end
+                end
+            end
+
+            if oTargetUnit then
+                -- Visual debug: Draw line to specific target (orange, colour 6)
+                if M28Config.M28ShowRaidingDebug then
+                    ForkThread(M28Utilities.ForkedDrawLine, oUnit:GetPosition(), oTargetUnit:GetPosition(), 6, 30)
+                end
+                -- Attack specific target
+                M28Orders.IssueTrackedAttack(oUnit, oTargetUnit, false, 'RaidAtk', false)
+            else
+                -- Attack-move to zone midpoint
+                M28Orders.IssueTrackedAggressiveMove(oUnit, tTargetMidpoint, 30, false, 'RaidAM', false)
+            end
+        else
+            -- Not at target zone - move toward next waypoint
+            -- Use aggressive move so raiders engage enemies of opportunity
+            M28Orders.IssueTrackedAggressiveMove(oUnit, tMovementTarget, 30, false, 'RaidPath', false)
+        end
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return true
+end
+
+function ConsiderLaunchingRaid(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, tAvailableCombatUnits)
+    --Evaluates whether to launch a raid from this zone and executes if appropriate
+    --Returns table of units assigned to raid (removed from available pool), or nil
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'ConsiderLaunchingRaid'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local iCurrentTime = GetGameTimeSeconds()
+
+    -- Check cooldown
+    local iLastRaidTime = tLZTeamData[M28Map.subrefiLastRaidLaunchTime] or 0
+    if iCurrentTime - iLastRaidTime < iRaidCooldownSeconds then
+        if bDebugMessages == true then LOG(sFunctionRef..': Raid on cooldown, time remaining='..(iRaidCooldownSeconds - (iCurrentTime - iLastRaidTime))) end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return nil
+    end
+
+    -- Check if we have enough combat units to spare raiders
+    local iTotalCombatUnits = table.getn(tAvailableCombatUnits)
+    if iTotalCombatUnits < 10 then
+        if bDebugMessages == true then LOG(sFunctionRef..': Not enough combat units for raid, count='..iTotalCombatUnits) end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return nil
+    end
+
+    -- Calculate max raiders based on force size
+    local iMaxRaidersForForce = math.floor(iTotalCombatUnits * iMaxRaiderFraction)
+    iMaxRaidersForForce = math.max(iMinRaiderCount, math.min(iMaxRaiderCount, iMaxRaidersForForce))
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Max raiders for force='..iMaxRaidersForForce) end
+
+    -- Find raidable zones
+    local tRaidableZones = IdentifyRaidableZones(iTeam, iPlateau, iLandZone)
+    if M28Utilities.IsTableEmpty(tRaidableZones) then
+        if bDebugMessages == true then LOG(sFunctionRef..': No raidable zones found') end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return nil
+    end
+
+    -- Select best target
+    local tBestTarget = tRaidableZones[1]
+    if bDebugMessages == true then
+        LOG(sFunctionRef..': Best raid target P'..tBestTarget.iPlateau..'Z'..tBestTarget.iLandZone..
+            ' Value='..tBestTarget.iValue..' EnemyMass='..tBestTarget.iEnemyMass)
+    end
+
+    -- Select raiding units
+    local tSelectedRaiders = SelectRaidingUnits(tAvailableCombatUnits, iMaxRaidersForForce)
+    if table.getn(tSelectedRaiders) < iMinRaiderCount then
+        if bDebugMessages == true then LOG(sFunctionRef..': Not enough eligible raiders, count='..table.getn(tSelectedRaiders)) end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return nil
+    end
+
+    -- Launch the raid
+    AssignUnitsToRaid(tSelectedRaiders, tBestTarget.iPlateau, tBestTarget.iLandZone)
+    tLZTeamData[M28Map.subrefiLastRaidLaunchTime] = iCurrentTime
+
+    -- Visual debug: Draw large circle at launch zone (blue, colour 2) when raid starts
+    if M28Config.M28ShowRaidingDebug then
+        local tSourceMidpoint = tLZData[M28Map.subrefMidpoint]
+        M28Utilities.DrawCircleAtTarget(tSourceMidpoint, 2, 100, 10) -- Blue circle at source
+        -- Draw line from source to target
+        local tTargetLZData = M28Map.tAllPlateaus[tBestTarget.iPlateau][M28Map.subrefPlateauLandZones][tBestTarget.iLandZone]
+        ForkThread(M28Utilities.ForkedDrawLine, tSourceMidpoint, tTargetLZData[M28Map.subrefMidpoint], 2, 100) -- Blue line
+        LOG('M28 RAID LAUNCHED: '..table.getn(tSelectedRaiders)..' raiders from P'..iPlateau..'Z'..iLandZone..' to P'..tBestTarget.iPlateau..'Z'..tBestTarget.iLandZone..' (EnemyMass='..tBestTarget.iEnemyMass..')')
+    end
+
+    -- Issue initial orders using zone-based pathfinding
+    -- This avoids double-processing when the main loop also manages the raiders
+    local tTargetLZData = M28Map.tAllPlateaus[tBestTarget.iPlateau][M28Map.subrefPlateauLandZones][tBestTarget.iLandZone]
+    local tTargetMidpoint = tTargetLZData[M28Map.subrefMidpoint]
+
+    -- Calculate initial raider strength for pathfinding
+    local iInitialStrength = 0
+    for iUnit, oUnit in tSelectedRaiders do
+        iInitialStrength = iInitialStrength + (oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit))
+    end
+
+    -- Get first waypoint using zone-based pathfinding
+    local iNextLZ, bPathBlocked, iBlockingLZ = GetNextRaidWaypoint(iPlateau, iLandZone, tBestTarget.iPlateau, tBestTarget.iLandZone, iTeam, iInitialStrength)
+
+    local tMovementTarget = tTargetMidpoint
+    if iNextLZ then
+        -- Move to first waypoint instead of directly to target
+        tMovementTarget = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iNextLZ][M28Map.subrefMidpoint]
+        if M28Config.M28ShowRaidingDebug then
+            LOG('M28 RAID INITIAL PATH: First waypoint is LZ'..iNextLZ)
+            ForkThread(M28Utilities.ForkedDrawLine, tLZData[M28Map.subrefMidpoint], tMovementTarget, 1, 50) -- Green line to first waypoint
+        end
+    elseif bPathBlocked then
+        -- Path is blocked from the start - this shouldn't happen often since we check threats in IdentifyRaidableZones
+        if M28Config.M28ShowRaidingDebug then
+            LOG('M28 RAID WARNING: Path blocked from start at LZ'..(iBlockingLZ or 'nil'))
+        end
+    end
+
+    for iUnit, oUnit in tSelectedRaiders do
+        M28Orders.IssueTrackedAggressiveMove(oUnit, tMovementTarget, 30, false, 'RaidStart', false)
+    end
+
+    if bDebugMessages == true then
+        LOG(sFunctionRef..': Launched raid with '..table.getn(tSelectedRaiders)..' units to P'..
+            tBestTarget.iPlateau..'Z'..tBestTarget.iLandZone)
+    end
+    if M28Config.M28ShowRaidingDebug then
+        LOG('M28 RAID DEBUG: Raiders assigned: ')
+        for iUnit, oUnit in tSelectedRaiders do
+            LOG('  - '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' IsRaider='..tostring(oUnit[refbIsRaider]))
+        end
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return tSelectedRaiders
+end
+
+function GetActiveRaidersInZone(tLZTeamData)
+    --Returns table of units currently assigned as raiders that originated from this zone
+    local tActiveRaiders = {}
+
+    if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
+        for iUnit, oUnit in tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits] do
+            if M28UnitInfo.IsUnitValid(oUnit) and oUnit[refbIsRaider] then
+                table.insert(tActiveRaiders, oUnit)
+            end
+        end
+    end
+
+    return tActiveRaiders
+end
+
+function FilterOutRaiders(tCombatUnits)
+    --Returns a new table with raiders removed
+    local tFilteredUnits = {}
+
+    for iUnit, oUnit in tCombatUnits do
+        if not(oUnit[refbIsRaider]) then
+            table.insert(tFilteredUnits, oUnit)
+        end
+    end
+
+    return tFilteredUnits
+end
+
+function ConsiderReinforcingRaid(tLZTeamData, tAvailableUnits, iTeam, iPlateau, iLandZone)
+    --Checks if there's an active raid that could use reinforcements from this zone
+    --Returns table of units assigned as reinforcements, or nil
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'ConsiderReinforcingRaid'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    -- Find active raiders in this zone
+    local tActiveRaiders = GetActiveRaidersInZone(tLZTeamData)
+    if M28Utilities.IsTableEmpty(tActiveRaiders) then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return nil
+    end
+
+    -- Group by target and find the largest raid group
+    local tRaidsByTarget = {}
+    for iUnit, oUnit in tActiveRaiders do
+        local iTargetPlateau = oUnit[refiRaidTargetPlateau]
+        local iTargetLZ = oUnit[refiRaidTargetLandZone]
+        if iTargetPlateau and iTargetLZ then
+            local sKey = iTargetPlateau..'-'..iTargetLZ
+            if not(tRaidsByTarget[sKey]) then
+                tRaidsByTarget[sKey] = {iPlateau = iTargetPlateau, iLandZone = iTargetLZ, iCount = 0}
+            end
+            tRaidsByTarget[sKey].iCount = tRaidsByTarget[sKey].iCount + 1
+        end
+    end
+
+    -- Find the raid with most units (prioritize larger raids)
+    local tBestRaid = nil
+    local iBestCount = 0
+    for sKey, tRaidInfo in tRaidsByTarget do
+        if tRaidInfo.iCount > iBestCount then
+            iBestCount = tRaidInfo.iCount
+            tBestRaid = tRaidInfo
+        end
+    end
+
+    if not(tBestRaid) then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return nil
+    end
+
+    -- Check if raid needs reinforcements (below max size)
+    if iBestCount >= iMaxRaiderCount then
+        if bDebugMessages == true then LOG(sFunctionRef..': Raid at max size, no reinforcements needed') end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return nil
+    end
+
+    -- How many reinforcements can we add?
+    local iReinforcementsNeeded = iMaxRaiderCount - iBestCount
+    local iMaxReinforcements = math.min(iReinforcementsNeeded, 4) -- Don't add too many at once
+
+    -- Select eligible units to reinforce
+    local tEligibleUnits = {}
+    for iUnit, oUnit in tAvailableUnits do
+        if IsUnitEligibleForRaiding(oUnit) then
+            local iSpeed = GetUnitBlueprintSpeed(oUnit)
+            table.insert(tEligibleUnits, {oUnit = oUnit, iSpeed = iSpeed})
+        end
+    end
+
+    if table.getn(tEligibleUnits) == 0 then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return nil
+    end
+
+    -- Sort by speed and take fastest
+    table.sort(tEligibleUnits, function(a, b) return a.iSpeed > b.iSpeed end)
+
+    local tReinforcements = {}
+    for iEntry, tUnitData in tEligibleUnits do
+        if table.getn(tReinforcements) >= iMaxReinforcements then break end
+        table.insert(tReinforcements, tUnitData.oUnit)
+    end
+
+    if table.getn(tReinforcements) == 0 then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return nil
+    end
+
+    -- Assign reinforcements to the raid
+    AssignUnitsToRaid(tReinforcements, tBestRaid.iPlateau, tBestRaid.iLandZone)
+
+    -- Calculate reinforcement strength for pathfinding
+    local iReinfStrength = 0
+    for iUnit, oUnit in tReinforcements do
+        iReinfStrength = iReinfStrength + (oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit))
+    end
+
+    -- Get first waypoint using zone-based pathfinding
+    local iNextLZ, bPathBlocked, iBlockingLZ = GetNextRaidWaypoint(iPlateau, iLandZone, tBestRaid.iPlateau, tBestRaid.iLandZone, iTeam, iReinfStrength)
+
+    local tTargetLZData = M28Map.tAllPlateaus[tBestRaid.iPlateau][M28Map.subrefPlateauLandZones][tBestRaid.iLandZone]
+    local tMovementTarget = tTargetLZData[M28Map.subrefMidpoint]
+
+    if iNextLZ then
+        -- Move to first waypoint instead of directly to target
+        tMovementTarget = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iNextLZ][M28Map.subrefMidpoint]
+    end
+
+    for iUnit, oUnit in tReinforcements do
+        M28Orders.IssueTrackedAggressiveMove(oUnit, tMovementTarget, 30, false, 'RaidReinf', false)
+    end
+
+    if M28Config.M28ShowRaidingDebug then
+        LOG('M28 RAID REINFORCED: '..table.getn(tReinforcements)..' units joined raid to P'..tBestRaid.iPlateau..'Z'..tBestRaid.iLandZone..' (now '..iBestCount + table.getn(tReinforcements)..' total)')
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return tReinforcements
 end
