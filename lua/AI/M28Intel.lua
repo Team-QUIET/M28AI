@@ -700,6 +700,113 @@ function RequestPriorityNavalScouting(iPond, iWaterZone, iTeam, iUrgency)
 end
 
 --===========================================
+-- AIR SCOUT PRODUCTION SCALING
+--===========================================
+
+-- Configuration for dynamic air scout production
+iMinAirScouts = 2                   -- Minimum air scouts to maintain
+iMaxAirScouts = 12                  -- Maximum air scouts to produce
+iZonesPerScout = 3                  -- How many zones needing scouting per additional scout
+iPriorityZoneScoutWeight = 2        -- Priority zones count as this many regular zones
+
+---Count the total number of zones that need scouting for a team
+---This includes both land zones with low intel and priority scout requests
+---@param iTeam number Team index
+---@return number Total count of zones needing scouting (weighted)
+---@return number Count of priority scout zones
+---@return number Count of low intel land zones
+---@return number Count of low intel water zones
+function GetZonesNeedingScoutingCount(iTeam)
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'GetZonesNeedingScoutingCount'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local iPriorityZoneCount = 0
+    local iLowIntelLandZones = 0
+    local iLowIntelWaterZones = 0
+
+    -- Count priority scout requests
+    local tRequests = M28Team.tTeamData[iTeam][M28Team.reftPriorityScoutZones]
+    if tRequests then
+        iPriorityZoneCount = table.getn(tRequests)
+    end
+
+    -- Count land zones with low intel confidence
+    for iPlateau, tPlateauSubtable in M28Map.tAllPlateaus do
+        if M28Utilities.IsTableEmpty(tPlateauSubtable[M28Map.subrefPlateauLandZones]) == false then
+            for iLandZone, tLZData in tPlateauSubtable[M28Map.subrefPlateauLandZones] do
+                local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
+                if tLZTeamData then
+                    local iConfidence = GetZoneIntelConfidence(tLZTeamData, iTeam, 5)
+                    if GetIntelConfidenceLevel(iConfidence) == refiIntelLow then
+                        iLowIntelLandZones = iLowIntelLandZones + 1
+                    end
+                end
+            end
+        end
+    end
+
+    -- Count water zones with low intel confidence
+    for iPond, tPondSubtable in M28Map.tPondDetails do
+        if M28Utilities.IsTableEmpty(tPondSubtable[M28Map.subrefPondWaterZones]) == false then
+            for iWaterZone, tWZData in tPondSubtable[M28Map.subrefPondWaterZones] do
+                local tWZTeamData = tWZData[M28Map.subrefWZTeamData][iTeam]
+                if tWZTeamData then
+                    local iConfidence = GetZoneIntelConfidence(tWZTeamData, iTeam, 5)
+                    if GetIntelConfidenceLevel(iConfidence) == refiIntelLow then
+                        iLowIntelWaterZones = iLowIntelWaterZones + 1
+                    end
+                end
+            end
+        end
+    end
+
+    -- Calculate weighted total (priority zones count more)
+    local iWeightedTotal = (iPriorityZoneCount * iPriorityZoneScoutWeight) +
+                           iLowIntelLandZones + iLowIntelWaterZones
+
+    if bDebugMessages == true then
+        LOG(sFunctionRef..': Team '..iTeam..' zones needing scouting: Priority='..iPriorityZoneCount..
+            ', LowIntelLand='..iLowIntelLandZones..', LowIntelWater='..iLowIntelWaterZones..
+            ', WeightedTotal='..iWeightedTotal)
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return iWeightedTotal, iPriorityZoneCount, iLowIntelLandZones, iLowIntelWaterZones
+end
+
+---Calculate the desired number of air scouts based on zones needing scouting
+---Scales dynamically: more zones needing scouting = more scouts desired
+---@param iTeam number Team index
+---@param iGameEnderCount number Number of game enders (nukes, etc) that need extra scouting
+---@return number Desired number of air scouts
+function GetDesiredAirScoutCount(iTeam, iGameEnderCount)
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'GetDesiredAirScoutCount'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local iWeightedZones = GetZonesNeedingScoutingCount(iTeam)
+
+    -- Base calculation: minimum scouts + zones/ratio
+    local iDesiredScouts = iMinAirScouts + math.ceil(iWeightedZones / iZonesPerScout)
+
+    -- Add extra scouts for game enders (nukes need target scouting)
+    local iGameEnderBonus = (iGameEnderCount or 0)
+    iDesiredScouts = iDesiredScouts + iGameEnderBonus
+
+    -- Clamp to min/max range
+    iDesiredScouts = math.max(iMinAirScouts, math.min(iMaxAirScouts, iDesiredScouts))
+
+    if bDebugMessages == true then
+        LOG(sFunctionRef..': Team '..iTeam..' desired air scouts='..iDesiredScouts..
+            ' (zones='..iWeightedZones..', gameEnders='..(iGameEnderCount or 0)..')')
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return iDesiredScouts
+end
+
+--===========================================
 -- DEBUG AND VISUALIZATION
 --===========================================
 
