@@ -1539,7 +1539,7 @@ function ShouldRushT3AirForNaval(iTeam)
         return false
     end
 
-    --Check economic constraints - need positive mass trend and not stalling
+    --Check economic constraints
     if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] then
         return false
     end
@@ -1550,7 +1550,7 @@ function ShouldRushT3AirForNaval(iTeam)
     end
 
     --Need reasonable economy to support T3 air production
-    if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0) < 8 then
+    if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0) < 5 then
         return false
     end
 
@@ -1560,7 +1560,7 @@ end
 function ShouldRushT3AirForTechDisparity(iTeam)
     --Returns true if we should prioritize rushing T3 air factory due to enemy having T3 air while we don't
     --This is a more aggressive response than the normal upgrade logic, designed to counter tech rushing
-    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'ShouldRushT3AirForTechDisparity'
 
     --Already have T3 air factory - no need to rush
@@ -1578,24 +1578,13 @@ function ShouldRushT3AirForTechDisparity(iTeam)
         return false
     end
 
-    --Check if enemy has significant T3 air threat (not just 1 scout or similar)
-    --Use the early T3 air flag or check actual threat levels
-    local bSignificantT3AirThreat = false
-    if M28Team.tTeamData[iTeam][M28Team.refbEnemyEarlyT3AirSpottedRecently] then
-        bSignificantT3AirThreat = true
-    end
-
-    if not bSignificantT3AirThreat then
+    --Check economic constraints
+    if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] then
         return false
     end
 
-    --Check economic constraints - need positive mass trend and not severely stalling
-    if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] < 0.1 then
-        return false
-    end
-
-    --Need reasonable economy to support T3 air production (lower threshold than naval rush since this is more urgent)
-    if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0) < 5 then
+    --Need reasonable economy to support T3 air production
+    if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0) < 3 then
         return false
     end
 
