@@ -231,6 +231,7 @@ function UpdateEnemyAirThreats(iTeam)
                 local sUnitId = oUnit.UnitId
                 if sUnitId == 'sea0313' or sUnitId == 'sra0313' or sUnitId == 'saa0313' or sUnitId == 'ssa0313' then
                     iPenetratorThreat = iPenetratorThreat + (oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit))
+                    M28Team.tTeamData[iTeam][M28Team.refbEnemyHasPenetratorT3Air] = true
                 end
             end
         end

@@ -172,6 +172,7 @@ tTeamData = {} --[x] is the aiBrain.M28Team number - stores certain team-wide in
     refbEnemyHasHeavyLandT1 = 'M28TeamEnemyHasHeavyLandT1' --QUIET specific, true if enemy has heavy t1 land unit at any time in the game
     refbEnemyHasHeavyLandT2 = 'M28TeamEnemyHasHeavyLandT2' --QUIET specific, true if enemy has heavy t2 land unit at any time in the game
     refbEnemyHasHeavyLandT3 = 'M28TeamEnemyHasHeavyLandT3' --QUIET Specific, true if enemy has heavy t3 land unit at any time in the game
+    refbEnemyHasPenetratorT3Air = 'M28TeamEnemyHasPenetratorT3Air' --QUIET Specific, true if enemy has penetrator T3 air fighters
     refiEnemyPenetratorT3AirThreat = 'M28TeamEnemyPenetratorT3AirThreat' --QUIET Specific, threat value of enemy T3 penetrator fighters
     refiEnemyHighestMobileLandHealth = 'M28TeamEnemyHighestMobileLandHealth' --Used to calculate storage wanted
     refiHighestEnemyDFRangeByPlateau = 'M28TeamHighestDFRgbp' --[x] is plareau, returns highest detected df range, eg so we stop building mml when enemy has ravager
