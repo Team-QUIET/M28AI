@@ -223,7 +223,20 @@ function UpdateEnemyAirThreats(iTeam)
     M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] = M28UnitInfo.GetAirThreatLevel(M28Team.tTeamData[iTeam][M28Team.reftoEnemyAirToGround], true, false,              false,              true,                   false,              false,              nil,                true)
     M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] = M28UnitInfo.GetAirThreatLevel(M28Team.tTeamData[iTeam][M28Team.reftoEnemyTorpBombers], true, false,              false,              false,                  false,              true,              nil,                true)
     M28Team.tTeamData[iTeam][M28Team.refiEnemyAirOtherThreat] = M28UnitInfo.GetAirThreatLevel(M28Team.tTeamData[iTeam][M28Team.reftoEnemyAirOther], true,       true,               false,              true,                   true,               true,              nil,                true)
-    if bDebugMessages == true then LOG(sFunctionRef..': End of code, time='..GetGameTimeSeconds()..'; Enemy AirAA threat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]..'; Air to ground threat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]..'; Torp bomber threat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat]..'; Other threat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirOtherThreat]) end
+    --Calculate penetrator T3 fighter threat
+    if M28Utilities.bQuietModActive and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftoEnemyAirAA]) == false then
+        local iPenetratorThreat = 0
+        for iUnit, oUnit in M28Team.tTeamData[iTeam][M28Team.reftoEnemyAirAA] do
+            if M28UnitInfo.IsUnitValid(oUnit) then
+                local sUnitId = oUnit.UnitId
+                if sUnitId == 'sea0313' or sUnitId == 'sra0313' or sUnitId == 'saa0313' or sUnitId == 'ssa0313' then
+                    iPenetratorThreat = iPenetratorThreat + (oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit))
+                end
+            end
+        end
+        M28Team.tTeamData[iTeam][M28Team.refiEnemyPenetratorT3AirThreat] = iPenetratorThreat
+    end
+    if bDebugMessages == true then LOG(sFunctionRef..': End of code, time='..GetGameTimeSeconds()..'; Enemy AirAA threat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]..'; Air to ground threat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]..'; Torp bomber threat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat]..'; Other threat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirOtherThreat]..'; Penetrator threat='..(M28Team.tTeamData[iTeam][M28Team.refiEnemyPenetratorT3AirThreat] or 0)) end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
@@ -390,6 +403,7 @@ function AirTeamInitialisation(iTeam)
     M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] = 0
     M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] = 0
     M28Team.tTeamData[iTeam][M28Team.refiEnemyAirOtherThreat] = 0
+    M28Team.tTeamData[iTeam][M28Team.refiEnemyPenetratorT3AirThreat] = 0
 
     ForkThread(AirTeamOverseer, iTeam)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)

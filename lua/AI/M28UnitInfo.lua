@@ -1329,7 +1329,7 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                                     elseif sCurUnitBP == 'xsa0402' then iMassMod = 0.3 --Sera experi bomber
                                     end
                                 elseif EntityCategoryContains(categories.HIGHALTAIR, sCurUnitBP) and M28Utilities.bLoudModActive then
-                                    --LOUD (and QUIET) - asfs are much worse mass for mass than inties (need 2:1 mass advantage to roughly break even) and t2 fighters (need 1.5:1 mass advantage to roughly break even)
+                                    --LOUD - asfs are much worse mass for mass than inties (need 2:1 mass advantage to roughly break even) and t2 fighters (need 1.5:1 mass advantage to roughly break even)
                                     if EntityCategoryContains(categories.TECH1, sCurUnitBP) then iMassMod = 2
                                     elseif EntityCategoryContains(categories.TECH2, sCurUnitBP) then iMassMod = 1.5
                                     --QUIET - pen fighters - when tried 1/3 more mass in asfs vs pen fighters the asfs comfortably won in sandbox; wont reduce further though as players might be better at microing them

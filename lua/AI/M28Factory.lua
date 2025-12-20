@@ -436,6 +436,44 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                         sBPIDToBuild = 'bal0206'
                     end
                 end
+                --Penetrator T3 Fighters - if enemy has penetrator fighters, set priority for penetrator fighters
+                if M28Team.tTeamData[iTeam][M28Team.refbEnemyHasPenetratorT3Air] then
+                    local iEnemyPenetratorThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyPenetratorT3AirThreat] or 0
+                    --If enemy has lots of penetrators (>=30000 threat), prioritize penetrators over ASF
+                    if iEnemyPenetratorThreat >= 30000 then
+                        if bDebugMessages == true then LOG(sFunctionRef..': QUIET - Enemy has lots of penetrators, setting priority for penetrator fighters and disabling ASF') end
+                        aiBrain[reftBlueprintPriorityOverride]['sea0313'] = 1
+                        aiBrain[reftBlueprintPriorityOverride]['sra0313'] = 1
+                        aiBrain[reftBlueprintPriorityOverride]['saa0313'] = 1
+                        aiBrain[reftBlueprintPriorityOverride]['ssa0313'] = 1
+                        aiBrain[reftBlueprintPriorityOverride]['uea0303'] = nil
+                        aiBrain[reftBlueprintPriorityOverride]['ura0303'] = nil
+                        aiBrain[reftBlueprintPriorityOverride]['uaa0303'] = nil
+                        aiBrain[reftBlueprintPriorityOverride]['xsa0303'] = nil
+                    --Otherwise just enable penetrators alongside ASF (both have priority)
+                    elseif iEnemyPenetratorThreat > 0 then
+                        if bDebugMessages == true then LOG(sFunctionRef..': QUIET - Enemy has penetrators, enabling penetrator fighters alongside ASF') end
+                        aiBrain[reftBlueprintPriorityOverride]['sea0313'] = 1
+                        aiBrain[reftBlueprintPriorityOverride]['sra0313'] = 1
+                        aiBrain[reftBlueprintPriorityOverride]['saa0313'] = 1
+                        aiBrain[reftBlueprintPriorityOverride]['ssa0313'] = 1
+                    end
+                end
+                --Penetrator T3 Bombers - if enemy has lots of experimentals AND ground AA, prioritize penetrator bombers
+                local iEnemyExpCount = table.getn(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals] or {})
+                if iEnemyExpCount >= 2 then
+                    local iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oFactory:GetPosition(), true, oFactory)
+                    if iPlateau and iLandZone then
+                        local tLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][iTeam]
+                        if (tLZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) >= 7500 then
+                            if bDebugMessages == true then LOG(sFunctionRef..': QUIET - Enemy has experimentals and ground AA, setting priority for penetrator bombers') end
+                            aiBrain[reftBlueprintPriorityOverride]['sea0314'] = 1
+                            aiBrain[reftBlueprintPriorityOverride]['sra0314'] = 1
+                            aiBrain[reftBlueprintPriorityOverride]['saa0314'] = 1
+                            aiBrain[reftBlueprintPriorityOverride]['ssa0314'] = 1
+                        end
+                    end
+                end
             else
 
                 --Normal (non-QUIET) overrides
