@@ -23,6 +23,9 @@ local M28Building = import('/mods/M28AI/lua/AI/M28Building.lua')
 local M28Micro = import('/mods/M28AI/lua/AI/M28Micro.lua')
 local M28Intel = import('/mods/M28AI/lua/AI/M28Intel.lua')
 
+-- CZAR-specific debug flag (set to true to enable CZAR debug logging independently)
+local bCzarDebugMessages = false
+
 --Global
 tAirZonePathingFromZoneToZone = {} --[x]: 1 if land zone start, 0 if water; [y]: Plateau (if land) or 0 if water; [z]: Land/Water zone; [a]: 1 if land zone end, 0 if water; [b]: Plateau (if land) end, 0 if water; [c]: Land/water zone; returns table that contains subreftPlateauAndLandZonesInPath and subreftWaterZonesInPath, each of which will list out in no order the land and water zones that will come across or near
     subreftPlateauAndLandZonesInPath = 'M28APathPlatLZ' --if are any
@@ -1063,9 +1066,19 @@ function GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, iCategory, bRec
                                         elseif EntityCategoryContains(M28UnitInfo.refCategoryGunship * categories.EXPERIMENTAL + M28UnitInfo.refCategoryCzar, oUnit.UnitId) then
                                             --If have shield but its health is low then send for refueling
                                             local iCurShield, iMaxShield = M28UnitInfo.GetCurrentAndMaximumShield(oUnit, false)
+                                            local bIsCzar = EntityCategoryContains(M28UnitInfo.refCategoryCzar, oUnit.UnitId)
                                             if iMaxShield > 0 and iCurShield <= iMaxShield * 0.15 then
                                                 if bDebugMessages == true then LOG(sFunctionRef..': Unit has low shield so will send to recharge') end
                                                 bSendUnitForRefueling = true
+                                                -- CZAR Debug: Shield recharge decision
+                                                if bIsCzar and bCzarDebugMessages == true then
+                                                    LOG(sFunctionRef..': [CZAR DEBUG] SHIELD RECHARGE DECISION for '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..
+                                                        ' | Position='..repru(oUnit:GetPosition())..
+                                                        ' | ShieldPercent='..string.format('%.1f%%', (iCurShield/iMaxShield)*100)..
+                                                        ' | CurShield='..math.floor(iCurShield)..'; MaxShield='..math.floor(iMaxShield)..
+                                                        ' | HealthPercent='..string.format('%.1f%%', M28UnitInfo.GetUnitHealthPercent(oUnit)*100)..
+                                                        ' | Decision=RETREAT_FOR_SHIELD_RECHARGE | Time='..GetGameTimeSeconds())
+                                                end
                                             elseif iMaxShield == 0 then
                                                 if not(oUnit[refiProjectileHealthOverridePercent]) then
                                                     local iHealthRegen = M28UnitInfo.GetUnitHealthRegenRate(oUnit)
@@ -1081,6 +1094,15 @@ function GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, iCategory, bRec
                                                     bSendUnitForRefueling = true
                                                     oUnit[M28UnitInfo.refbWantToHealUp] = true
                                                     if bDebugMessages == true then LOG(sFunctionRef..': Unit low health so want it to try and heal up') end
+                                                    -- CZAR Debug: Health-based retreat decision
+                                                    if bIsCzar and bCzarDebugMessages == true then
+                                                        LOG(sFunctionRef..': [CZAR DEBUG] HEALTH RETREAT DECISION for '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..
+                                                            ' | Position='..repru(oUnit:GetPosition())..
+                                                            ' | HealthPercent='..string.format('%.1f%%', M28UnitInfo.GetUnitHealthPercent(oUnit)*100)..
+                                                            ' | HealthThreshold='..string.format('%.1f%%', iExpHealthThreshold*100)..
+                                                            ' | HealthRegen='..M28UnitInfo.GetUnitHealthRegenRate(oUnit)..
+                                                            ' | Decision=RETREAT_FOR_HEALING | Time='..GetGameTimeSeconds())
+                                                    end
                                                 else
                                                     oUnit[M28UnitInfo.refbWantToHealUp] = nil
                                                 end
@@ -2793,7 +2815,14 @@ function UpdateAirRallyAndSupportPoints(iTeam, iAirSubteam)
                     end
                     if bDebugMessages == true then LOG(sFunctionRef..': tLastSafeRally='..repru(tLastSafeRally)) end
                     if tLastSafeRally then
-                        M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint] = {tLastSafeRally[1], tLastSafeRally[2], tLastSafeRally[3]}
+                        -- Only update rally point if new position is significantly different (> 50 units) to prevent micro-oscillations
+                        local iDistToNewRally = M28Utilities.GetDistanceBetweenPositions(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint], tLastSafeRally)
+                        if iDistToNewRally >= 50 then
+                            M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint] = {tLastSafeRally[1], tLastSafeRally[2], tLastSafeRally[3]}
+                            if bDebugMessages == true then LOG(sFunctionRef..': Rally point updated, distance to new rally='..iDistToNewRally) end
+                        elseif bDebugMessages == true then
+                            LOG(sFunctionRef..': Rally point NOT updated due to hysteresis, distance='..iDistToNewRally..' < 50')
+                        end
                     end
                 end
             end
@@ -7134,23 +7163,63 @@ function GetGunshipsToMoveToTarget(tAvailableGunships, tTarget, oOptionalTarget)
 
     function MoveIndividualGunship(oClosestUnit, tUnitDestination)
         --Experimental gunship doesnt attack properly when just given a move order
-        if bDebugMessages == true then LOG(sFunctionRef..': Are we dealing with an experimental='..tostring( EntityCategoryContains(categories.EXPERIMENTAL, oClosestUnit.UnitId))..'; Dist to unit destination='..M28Utilities.GetDistanceBetweenPositions(oClosestUnit:GetPosition(), tUnitDestination)..'; Is oOptionalTarget valid='..tostring(M28UnitInfo.IsUnitValid(oOptionalTarget))..'; oOptionalTarget='..(oOptionalTarget.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oOptionalTarget) or 'nil')..'; Is this a czar='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryCzar, oClosestUnit.UnitId))) end
+        local bIsCzar = EntityCategoryContains(M28UnitInfo.refCategoryCzar, oClosestUnit.UnitId)
+        if bDebugMessages == true then LOG(sFunctionRef..': Are we dealing with an experimental='..tostring( EntityCategoryContains(categories.EXPERIMENTAL, oClosestUnit.UnitId))..'; Dist to unit destination='..M28Utilities.GetDistanceBetweenPositions(oClosestUnit:GetPosition(), tUnitDestination)..'; Is oOptionalTarget valid='..tostring(M28UnitInfo.IsUnitValid(oOptionalTarget))..'; oOptionalTarget='..(oOptionalTarget.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oOptionalTarget) or 'nil')..'; Is this a czar='..tostring(bIsCzar)) end
         if EntityCategoryContains(categories.EXPERIMENTAL, oClosestUnit.UnitId) and M28Utilities.GetDistanceBetweenPositions(oClosestUnit:GetPosition(), tUnitDestination) <= 20 then
             if oOptionalTarget and M28Utilities.bLoudModActive then --Had issue where czar stops attacking despite being on attackmove') end
                 --Do manual attack to be safe due to risk czar doesnt fire at all (had mixed results)
                 M28Orders.IssueTrackedAttack(oClosestUnit, oOptionalTarget, false, 'LoudExA', false)
+                -- CZAR Debug: Attack order issued
+                if bIsCzar and bCzarDebugMessages == true then
+                    LOG('[CZAR DEBUG] ATTACK ORDER for '..oClosestUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oClosestUnit)..
+                        ' | OrderType=IssueTrackedAttack (LOUD mode)'..
+                        ' | CzarPos='..repru(oClosestUnit:GetPosition())..
+                        ' | TargetPos='..repru(oOptionalTarget:GetPosition())..
+                        ' | Target='..oOptionalTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oOptionalTarget)..
+                        ' | DistToTarget='..string.format('%.1f', M28Utilities.GetDistanceBetweenPositions(oClosestUnit:GetPosition(), oOptionalTarget:GetPosition()))..
+                        ' | Time='..GetGameTimeSeconds())
+                end
             else
                 if bDebugMessages == true then LOG(sFunctionRef..'; Will just do attackmove to the traget instead') end
                 M28Orders.IssueTrackedAggressiveMove(oClosestUnit, tUnitDestination, math.max(15, iGunshipMoveTolerance), false, 'GSExA', false)
+                -- CZAR Debug: Aggressive move order issued
+                if bIsCzar and bCzarDebugMessages == true then
+                    LOG('[CZAR DEBUG] AGGRESSIVE MOVE ORDER for '..oClosestUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oClosestUnit)..
+                        ' | OrderType=IssueTrackedAggressiveMove (close to target)'..
+                        ' | CzarPos='..repru(oClosestUnit:GetPosition())..
+                        ' | Destination='..repru(tUnitDestination)..
+                        ' | DistToDest='..string.format('%.1f', M28Utilities.GetDistanceBetweenPositions(oClosestUnit:GetPosition(), tUnitDestination))..
+                        ' | Time='..GetGameTimeSeconds())
+                end
             end
         else
             if bDebugMessages == true then LOG(sFunctionRef..': bConsiderAttackIfCloseToTarget='..tostring(bConsiderAttackIfCloseToTarget)..'; Time since last f ired='..GetGameTimeSeconds() - (oClosestUnit[M28UnitInfo.refiLastWeaponEvent] or 0)..'; oClosestUnit[M28UnitInfo.refiTimeBetweenDFShots]='..(oClosestUnit[M28UnitInfo.refiTimeBetweenDFShots] or 'nil')) end
             if bConsiderAttackIfCloseToTarget and (oClosestUnit[refoGunshipAttackOrderTarget] == oOptionalTarget or M28Utilities.GetDistanceBetweenPositions(oClosestUnit:GetPosition(), oOptionalTarget:GetPosition()) < (oClosestUnit[M28UnitInfo.refiDFRange] or 0)) then
                 M28Orders.IssueTrackedAggressiveMove(oClosestUnit, tUnitDestination, iGunshipMoveTolerance, false, 'GSLdAtc', false)
                 oClosestUnit[refoGunshipAttackOrderTarget] = oOptionalTarget
+                -- CZAR Debug: Aggressive move with attack target
+                if bIsCzar and bCzarDebugMessages == true then
+                    LOG('[CZAR DEBUG] AGGRESSIVE MOVE (with target) for '..oClosestUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oClosestUnit)..
+                        ' | OrderType=IssueTrackedAggressiveMove (GSLdAtc)'..
+                        ' | CzarPos='..repru(oClosestUnit:GetPosition())..
+                        ' | Destination='..repru(tUnitDestination)..
+                        ' | AttackTarget='..oOptionalTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oOptionalTarget)..
+                        ' | DistToTarget='..string.format('%.1f', M28Utilities.GetDistanceBetweenPositions(oClosestUnit:GetPosition(), oOptionalTarget:GetPosition()))..
+                        ' | DFRange='..(oClosestUnit[M28UnitInfo.refiDFRange] or 'nil')..
+                        ' | Time='..GetGameTimeSeconds())
+                end
             else
                 M28Orders.IssueTrackedMove(oClosestUnit, tUnitDestination, iGunshipMoveTolerance, false, 'GSAtc', false)
                 if bConsiderAttackIfCloseToTarget then oClosestUnit[refoGunshipAttackOrderTarget] = nil end
+                -- CZAR Debug: Simple move order
+                if bIsCzar and bCzarDebugMessages == true then
+                    LOG('[CZAR DEBUG] MOVE ORDER for '..oClosestUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oClosestUnit)..
+                        ' | OrderType=IssueTrackedMove (GSAtc)'..
+                        ' | CzarPos='..repru(oClosestUnit:GetPosition())..
+                        ' | Destination='..repru(tUnitDestination)..
+                        ' | DistToDest='..string.format('%.1f', M28Utilities.GetDistanceBetweenPositions(oClosestUnit:GetPosition(), tUnitDestination))..
+                        ' | Time='..GetGameTimeSeconds())
+                end
             end
         end
     end
@@ -7433,6 +7502,20 @@ function ManageGunships(iTeam, iAirSubteam)
                 if bDebugMessages == true then LOG(sFunctionRef..': oFrontGunship after check='..oFrontGunship.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFrontGunship)) end
             end
         end
+
+        -- CZARs can take on targets that regular gunships cannot, so use them as the reference for target selection
+        if bHaveClearAirControl and not(EntityCategoryContains(M28UnitInfo.refCategoryCzar, oFrontGunship.UnitId)) then
+            local tCzarsInGroup = EntityCategoryFilterDown(M28UnitInfo.refCategoryCzar, tAvailableGunships)
+            if M28Utilities.IsTableEmpty(tCzarsInGroup) == false then
+                -- Use the CZAR nearest to enemy base as front gunship
+                local oCzarFront = GetUnitNearestEnemyBase(tCzarsInGroup, iTeam, tOptionalEnemyBaseOverride)
+                if oCzarFront and M28UnitInfo.IsUnitValid(oCzarFront) then
+                    oFrontGunship = oCzarFront
+                    if bDebugMessages == true then LOG(sFunctionRef..': Overriding front gunship with CZAR='..oCzarFront.UnitId..M28UnitInfo.GetUnitLifetimeCount(oCzarFront)..' due to clear air control') end
+                end
+            end
+        end
+
         M28Team.tAirSubteamData[iAirSubteam][M28Team.reftFrontGunshipPosition] = {oFrontGunship:GetPosition()[1], oFrontGunship:GetPosition()[2], oFrontGunship:GetPosition()[3]}
 
 
@@ -7567,6 +7650,39 @@ function ManageGunships(iTeam, iAirSubteam)
         if M28Map.bIsCampaignMap then
             iMaxEnemyAirAA = math.max(iMaxEnemyAirAA, M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] * 0.5, iOurGunshipAA * 0.8)
             if M28Team.tTeamData[iTeam][M28Team.refbDontHaveBuildingsOrACUInPlayableArea] then iMaxEnemyAirAA = 100000 end
+        end
+
+        -- CZAR Debug: Comprehensive threat assessment logging for CZAR attack decisions
+        if bCzarDebugMessages == true then
+            local tCzarsInGroup = EntityCategoryFilterDown(M28UnitInfo.refCategoryCzar, tAvailableGunships)
+            if M28Utilities.IsTableEmpty(tCzarsInGroup) == false then
+                LOG('[CZAR DEBUG] ========== THREAT ASSESSMENT SUMMARY ==========')
+                LOG('[CZAR DEBUG] Time='..GetGameTimeSeconds()..' | Team='..iTeam..' | AirSubteam='..iAirSubteam)
+                LOG('[CZAR DEBUG] --- OUR FORCES ---')
+                LOG('[CZAR DEBUG] iOurGunshipThreat='..iOurGunshipThreat..' | iOurGunshipAA='..iOurGunshipAA)
+                LOG('[CZAR DEBUG] OurAirAAThreat='..M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat])
+                LOG('[CZAR DEBUG] --- ENEMY FORCES ---')
+                LOG('[CZAR DEBUG] EnemyAirAAThreat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat])
+                LOG('[CZAR DEBUG] EnemyAirToGroundThreat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat])
+                LOG('[CZAR DEBUG] --- DECISION FACTORS ---')
+                LOG('[CZAR DEBUG] iMaxEnemyAirAA (threshold to attack)='..iMaxEnemyAirAA)
+                LOG('[CZAR DEBUG] iDistToSupport='..iDistToSupport)
+                LOG('[CZAR DEBUG] HaveAirControl='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]))
+                LOG('[CZAR DEBUG] bHaveClearAirControl='..tostring(bHaveClearAirControl))
+                LOG('[CZAR DEBUG] FarBehindOnAir='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]))
+                LOG('[CZAR DEBUG] iOptionalHigherAirAAThresholdForHighValueZones='..(iOptionalHigherAirAAThresholdForHighValueZones or 'nil'))
+                LOG('[CZAR DEBUG] --- CZAR UNITS ---')
+                for iCzar, oCzar in tCzarsInGroup do
+                    local iCurShield, iMaxShield = M28UnitInfo.GetCurrentAndMaximumShield(oCzar, false)
+                    local iShieldPercent = iMaxShield > 0 and (iCurShield/iMaxShield)*100 or 0
+                    LOG('[CZAR DEBUG] CZAR '..oCzar.UnitId..M28UnitInfo.GetUnitLifetimeCount(oCzar)..
+                        ' | Pos='..repru(oCzar:GetPosition())..
+                        ' | HP='..string.format('%.1f%%', M28UnitInfo.GetUnitHealthPercent(oCzar)*100)..
+                        ' | Shield='..string.format('%.1f%%', iShieldPercent)..
+                        ' | WantToHealUp='..tostring(oCzar[M28UnitInfo.refbWantToHealUp] or false))
+                end
+                LOG('[CZAR DEBUG] ================================================')
+            end
         end
 
         --If are buildings in the gunship zone then increase threshold to run from enemy AA
@@ -8433,6 +8549,59 @@ function ManageGunships(iTeam, iAirSubteam)
                     else
                         if bDebugMessages == true then LOG(sFunctionRef..': Cur entry isnt safe so will move to tMovePoint instead') end
                         M28Orders.IssueTrackedMove(oUnit, tMovePoint, 10, false, 'FAGSId', false)
+                    end
+                end
+            end
+        end
+
+        -- CZAR Debug: Final attack/retreat decision summary
+        if bCzarDebugMessages == true then
+            local tCzarsInGroup = EntityCategoryFilterDown(M28UnitInfo.refCategoryCzar, tAvailableGunships)
+            if M28Utilities.IsTableEmpty(tCzarsInGroup) == false then
+                local sDecision = M28Utilities.IsTableEmpty(tEnemyGroundOrGunshipTargets) and 'RETREAT/RALLY' or 'ATTACK'
+                LOG('[CZAR DEBUG] ========== FINAL DECISION: '..sDecision..' ==========')
+                LOG('[CZAR DEBUG] Time='..GetGameTimeSeconds()..' | Team='..iTeam..' | AirSubteam='..iAirSubteam)
+                if M28Utilities.IsTableEmpty(tEnemyGroundOrGunshipTargets) then
+                    LOG('[CZAR DEBUG] No valid targets found - CZARs will retreat/rally')
+                    LOG('[CZAR DEBUG] RallyPoint='..repru(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]))
+                    LOG('[CZAR DEBUG] bRetreatFromAhwassa='..tostring(bRetreatFromAhwassa))
+                else
+                    LOG('[CZAR DEBUG] Targets found - CZARs will attack')
+                    LOG('[CZAR DEBUG] NumTargets='..table.getn(tEnemyGroundOrGunshipTargets))
+                    if tEnemyGroundOrGunshipTargets[1] then
+                        LOG('[CZAR DEBUG] FirstTarget='..tEnemyGroundOrGunshipTargets[1].UnitId..M28UnitInfo.GetUnitLifetimeCount(tEnemyGroundOrGunshipTargets[1])..
+                            ' | TargetPos='..repru(tEnemyGroundOrGunshipTargets[1]:GetPosition()))
+                    end
+                end
+                for iCzar, oCzar in tCzarsInGroup do
+                    local iCurShield, iMaxShield = M28UnitInfo.GetCurrentAndMaximumShield(oCzar, false)
+                    local iShieldPercent = iMaxShield > 0 and (iCurShield/iMaxShield)*100 or 0
+                    LOG('[CZAR DEBUG] CZAR '..oCzar.UnitId..M28UnitInfo.GetUnitLifetimeCount(oCzar)..
+                        ' | Pos='..repru(oCzar:GetPosition())..
+                        ' | HP='..string.format('%.1f%%', M28UnitInfo.GetUnitHealthPercent(oCzar)*100)..
+                        ' | Shield='..string.format('%.1f%%', iShieldPercent)..
+                        ' | Decision='..sDecision)
+                end
+                LOG('[CZAR DEBUG] ================================================')
+            end
+        end
+
+        -- CZAR-specific target expansion when they have clear air control and no targets found
+        -- CZARs with overwhelming air superiority should attack enemy base locations directly
+        if M28Utilities.IsTableEmpty(tEnemyGroundOrGunshipTargets) and bHaveClearAirControl then
+            local tCzarsForTargetExpansion = EntityCategoryFilterDown(M28UnitInfo.refCategoryCzar, tAvailableGunships)
+            if M28Utilities.IsTableEmpty(tCzarsForTargetExpansion) == false then
+                local aiBrainForCzar = M28Team.GetFirstActiveM28Brain(iTeam)
+                if aiBrainForCzar then
+                    local tEnemyPrimaryBase = M28Map.GetPrimaryEnemyBaseLocation(aiBrainForCzar)
+                    if tEnemyPrimaryBase then
+                        local iEnemyPlateauOrZero, iEnemyZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tEnemyPrimaryBase)
+                        if (iEnemyZone or 0) > 0 then
+                            if bDebugMessages == true then LOG(sFunctionRef..': CZAR target expansion - searching for targets around enemy primary base at P'..iEnemyPlateauOrZero..'; Z'..iEnemyZone) end
+                            -- Search for targets around enemy base with relaxed AA thresholds since CZARs have clear air control
+                            AddEnemyGroundUnitsToTargetsSubjectToAA(iEnemyPlateauOrZero, iEnemyZone, 1, false, nil, nil, true, true)
+                            if bDebugMessages == true then LOG(sFunctionRef..': CZAR target expansion result - targets found='..tostring(not M28Utilities.IsTableEmpty(tEnemyGroundOrGunshipTargets))) end
+                        end
                     end
                 end
             end
