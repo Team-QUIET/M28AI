@@ -28,6 +28,11 @@ local M28Micro = import('/mods/M28AI/lua/AI/M28Micro.lua')
 --Global variables
 iLandZoneSegmentSize = 5 --figured putting it here might be quicker to reference than M28Map (not tested to see)
 bBuildLocationLoopActive = false --true if have a loop that is checking for build locations
+
+--Experimental/GameEnder Decision Debug Logging
+bExpGameEnderDebugMessages = false -- Set to true to enable comprehensive experimental/nuke/artillery decision logging
+iExpGameEnderDebugCooldown = 15 -- Minimum seconds between major log entries
+iExpGameEnderLastDebugTime = 0 -- Global tracking for last debug log time
 bWZBuildLocationLoopActive = false --as above but for water zones
 tsBlueprintsBySize = {[1] = 'ueb2101', [2] = 'ueb1101', [3] = 'ueb4302', [6] = 'mai2806', [8] = 'ueb1301', [9]='xrl0403', [10]='uab0304', [16] = 'xsa0402', [22] = 'mai2822', [24] = 'mai2824', [26] = 'mai2826'} --[24] = 'uaa0310'} --Blueprints to use when trying to find locations that can buid on for a building of a particular size
 tsWZBlueprintsBySize = {[1] = 'ueb2109', [2] = 'ueb4201', [6] = 'ual0401', [8] = 'ura0401', [9]='uel0401', [10]='ueb0103', [14]='ueb0103', [16]='uas0401', [24]='uaa0310'} --Blueprints to use when trying to find locations that can buid on on water for a building/engineer built unit of a particular size
@@ -2935,7 +2940,31 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
     local sFunctionRef = 'DecideOnExperimentalToBuild'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
+    -- Exp/GameEnder Debug: Log experimental type decision
+    local bDoExpDebug = bExpGameEnderDebugMessages
+    local iCurrentGameTime = GetGameTimeSeconds()
+    if bDoExpDebug then
+        local sActionName = 'Unknown'
+        if iActionToAssign == refActionBuildExperimental then sActionName = 'BuildExperimental'
+        elseif iActionToAssign == refActionBuildSecondExperimental then sActionName = 'BuildSecondExperimental'
+        elseif iActionToAssign == refActionManageGameEnderTemplate then sActionName = 'ManageGameEnderTemplate'
+        end
 
+        local sLogMsg = '\n---------- DECIDE EXPERIMENTAL TYPE ----------\n'
+        sLogMsg = sLogMsg .. 'Time: ' .. string.format('%.1f', iCurrentGameTime) .. 's\n'
+        sLogMsg = sLogMsg .. 'Action: ' .. sActionName .. '\n'
+        sLogMsg = sLogMsg .. 'Brain: ' .. (aiBrain.Nickname or 'nil') .. ' (Faction=' .. (aiBrain:GetFactionIndex() or 'nil') .. ')\n'
+        sLogMsg = sLogMsg .. 'Location: Plateau=' .. (iPlateauOrZero or 'nil') .. ', Zone=' .. (iLandOrWaterZone or 'nil') .. '\n'
+        sLogMsg = sLogMsg .. 'Have Engineers of Faction: ' .. tostring(tbEngineersOfFactionOrNilIfAlreadyAssigned ~= nil) .. '\n'
+        if tbEngineersOfFactionOrNilIfAlreadyAssigned then
+            local sFactions = ''
+            for iFaction, bHave in pairs(tbEngineersOfFactionOrNilIfAlreadyAssigned) do
+                if bHave then sFactions = sFactions .. iFaction .. ',' end
+            end
+            sLogMsg = sLogMsg .. '  Available Factions: ' .. sFactions .. '\n'
+        end
+        LOG(sLogMsg)
+    end
 
     local iFactionRequired
     local iCategoryWanted
@@ -3240,9 +3269,17 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                                     if iHighestNukeTargetValue >= (20000 + iValueAdjust) * iExpConstructedFactor and (iHighestNukeTargetValue >= (30000 + iValueAdjust)*iExpConstructedFactor or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 550 + 200 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) then
                                         if bDebugMessages == true then LOG(sFunctionRef..': Want to get a normal nuke') end
                                         iCategoryWanted = M28UnitInfo.refCategorySML - categories.EXPERIMENTAL
+                                        -- Exp/GameEnder Debug: Log nuke decision
+                                        if bExpGameEnderDebugMessages then
+                                            LOG('[NUKE/ARTI DECISION] BUILDING NUKE (SML): TargetValue='..iHighestNukeTargetValue..' | TeamNukes='..iTeamNukes..' | TeamLandExp='..iTeamLandExperimentals..' | GrossEnergy='..string.format('%.0f', M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy])..' | ExpCount='..M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount])
+                                        end
                                     elseif aiBrain[M28Economy.refbBuiltParagon] and iTeamLandExperimentals >= 3 and (iHighestNukeTargetValue >= 10000 or iTeamLandExperimentals >= math.min(7, 4 + iTeamNukes)) then
                                         if bDebugMessages == true then LOG(sFunctionRef..': Want more nukes as have a paragon') end
                                         iCategoryWanted = M28UnitInfo.refCategorySML - categories.EXPERIMENTAL
+                                        -- Exp/GameEnder Debug: Log paragon-based nuke decision
+                                        if bExpGameEnderDebugMessages then
+                                            LOG('[NUKE/ARTI DECISION] BUILDING NUKE (PARAGON): TargetValue='..iHighestNukeTargetValue..' | TeamNukes='..iTeamNukes..' | TeamLandExp='..iTeamLandExperimentals..' | HasParagon=true')
+                                        end
                                     end
                                 end
                             end
@@ -3263,10 +3300,22 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                     end
                 end
 
-                --Small % chance of T3 arti early on (10km+ maps) to mix things up for Cybran, aeon, and (if no air control) seraphim; i.e. not intended to be optimal, but just not so bad of a move that it might make enemy trip up if they expect M28 to paly a particular way
+                --Small % chance of T3 arti early on (10km+ maps) to mix things up for Cybran, aeon, and (if no air control) seraphim
+                --Only allow if enemy has strategic assets (turtling), or we're not ahead on both eco and land experimentals
                 if not(iCategoryWanted) and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] <= 3 and not(bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats) and not(tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) and not(aiBrain[M28Overseer.refbPrioritiseLand]) and not(aiBrain[M28Overseer.refbPrioritiseAir]) and not(aiBrain[M28Overseer.refbPrioritiseNavy]) and M28Map.iMapSize >= 512 then
-                    if M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] <= 3 then
-                        if not(tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionUEF]) and (not(tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionSeraphim]) or not(M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbHaveAirControl])) then
+                    if not(tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionUEF]) and (not(tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionSeraphim]) or not(M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbHaveAirControl])) then
+                        local iEnemyLandExpCount = table.getn(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals])
+                        --Check for turtling: has strategic assets, OR (little enemy DF near our side AND we have significantly more friendly DF on our side)
+                        local iLandSubteam = aiBrain.M28LandSubteam
+                        local iEnemyDFNearOurSide = M28Team.tLandSubteamData[iLandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] or 0
+                        local iAllyDFNearOurSide = M28Team.tLandSubteamData[iLandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide] or 0
+                        local bEnemyIsTurtling = M28Team.tTeamData[iTeam][M28Team.refbDefendAgainstArti] or M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyNukeLaunchers]) == false or (iEnemyDFNearOurSide < 2000 and iAllyDFNearOurSide > 4 * iEnemyDFNearOurSide)
+                        local iEnemyMassIncome = M28Conditions.GetEnemyTeamActualMassIncome(iTeam)
+                        local iOurMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0
+                        --enemy turtling, OR (we have significantly more land exp than enemy AND we're significantly ahead on eco)
+                        local bSituationAllowsEarlyArti = bEnemyIsTurtling or (iTeamLandExperimentals >= iEnemyLandExpCount + 2 and iOurMass >= iEnemyMassIncome * 1.5)
+                        if bDebugMessages == true then LOG(sFunctionRef..': Early arti check: bEnemyIsTurtling='..tostring(bEnemyIsTurtling)..'; EnemyLandExp='..iEnemyLandExpCount..'; OurLandExp='..iTeamLandExperimentals..'; OurMass='..iOurMass..'; EnemyMass='..iEnemyMassIncome..'; bAllowed='..tostring(bSituationAllowsEarlyArti)..'; EnemyDFNearOurSide='..iEnemyDFNearOurSide..'; AllyDFNearOurSide='..iAllyDFNearOurSide) end
+                        if bSituationAllowsEarlyArti then
                             local iChance = 5 + M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] * 5
                             if tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionSeraphim] then iChance = iChance * 0.5
                             elseif tLZOrWZTeamData[M28Map.refbBaseInSafePosition] then iChance = iChance * 1.5
@@ -3275,7 +3324,10 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                             if math.random(1,100) <= iChance then
                                 iCategoryWanted = M28UnitInfo.refCategoryFixedT3Arti + M28UnitInfo.refCategoryNovaxCentre
                                 if bDebugMessages == true then LOG(sFunctionRef..': Will try and get t3 arti') end
+                                if bExpGameEnderDebugMessages then LOG('[NUKE/ARTI DECISION] BUILDING T3 ARTI (early random): Chance='..string.format('%.0f', iChance)..'% | EnemyTurtling='..tostring(bEnemyIsTurtling)..' | EnemyLandExp='..iEnemyLandExpCount..' | OurLandExp='..iTeamLandExperimentals..' | OurMass='..iOurMass..' | EnemyMass='..iEnemyMassIncome) end
                             end
+                        elseif bExpGameEnderDebugMessages then
+                            LOG('[NUKE/ARTI DECISION] BLOCKED T3 ARTI (early random): AheadOnEcoAndExp | EnemyLandExp='..iEnemyLandExpCount..' | OurLandExp='..iTeamLandExperimentals..' | OurMass='..iOurMass..' | EnemyMass='..iEnemyMassIncome)
                         end
                     end
                 end
@@ -3375,6 +3427,10 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                                         if iMassOfNearbyEnemies >= 10000 and (iCurT3Arti == 0 or iMassOfNearbyEnemies >= math.min(25000, 10000 + iCurT3Arti * 7500)) then
                                             if bDebugMessages == true then LOG(sFunctionRef..': Want to get t3 arti') end
                                             iCategoryWanted = M28UnitInfo.refCategoryFixedT3Arti
+                                            -- Exp/GameEnder Debug: Log LOUD/QUIET priority T3 arti decision
+                                            if bExpGameEnderDebugMessages then
+                                                LOG('[NUKE/ARTI DECISION] BUILDING T3 ARTI (LOUD priority): CurT3Arti='..iCurT3Arti..' | LandExp='..iLandExpIfRelevant..' | EnemyMassInRange='..iMassOfNearbyEnemies..' | GrossEnergy='..string.format('%.0f', M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]))
+                                            end
                                         end
                                     end
                                 end
@@ -4329,6 +4385,55 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
         else
             LOG('Have no category')
         end
+    end
+
+    -- Exp/GameEnder Debug: Log final decision
+    if bExpGameEnderDebugMessages then
+        local sCategoryDesc = 'nil'
+        local sTypeDesc = 'Unknown'
+        if iCategoryWanted == refActionManageGameEnderTemplate then
+            sCategoryDesc = 'ManageGameEnderTemplate (action)'
+            sTypeDesc = 'GameEnderTemplate'
+        elseif iCategoryWanted then
+            -- Determine specific type
+            if M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategorySML - categories.EXPERIMENTAL, iCategoryWanted) then
+                sTypeDesc = 'NUKE (SML)'
+            elseif M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategorySML * categories.EXPERIMENTAL, iCategoryWanted) then
+                sTypeDesc = 'YOLONA OSS (Exp Nuke)'
+            elseif M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryFixedT3Arti, iCategoryWanted) then
+                sTypeDesc = 'T3 STRATEGIC ARTILLERY'
+            elseif M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryExperimentalArti, iCategoryWanted) then
+                sTypeDesc = 'EXPERIMENTAL ARTILLERY (Mavor/Scathis)'
+            elseif M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryNovaxCentre, iCategoryWanted) then
+                sTypeDesc = 'NOVAX CENTER'
+            elseif M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryParagon, iCategoryWanted) then
+                sTypeDesc = 'PARAGON'
+            elseif M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryGameEnder, iCategoryWanted) then
+                sTypeDesc = 'GAME ENDER'
+            elseif M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryLandExperimental, iCategoryWanted) then
+                sTypeDesc = 'Land Experimental'
+            elseif M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryGunship * categories.EXPERIMENTAL + M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL, iCategoryWanted) then
+                sTypeDesc = 'Air Experimental'
+            end
+            local tBlueprintList = EntityCategoryGetUnitList(iCategoryWanted)
+            if tBlueprintList and table.getn(tBlueprintList) > 0 then
+                sCategoryDesc = table.concat(tBlueprintList, ', ')
+                if string.len(sCategoryDesc) > 100 then sCategoryDesc = string.sub(sCategoryDesc, 1, 100) .. '...' end
+            else
+                sCategoryDesc = 'Category (no blueprints)'
+            end
+        end
+        local sFactionDesc = 'any'
+        if iFactionRequired == M28UnitInfo.refFactionUEF then sFactionDesc = 'UEF'
+        elseif iFactionRequired == M28UnitInfo.refFactionAeon then sFactionDesc = 'Aeon'
+        elseif iFactionRequired == M28UnitInfo.refFactionCybran then sFactionDesc = 'Cybran'
+        elseif iFactionRequired == M28UnitInfo.refFactionSeraphim then sFactionDesc = 'Seraphim'
+        end
+        LOG('---------- EXPERIMENTAL DECISION RESULT ----------')
+        LOG('  Type: ' .. sTypeDesc)
+        LOG('  Category: ' .. sCategoryDesc)
+        LOG('  Faction Required: ' .. sFactionDesc)
+        LOG('--------------------------------------------------')
     end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -6964,6 +7069,29 @@ function GETemplateReassessGameEnderCategory(tLZData, tLZTeamData, iPlateau, iLa
         LOG(sFunctionRef..': Blueprints='..repru(tsBlueprintsAndName))
 
     end
+
+    -- Exp/GameEnder Debug: Log GE Template category decision
+    if bExpGameEnderDebugMessages and tLZTeamData[M28Map.refiLastGameEnderTemplateCategory] then
+        local sTypeDesc = 'Unknown'
+        if M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryFixedT3Arti, tLZTeamData[M28Map.refiLastGameEnderTemplateCategory]) then
+            if M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryGameEnder, tLZTeamData[M28Map.refiLastGameEnderTemplateCategory]) then
+                sTypeDesc = 'T3 ARTI + GAME ENDER'
+            else
+                sTypeDesc = 'T3 STRATEGIC ARTILLERY'
+            end
+        elseif M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryGameEnder, tLZTeamData[M28Map.refiLastGameEnderTemplateCategory]) then
+            sTypeDesc = 'GAME ENDER'
+        elseif M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryNovaxCentre, tLZTeamData[M28Map.refiLastGameEnderTemplateCategory]) then
+            sTypeDesc = 'NOVAX CENTER'
+        end
+        local tBlueprints = EntityCategoryGetUnitList(tLZTeamData[M28Map.refiLastGameEnderTemplateCategory])
+        local sBlueprintList = 'none'
+        if tBlueprints and table.getn(tBlueprints) > 0 then
+            sBlueprintList = table.concat(tBlueprints, ', ')
+            if string.len(sBlueprintList) > 100 then sBlueprintList = string.sub(sBlueprintList, 1, 100) .. '...' end
+        end
+        LOG('[GE TEMPLATE DECISION] Type='..sTypeDesc..' | P'..iPlateau..'Z'..iLandZone..' | Blueprints='..sBlueprintList)
+    end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
@@ -7261,12 +7389,22 @@ function GETemplateStartBuildingArtiOrGameEnder(tAvailableEngineers, tAvailableT
                 if bDebugMessages == true then LOG(sFunctionRef..': GE Telling engineer '..(oEngineerToBuild.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oEngineerToBuild) or 'nil')..' to move to '..repru(tMoveLocation)..' and then build '..sArtiToBuild..' at location '..repru(tLocationToBuild)..'; iPlateau='..iPlateau..'; iLandZone='..iLandZone..'; iTableRef='..iTableRef..'; refbSpecialMicroActive='..tostring(oEngineerToBuild[M28UnitInfo.refbSpecialMicroActive] or false)..'; refiMoveAndBuildStuckCount='..(oEngineerToBuild[M28Orders.refiMoveAndBuildStuckCount] or 'nil')) end
                 M28Orders.IssueTrackedMoveAndBuild(oEngineerToBuild, tLocationToBuild, sArtiToBuild, tMoveLocation, 1, false, 'GEMBArtT'..iTableRef)
                 bTriedBuildingSomething = true
+                -- Exp/GameEnder Debug: Log GE Template build order
+                if bExpGameEnderDebugMessages then
+                    local sUnitName = (__blueprints[sArtiToBuild] and __blueprints[sArtiToBuild].General.UnitName) or 'Unknown'
+                    LOG('[GE TEMPLATE BUILD] ISSUING BUILD ORDER: '..sArtiToBuild..' ('..sUnitName..') | P'..iPlateau..'Z'..iLandZone..'T'..iTableRef..' | Engineer='..oEngineerToBuild.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineerToBuild))
+                end
                 if M28Utilities.GetDistanceBetweenPositions(oEngineerToBuild:GetPosition(), tMoveLocation) <= 2 then oEngineerToBuild[M28Conditions.refiEngineerStuckCheckCount] = (oEngineerToBuild[M28Conditions.refiEngineerStuckCheckCount] or 0) + 1 end
             else
                 if bDebugMessages == true then LOG(sFunctionRef..': GE Telling engineer '..(oEngineerToBuild.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oEngineerToBuild) or 'nil')..' to build '..sArtiToBuild..' at build location '..repru(tLocationToBuild)..'; iPlateau='..iPlateau..'; iLandZone='..iLandZone..'; iTableRef='..iTableRef..'; refbSpecialMicroActive='..tostring(oEngineerToBuild[M28UnitInfo.refbSpecialMicroActive] or false)..'; refiMoveAndBuildStuckCount='..(oEngineerToBuild[M28Orders.refiMoveAndBuildStuckCount] or 'nil')) end
                 ConsiderResettingGEEngineerJustBeforeGivingNewOrder(oEngineerToBuild, tLocationToBuild, sArtiToBuild)
                 M28Orders.IssueTrackedBuild(oEngineerToBuild, tLocationToBuild, sArtiToBuild, false, 'GEBArt')
                 bTriedBuildingSomething = true
+                -- Exp/GameEnder Debug: Log GE Template build order
+                if bExpGameEnderDebugMessages then
+                    local sUnitName = (__blueprints[sArtiToBuild] and __blueprints[sArtiToBuild].General.UnitName) or 'Unknown'
+                    LOG('[GE TEMPLATE BUILD] ISSUING BUILD ORDER: '..sArtiToBuild..' ('..sUnitName..') | P'..iPlateau..'Z'..iLandZone..'T'..iTableRef..' | Engineer='..oEngineerToBuild.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineerToBuild))
+                end
                 tTableRef[M28Map.subrefiCyclesWaitingForConstructionToStart] = ( tTableRef[M28Map.subrefiCyclesWaitingForConstructionToStart] or 0) + 1
                 if tTableRef[M28Map.subrefiCyclesWaitingForConstructionToStart] >= 60 and math.round(tTableRef[M28Map.subrefiCyclesWaitingForConstructionToStart] / 10) * 10 == tTableRef[M28Map.subrefiCyclesWaitingForConstructionToStart] then
                     --Reassess what to build every 10s as we have spent more than a minute trying to build something
@@ -11578,7 +11716,49 @@ function AssignBuildExperimentalOrT3NavyAction(fnHaveActionToAssign, iPlateau, i
     local sFunctionRef = 'AssignBuildExperimentalOrT3NavyAction'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
+    -- Exp/GameEnder Debug: Comprehensive decision logging with cooldown
+    local bDoExpDebug = bExpGameEnderDebugMessages
+    local iCurrentGameTime = GetGameTimeSeconds()
+    if bDoExpDebug and iCurrentGameTime - iExpGameEnderLastDebugTime >= iExpGameEnderDebugCooldown then
+        iExpGameEnderLastDebugTime = iCurrentGameTime
+        local sActionName = 'Unknown'
+        if iActionToAssign == refActionBuildExperimental then sActionName = 'BuildExperimental'
+        elseif iActionToAssign == refActionBuildSecondExperimental then sActionName = 'BuildSecondExperimental'
+        elseif iActionToAssign == refActionBuildGameEnder then sActionName = 'BuildGameEnder'
+        elseif iActionToAssign == refActionBuildExperimentalNavy then sActionName = 'BuildExperimentalNavy'
+        elseif iActionToAssign == refActionBuildLandExperimental then sActionName = 'BuildLandExperimental'
+        elseif iActionToAssign == refActionBuildAirExperimental then sActionName = 'BuildAirExperimental'
+        elseif iActionToAssign == refActionManageGameEnderTemplate then sActionName = 'ManageGameEnderTemplate'
+        end
 
+        local sLogMsg = '\n========== EXP/GAMEENDER BUILD DECISION ==========\n'
+        sLogMsg = sLogMsg .. 'Time: ' .. string.format('%.1f', iCurrentGameTime) .. 's\n'
+        sLogMsg = sLogMsg .. 'Action: ' .. sActionName .. ' (ID=' .. (iActionToAssign or 'nil') .. ')\n'
+        sLogMsg = sLogMsg .. 'Location: Plateau=' .. (iPlateau or 'nil') .. ', Zone=' .. iLandOrWaterZone .. ' (' .. (bIsWaterZone and 'Water' or 'Land') .. ')\n'
+        sLogMsg = sLogMsg .. '--- ECONOMY STATE ---\n'
+        sLogMsg = sLogMsg .. '  Team Gross Mass: ' .. string.format('%.1f', M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0) .. '\n'
+        sLogMsg = sLogMsg .. '  Team Net Mass: ' .. string.format('%.1f', M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 0) .. '\n'
+        sLogMsg = sLogMsg .. '  Team Mass Stored: ' .. string.format('%.0f', M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] or 0) .. '\n'
+        sLogMsg = sLogMsg .. '  Team Mass % Stored: ' .. string.format('%.1f%%', (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0) * 100) .. '\n'
+        sLogMsg = sLogMsg .. '  Team Gross Energy: ' .. string.format('%.1f', M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] or 0) .. '\n'
+        sLogMsg = sLogMsg .. '  Have Low Mass: ' .. tostring(M28Conditions.TeamHasLowMass(iTeam)) .. '\n'
+        sLogMsg = sLogMsg .. '  Have Low Power: ' .. tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] or false) .. '\n'
+        sLogMsg = sLogMsg .. '--- EXPERIMENTAL STATE ---\n'
+        sLogMsg = sLogMsg .. '  Constructed Exp Count: ' .. (M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] or 0) .. '\n'
+        sLogMsg = sLogMsg .. '  Friendly GameEnder Count: ' .. (M28Team.tTeamData[iTeam][M28Team.refiFriendlyGameEnderCount] or 0) .. '\n'
+        sLogMsg = sLogMsg .. '  Enemy Land Exp Count: ' .. table.getn(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals] or {}) .. '\n'
+        sLogMsg = sLogMsg .. '  Enemy Air Exp Count: ' .. table.getn(M28Team.tTeamData[iTeam][M28Team.reftEnemyAirExperimentals] or {}) .. '\n'
+        sLogMsg = sLogMsg .. '  Enemy T3 Arti Count: ' .. (M28Team.tTeamData[iTeam][M28Team.refiEnemyT3ArtiCount] or 0) .. '\n'
+        sLogMsg = sLogMsg .. '  Enemy Novax Count: ' .. (M28Team.tTeamData[iTeam][M28Team.refiEnemyNovaxCount] or 0) .. '\n'
+        sLogMsg = sLogMsg .. '  Built Paragon: ' .. tostring(M28Team.tTeamData[iTeam][M28Team.refbBuiltParagon] or false) .. '\n'
+        sLogMsg = sLogMsg .. '--- REQUEST PARAMETERS ---\n'
+        sLogMsg = sLogMsg .. '  BP Wanted: ' .. (iBuildPowerWanted or 5) .. '\n'
+        sLogMsg = sLogMsg .. '  Min Tech Level: ' .. (iMinTechLevelWanted or 'nil') .. '\n'
+        sLogMsg = sLogMsg .. '  Faction Wanted: ' .. (iOptionalSpecificFactionWanted or 'any') .. '\n'
+        sLogMsg = sLogMsg .. '  Have Air Control: ' .. tostring(M28Conditions.TeamHasAirControl(iTeam)) .. '\n'
+        sLogMsg = sLogMsg .. '===================================================\n'
+        LOG(sLogMsg)
+    end
 
     --Check if a teammate has units nearby that we might want to assist instead
     if bDebugMessages == true then
@@ -11664,10 +11844,20 @@ function AssignBuildExperimentalOrT3NavyAction(fnHaveActionToAssign, iPlateau, i
     --Abort if we have multiple experimentals under construction or 1 very expensive experimental
     if (iBuildPowerWanted or 5) > 0 then
         local bHaveExperimentalForThisLandZone, iOtherLandZonesWithExperimental, iMassToComplete = GetExperimentalsBeingBuiltInThisAndOtherLandZones(iTeam, iPlateau, iLandOrWaterZone, true, 500, M28UnitInfo.refCategoryExperimentalLevel, nil, nil, nil)
-        if bDebugMessages == true then LOG(sFunctionRef..': Deciding if should overwrite decision to build another experimental, bHaveExperimentalForThisLandZone='..tostring(bHaveExperimentalForThisLandZone)..'; iOtherLandZonesWithExperimental='..iOtherLandZonesWithExperimental..'; iMassToComplete='..iMassToComplete..'; subrefiTeamAverageMassPercentStored='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]..'; subrefiTeamMassStored='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass]..'; Time since last E stall='..(GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastEnergyStall] or 0))..'; Base condition='..tostring(not(bHaveExperimentalForThisLandZone) and iOtherLandZonesWithExperimental > 0 and iMassToComplete >= 20000 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] < 0 or iMassToComplete >= 40000))..'; mass based condition Pt1='..tostring((iOtherLandZonesWithExperimental > 0.1 + M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] * 3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] < 2 * iMassToComplete))..'; Pt2='..tostring((iOtherLandZonesWithExperimental > 1 or (iMassToComplete >= 100000 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] <= 20)))) end
-        if not(bHaveExperimentalForThisLandZone) and iOtherLandZonesWithExperimental > 0 and iMassToComplete >= 20000 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] < 0 or iMassToComplete >= 40000) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] < 900 and
+        if bDebugMessages == true then LOG(sFunctionRef..': Deciding if should overwrite decision to build another experimental, bHaveExperimentalForThisLandZone='..tostring(bHaveExperimentalForThisLandZone)..'; iOtherLandZonesWithExperimental='..iOtherLandZonesWithExperimental..'; iMassToComplete='..iMassToComplete..'; subrefiTeamAverageMassPercentStored='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]..'; subrefiTeamMassStored='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass]..'; Time since last E stall='..(GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastEnergyStall] or 0))..'; Base condition='..tostring(not(bHaveExperimentalForThisLandZone) and iOtherLandZonesWithExperimental > 0 and iMassToComplete >= 20000 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] < 0 or iMassToComplete >= 40000))..'; mass based condition Pt1='..tostring((iOtherLandZonesWithExperimental > 0.1 + M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] * 3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] < 2 * iMassToComplete))..'; Pt2='..tostring((iOtherLandZonesWithExperimental > 1 or (iMassToComplete >= 100000 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] <= 15)))) end
+        --If we've built several experimentals and have good mass income, allow starting new ones more freely
+        local iConstructedExpCount = M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] or 0
+        local bInContinuousExpMode = iConstructedExpCount >= 2 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] > 0
+        --If gross mass is very high (40+), always allow new experimental unless E stalling
+        local bHighMassIncomeOverride = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 40 and not(M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastEnergyStall] and GetGameTimeSeconds() - M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastEnergyStall] <= 20)
+        --If trying to build mobile experimental (land/air) and we have good mass income, don't let game enders/nukes block us
+        local bIsMobileExpAction = iActionToAssign == refActionBuildExperimental or iActionToAssign == refActionBuildSecondExperimental or iActionToAssign == refActionBuildLandExperimental or iActionToAssign == refActionBuildAirExperimental
+        local bGoodMassForMobileExp = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 25 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] >= 0
+        local bAllowMobileExpDespiteGameEnder = bIsMobileExpAction and bGoodMassForMobileExp
+        if bDebugMessages == true then LOG(sFunctionRef..': bIsMobileExpAction='..tostring(bIsMobileExpAction)..'; bGoodMassForMobileExp='..tostring(bGoodMassForMobileExp)..'; bAllowMobileExpDespiteGameEnder='..tostring(bAllowMobileExpDespiteGameEnder)) end
+        if not(bInContinuousExpMode) and not(bHighMassIncomeOverride) and not(bAllowMobileExpDespiteGameEnder) and not(bHaveExperimentalForThisLandZone) and iOtherLandZonesWithExperimental > 0 and iMassToComplete >= 25000 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] < 0 or iMassToComplete >= 50000) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] < 600 and
                 ((M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastEnergyStall] and GetGameTimeSeconds() - M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastEnergyStall] <= 20) or
-                (iOtherLandZonesWithExperimental > 0.1 + M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] * 3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] < 2 * iMassToComplete and (iOtherLandZonesWithExperimental > 1 or (iMassToComplete >= 100000 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] <= 20)))) then
+                (iOtherLandZonesWithExperimental > 0.2 + M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] * 4 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] < 1.5 * iMassToComplete and (iOtherLandZonesWithExperimental > 1 or (iMassToComplete >= 120000 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] <= 15)))) then
             if bDebugMessages == true then LOG(sFunctionRef..': Will delay getting experimental due to having significant mass to complete other experimentals, iActionToAssign='..iActionToAssign..'; iLandOrWaterZone='..iLandOrWaterZone) end
             iBuildPowerWanted = 0
         end
@@ -12483,6 +12673,10 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     iCurPriority = iCurPriority + 1
     if not(bHaveLowMass) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.7 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 20 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and tLZTeamData[M28Map.subrefMexCountByTech][3] >= tLZData[M28Map.subrefLZOrWZMexCount] and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 3 and (tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] == 0 or (not(bWantT3LandForRavagers) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.2)) then
         if bDebugMessages == true then LOG(sFunctionRef..': Very high priority exp builder so we can get the build location ready') end
+        -- Exp/GameEnder Debug: Log very high priority experimental trigger
+        if bExpGameEnderDebugMessages then
+            LOG('[EXP-PRIORITY] VERY HIGH PRIORITY EXP TRIGGER: P'..iPlateau..'Z'..iLandZone..' | Mass%='..string.format('%.1f%%', M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]*100)..' | GrossMass='..string.format('%.1f', M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass])..' | T3Mex='..tLZTeamData[M28Map.subrefMexCountByTech][3]..'/'..tLZData[M28Map.subrefLZOrWZMexCount]..' | LRThreat='..tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat])
+        end
         AssignBuildExperimentalOrT3NavyAction(HaveActionToAssign, iPlateau, iLandZone, iTeam, tLZData, tLZTeamData, false, refActionBuildExperimental, 3, 5)
         --HaveActionToAssign(refActionBuildExperimental, 3, 5)
     end
@@ -13446,6 +13640,10 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     --At least 5 T3 engineers assigned to gameender template if one is active
     iCurPriority = iCurPriority + 1
     if not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and M28Conditions.HaveActiveGameEnderTemplateLogic(tLZTeamData) then
+        -- Exp/GameEnder Debug: Log game ender template trigger
+        if bExpGameEnderDebugMessages then
+            LOG('[EXP-PRIORITY] GAMEENDER TEMPLATE ACTIVE: P'..iPlateau..'Z'..iLandZone..' | BP=150 | StallingEnergy='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] or false))
+        end
         AssignBuildExperimentalOrT3NavyAction(HaveActionToAssign, iPlateau, iLandZone, iTeam, tLZData, tLZTeamData, false, refActionManageGameEnderTemplate, 3, 150)
         if bDebugMessages == true then LOG(sFunctionRef..': We have an active gameender template so will assign engis to this (unless we want to assist nearby teammate exp)') end
     end
@@ -13490,6 +13688,10 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                 iBPWanted = 120
             end
             if bDebugMessages == true then LOG(sFunctionRef..': Will try and rush our first experimental, iBPWanted='..iBPWanted) end
+            -- Exp/GameEnder Debug: Log first experimental rush trigger
+            if bExpGameEnderDebugMessages then
+                LOG('[EXP-PRIORITY] FIRST EXPERIMENTAL RUSH: P'..iPlateau..'Z'..iLandZone..' | BP='..iBPWanted..' | T3Mex='..tLZTeamData[M28Map.subrefMexCountByTech][3]..' | GrossMass='..string.format('%.1f', M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass])..' | LowPower='..tostring(bHaveLowPower)..' | LowMass='..tostring(bHaveLowMass))
+            end
             --AssignBuildExperimentalOrT3NavyAction(fnHaveActionToAssign, iPlateau, iLandOrWaterZone, iTeam, tLZOrWZData, bIsWaterZone, iActionToAssign, iMinTechLevelWanted, iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iOptionalSpecificFactionWanted, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
             AssignBuildExperimentalOrT3NavyAction(HaveActionToAssign, iPlateau, iLandZone, iTeam,               tLZData, tLZTeamData, false, refActionBuildExperimental, 3, iBPWanted)
                 --HaveActionToAssign(refActionBuildExperimental, 3, iBPWanted)
@@ -15344,17 +15546,26 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     local bExperimentalsBuiltInThisLZ, iExperimentalsBuiltInOtherLZ = GetExperimentalsBeingBuiltInThisAndOtherLandZones(iTeam, iPlateau, iLandZone, nil, nil, nil, nil, nil, aiBrain.M28AirSubteam)
 
     if bDebugMessages == true then LOG(sFunctionRef..': Time='..GetGameTimeSeconds()..'; iCurPriority='..iCurPriority..'; bExperimentalsBuiltInThisLZ='..tostring(bExperimentalsBuiltInThisLZ)..'; iExperimentalsBuiltInOtherLZ='..iExperimentalsBuiltInOtherLZ..'; M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; M28Team.tTeamData[iTeam][M28Team.refbBuiltLotsOfT3Combat]='..tostring(M28Team.tTeamData[iTeam][M28Team.refbBuiltLotsOfT3Combat] or false)..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy]) end
+    --Once we've built 2+ experimentals and have positive net mass, be more aggressive
+    local iConstructedExpCount = M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] or 0
+    local bInContinuousExpMode = iConstructedExpCount >= 2 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] > 0
+    --If gross mass is 40+, be very aggressive about building experimentals
+    local bHighMassIncomeMode = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 40
     if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 3 and (
             (bExperimentalsBuiltInThisLZ or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] > 7 and (tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] == 0 or (not(bWantT3LandForRavagers) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.2)))) and
                     --Are we already building an experimental here (in which case finish), or ave we built lots of T3 units, or does enemy have a land experimental and we arent building one anywhere? Or we havent built many experimentals and have high mass income?
                     ((bExperimentalsBuiltInThisLZ or (iExperimentalsBuiltInOtherLZ == 0 and (M28Team.tTeamData[iTeam][M28Team.refbBuiltLotsOfT3Combat] or M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]) == false)))
                             --Alternatively do we have lots of mass stored?
-                            or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] > 8000 + 8000 * iExperimentalsBuiltInOtherLZ and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.3 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 11000 + 11000 * iExperimentalsBuiltInOtherLZ)) or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] > 20 + iExperimentalsBuiltInOtherLZ * 40 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= math.min(0.6, 0.1 + 0.1 * iExperimentalsBuiltInOtherLZ))
+                            or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] > 5000 + 5000 * iExperimentalsBuiltInOtherLZ and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.2 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 8000 + 8000 * iExperimentalsBuiltInOtherLZ)) or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] > 15 + iExperimentalsBuiltInOtherLZ * 30 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= math.min(0.4, 0.08 + 0.08 * iExperimentalsBuiltInOtherLZ))
                             --Alternatively have we not built an experimental before but our team has high mass income and at least 1 T3 mex in this zone?
-                            or (iExperimentalsBuiltInOtherLZ == 0 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= (14 + 2 * M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount]) * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and tLZTeamData[M28Map.subrefMexCountByTech][3] >= math.min(1 + M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount], tLZData[M28Map.subrefLZOrWZMexCount]))
+                            or (iExperimentalsBuiltInOtherLZ == 0 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= (12 + 1.5 * iConstructedExpCount) * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and tLZTeamData[M28Map.subrefMexCountByTech][3] >= math.min(1 + math.floor(iConstructedExpCount * 0.5), tLZData[M28Map.subrefLZOrWZMexCount]))
+                            --If we've built 2+ experimentals and have positive net mass, always allow more
+                            or bInContinuousExpMode
+                            --High mass income mode: If gross mass is 40+, always allow building experimentals
+                            or bHighMassIncomeMode
                     )
-                    or (GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastNearUnitCap] or -1000) <= 60 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.4)
-                    or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 400) then
+                    or (GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastNearUnitCap] or -1000) <= 60 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.35)
+                    or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 300) then
         if bExperimentalsBuiltInThisLZ or iExperimentalsBuiltInOtherLZ == 0 or not(bHaveLowMass) then
             iBPWanted = 100 --No point trying to build an experimental with less build power
             if not(bHaveLowPower) then
@@ -15369,10 +15580,16 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                     if bDebugMessages == true then LOG(sFunctionRef..': IBPWanted after increasing if first experimental being built and enemy team has one='..iBPWanted) end
                 end
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': Will get experimental if have enough T3 mexes in this zone, tLZTeamData[M28Map.subrefMexCountByTech]='..repru(tLZTeamData[M28Map.subrefMexCountByTech])) end
-            if tLZTeamData[M28Map.subrefMexCountByTech][1] + tLZTeamData[M28Map.subrefMexCountByTech][2] == 0 or ((M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] < M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or (not(bHaveLowMass) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.4 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 25000))) and (tLZTeamData[M28Map.subrefMexCountByTech][3] >= 4 or (tLZTeamData[M28Map.subrefMexCountByTech][3] >= 2 and tLZTeamData[M28Map.subrefMexCountByTech][2] < 2) or M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]) == false)) then
+            if bDebugMessages == true then LOG(sFunctionRef..': Will get experimental if have enough T3 mexes in this zone, tLZTeamData[M28Map.subrefMexCountByTech]='..repru(tLZTeamData[M28Map.subrefMexCountByTech])..'; bInContinuousExpMode='..tostring(bInContinuousExpMode)..'; bHighMassIncomeMode='..tostring(bHighMassIncomeMode)) end
+            --Allow with 1 T3 mexes if we have high gross mass or are in continuous exp mode
+            local bRelaxedT3MexRequirement = bInContinuousExpMode or bHighMassIncomeMode or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 25 and tLZTeamData[M28Map.subrefMexCountByTech][3] >= 1)
+            if tLZTeamData[M28Map.subrefMexCountByTech][1] + tLZTeamData[M28Map.subrefMexCountByTech][2] == 0 or bRelaxedT3MexRequirement or ((iConstructedExpCount < M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or (not(bHaveLowMass) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.3 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 18000))) and (tLZTeamData[M28Map.subrefMexCountByTech][3] >= 3 or (tLZTeamData[M28Map.subrefMexCountByTech][3] >= 1 and tLZTeamData[M28Map.subrefMexCountByTech][2] < 2) or M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]) == false)) then
                 --Want to only build experimental if have mostly T3 mexes in this zone
                 if not(bSaveMassForMML) or (aiBrain.GetFactionIndex and not(aiBrain:GetFactionIndex() == M28UnitInfo.refFactionUEF) and tLZTeamData[M28Map.subrefMexCountByTech][3] >= math.min(2, tLZData[M28Map.subrefLZOrWZMexCount])) then
+                    -- Exp/GameEnder Debug: Log main experimental build trigger
+                    if bExpGameEnderDebugMessages then
+                        LOG('[EXP-PRIORITY] MAIN EXP BUILD: P'..iPlateau..'Z'..iLandZone..' | BP='..iBPWanted..' | T3Mex='..tLZTeamData[M28Map.subrefMexCountByTech][3]..' | ExpCount='..M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount]..' | Mass%='..string.format('%.1f%%', M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]*100)..' | EnemyLandExp='..table.getn(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals] or {}))
+                    end
                     AssignBuildExperimentalOrT3NavyAction(HaveActionToAssign, iPlateau, iLandZone, iTeam, tLZData, tLZTeamData, false, refActionBuildExperimental, 3, iBPWanted)
                     --HaveActionToAssign(refActionBuildExperimental, 3, iBPWanted)
 
@@ -15571,6 +15788,10 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
             --Want 30 extra BP vs what we have already assigned to both normal and second experimental builders
             iBPWanted = 30
             if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] > 0.8 or not(bWantMorePower) then iBPWanted = iBPWanted * 2 end
+            -- Exp/GameEnder Debug: Log second experimental trigger
+            if bExpGameEnderDebugMessages then
+                LOG('[EXP-PRIORITY] SECOND EXP BUILD (HIGH MASS): P'..iPlateau..'Z'..iLandZone..' | BP='..iBPWanted..' | Mass%='..string.format('%.1f%%', M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]*100)..' | NetMass='..string.format('%.1f', M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass])..' | MassStored='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored])
+            end
             --HaveActionToAssign(iActionToAssign,           iMinTechLevelWanted, iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting)
             AssignBuildExperimentalOrT3NavyAction(HaveActionToAssign, iPlateau, iLandZone, iTeam, tLZData, tLZTeamData, false, refActionBuildExperimental, 3,                       iBPWanted,      nil,                false, true)
             --HaveActionToAssign(refActionBuildExperimental,   3,                       iBPWanted,      nil,                false, true)
@@ -15646,8 +15867,20 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
 
     --Game ender builder (in addition to normal experimental builders) - intended for extreme scenarios where overflowing lots of mass, or where are in campaign, at unit cap and have decent eco
     iCurPriority = iCurPriority + 1
-    if bDebugMessages == true then LOG(sFunctionRef..': Considering whether to build gameender, bHaveLowPower='..tostring(bHaveLowPower)..'; M28Team.tTeamData[iTeam][M28Team.refiLowestUnitCapAdjustmentLevel]='..(M28Team.tTeamData[iTeam][M28Team.refiLowestUnitCapAdjustmentLevel] or 'nil')..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Gameender count='..M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount]) end
-    if not(bHaveLowPower) and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] >= 3 and not(bSaveMassForMML) and not(bPrioritiseProduction) and (
+    --Check if we're losing ground to enemy experimental pushes - don't build game enders if we can't defend against their exp army
+    local iOurLandExpCount = M28Conditions.GetCurrentM28UnitsOfCategoryInTeam(M28UnitInfo.refCategoryLandExperimental, iTeam)
+    local iEnemyLandExpCount = table.getn(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals] or {})
+    local iOurMassIncome = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0
+    local iEnemyMassIncome = M28Conditions.GetEnemyTeamActualMassIncome(iTeam)
+    --Check for turtling: has strategic assets, OR (little enemy DF near our side AND we have significantly more friendly DF on our side)
+    local iLandSubteam = aiBrain.M28LandSubteam
+    local iEnemyDFNearOurSide = M28Team.tLandSubteamData[iLandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] or 0
+    local iAllyDFNearOurSide = M28Team.tLandSubteamData[iLandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide] or 0
+    local bEnemyIsTurtling = M28Team.tTeamData[iTeam][M28Team.refbDefendAgainstArti] or (iEnemyDFNearOurSide < 2000 and iAllyDFNearOurSide > 4 * iEnemyDFNearOurSide)
+    --Enemy is turtling, OR we have significantly more land exp than enemy AND significantly ahead on eco
+    local bCanBuildGameEnder = bEnemyIsTurtling or (iOurLandExpCount >= iEnemyLandExpCount + 2 and iOurMassIncome >= iEnemyMassIncome * 1.25)
+    if bDebugMessages == true then LOG(sFunctionRef..': Considering whether to build gameender, bHaveLowPower='..tostring(bHaveLowPower)..'; M28Team.tTeamData[iTeam][M28Team.refiLowestUnitCapAdjustmentLevel]='..(M28Team.tTeamData[iTeam][M28Team.refiLowestUnitCapAdjustmentLevel] or 'nil')..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Gameender count='..M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount]..'; bCanBuildGameEnder='..tostring(bCanBuildGameEnder)..'; OurLandExp='..iOurLandExpCount..'; EnemyLandExp='..iEnemyLandExpCount..'; OurMass='..iOurMassIncome..'; EnemyMass='..iEnemyMassIncome..'; bEnemyIsTurtling='..tostring(bEnemyIsTurtling)..'; EnemyDFNearOurSide='..iEnemyDFNearOurSide..'; AllyDFNearOurSide='..iAllyDFNearOurSide) end
+    if bCanBuildGameEnder and not(bHaveLowPower) and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] >= 3 and not(bSaveMassForMML) and not(bPrioritiseProduction) and (
             (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 95 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.55 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] >= 20 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 10000)
                     or (M28Map.bIsCampaignMap and ((M28Team.tTeamData[iTeam][M28Team.refiLowestUnitCapAdjustmentLevel] or 100) <= 2 or (not(bHaveLowMass) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 60 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount])) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 30 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount])) then
         local bAlreadyHaveGameEnderUnderConstruction = false
