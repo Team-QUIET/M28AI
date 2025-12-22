@@ -462,7 +462,7 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                         aiBrain[reftBlueprintPriorityOverride]['ssa0313'] = 1
                     end
                 end
-                --Penetrator T3 Bombers - if enemy has lots of experimentals AND ground AA, prioritize penetrator bombers
+                --Penetrator T3 Bombers - if enemy has experimentals AND ground AA, prioritize penetrator bombers
                 local iEnemyExpCount = table.getn(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals] or {})
                 if iEnemyExpCount >= 2 then
                     local iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oFactory:GetPosition(), true, oFactory)
@@ -474,6 +474,10 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                             aiBrain[reftBlueprintPriorityOverride]['sra0314'] = 1
                             aiBrain[reftBlueprintPriorityOverride]['saa0314'] = 1
                             aiBrain[reftBlueprintPriorityOverride]['ssa0314'] = 1
+                            aiBrain[reftBlueprintPriorityOverride]['uea0304'] = nil
+                            aiBrain[reftBlueprintPriorityOverride]['ura0304'] = nil
+                            aiBrain[reftBlueprintPriorityOverride]['uaa0304'] = nil
+                            aiBrain[reftBlueprintPriorityOverride]['xsa0304'] = nil
                         end
                     end
                 end
