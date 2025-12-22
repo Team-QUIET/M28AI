@@ -1876,7 +1876,6 @@ function ManageSpecificWaterZone(aiBrain, iTeam, iPond, iWaterZone)
     local bUpdateEnemyDataHere = true --Will handle this logic in logic for managing water zone units if htis is false
     if M28Utilities.IsTableEmpty(tWZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
         --Decide on what to do with units in this WZ
-        local bUseFrigatesAsScouts = M28Team.tTeamData[iTeam][M28Team.subrefbUseFrigatesAsScoutsByPond][iPond]
         tEngineers = {}
         tScouts = {}
         tMobileShields = {}
@@ -1963,7 +1962,7 @@ function ManageSpecificWaterZone(aiBrain, iTeam, iPond, iWaterZone)
                         bWaterZoneOrAdjHasUnitsWantingScout = true
                         if bDebugMessages == true then LOG(sFunctionRef..': Have an ACU so wont manage here') end
                     elseif EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy * categories.MOBILE, oUnit.UnitId) then
-                        if EntityCategoryContains(M28UnitInfo.refCategoryLandScout, oUnit.UnitId) or (bUseFrigatesAsScouts and EntityCategoryContains(M28UnitInfo.refCategoryFrigate, oUnit.UnitId)) then
+                        if EntityCategoryContains(M28UnitInfo.refCategoryLandScout, oUnit.UnitId) then
                             table.insert(tScouts, oUnit)
                             if bDebugMessages == true then LOG(sFunctionRef..': Including as a land scout') end
                         elseif EntityCategoryContains(iShieldCategory, oUnit.UnitId) then

@@ -84,6 +84,10 @@ tTeamData = {} --[x] is the aiBrain.M28Team number - stores certain team-wide in
     refbNeedResourcesForMissile = 'M28TeamNeedResourcesForMissile' --true if are building nuke or smd that needs a missile
     refiTimeOfLastOverflowEngiCheck = 'M28TeamOverflowCheck' --gametimeseconds that we last cleared engineers from recliaming
     refiUpgradedMexCount = 'M28TeamUpgradedMexCount'
+    refiTimeOfLastMexUpgrade = 'M28TeamTimeLastMexUpgrade' --Gametimeseconds that a mex upgrade last completed
+    refiTimeOfLastNavalSupportFactorySelfDestruct = 'M28TeamTimeNavalFacSD' --Gametimeseconds that we last self-destructed a naval support factory
+    refiTimeStartedLowMassStorage = 'M28TeamTimeLowMass' --Gametimeseconds when mass storage first dropped below 5%, nil if above 5%
+    refiTimeStartedNavalDominance = 'M28TeamTimeNavalDom' --Gametimeseconds when we first became dominant on navy, nil if not dominant
     refiMexCountByTech = 'M28TeamMexByTech' --for all brains on the team, not just M28 brains, treats a 1% complete mex as being completed for these purposes (to simplify code)
     refbBuiltParagon = 'M28TeamBltPa' --true if an M28 brain on the team has a paragon (and not LOUD where paragon just gives bonus resources)
     refiTimeLastIssuedACUEnhancementOrder = 'M28TeamTimLstAU' --Gametimeseconds that we last started an ACU upgrade (used to try and avoid getting multiple upgrades within 2s of each other)
@@ -670,6 +674,10 @@ function CreateNewTeam(aiBrain)
     tTeamData[iTotalTeamCount][subrefiGrossEnergyWhenStalled] = 0
     tTeamData[iTotalTeamCount][refiTimeOfLastEnergyStall] = 0
     tTeamData[iTotalTeamCount][refiTimeOfLastEngiSelfDestruct] = 0
+    tTeamData[iTotalTeamCount][refiTimeOfLastMexUpgrade] = 0
+    tTeamData[iTotalTeamCount][refiTimeOfLastNavalSupportFactorySelfDestruct] = 0
+    tTeamData[iTotalTeamCount][refiTimeStartedLowMassStorage] = nil
+    tTeamData[iTotalTeamCount][refiTimeStartedNavalDominance] = nil
     tTeamData[iTotalTeamCount][refbNeedResourcesForMissile] = false
     tTeamData[iTotalTeamCount][subrefiLandZonesWantingSupportByPlateau] = {}
     tTeamData[iTotalTeamCount][subrefiTotalFactoryCountByType] = {[M28Factory.refiFactoryTypeLand] = 0, [M28Factory.refiFactoryTypeAir] = 0, [M28Factory.refiFactoryTypeNaval] = 0, [M28Factory.refiFactoryTypeOther] = 0}
@@ -4046,6 +4054,9 @@ function TeamEconomyRefresh(iM28Team)
         ForkThread(ConsiderGettingUpgrades, iM28Team)
 
         ForkThread(M28Economy.ManageEnergyStalls, iM28Team)
+
+        --(Probably going to rename this to ManageEconomicCurve when we expand this to ctrl k'ing even more stuff)
+        ForkThread(M28Economy.ConsiderNavalFactorySelfDestructForDominance, iM28Team)
 
         if tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] >= 0.9 then
             if bDebugMessages == true then LOG(sFunctionRef..': Are overflowing mass so will try and manage by clearing engineers with reclaim orders') end

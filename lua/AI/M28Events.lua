@@ -2521,6 +2521,7 @@ function OnConstructed(oEngineer, oJustBuilt)
                         M28Economy.UpdateHighestFactoryTechLevelForBuiltUnit(oJustBuilt) --includes a check to see if are dealing with a factory HQ
                         if EntityCategoryContains(M28UnitInfo.refCategoryMex, oJustBuilt.UnitId) then
                             M28Team.tTeamData[iTeam][M28Team.refiUpgradedMexCount] = (M28Team.tTeamData[iTeam][M28Team.refiUpgradedMexCount] or 0) + 1
+                            M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastMexUpgrade] = GetGameTimeSeconds()
                             oJustBuilt[M28UnitInfo.refiTimeMexConstructed] = GetGameTimeSeconds()
                             ForkThread(M28Economy.UpdateZoneM28MexByTechCount, oJustBuilt, false, 10)
                             --If this is a t3 mex and we have a paragon, then gift the mex to teammate, otherwise gift the storage from teammates to us
