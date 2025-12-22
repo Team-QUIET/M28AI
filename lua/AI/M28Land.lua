@@ -4179,12 +4179,10 @@ function ManageRASSACUsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLandZo
                 end
 
             else
-                --Othewrise clear orders if nothing to assist
-                for iUnit, oUnit in tSACUs do
-                    if not(oUnit[M28UnitInfo.refbSpecialMicroActive]) and not(oUnit:IsUnitState('Moving')) and (oUnit:IsUnitState('Repairing') or oUnit:IsUnitState('Building') or oUnit:IsUnitState('Guarding')) then
-                        M28Orders.IssueTrackedClearCommands(oUnit)
-                    end
-                end
+                --No specific units to assist - use the engineer management system to assign actions
+                --This allows SACUs to build structures like engineers would (pgens, mass fabs, shields, PD, factories, etc.)
+                if bDebugMessages == true then LOG(sFunctionRef..': No units to assist, will use engineer assignment system for SACUs') end
+                M28Engineer.ConsiderLandOrWaterZoneEngineerAssignment(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, tSACUs, false)
             end
         end
     end
