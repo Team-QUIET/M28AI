@@ -352,6 +352,12 @@ if categories.sea0002 then refCategoryAirScout = refCategoryAirScout + categorie
 refCategoryAirAA = categories.AIR * categories.ANTIAIR * categories.MOBILE - categories.BOMBER - categories.GROUNDATTACK - categories.EXPERIMENTAL
 refCategoryBomber = categories.AIR * categories.BOMBER - refCategoryAntiNavy - categories.CANNOTUSEAIRSTAGING --excludes mercies
 refCategoryFighterBomber = categories.AIR * categories.ANTIAIR * categories.BOMBER - categories.EXPERIMENTAL
+--Penetrator bombers (0314 series) - T3 bombers with standoff missile weapons that fire while hovering; exclude from bomb-drop micro logic
+refCategoryPenetratorBomber = categories.ALLUNITS - categories.ALLUNITS --Empty category by default
+if categories.sea0314 then refCategoryPenetratorBomber = refCategoryPenetratorBomber + categories.sea0314 end
+if categories.saa0314 then refCategoryPenetratorBomber = refCategoryPenetratorBomber + categories.saa0314 end
+if categories.sra0314 then refCategoryPenetratorBomber = refCategoryPenetratorBomber + categories.sra0314 end
+if categories.ssa0314 then refCategoryPenetratorBomber = refCategoryPenetratorBomber + categories.ssa0314 end
 refCategoryCzar = categories.AIR * categories.EXPERIMENTAL * categories.ANTIAIR * categories.AEON
 refCategoryAAGunship = categories.ANTIAIR * categories.MOBILE * categories.AIR - refCategoryAirAA - categories.HIGHALTAIR - categories.BOMBER --to support blackops experimental air fortress (slow moving air experimental unit)
 refCategoryGunship = categories.AIR * categories.GROUNDATTACK + categories.TARGETCHASER - refCategoryCzar --Targetchaser only used by czar, but some unit mods have it for units that dont have groundattack catgory (e.g. extreme wars)
