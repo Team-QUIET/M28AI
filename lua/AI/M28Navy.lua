@@ -23,6 +23,7 @@ local M28Building = import('/mods/M28AI/lua/AI/M28Building.lua')
 local M28Micro = import('/mods/M28AI/lua/AI/M28Micro.lua')
 local M28Factory = import('/mods/M28AI/lua/AI/M28Factory.lua')
 local M28Intel = import('/mods/M28AI/lua/AI/M28Intel.lua')
+local M28Config = import('/mods/M28AI/lua/M28Config.lua')
 
 --Unit variables
 refiTimeOfLastWZAssignment = 'M28WZLastAssignmentTime' --GameTimeSeconds
@@ -3573,8 +3574,6 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
     local sFunctionRef = 'ManageCombatUnitsInWaterZone'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-
-
     local tUnassignedLandUnits
     if bDebugMessages == true then LOG(sFunctionRef..': start of code for time '..GetGameTimeSeconds()..', iTeam='..iTeam..'; iPond='..iPond..'; iWaterZone='..iWaterZone..'; Is table of available combat units empty='..tostring(M28Utilities.IsTableEmpty(tAvailableCombatUnits))..'; Is table of available subs empty='..tostring(M28Utilities.IsTableEmpty(tAvailableSubmarines))..'; Are there enemy units in this or adjacent WZ='..tostring(tWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentWZ])..'; Is table of missile ships empty='..tostring(M28Utilities.IsTableEmpty(tMissileShips))..'; subrefWZiSuicideIntoEnemyCombatThreat='..(tWZTeamData[M28Map.subrefWZiSuicideIntoEnemyCombatThreat] or 'nil')) end
 
@@ -3630,14 +3629,33 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
 
     --Surface subs if enemy has airtoground in this zone (or nearby if it's a large threat)
     if bDebugMessages == true then LOG(sFunctionRef..': Checking if should surface AA subs, iEnemyAdjacentAirToGroundThreat just from this zone='..iEnemyAdjacentAirToGroundThreat..'; Is table of available subs empty='..tostring(M28Utilities.IsTableEmpty(tAvailableSubmarines))..'; tWZTeamData[M28Map.refiEnemyAirToGroundThreat]='..(tWZTeamData[M28Map.refiEnemyAirToGroundThreat] or 'nil')..'; tWZTeamData[M28Map.subrefWZBestEnemyDFRange]='..tWZTeamData[M28Map.subrefWZBestEnemyDFRange]..'; subrefWZThreatEnemyVsSurface='..tWZTeamData[M28Map.subrefWZThreatEnemyVsSurface]..'; subrefWZThreatEnemyAntiNavy='..tWZTeamData[M28Map.subrefWZThreatEnemyAntiNavy]..'; subrefWZThreatAlliedMAA='..tWZTeamData[M28Map.subrefWZThreatAlliedMAA]) end
-    if (iEnemyAdjacentAirToGroundThreat > 2000 or tWZTeamData[M28Map.refiEnemyAirToGroundThreat] > 0) and M28Utilities.IsTableEmpty(tAvailableSubmarines) == false then
+    --Submarine surfacing decision for AA defense
+    local bSurfacingConditionMet = (iEnemyAdjacentAirToGroundThreat > 2000 or tWZTeamData[M28Map.refiEnemyAirToGroundThreat] > 0) and M28Utilities.IsTableEmpty(tAvailableSubmarines) == false
+    --Only log when surfacing condition is met (actual decision to evaluate) - throttle to reduce spam
+    local bLogSurfacingDecision = M28Config.M28LogWaterZoneDebug and bSurfacingConditionMet
+    if bSurfacingConditionMet then
+        if bLogSurfacingDecision then
+            LOG('M28SubDefense: ========== SUBMARINE SURFACING DECISION ==========')
+            LOG('M28SubDefense: Time='..GetGameTimeSeconds()..'; WaterZone='..iWaterZone..'; Pond='..iPond..'; Team='..iTeam)
+            LOG('M28SubDefense: EnemyAdjacentAirToGroundThreat='..iEnemyAdjacentAirToGroundThreat..'; LocalAirToGroundThreat='..(tWZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0))
+        end
         --Exception if we have other AA units and enemy has some longer ranged surface units, as dont want to surface to die to battleships
         local iEnemySurfaceLessSubmersibleThreat = math.max(0, tWZTeamData[M28Map.subrefWZThreatEnemyVsSurface] - tWZTeamData[M28Map.subrefWZThreatEnemySubmersible])
+        if bLogSurfacingDecision then
+            LOG('M28SubDefense: EnemySurfaceLessSubmersibleThreat='..iEnemySurfaceLessSubmersibleThreat..'; FriendlyAAThreat='..iFriendlyAdjacentAAThreat)
+        end
         if iEnemySurfaceLessSubmersibleThreat > 2000 and (iEnemyAdjacentAirToGroundThreat * 0.3 < iEnemySurfaceLessSubmersibleThreat or iFriendlyAdjacentAAThreat >= iEnemyAdjacentAirToGroundThreat) then
             if bDebugMessages == true then LOG(sFunctionRef..': We have decent MAA and enemy has significant anti-surface threat so wont surface subs') end
+            if bLogSurfacingDecision then
+                LOG('M28SubDefense: DECISION: STAY SUBMERGED - Enemy surface threat too high to risk surfacing')
+                LOG('M28SubDefense: ========== END SUBMARINE SURFACING DECISION ==========')
+            end
         else
             local tAASubs = EntityCategoryFilterDown(M28UnitInfo.refCategoryAntiAir, tAvailableSubmarines)
             if bDebugMessages == true then LOG(sFunctionRef..': Is table of AA subs empty='..tostring(M28Utilities.IsTableEmpty(tAASubs))) end
+            if bLogSurfacingDecision then
+                LOG('M28SubDefense: AASubsAvailable='..tostring(not M28Utilities.IsTableEmpty(tAASubs))..'; Count='..(M28Utilities.IsTableEmpty(tAASubs) and 0 or table.getn(tAASubs)))
+            end
             if M28Utilities.IsTableEmpty(tAASubs) == false then
                 --Check adjacent enemy threat
                 if iEnemyBestCombatRange > 55 and M28Utilities.IsTableEmpty(tWZData[M28Map.subrefWZAdjacentWaterZones]) == false then
@@ -3647,24 +3665,45 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
                     end
                 end
                 if bDebugMessages == true then LOG(sFunctionRef..': iEnemySurfaceLessSubmersibleThreat after considering adj WZs='..iEnemySurfaceLessSubmersibleThreat..'; iEnemyAdjacentAirToGroundThreat='..iEnemyAdjacentAirToGroundThreat..'; iEnemySurfaceLessSubmersibleThreat='..iEnemySurfaceLessSubmersibleThreat..'; iFriendlyAdjacentAAThreat='..iFriendlyAdjacentAAThreat) end
+                if bLogSurfacingDecision then
+                    LOG('M28SubDefense: EnemySurfaceThreatAfterAdj='..iEnemySurfaceLessSubmersibleThreat..'; Threshold (AirThreat*0.3)='..(iEnemyAdjacentAirToGroundThreat * 0.3))
+                end
                 if iEnemySurfaceLessSubmersibleThreat > 2000 and iEnemyAdjacentAirToGroundThreat * 0.3 < iEnemySurfaceLessSubmersibleThreat then
                     if bDebugMessages == true then LOG(sFunctionRef..': We have decent MAA and enemy has significant anti-surface threat so wont surface subs') end
-
+                    if bLogSurfacingDecision then
+                        LOG('M28SubDefense: DECISION: STAY SUBMERGED - Adjacent enemy surface threat too high')
+                        LOG('M28SubDefense: ========== END SUBMARINE SURFACING DECISION ==========')
+                    end
                 else
                     --Check nearby enemy anti-surface threat if it is significant
+                    if bLogSurfacingDecision then
+                        LOG('M28SubDefense: DECISION: SURFACE - Surfacing AA subs to defend against air threat')
+                    end
                     for iUnit, oUnit in tAASubs do
                         oUnit[M28UnitInfo.refiTimeLastWantedToSurface] = GetGameTimeSeconds()
                         if bDebugMessages == true then LOG(sFunctionRef..': Considering whether to surface unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Is unit underwater='..tostring(M28UnitInfo.IsUnitUnderwater(oUnit))) end
                         if M28UnitInfo.IsUnitUnderwater(oUnit) then
                             if bDebugMessages == true then LOG(sFunctionRef..': Will try and surface the unit, is special micro active='..tostring(oUnit[M28UnitInfo.refbSpecialMicroActive])..'; Cur time='..GetGameTimeSeconds()..'; Time for micro to reset='..(oUnit[M28UnitInfo.refiGameTimeToResetMicroActive] or 'nil')) end
+                            if bLogSurfacingDecision then
+                                LOG('M28SubDefense: Surfacing unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit))
+                            end
                             M28UnitInfo.ToggleUnitDiveOrSurfaceStatus(oUnit) --wont do anything if special micro is active, and will set special micro to active if it does give the order
                             ForkThread(SubmergeSubIfNoLongerWantSurfaced, oUnit, 20)
                         end
                     end
+                    if bLogSurfacingDecision then
+                        LOG('M28SubDefense: ========== END SUBMARINE SURFACING DECISION ==========')
+                    end
+                end
+            else
+                if bLogSurfacingDecision then
+                    LOG('M28SubDefense: DECISION: NO ACTION - No AA subs available to surface')
+                    LOG('M28SubDefense: ========== END SUBMARINE SURFACING DECISION ==========')
                 end
             end
         end
     end
+    --Removed "no action" log for no air threat case to reduce log spam
     if bDebugMessages == true then LOG(sFunctionRef..': Relatively near start for iWaterZone='..iWaterZone..' at time='..GetGameTimeSeconds()..'; Checking if want to run from enemy AA iEnemyAdjacentAirToGroundThreat='..iEnemyAdjacentAirToGroundThreat..'; iFriendlyAdjacentAAThreat='..iFriendlyAdjacentAAThreat..'; tRallyPoint='..repru(tRallyPoint)) end
 
     function RetreatAllUnits(tUnitsToRetreat) --intended for availablecoombatunits and/or availablesubmarines
@@ -3722,10 +3761,26 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
         if M28Utilities.IsTableEmpty(tAvailableSubmarines) == false then
             --Decide if we want to run from enemy air - only run if they have torp bombers
             if bDebugMessages == true then LOG(sFunctionRef..': Deciding if we want our subs to run from enemy, will depend on if they ahve torps, enemy torp total threat='..(M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] or 0)..'; iFriendlyAdjacentAAThreat='..iFriendlyAdjacentAAThreat..'; Available sub mass value='..M28UnitInfo.GetCombatThreatRating(tAvailableSubmarines, false, true)) end
-            if (M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] or 0) > iFriendlyAdjacentAAThreat * 1.5 and M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] - iFriendlyAdjacentAAThreat >= 0.1 * M28UnitInfo.GetMassCostOfUnits(tAvailableSubmarines) then
+            local iSubMassCost = M28UnitInfo.GetMassCostOfUnits(tAvailableSubmarines)
+            local iEnemyTorpThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] or 0
+            local iTorpThreshold1 = iFriendlyAdjacentAAThreat * 1.5
+            local iTorpThreshold2 = 0.1 * iSubMassCost
+            if M28Config.M28LogWaterZoneDebug then
+                LOG('M28SubDefense: ========== SUBMARINE DEFENSE DECISION ==========')
+                LOG('M28SubDefense: Time='..GetGameTimeSeconds()..'; WaterZone='..iWaterZone..'; Pond='..iPond..'; Team='..iTeam)
+                LOG('M28SubDefense: SubmarineCount='..table.getn(tAvailableSubmarines)..'; SubMassCost='..iSubMassCost)
+                LOG('M28SubDefense: EnemyTorpBomberThreat='..iEnemyTorpThreat..'; FriendlyAAThreat='..iFriendlyAdjacentAAThreat)
+                LOG('M28SubDefense: Threshold1 (TorpThreat > AA*1.5): '..iEnemyTorpThreat..' > '..iTorpThreshold1..' = '..tostring(iEnemyTorpThreat > iTorpThreshold1))
+                LOG('M28SubDefense: Threshold2 (TorpThreat-AA >= 0.1*SubMass): '..(iEnemyTorpThreat - iFriendlyAdjacentAAThreat)..' >= '..iTorpThreshold2..' = '..tostring(iEnemyTorpThreat - iFriendlyAdjacentAAThreat >= iTorpThreshold2))
+            end
+            if iEnemyTorpThreat > iTorpThreshold1 and iEnemyTorpThreat - iFriendlyAdjacentAAThreat >= iTorpThreshold2 then
                 bHaveRunFromAir = true
                 tWZTeamData[M28Map.refiTimeLastRunFromEnemyAir] = iCurTime
                 if bDebugMessages == true then LOG(sFunctionRef..': Will retreat to closest friendly base for amphibious unit, or rally point for subs') end
+                if M28Config.M28LogWaterZoneDebug then
+                    LOG('M28SubDefense: DECISION: RETREAT - Submarines retreating from torp bomber threat')
+                    LOG('M28SubDefense: ========== END SUBMARINE DEFENSE DECISION ==========')
+                end
                 RetreatAllUnits(tAvailableSubmarines)
                 tAvailableSubmarines = nil
                 --[[local tAmphibiousRallyPoint = {tWZTeamData[M28Map.reftClosestFriendlyBase][1], tWZTeamData[M28Map.reftClosestFriendlyBase][2], tWZTeamData[M28Map.reftClosestFriendlyBase][3]}
@@ -3744,7 +3799,12 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
                     end
                 end
                 tAvailableSubmarines = nil--]]
-            elseif bDebugMessages == true then LOG(sFunctionRef..': Wont retreat subs as not enough for a torp bomber threat')
+            else
+                if bDebugMessages == true then LOG(sFunctionRef..': Wont retreat subs as not enough for a torp bomber threat') end
+                if M28Config.M28LogWaterZoneDebug then
+                    LOG('M28SubDefense: DECISION: STAY - Torp bomber threat insufficient to warrant retreat')
+                    LOG('M28SubDefense: ========== END SUBMARINE DEFENSE DECISION ==========')
+                end
             end
         end
         if bDebugMessages == true then LOG(sFunctionRef..': Have told all units to run to tRallyPoint='..repru(tRallyPoint)) end

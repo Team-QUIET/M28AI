@@ -2080,6 +2080,42 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
         end
     end
     if bDebugMessages == true then LOG(sFunctionRef..': End of code, bWantMoreFactories='..tostring(bWantMoreFactories)) end
+
+    --Comprehensive factory decision logging with cooldown (every 30 seconds per team/zone)
+    if M28Config.M28LogFactoryDecisions then
+        local iCurTime = GetGameTimeSeconds()
+        local sLogKey = 'FactoryDecisionLog_'..iTeam..'_'..iPlateau..'_'..iLandZone
+        local iLastLogTime = M28Team.tTeamData[iTeam][sLogKey] or 0
+        if iCurTime - iLastLogTime >= 30 then
+            M28Team.tTeamData[iTeam][sLogKey] = iCurTime
+            local sDecision = bWantMoreFactories and 'WANT_MORE' or 'NO_MORE'
+            local iLandFacs = M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeLand] or 0
+            local iAirFacs = M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeAir] or 0
+            local iNavalFacs = M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeNaval] or 0
+            local sAirOrLand = 'N/A'
+            if bWantMoreFactories then
+                sAirOrLand = DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData) and 'AIR' or 'LAND'
+            end
+            LOG(sFunctionRef..': [Team'..iTeam..'_P'..iPlateau..'Z'..iLandZone..'] FACTORY_DECISION='..sDecision..
+                ', NextType='..sAirOrLand..
+                ', LandFacs='..iLandFacs..
+                ', AirFacs='..iAirFacs..
+                ', NavalFacs='..iNavalFacs..
+                ', AvgFacs='..math.floor((iAverageCurAirAndLandFactories or 0)*10)/10 ..
+                ', GrossMass='..math.floor((M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0)*10)/10 ..
+                ', MassStored%='..math.floor((M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0)*100) ..
+                ', StallingMass='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or false)..
+                ', StallingEnergy='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] or false)..
+                ', AirTech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech]..
+                ', LandTech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech]..
+                ', NavalTech='..(M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyNavalFactoryTech] or 0)..
+                ', AirControl='..tostring(TeamHasAirControl(iTeam))..
+                ', UnitCapIssue='..tostring(bDontWantDueToUnitCap)..
+                ', CoreBase='..tostring(tLZTeamData[M28Map.subrefLZbCoreBase] or false)..
+                ', Time='..iCurTime)
+        end
+    end
+
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     return bWantMoreFactories
 end
@@ -2271,6 +2307,39 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
     local sFunctionRef = 'DoWeWantAirFactoryInsteadOfLandFactory'
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    --Comprehensive air vs land factory logging with cooldown (every 30 seconds per team)
+    local bLogFactoryChoice = false
+    if M28Config.M28LogFactoryDecisions then
+        local iCurTime = GetGameTimeSeconds()
+        local sLogKey = 'AirVsLandLog_'..iTeam
+        local iLastLogTime = M28Team.tTeamData[iTeam][sLogKey] or 0
+        if iCurTime - iLastLogTime >= 30 then
+            M28Team.tTeamData[iTeam][sLogKey] = iCurTime
+            bLogFactoryChoice = true
+            local iLandFacs = M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeLand] or 0
+            local iAirFacs = M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeAir] or 0
+            local iNavalFacs = M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeNaval] or 0
+            local aiBrain = oOptionalBrainOverride or ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
+            LOG(sFunctionRef..': [Team'..iTeam..'] AIR_VS_LAND_CONTEXT - LandFacs='..iLandFacs..
+                ', AirFacs='..iAirFacs..
+                ', NavalFacs='..iNavalFacs..
+                ', AirTech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech]..
+                ', LandTech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech]..
+                ', NavalTech='..(M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyNavalFactoryTech] or 0)..
+                ', OurAirAA='..math.floor(M28Team.tTeamData[iTeam][M28Team.subrefiOurAirAAThreat] or 0)..
+                ', EnemyAirAA='..math.floor(M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 0)..
+                ', AirControl='..tostring(TeamHasAirControl(iTeam))..
+                ', FarBehindOnAir='..tostring(M28Team.tAirSubteamData[aiBrain.M28AirSubteam] and M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbFarBehindOnAir] or false)..
+                ', GrossEnergy='..math.floor(M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] or 0)..
+                ', EnergyStored%='..math.floor((M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] or 0)*100)..
+                ', CoreBase='..tostring(tLZTeamData[M28Map.subrefLZbCoreBase] or false)..
+                ', PrioritiseAir='..tostring(aiBrain[M28Overseer.refbPrioritiseAir] or false)..
+                ', PrioritiseLand='..tostring(aiBrain[M28Overseer.refbPrioritiseLand] or false)..
+                ', PrioritiseNavy='..tostring(aiBrain[M28Overseer.refbPrioritiseNavy] or false)..
+                ', Time='..iCurTime)
+        end
+    end
 
 
 
@@ -2489,7 +2558,21 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
                                                 iAirFactoriesForEveryLandFactory = math.min(math.max(iAirFactoriesForEveryLandFactory, 6), iAirFactoriesForEveryLandFactory * 1.5)
                                             end
                                         end
-                                        if aiBrain[M28Overseer.refbPrioritiseNavy] then iAirFactoriesForEveryLandFactory = math.max(iAirFactoriesForEveryLandFactory, 1) end
+                                        --Ensure minimum 1:1 air:land ratio, but NOT if we're far behind on air & we're naval personality
+                                        if aiBrain[M28Overseer.refbPrioritiseNavy] and not(TeamIsFarBehindOnAir(iTeam)) then iAirFactoriesForEveryLandFactory = math.max(iAirFactoriesForEveryLandFactory, 1) end
+                                        --On water maps (has naval factories), boost air factory priority - air is crucial for scouting, torp bombers, and control
+                                        if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyNavalFactoryTech] >= 1 and not(aiBrain[M28Overseer.refbPrioritiseLand]) then
+                                            if GetGameTimeSeconds() <= 900 then
+                                                --Early game on naval map - air is very important
+                                                iAirFactoriesForEveryLandFactory = math.max(iAirFactoriesForEveryLandFactory, 2)
+                                                iLandFactoriesWantedBeforeAir = math.min(iLandFactoriesWantedBeforeAir, 1)
+                                                if bDebugMessages == true then LOG(sFunctionRef..': Early game naval map boost - iAirFactoriesForEveryLandFactory='..iAirFactoriesForEveryLandFactory..'; iLandFactoriesWantedBeforeAir='..iLandFactoriesWantedBeforeAir) end
+                                            elseif M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] < 3 then
+                                                --Mid game, still teching up - maintain good air ratio
+                                                iAirFactoriesForEveryLandFactory = math.max(iAirFactoriesForEveryLandFactory, 1.5)
+                                                if bDebugMessages == true then LOG(sFunctionRef..': Mid game naval map boost - iAirFactoriesForEveryLandFactory='..iAirFactoriesForEveryLandFactory) end
+                                            end
+                                        end
                                     end
                                     if iAirFactoriesForEveryLandFactory > 0.5 and (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and (not(M28Utilities.bQuietModActive) or M28Team.tTeamData[iTeam][M28Team.refiGunshipLosses] > math.max(20000, M28Team.tTeamData[iTeam][M28Team.refiGunshipKills] * 1.2)) then
                                         if NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestEnemyBase]) == tLZData[M28Map.subrefLZIslandRef] then
@@ -2570,7 +2653,18 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
                                     end
                                     if iLandFactoriesHave >= 4 and M28Map.iMapSize >= 1000 and not(TeamHasAirControl(iTeam)) then iAirFactoriesForEveryLandFactory = iAirFactoriesForEveryLandFactory * 1.5 end
 
-                                    if bDebugMessages == true then LOG(sFunctionRef..': iAirFactoriesForEveryLandFactory='..iAirFactoriesForEveryLandFactory..'; iLandFactoriesWantedBeforeAir='..iLandFactoriesWantedBeforeAir..'; iLandFactoriesHave='..iLandFactoriesHave..'; Our team AirAA threat='..M28Team.tTeamData[iTeam][M28Team.subrefiOurAirAAThreat]..'; Enemy AirAA threat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]..'; Do we have air control='..tostring(TeamHasAirControl(iTeam))) end
+                                    --If we are far behind on air, prioritize air factory construction heavily
+                                    local bTeamFarBehindOnAir = TeamIsFarBehindOnAir(iTeam)
+                                    if bTeamFarBehindOnAir then
+                                        --Significantly boost air factory ratio when critically behind on air
+                                        iAirFactoriesForEveryLandFactory = math.max(iAirFactoriesForEveryLandFactory * 2, 2)
+                                        iLandFactoriesWantedBeforeAir = math.min(iLandFactoriesWantedBeforeAir, 1)
+                                        if M28Config.M28LogFactoryDecisions then
+                                            LOG(sFunctionRef..': [Team'..iTeam..'] FAR_BEHIND_ON_AIR - Boosting air factory priority. iAirFactoriesForEveryLandFactory='..iAirFactoriesForEveryLandFactory..'; iLandFactoriesWantedBeforeAir='..iLandFactoriesWantedBeforeAir..'; Time='..GetGameTimeSeconds())
+                                        end
+                                    end
+
+                                    if bDebugMessages == true then LOG(sFunctionRef..': iAirFactoriesForEveryLandFactory='..iAirFactoriesForEveryLandFactory..'; iLandFactoriesWantedBeforeAir='..iLandFactoriesWantedBeforeAir..'; iLandFactoriesHave='..iLandFactoriesHave..'; Our team AirAA threat='..M28Team.tTeamData[iTeam][M28Team.subrefiOurAirAAThreat]..'; Enemy AirAA threat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]..'; Do we have air control='..tostring(TeamHasAirControl(iTeam))..'; FarBehindOnAir='..tostring(bTeamFarBehindOnAir)) end
                                     if iLandFactoriesHave < iLandFactoriesWantedBeforeAir then
                                         if bDebugMessages == true then LOG(sFunctionRef..': We want land fac3') end
                                         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)

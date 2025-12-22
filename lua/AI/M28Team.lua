@@ -329,6 +329,8 @@ tAirSubteamData = {}
     toFrontAttackingTorpBomber = 'M28FrnTrp' --If we are attacking with torp bombers then this should record the front torp bomber
     reftoActiveBomberTargets = 'M28BmbTr' --table of enemy units currently being targeted by bombers (gets reset each air cycle and repopulated based on unavailable bombers and attack orders given to bombers)
     refiLastAirAASupportPointAngleAdjust = 'M28SupAng' --will adjust the support point slightly to try and keep asfs moving in a similar direction
+    refiTimeLastAirDebugLog = 'M28AirDbgTm' --gametimeseconds that we last logged air system debug info for this air subteam (cooldown tracking)
+    refiTimeLastAirCycleSummaryLog = 'M28AirCycSumTm' --separate cooldown for AIR_CYCLE_SUMMARY log in AirSubteamOverseer
 
 
 --Land subteam data varaibles (used for factory production logic)

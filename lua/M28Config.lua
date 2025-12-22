@@ -9,6 +9,10 @@ M28ShowEnemyUnitNames = false --Will rename enemy units to reflect their ID and 
 M28RunVeryFast = false --Game starts off at +15 speed if set to adjustable
 M28ShowRaidingDebug = false --Visual debug for raiding system: circles on raiders (green) and targets (red), lines showing raid paths
 M28LogLandZoneDebug = false --If true, logs detailed land zone threat calculations, reinforcement routing, and reinforcement decisions
+M28LogWaterZoneDebug = false --If true, logs detailed water zone threat calculations, reinforcement routing, and reinforcement decisions
+M28LogAirSystemDebug = false --If true, logs comprehensive air system debug: interceptors, bombers, gunships, transports, scouts, threat calculations, target assignments, and all air decision-making
+M28LogFactoryDecisions = false --If true, logs comprehensive factory construction decisions: air vs land vs naval factory prioritization, factory balance ratios, and construction triggers
+M28LogAirProductionDecisions = false --If true, logs detailed air production decisions: bomber/gunship/transport/scout production triggers, and production focus
 
 --Detailed profiling config options
 M28RunProfiling = false --If turning to true-part way through the game then also run ForkThread(M28Profiler.ProfilerActualTimePerTick); Records data on how long most functions are taking

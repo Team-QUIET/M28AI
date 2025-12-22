@@ -22,6 +22,7 @@ local M28Economy = import('/mods/M28AI/lua/AI/M28Economy.lua')
 local M28Building = import('/mods/M28AI/lua/AI/M28Building.lua')
 local M28Micro = import('/mods/M28AI/lua/AI/M28Micro.lua')
 local M28Intel = import('/mods/M28AI/lua/AI/M28Intel.lua')
+local M28Config = import('/mods/M28AI/lua/M28Config.lua')
 
 -- CZAR-specific debug flag (set to true to enable CZAR debug logging independently)
 local bCzarDebugMessages = false
@@ -561,6 +562,19 @@ function AirSubteamOverseer(iTeam, iAirSubteam)
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
             end
             if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]) then break end
+        end
+
+        --Comprehensive air cycle debug logging with cooldown (every 60 seconds per air subteam)
+        --Uses separate timer from AIR_AA_STATUS to prevent cooldown conflicts
+        if M28Config.M28LogAirSystemDebug then
+            local iCurTime = GetGameTimeSeconds()
+            local iLastLogTime = M28Team.tAirSubteamData[iAirSubteam][M28Team.refiTimeLastAirCycleSummaryLog] or 0
+            if iCurTime - iLastLogTime >= 60 then
+                M28Team.tAirSubteamData[iAirSubteam][M28Team.refiTimeLastAirCycleSummaryLog] = iCurTime
+                local sRallyPoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint] and ('X'..math.floor(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint][1])..'Z'..math.floor(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint][3])) or 'nil'
+                local sSupportPoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint] and ('X'..math.floor(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint][1])..'Z'..math.floor(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint][3])) or 'nil'
+                LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] AIR_CYCLE_SUMMARY - Team='..iTeam..', Rally='..sRallyPoint..', Support='..sSupportPoint..', AirAAThreat='..(M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] or 0)..', BomberThreat='..(M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurT1ToT3BomberThreat] or 0)..', GunshipThreat='..(M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat] or 0)..', TorpThreat='..(M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurTorpBomberThreat] or 0)..', EnemyAirAA='..(M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 0)..', AirControl='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] or false)..', FarBehind='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] or false)..', Time='..iCurTime)
+            end
         end
 
         ForkThread(UpdateAirRallyAndSupportPoints, iTeam, iAirSubteam)
@@ -2013,6 +2027,35 @@ function UpdateAirRallyAndSupportPoints(iTeam, iAirSubteam)
             if bDebugMessages == true then LOG(sFunctionRef..': Adding front gunship='..M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship].UnitId..M28UnitInfo.GetUnitLifetimeCount(M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship])..' owned by '..M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship]:GetAIBrain().Nickname..' to air support team') end
             table.insert(tUnitsToProtect, M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship])
         end
+        --Add naval units when we have adequate air forces and naval combat is happening
+        --This provides air support when needed
+        local bConsiderNavalSupport = M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] or (not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]) and (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] or 0) >= 200)
+        if bConsiderNavalSupport and (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyNavalFactoryTech] or 0) >= 2 then
+            --Look for high-value naval units in combat zones that could benefit from air support
+            local iNavalUnitsAdded = 0
+            local iMaxNavalUnits = 2 --Limit to prevent air from chasing too many naval targets
+            for iBrain, oBrain in M28Team.tAirSubteamData[iAirSubteam][M28Team.subreftoFriendlyM28Brains] do
+                if iNavalUnitsAdded >= iMaxNavalUnits then break end
+                --Get battleships, cruisers, and T3 naval units as priority naval support targets
+                local tPriorityNavalUnits = oBrain:GetListOfUnits(M28UnitInfo.refCategoryBattleship + M28UnitInfo.refCategoryCruiser + (categories.NAVAL * categories.TECH3 * categories.DIRECTFIRE), false, true)
+                if M28Utilities.IsTableEmpty(tPriorityNavalUnits) == false then
+                    for iNaval, oNaval in tPriorityNavalUnits do
+                        if iNavalUnitsAdded >= iMaxNavalUnits then break end
+                        --Only add if the naval unit is in a water zone with enemy presence (i.e., in combat)
+                        local iNavalWZ = M28Map.GetWaterZoneFromPosition(oNaval:GetPosition())
+                        if (iNavalWZ or 0) > 0 then
+                            local tNavalWZTeamData = M28Map.tPondDetails[M28Map.tiPondByWaterZone[iNavalWZ]][M28Map.subrefPondWaterZones][iNavalWZ][M28Map.subrefWZTeamData][iTeam]
+                            if tNavalWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentWZ] or tNavalWZTeamData[M28Map.refiModDistancePercent] >= 0.4 then
+                                table.insert(tUnitsToProtect, oNaval)
+                                iNavalUnitsAdded = iNavalUnitsAdded + 1
+                                if bDebugMessages == true then LOG(sFunctionRef..': Adding priority naval unit='..oNaval.UnitId..M28UnitInfo.GetUnitLifetimeCount(oNaval)..' to air support team, WZ='..iNavalWZ) end
+                            end
+                        end
+                    end
+                end
+            end
+            if bDebugMessages == true then LOG(sFunctionRef..': Dynamic naval air support check - added '..iNavalUnitsAdded..' naval units to protect') end
+        end
         --[[if M28Conditions.IsTableOfUnitsStillValid(M28Team.tTeamData[iTeam][M28Team.reftoSpecialUnitsToProtect]) then
         for iUnit, oUnit in M28Team.tTeamData[iTeam][M28Team.reftoSpecialUnitsToProtect] do
             table.insert(tUnitsToProtect, oUnit)
@@ -2634,6 +2677,63 @@ function UpdateAirRallyAndSupportPoints(iTeam, iAirSubteam)
             if iTorpDistToRally >= 50 and (not(bConsideredForT3Bomber) or M28Utilities.GetDistanceBetweenPositions(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontT3Bomber]:GetPosition(), M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]) + 40 < iTorpDistToRally) then
                 if bDebugMessages == true then LOG(sFunctionRef..': Will consider a support point for torpedo bombers') end
                 ConsiderChangingSupportPointToSupportBomber(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber], true)
+            end
+        end
+
+        --If no priority units to protect, try to find strategic zones with friendly presence for air support
+        --This provides flexible air coverage in early game before we have high-value targets
+        if M28Utilities.IsTableEmpty(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint]) and M28Utilities.IsTableEmpty(tUnitsToProtect) then
+            local tBestStrategicZoneMidpoint = nil
+            local iBestModDist = 0
+            local iBestFriendlyThreat = 0
+            --Search land zones for friendly presence in forward positions
+            for iPlateau, tPlateauSubtable in M28Map.tAllPlateaus do
+                if M28Utilities.IsTableEmpty(tPlateauSubtable[M28Map.subrefPlateauLandZones]) == false then
+                    for iLandZone, tLZData in tPlateauSubtable[M28Map.subrefPlateauLandZones] do
+                        local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
+                        if tLZTeamData then
+                            local iFriendlyThreat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+                            local iModDist = tLZTeamData[M28Map.refiModDistancePercent] or 0
+                            --Look for zones with significant friendly presence (200+ threat) in forward positions (30-70% mod dist)
+                            if iFriendlyThreat >= 200 and iModDist >= 0.3 and iModDist <= 0.7 then
+                                --Prefer zones with more forward position and higher friendly threat
+                                local iZoneScore = iModDist * 2 + (iFriendlyThreat / 1000)
+                                if iZoneScore > iBestModDist * 2 + (iBestFriendlyThreat / 1000) then
+                                    iBestModDist = iModDist
+                                    iBestFriendlyThreat = iFriendlyThreat
+                                    tBestStrategicZoneMidpoint = {tLZData[M28Map.subrefMidpoint][1], tLZData[M28Map.subrefMidpoint][2], tLZData[M28Map.subrefMidpoint][3]}
+                                    if bDebugMessages == true then LOG(sFunctionRef..': Found strategic land zone at plateau='..iPlateau..' LZ='..iLandZone..' with modDist='..iModDist..' threat='..iFriendlyThreat) end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            --Also check water zones for naval presence
+            for iPond, tPondData in M28Map.tPondDetails do
+                if M28Utilities.IsTableEmpty(tPondData[M28Map.subrefPondWaterZones]) == false then
+                    for iWZ, tWZData in tPondData[M28Map.subrefPondWaterZones] do
+                        local tWZTeamData = tWZData[M28Map.subrefWZTeamData][iTeam]
+                        if tWZTeamData then
+                            local iFriendlyThreat = tWZTeamData[M28Map.subrefWZAllyNavalThreat] or 0
+                            local iModDist = tWZTeamData[M28Map.refiModDistancePercent] or 0
+                            --Similar criteria for water zones - use naval threat
+                            if iFriendlyThreat >= 200 and iModDist >= 0.3 and iModDist <= 0.7 then
+                                local iZoneScore = iModDist * 2 + (iFriendlyThreat / 1000)
+                                if iZoneScore > iBestModDist * 2 + (iBestFriendlyThreat / 1000) then
+                                    iBestModDist = iModDist
+                                    iBestFriendlyThreat = iFriendlyThreat
+                                    tBestStrategicZoneMidpoint = {tWZData[M28Map.subrefMidpoint][1], tWZData[M28Map.subrefMidpoint][2], tWZData[M28Map.subrefMidpoint][3]}
+                                    if bDebugMessages == true then LOG(sFunctionRef..': Found strategic water zone at pond='..iPond..' WZ='..iWZ..' with modDist='..iModDist..' threat='..iFriendlyThreat) end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            if tBestStrategicZoneMidpoint then
+                M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint] = tBestStrategicZoneMidpoint
+                if bDebugMessages == true then LOG(sFunctionRef..': Set air support point to strategic zone at '..repru(tBestStrategicZoneMidpoint)..' with modDist='..iBestModDist..' threat='..iBestFriendlyThreat) end
             end
         end
 
@@ -3955,7 +4055,15 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
     M28Team.tAirSubteamData[iAirSubteam][M28Team.refiFarBehindFactor] = iFarBehindFactor
     M28Team.tAirSubteamData[iAirSubteam][M28Team.refiAirControlFactor] = iAirControlFactor
 
-    if M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] >= 200 * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] and M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] < M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] * iFarBehindFactor then
+    --FarBehindOnAir check: Either enemy exceeds tech-scaled threshold, OR we have a severe ratio disadvantage
+    --Lowered threshold from 200 to 100 per tech^2 to catch cases like enemy=579, our=96 at T2 (was requiring 800, now requires 400)
+    --Added ratio check: if enemy has at least 200 air threat and we have less than 20% of theirs, we're far behind
+    local iEnemyAirThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]
+    local iOurAirThreat = M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat]
+    local iTechThreshold = 100 * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]
+    local bEnemyExceedsThreshold = iEnemyAirThreat >= iTechThreshold
+    local bSevereRatioDisadvantage = iEnemyAirThreat >= 200 and iOurAirThreat < iEnemyAirThreat * 0.2
+    if (bEnemyExceedsThreshold or bSevereRatioDisadvantage) and iOurAirThreat < iEnemyAirThreat * iFarBehindFactor then
         M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] = true
     else M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] = false
     end
@@ -3972,6 +4080,22 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
     else M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] = false
     end
     if bDebugMessages == true then LOG(sFunctionRef..': M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl])..'; M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir])..'; refiEnemyAirAAThreat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]..'; subrefiHighestFriendlyFactoryTech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]..'; OurAAThreat='..M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat]..'; iAirControlFactor='..iAirControlFactor) end
+
+    --Comprehensive air AA debug logging with cooldown (every 30 seconds per air subteam)
+    if M28Config.M28LogAirSystemDebug then
+        local iCurTime = GetGameTimeSeconds()
+        local iLastLogTime = M28Team.tAirSubteamData[iAirSubteam][M28Team.refiTimeLastAirDebugLog] or 0
+        if iCurTime - iLastLogTime >= 30 then
+            M28Team.tAirSubteamData[iAirSubteam][M28Team.refiTimeLastAirDebugLog] = iCurTime
+            local iAvailableCount = M28Utilities.IsTableEmpty(tAvailableAirAA) and 0 or table.getn(tAvailableAirAA)
+            local iRefuelCount = M28Utilities.IsTableEmpty(tAirForRefueling) and 0 or table.getn(tAirForRefueling)
+            local iInCombatCount = M28Utilities.IsTableEmpty(tInCombatUnits) and 0 or table.getn(tInCombatUnits)
+            local iUnavailableCount = M28Utilities.IsTableEmpty(tUnavailableUnits) and 0 or table.getn(tUnavailableUnits)
+            local sAirControl = M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] and 'YES' or 'NO'
+            local sFarBehind = M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] and 'YES' or 'NO'
+            LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] AIR_AA_STATUS - OurAAThreat='..M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat]..', EnemyAAThreat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]..', AirControl='..sAirControl..', FarBehind='..sFarBehind..', ControlFactor='..(math.floor(iAirControlFactor*100)/100)..', BehindFactor='..(math.floor(iFarBehindFactor*100)/100)..', Available='..iAvailableCount..', Refueling='..iRefuelCount..', InCombat='..iInCombatCount..', Unavailable='..iUnavailableCount..', Time='..iCurTime)
+        end
+    end
 
     --Update orders for any in combat airaa units, and track the assigned damage to them
     local tExistingThreatAssignedByUnitRef = {}
@@ -5630,6 +5754,19 @@ function ManageBombers(iTeam, iAirSubteam)
     local iAACategory = M28UnitInfo.refCategoryGroundAA + M28UnitInfo.refCategoryFixedShield + M28UnitInfo.refCategoryMobileLandShield + M28UnitInfo.refCategoryShieldBoat + categories.COMMAND
     M28Team.tAirSubteamData[iAirSubteam][M28Team.reftoActiveBomberTargets] = {} --Reset
 
+    --Comprehensive bomber debug logging with cooldown (every 30 seconds per air subteam)
+    if M28Config.M28LogAirSystemDebug then
+        local iCurTime = GetGameTimeSeconds()
+        local iLastLogTime = M28Team.tAirSubteamData[iAirSubteam][M28Team.refiTimeLastAirDebugLog] or 0
+        if iCurTime - iLastLogTime >= 30 or (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurT1ToT3BomberThreat] or 0) >= 1000 then
+            local iAvailableCount = M28Utilities.IsTableEmpty(tAvailableBombers) and 0 or table.getn(tAvailableBombers)
+            local iRefuelCount = M28Utilities.IsTableEmpty(tBombersForRefueling) and 0 or table.getn(tBombersForRefueling)
+            local iUnavailableCount = M28Utilities.IsTableEmpty(tUnavailableUnits) and 0 or table.getn(tUnavailableUnits)
+            local iSpecialLogicCount = M28Utilities.IsTableEmpty(tSpecialLogicAvailableBombers) and 0 or table.getn(tSpecialLogicAvailableBombers)
+            LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] BOMBER_STATUS - BomberThreat='..(M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurT1ToT3BomberThreat] or 0)..', Available='..iAvailableCount..', Refueling='..iRefuelCount..', Unavailable='..iUnavailableCount..', SpecialLogic='..iSpecialLogicCount..', AirControl='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] or false)..', Time='..iCurTime)
+        end
+    end
+
     function FilterToAvailableTargets(tPotentialTargets, iOptionalCategory, bOptionalCheckNotAlreadyInEnemyTargets) --UPDATE USAGE IN SPECIAL BOMBER LOGIC IF CHANGING (and changes are relevant to engi hunter)
         if M28Utilities.IsTableEmpty(tPotentialTargets) == false then
             local bDontConsiderPlayableArea = not(M28Map.bIsCampaignMap)
@@ -6248,6 +6385,19 @@ function ManageTorpedoBombers(iTeam, iAirSubteam)
     M28Team.tAirSubteamData[iAirSubteam][M28Team.refbTooMuchGroundNavalAAForTorpBombers] = false
     M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber] = nil
     local iTorpBomberThreat = 0
+
+    --Comprehensive torpedo bomber debug logging with cooldown (every 30 seconds per air subteam)
+    if M28Config.M28LogAirSystemDebug then
+        local iCurTime = GetGameTimeSeconds()
+        local iLastLogTime = M28Team.tAirSubteamData[iAirSubteam][M28Team.refiTimeLastAirDebugLog] or 0
+        if iCurTime - iLastLogTime >= 30 or (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurTorpBomberThreat] or 0) >= 500 then
+            local iAvailableCount = M28Utilities.IsTableEmpty(tAvailableBombers) and 0 or table.getn(tAvailableBombers)
+            local iRefuelCount = M28Utilities.IsTableEmpty(tBombersForRefueling) and 0 or table.getn(tBombersForRefueling)
+            local iUnavailableCount = M28Utilities.IsTableEmpty(tUnavailableUnits) and 0 or table.getn(tUnavailableUnits)
+            local iDefenseZoneCount = M28Utilities.IsTableEmpty(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftiTorpedoDefenceWaterZones]) and 0 or table.getn(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftiTorpedoDefenceWaterZones])
+            LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] TORP_BOMBER_STATUS - TorpThreat='..(M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurTorpBomberThreat] or 0)..', Available='..iAvailableCount..', Refueling='..iRefuelCount..', Unavailable='..iUnavailableCount..', DefenseZones='..iDefenseZoneCount..', TooMuchAA='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbTooMuchGroundNavalAAForTorpBombers] or false)..', NoTorpsForEnemies='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbNoAvailableTorpsForEnemies] or false)..', Time='..iCurTime)
+        end
+    end
     local tiWZWithTooMuchAA = {}
     local tiAnglesFromRallyOfWZWithTooMuchAA = {}
     if M28Utilities.IsTableEmpty(tAvailableBombers) == false then
@@ -7267,6 +7417,19 @@ function ManageGunships(iTeam, iAirSubteam)
     local tAvailableGunships, tGunshipsForRefueling, tUnavailableUnits = GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, M28UnitInfo.refCategoryGunship + M28UnitInfo.refCategoryCzar + M28UnitInfo.refCategoryTransport * categories.EXPERIMENTAL + M28UnitInfo.refCategoryAAGunship, nil, not(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.toActiveSnipeTargets])))
     if bDebugMessages == true then LOG(sFunctionRef..': Near start of code, time='..GetGameTimeSeconds()..'; Is tAvailableGunships empty='..tostring(M28Utilities.IsTableEmpty(tAvailableGunships))..'; Is table of active snipe targets empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.toActiveSnipeTargets]))) end
     M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat] = M28UnitInfo.GetAirThreatLevel(tAvailableGunships, false, false, false, true, false, false) + M28UnitInfo.GetAirThreatLevel(tGunshipsForRefueling, false, false, false, true, false, false) + M28UnitInfo.GetAirThreatLevel(tUnavailableUnits, false, false, false, true, false, false)
+
+    --Comprehensive gunship debug logging with cooldown (every 30 seconds per air subteam)
+    if M28Config.M28LogAirSystemDebug then
+        local iCurTime = GetGameTimeSeconds()
+        local iLastLogTime = M28Team.tAirSubteamData[iAirSubteam][M28Team.refiTimeLastAirDebugLog] or 0
+        if iCurTime - iLastLogTime >= 30 or M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat] >= 2000 then
+            local iAvailableCount = M28Utilities.IsTableEmpty(tAvailableGunships) and 0 or table.getn(tAvailableGunships)
+            local iRefuelCount = M28Utilities.IsTableEmpty(tGunshipsForRefueling) and 0 or table.getn(tGunshipsForRefueling)
+            local iUnavailableCount = M28Utilities.IsTableEmpty(tUnavailableUnits) and 0 or table.getn(tUnavailableUnits)
+            local sFrontGunshipInfo = M28UnitInfo.IsUnitValid(M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship]) and M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship].UnitId or 'nil'
+            LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] GUNSHIP_STATUS - GunshipThreat='..M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat]..', Available='..iAvailableCount..', Refueling='..iRefuelCount..', Unavailable='..iUnavailableCount..', FrontGunship='..sFrontGunshipInfo..', AirControl='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] or false)..', SnipeTargets='..tostring(not M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.toActiveSnipeTargets]))..', Time='..iCurTime)
+        end
+    end
 
     local tViaFromRallyPoint --if we use this and via from front gunship we will avoid significant groundAA (where these are specified)
     local tViaFromFrontGunshipPoint

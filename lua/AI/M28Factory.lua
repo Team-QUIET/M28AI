@@ -20,6 +20,7 @@ local M28Micro = import('/mods/M28AI/lua/AI/M28Micro.lua')
 local M28ACU = import('/mods/M28AI/lua/AI/M28ACU.lua')
 local M28Land = import('/mods/M28AI/lua/AI/M28Land.lua')
 local M28Intel = import('/mods/M28AI/lua/AI/M28Intel.lua')
+local M28Config = import('/mods/M28AI/lua/M28Config.lua')
 
 reftBlueprintPriorityOverride = 'M28FactoryPreferredBlueprintByCategory' --[x] is the blueprint ref, if there's a priority override it returns a numerical value (higher number = higher priority)
 local refiTimeSinceLastOrderCheck = 'M28FactoryTimeSinceLastCheck' --against factory, gametime in seconds when the factory was last checked to consider an order
@@ -4996,10 +4997,24 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
         bSaveMassDueToEnemyFirebaseOrOurExperimental = M28Conditions.WantToEcoDueToEnemyFirebase(iTeam, tLZTeamData, iPlateau)
     end
 
-
+    --Air production decision logging for M28LogAirProductionDecisions
+    local sProductionDecisionReason = nil --Track why we chose to build what we did
 
     if bDebugMessages == true then
         LOG(sFunctionRef .. ': Near start of code, time=' .. GetGameTimeSeconds() .. '; oFactory=' .. oFactory.UnitId .. M28UnitInfo.GetUnitLifetimeCount(oFactory) .. '; Checking if we have the highest tech land factory in the current land zone, iFactoryTechLevel=' .. iFactoryTechLevel .. '; Highest friendly factory tech=' .. M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] .. '; Allied ground threat=' .. (M28Team.tTeamData[iTeam][M28Team.subrefiAlliedMAAThreat] or 'nil') .. '; M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]=' .. (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 'nil') .. '; M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]=' .. (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 'nil') .. '; M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat]=' .. (M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] or 'nil') .. '; M28Team.tTeamData[iTeam][M28Team.refiEnemyAirOtherThreat]=' .. (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirOtherThreat] or 'nil') .. '; Is factory paused=' .. tostring(oFactory:IsPaused()) .. '; IsPaused value=' .. tostring(oFactory[M28UnitInfo.refbPaused]) .. '; Does LZ factory is in need BP=' .. tostring(tLZTeamData[M28Map.subrefTbWantBP]) .. '; Core LZ=' .. tostring(tLZTeamData[M28Map.subrefLZbCoreBase] or false) .. '; Core expansion=' .. tostring(tLZTeamData[M28Map.subrefLZCoreExpansion] or false) .. '; Time since a factory in this LZ last built something=' .. GetGameTimeSeconds() - (tLZTeamData[M28Map.refiTimeLastBuiltAtFactory] or -100) .. '; bHaveLowMass=' .. tostring(bHaveLowMass) .. '; bHaveLowPower=' .. tostring(bHaveLowPower)..'; brain='..oFactory:GetAIBrain().Nickname..'; Net E (brain)='..aiBrain[M28Economy.refiNetEnergyBaseIncome]..'; GrossE='..aiBrain[M28Economy.refiGrossEnergyBaseIncome]..'; E % stored='..aiBrain:GetEconomyStoredRatio('ENERGY'))
+    end
+
+    --Verbose air production decision logging
+    if M28Config.M28LogAirProductionDecisions then
+        LOG('M28AirProduction: ========== AIR FACTORY PRODUCTION DECISION ==========')
+        LOG('M28AirProduction: Time='..GetGameTimeSeconds()..'; Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; TechLevel='..iFactoryTechLevel..'; Brain='..aiBrain.Nickname)
+        LOG('M28AirProduction: Location: Plateau='..iPlateau..'; LandZone='..iLandZone..'; CoreBase='..tostring(tLZTeamData[M28Map.subrefLZbCoreBase] or false)..'; CoreExpansion='..tostring(tLZTeamData[M28Map.subrefLZCoreExpansion] or false))
+        LOG('M28AirProduction: Economy: LowMass='..tostring(bHaveLowMass)..'; LowPower='..tostring(bHaveLowPower)..'; SaveMassForFirebase/Exp='..tostring(bSaveMassDueToEnemyFirebaseOrOurExperimental))
+        LOG('M28AirProduction: Economy Details: GrossMass='..(aiBrain[M28Economy.refiGrossMassBaseIncome] or 0)..'; GrossEnergy='..(aiBrain[M28Economy.refiGrossEnergyBaseIncome] or 0)..'; MassStored%='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0)..'; EnergyStored%='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] or 0))
+        LOG('M28AirProduction: Air Threats: EnemyAirAA='..(M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 0)..'; EnemyAirToGround='..(M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0)..'; EnemyTorpBombers='..(M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] or 0))
+        LOG('M28AirProduction: Our Air: OurAirAAThreat='..(M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] or 0)..'; FarBehindOnAir='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] or false)..'; HighestEnemyAirTech='..(M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] or 0))
+        LOG('M28AirProduction: Ground Threats: EnemyGroundAA='..(tLZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0)..'; EnemyCombatTotal='..(tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)..'; AllyGroundAA='..(tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0))
+        LOG('M28AirProduction: Factory State: BuildCount='..(oFactory[refiTotalBuildCount] or 0)..'; WantNextEngi='..tostring(oFactory[refbWantNextUnitToBeEngineer] or false)..'; WantBP='..tostring(tLZTeamData[M28Map.subrefTbWantBP] or false))
     end
 
 
@@ -5007,10 +5022,37 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
     local sBPIDToBuild
     local iCurrentConditionToTry = 0
 
+    --Lookup table for condition descriptions (for verbose logging)
+    local tConditionDescriptions = {
+        [1] = 'Early bomber build order',
+        [2] = 'Early game engineer',
+        [3] = 'Unit cap limit - abort',
+        [4] = 'Priority engineer flag',
+        [5] = 'T2-T3 factory first engineers',
+        [6] = 'Emergency gunship for nearby enemies',
+        [7] = 'Emergency AirAA for enemy air threat',
+        [8] = 'Snipe target bomber',
+        [9] = 'High priority transport',
+        [10] = 'Engineer for low power',
+        [11] = 'Air scout priority',
+        [12] = 'Torpedo bomber for naval threat',
+        [13] = 'AirAA for enemy air superiority',
+        [14] = 'Bomber/Gunship for ground targets',
+        [15] = 'Transport for land operations',
+        [16] = 'Factory upgrade',
+        [17] = 'Default fallback',
+    }
+
     function ConsiderUpgrading()
         if not(M28Conditions.CheckIfNeedMoreEngineersOrSnipeUnitsBeforeUpgrading(oFactory)) then
             sBPIDToBuild = M28UnitInfo.GetUnitUpgradeBlueprint(oFactory, true)
-            if sBPIDToBuild then M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd) end
+            if sBPIDToBuild then
+                if M28Config.M28LogAirProductionDecisions then
+                    LOG('M28AirProduction: DECISION: Upgrading factory; Condition='..iCurrentConditionToTry..'; Reason='..tostring(sProductionDecisionReason or tConditionDescriptions[iCurrentConditionToTry] or 'Upgrade available')..'; Blueprint='..sBPIDToBuild)
+                    LOG('M28AirProduction: ========== END AIR FACTORY DECISION ==========')
+                end
+                M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+            end
             return sBPIDToBuild
         end
     end
@@ -5028,6 +5070,11 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
         end
         if sBPIDToBuild then
             if bDebugMessages == true then LOG(sFunctionRef..': Blueprint still valid after considering overrides') end
+            if M28Config.M28LogAirProductionDecisions then
+                local sConditionDesc = tConditionDescriptions[iCurrentConditionToTry] or ('Condition #'..iCurrentConditionToTry)
+                LOG('M28AirProduction: DECISION: Building unit; Condition='..iCurrentConditionToTry..'; Reason='..tostring(sProductionDecisionReason or sConditionDesc)..'; Blueprint='..sBPIDToBuild..'; Category='..tostring(iCategoryToBuild))
+                LOG('M28AirProduction: ========== END AIR FACTORY DECISION ==========')
+            end
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd) --Assumes we will end code if we get to this point
             return sBPIDToBuild
         elseif bDebugMessages == true then LOG(sFunctionRef..': No valid BP after override')
@@ -5039,9 +5086,14 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
         --Consider building an engineer
         if bDebugMessages == true then LOG(sFunctionRef..'Nearby enemy groundAA threat so no point building from air fac unless have lots of resources to spare, will consider getting engineers if not low on mass and no enemy combat threat') end
         if not(bHaveLowMass) and tLZTeamData[M28Map.subrefTbWantBP] and tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] <= 10 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.25 then
+            sProductionDecisionReason = 'Enemy ground AA threat - building engineer'
             if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end
         end
         if bDebugMessages == true then LOG(sFunctionRef..': Will just not build anything') end
+        if M28Config.M28LogAirProductionDecisions then
+            LOG('M28AirProduction: DECISION: No build due to enemy ground AA; EnemyGroundAA='..(tLZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0)..'; Threshold='..(iFactoryTechLevel * iFactoryTechLevel * 50))
+            LOG('M28AirProduction: ========== END AIR FACTORY DECISION (GROUND AA BLOCK) ==========')
+        end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         return nil
     end
@@ -5075,6 +5127,10 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
     iCurrentConditionToTry = iCurrentConditionToTry + 1
     if aiBrain[M28Overseer.refbCloseToUnitCap] and iFactoryTechLevel >= 3 and not(bHaveLowMass) and not(bHaveLowPower) and M28Team.tTeamData[aiBrain.M28Team][M28Team.refiLowestUnitCapAdjustmentLevel] <= -1 and aiBrain[M28Overseer.refiExpectedRemainingCap] < 20 then
         if bDebugMessages == true then LOG(sFunctionRef..': Close to unit cap with high mass stored so wont build anything from air fac') end
+        if M28Config.M28LogAirProductionDecisions then
+            LOG('M28AirProduction: DECISION: No build due to unit cap; ExpectedRemainingCap='..(aiBrain[M28Overseer.refiExpectedRemainingCap] or 0)..'; CapAdjustmentLevel='..(M28Team.tTeamData[aiBrain.M28Team][M28Team.refiLowestUnitCapAdjustmentLevel] or 0))
+            LOG('M28AirProduction: ========== END AIR FACTORY DECISION (UNIT CAP) ==========')
+        end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         return nil
     end
@@ -6660,6 +6716,13 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
         if bDebugMessages == true then LOG(sFunctionRef..': Failed to find something to build for factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..' at time='..GetGameTimeSeconds()..'; oFactory fraction complete='..oFactory:GetFractionComplete()) end
     end
     oFactory[refiTimeSinceLastFailedToGetOrder] = GetGameTimeSeconds() --Redundancy, will also include in parent logic
+
+    --Verbose logging for no blueprint decision
+    if M28Config.M28LogAirProductionDecisions then
+        LOG('M28AirProduction: DECISION: No blueprint to build; LastConditionChecked='..iCurrentConditionToTry..'; LowMass='..tostring(bHaveLowMass)..'; LowPower='..tostring(bHaveLowPower))
+        LOG('M28AirProduction: ========== END AIR FACTORY DECISION (NO BUILD) ==========')
+    end
+
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
@@ -6725,6 +6788,22 @@ function GetBlueprintToBuildForNavalFactory(aiBrain, oFactory)
     local bUseFrigatesAsScouts = M28Team.tTeamData[iTeam][M28Team.subrefbUseFrigatesAsScoutsByPond][iPond]
     if bDebugMessages == true then
         LOG(sFunctionRef .. ': Finished checking if we want to consider building shield/stealth boats, bConsiderBuildingShieldOrStealthBoats=' .. tostring(bConsiderBuildingShieldOrStealthBoats) .. '; Cur shield and stealth boats=' .. aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryShieldBoat + M28UnitInfo.refCategoryStealthBoat) .. '; bHaveLowPower=' .. tostring(bHaveLowPower) .. '; Cur T3 navy and destroyer+cruiser=' .. aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryNavalSurface * categories.TECH3 + M28UnitInfo.refCategoryDestroyer + M28UnitInfo.refCategoryCruiser)..'; Time since last had no shield targets='..GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiLastTimeNoShieldBoatTargetsByPond][iPond] or -100)..'; Time since last wanted no stealth in this poind='..GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiLastTimeNoStealthBoatTargetsByPond][iPond] or -100))
+    end
+
+    --When team is far behind on air, significantly reduce naval production
+    --to free up resources for air factory construction and air unit production
+    local bThrottleNavalForAir = M28Conditions.TeamIsFarBehindOnAir(iTeam)
+    if bThrottleNavalForAir then
+        --Skip production on most naval factories when behind on air (allow every 3rd factory to still produce for basic defense)
+        --This frees up resources that engineers and factories would have spent on naval production
+        if (oFactory[refiTotalBuildCount] or 0) >= 3 and math.mod((M28UnitInfo.GetUnitLifetimeCount(oFactory) or 0), 3) ~= 0 then
+            if M28Config.M28LogFactoryDecisions then
+                LOG(sFunctionRef..': [WZ'..iWaterZone..'] NAVAL_PROD_THROTTLED_FOR_AIR - Factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..' pausing production to prioritize air factories. Time='..GetGameTimeSeconds())
+            end
+            tWZTeamData[M28Map.subrefiTimeNavalFacHadNothingToBuild] = GetGameTimeSeconds()
+            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+            return nil
+        end
     end
 
     iCategoryToBuild = M28UnitInfo.refCategoryEngineer --Placeholder
