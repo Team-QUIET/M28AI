@@ -641,8 +641,25 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                         for iTarget, oTarget in tUnitsToConsiderDodgeFor do
                             bCancelDodge = false
                             if bDebugMessages == true then LOG(sFunctionRef..': oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; Weapon damage='..oWeaponBP.Damage..'; Target health='..oTarget:GetHealth()) end
+
+                            --Skip dodging low-damage shots when we have overwhelming force superiority (2x+ threat)
+                            if oWeaponBP.Damage <= 100 and not(EntityCategoryContains(categories.COMMAND, oTarget.UnitId)) then
+                                local iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oTarget:GetPosition(), true, oTarget)
+                                if iLandZone and iLandZone > 0 then
+                                    local tLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][oTarget:GetAIBrain().M28Team]
+                                    if tLZTeamData then
+                                        local iAllyThreat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+                                        local iEnemyThreat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+                                        if iAllyThreat >= iEnemyThreat * 2 and iEnemyThreat > 0 then
+                                            bCancelDodge = true
+                                            if bDebugMessages == true then LOG(sFunctionRef..': Skipping dodge for low-damage shot due to force superiority. AllyThreat='..iAllyThreat..'; EnemyThreat='..iEnemyThreat..'; Damage='..oWeaponBP.Damage) end
+                                        end
+                                    end
+                                end
+                            end
+
                             --Does the shot do enough damage that we want to try and dodge it? (experimentals - consider high damage shots like ythotha ball)
-                            if ((oTarget[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oTarget)) < 12500 or oWeaponBP.Damage >= 3000) and (oWeaponBP.Damage / oTarget:GetHealth() >= 0.01 or (EntityCategoryContains(categories.COMMAND, oTarget.UnitId) and ((oWeaponBP.WeaponCategory == 'Artillery' and EntityCategoryContains(categories.INDIRECTFIRE - categories.TECH3, oUnit.UnitId) and (oWeaponBP.Damage / oTarget:GetHealth() >= 0.0035)) or (oWeaponBP.WeaponCategory == 'Missile' and EntityCategoryContains(categories.INDIRECTFIRE - categories.TECH3, oUnit.UnitId) and (oWeaponBP.Damage / oTarget:GetHealth() >= 0.006))))) then
+                            if not(bCancelDodge) and ((oTarget[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oTarget)) < 12500 or oWeaponBP.Damage >= 3000) and (oWeaponBP.Damage / oTarget:GetHealth() >= 0.01 or (EntityCategoryContains(categories.COMMAND, oTarget.UnitId) and ((oWeaponBP.WeaponCategory == 'Artillery' and EntityCategoryContains(categories.INDIRECTFIRE - categories.TECH3, oUnit.UnitId) and (oWeaponBP.Damage / oTarget:GetHealth() >= 0.0035)) or (oWeaponBP.WeaponCategory == 'Missile' and EntityCategoryContains(categories.INDIRECTFIRE - categories.TECH3, oUnit.UnitId) and (oWeaponBP.Damage / oTarget:GetHealth() >= 0.006))))) then
                                 --Dont bother dodging if missile attack and we are moving away from it
                                 if bOnlyDodgeIfNotMoving then
                                     local tFirstOrder = oUnit[M28Orders.reftiLastOrders][1]
@@ -813,7 +830,7 @@ function DodgeShot(oTarget, oOptionalWeapon, oAttacker, iTimeToDodge)
 
     --Non-experimental skirmishers - try to move at an adjustment to the angle to the destination rather htan the unit facing direction so less likely to move into range of enemy
     if bDebugMessages == true then LOG(sFunctionRef..': Considering if have skirmisher or ACU; ACU time since last wanted to retreat (if this was an ACU)='..GetGameTimeSeconds() - (oTarget[M28ACU.refiTimeLastWantedToRun] or 0)..'; Time since last wanted to retreat for non-ACU='..GetGameTimeSeconds() - (oTarget[M28UnitInfo.refiTimeLastTriedRetreating] or 0)..'; oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]='..(oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck].UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]) or 'nil')) end
-    if EntityCategoryContains(M28UnitInfo.refCategorySkirmisher - categories.EXPERIMENTAL + M28UnitInfo.refCategoryLandScout, oTarget.UnitId) or (oTarget[M28UnitInfo.refiTimeLastTriedRetreating] and GetGameTimeSeconds() - oTarget[M28UnitInfo.refiTimeLastTriedRetreating] <= math.max(2, M28Land.iTicksPerLandCycle * 0.1 + 0.1)) or (EntityCategoryContains(categories.COMMAND, oTarget.UnitId) and oTarget[M28ACU.refiTimeLastWantedToRun] and GetGameTimeSeconds() - oTarget[M28ACU.refiTimeLastWantedToRun] <= 3)
+    if EntityCategoryContains(M28UnitInfo.refCategorySkirmisher - categories.EXPERIMENTAL + M28UnitInfo.refCategoryLandScout, oTarget.UnitId) or (oTarget[M28UnitInfo.refiTimeLastTriedRetreating] and GetGameTimeSeconds() - oTarget[M28UnitInfo.refiTimeLastTriedRetreating] <= math.max(0.5, M28Land.iTicksPerLandCycle * 0.1 + 0.1)) or (EntityCategoryContains(categories.COMMAND, oTarget.UnitId) and oTarget[M28ACU.refiTimeLastWantedToRun] and GetGameTimeSeconds() - oTarget[M28ACU.refiTimeLastWantedToRun] <= 3)
             --MMLs - we might be near PD meaning dodging will take us in range of it
             or ((oTarget[M28UnitInfo.refiIndirectRange] or 0) > 0 and not(EntityCategoryContains(categories.TECH1, oTarget.UnitId)) and not(oTarget[M28UnitInfo.refbSpecialMicroActive]) and not(oTarget[M28Orders.reftiLastOrders][1][M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueMove)) then
         if bDebugMessages == true then LOG(sFunctionRef..': Is oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck] valid='..tostring(M28UnitInfo.IsUnitValid(oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]))) end

@@ -7484,9 +7484,20 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                             end
                                                         end
                                                         --If we cant kite and enemy is close to us, then flag we want SR support
-                                                        if not(bAttackWithOutrangedDFUnits) and not(oUnit[M28UnitInfo.refbCanKite]) and M28Conditions.CloseToEnemyUnit(oUnit:GetPosition(), tLZTeamData[M28Map.reftoNearestDFEnemies], 4, iTeam, true) then
-                                                            if bDebugMessages == true then LOG(sFunctionRef..': Enemy is close to our unit which cant kite, our unit= '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' so want to attack with outranged DF units') end
-                                                            bAttackWithOutrangedDFUnits = true
+                                                        --Also flag support for kiting units when we have overwhelming force superiority (1.5x+ threat)
+                                                        if not(bAttackWithOutrangedDFUnits) and M28Conditions.CloseToEnemyUnit(oUnit:GetPosition(), tLZTeamData[M28Map.reftoNearestDFEnemies], 4, iTeam, true) then
+                                                            if not(oUnit[M28UnitInfo.refbCanKite]) then
+                                                                if bDebugMessages == true then LOG(sFunctionRef..': Enemy is close to our unit which cant kite, our unit= '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' so want to attack with outranged DF units') end
+                                                                bAttackWithOutrangedDFUnits = true
+                                                            else
+                                                                --Kiting unit - still provide support if we have significant force superiority
+                                                                local iAllyThreat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+                                                                local iEnemyThreat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+                                                                if iAllyThreat >= iEnemyThreat * 1.5 and iEnemyThreat > 0 then
+                                                                    if bDebugMessages == true then LOG(sFunctionRef..': Kiting unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' getting support due to force superiority. AllyThreat='..iAllyThreat..'; EnemyThreat='..iEnemyThreat) end
+                                                                    bAttackWithOutrangedDFUnits = true
+                                                                end
+                                                            end
                                                         end
                                                     end
                                                 else
@@ -7509,6 +7520,15 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                     if not(bStillAttack) and M28UnitInfo.IsUnitValid(oClosestFatboyOrACUInIslandToSuicideInto) and (oClosestFatboyOrACUInIslandToSuicideInto == oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck] or M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(),oClosestFatboyOrACUInIslandToSuicideInto:GetPosition()) - oUnit[M28UnitInfo.refiDFRange] <= 14) and not(EntityCategoryContains(M28UnitInfo.refCategorySkirmisher, oUnit.UnitId)) then
                                                         if bDebugMessages == true then LOG(sFunctionRef..': Dont want to kite as are almost in range of unit to suicide into') end
                                                         bStillAttack = true
+                                                    end
+                                                    --If we have significant force superiority (1.5x+ threat), attack instead of kiting retreat
+                                                    if not(bStillAttack) and not(EntityCategoryContains(M28UnitInfo.refCategorySkirmisher, oUnit.UnitId)) then
+                                                        local iAllyThreat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+                                                        local iEnemyThreat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+                                                        if iAllyThreat >= iEnemyThreat * 1.5 and iEnemyThreat > 0 then
+                                                            if bDebugMessages == true then LOG(sFunctionRef..': Attacking instead of kiting due to force superiority. AllyThreat='..iAllyThreat..'; EnemyThreat='..iEnemyThreat) end
+                                                            bStillAttack = true
+                                                        end
                                                     end
                                                     if bStillAttack then
                                                         if bDebugMessages == true then LOG(sFunctionRef..': Normally would do kiting retreat, but in this case will do manual attack as enemy on cusp of our range and not moving closer to us') end
