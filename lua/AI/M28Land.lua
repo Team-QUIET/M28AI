@@ -13601,6 +13601,7 @@ function CompareNearbyAlliedAndEnemyLandThreats(iTeam, iLandSubteam, iStartPlate
     if table.getn(M28Team.tLandSubteamData[iLandSubteam][M28Team.subreftoFriendlyM28Brains]) > 1 then bHaveTeammates = true end
     local iOurMobileDFThreat = tStartLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal]
     local iEnemyMobileDFThreat = tStartLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal]
+    local iEnemyMobileDFThreatOnEnemySide = 0 --Track enemy DF in zones >0.6 mod dist (enemy's side)
     local iEnemyGroundAAThreat = tStartLZTeamData[M28Map.subrefiThreatEnemyGroundAA]
     local iCurLZ
     local iEnemyNetMobileDFCloseToBase = 0
@@ -13615,6 +13616,8 @@ function CompareNearbyAlliedAndEnemyLandThreats(iTeam, iLandSubteam, iStartPlate
                 iEnemyGroundAAThreat = iEnemyGroundAAThreat + tCurLZTeamData[M28Map.subrefiThreatEnemyGroundAA]
                 if (tCurLZTeamData[M28Map.refiModDistancePercent] or 1) <= 0.3 then iEnemyNetMobileDFCloseToBase = iEnemyNetMobileDFCloseToBase + math.max(0, (tCurLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0) - (tCurLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0)) end
             else
+                --Track enemy DF on enemy side (>0.6 mod dist)
+                iEnemyMobileDFThreatOnEnemySide = iEnemyMobileDFThreatOnEnemySide + (tCurLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0)
                 if not(bHaveTeammates) or tCurLZTeamData[M28Map.refiModDistancePercent] >= 0.9 or tPathingData[M28Map.subrefLZTravelDist] >= iMaxTravelDist then
                     break
                 end
@@ -13625,6 +13628,7 @@ function CompareNearbyAlliedAndEnemyLandThreats(iTeam, iLandSubteam, iStartPlate
     if bDebugMessages == true then LOG(sFunctionRef..': iOurMobileDFThreat='..iOurMobileDFThreat..'; M28Team.tLandSubteamData[iLandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide]='..M28Team.tLandSubteamData[iLandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide]) end
     M28Team.tLandSubteamData[iLandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] = iEnemyMobileDFThreat
     if bDebugMessages == true then LOG(sFunctionRef..': M28Team.tLandSubteamData[iLandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide] after doing enemy threat='..M28Team.tLandSubteamData[iLandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide]) end
+    M28Team.tLandSubteamData[iLandSubteam][M28Team.refiEnemyMobileDFThreatOnEnemySide] = iEnemyMobileDFThreatOnEnemySide
     M28Team.tLandSubteamData[iLandSubteam][M28Team.refiEnemyGroundAAThreatNearOurSide] = iEnemyGroundAAThreat
 
     --Decide if we want to prioritise production over ecoing temporarily
@@ -13661,7 +13665,7 @@ function CompareNearbyAlliedAndEnemyLandThreats(iTeam, iLandSubteam, iStartPlate
             end
         end
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': End of code for land subteam '..iLandSubteam..' on team '..iTeam..', iOurMobileDFThreat='..iOurMobileDFThreat..'; iEnemyMobileDFThreat='..iEnemyMobileDFThreat..'; ur gunship threat='..M28Team.tTeamData[iTeam][M28Team.subrefiOurGunshipThreat]..'; iEnemyGroundAAThreat='..iEnemyGroundAAThreat..'; bPrioritiseProduction='..tostring(bPrioritiseProduction)..'; Gross mass inc on team='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; iEnemyNetMobileDFCloseToBase='..iEnemyNetMobileDFCloseToBase..'; M28Team.tLandSubteamData[iLandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide='..(M28Team.tLandSubteamData[iLandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide] or 'nil')..'; M28Team.tLandSubteamData[iLandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide]='..M28Team.tLandSubteamData[iLandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide]..'; Time='..GetGameTimeSeconds()) end
+    if bDebugMessages == true then LOG(sFunctionRef..': End of code for land subteam '..iLandSubteam..' on team '..iTeam..', iOurMobileDFThreat='..iOurMobileDFThreat..'; iEnemyMobileDFThreat='..iEnemyMobileDFThreat..'; iEnemyMobileDFThreatOnEnemySide='..iEnemyMobileDFThreatOnEnemySide..'; ur gunship threat='..M28Team.tTeamData[iTeam][M28Team.subrefiOurGunshipThreat]..'; iEnemyGroundAAThreat='..iEnemyGroundAAThreat..'; bPrioritiseProduction='..tostring(bPrioritiseProduction)..'; Gross mass inc on team='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; iEnemyNetMobileDFCloseToBase='..iEnemyNetMobileDFCloseToBase..'; M28Team.tLandSubteamData[iLandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide='..(M28Team.tLandSubteamData[iLandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide] or 'nil')..'; M28Team.tLandSubteamData[iLandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide]='..M28Team.tLandSubteamData[iLandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide]..'; Time='..GetGameTimeSeconds()) end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 

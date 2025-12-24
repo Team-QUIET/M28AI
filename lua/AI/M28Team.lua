@@ -349,6 +349,7 @@ tLandSubteamData = {} --tLandSubteamData[oBrain.M28LandSubteam] results in the b
     reftoPriorityUnitsWantingLandScout = 'M28LSTPrLnSc' --table of units wanting a land scout as a priority
     refiAllyMobileDFThreatNearOurSide = 'M28LSTAlDFOS' --total allied DF in zones <=0.6 mod dist
     refiEnemyMobileDFThreatNearOurSide = 'M28LSTEnDFOS' --total enemy DF in zones <=0.6 mod dist
+    refiEnemyMobileDFThreatOnEnemySide = 'M28LSTEnDFES' --total enemy DF in zones >0.6 mod dist (enemy's side of map)
     refiEnemyGroundAAThreatNearOurSide = 'M28LSTAADFOS' --total enemy groundAA in zones <=0.6 mod dist
     refbPrioritiseProduction = 'M28LSTPrPdn' --true if due to the enemy mobile threat vs ours we want to prioritise production over ecoing
     reftoPriorityUnitsWantingMobileStealth = 'M28PrMbSt' --e.g. land experimentals that want mobile stealth
