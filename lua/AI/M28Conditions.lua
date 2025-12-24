@@ -2082,7 +2082,7 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
     if bDebugMessages == true then LOG(sFunctionRef..': End of code, bWantMoreFactories='..tostring(bWantMoreFactories)) end
 
     --Comprehensive factory decision logging with cooldown (every 30 seconds per team/zone)
-    if M28Config.M28LogFactoryDecisions then
+    if M28Config.M28LogEngineerDecisions then
         local iCurTime = GetGameTimeSeconds()
         local sLogKey = 'FactoryDecisionLog_'..iTeam..'_'..iPlateau..'_'..iLandZone
         local iLastLogTime = M28Team.tTeamData[iTeam][sLogKey] or 0
@@ -2310,7 +2310,7 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
 
     --Comprehensive air vs land factory logging with cooldown (every 30 seconds per team)
     local bLogFactoryChoice = false
-    if M28Config.M28LogFactoryDecisions then
+    if M28Config.M28LogEngineerDecisions then
         local iCurTime = GetGameTimeSeconds()
         local sLogKey = 'AirVsLandLog_'..iTeam
         local iLastLogTime = M28Team.tTeamData[iTeam][sLogKey] or 0
@@ -2659,7 +2659,7 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
                                         --Significantly boost air factory ratio when critically behind on air
                                         iAirFactoriesForEveryLandFactory = math.max(iAirFactoriesForEveryLandFactory * 2, 2)
                                         iLandFactoriesWantedBeforeAir = math.min(iLandFactoriesWantedBeforeAir, 1)
-                                        if M28Config.M28LogFactoryDecisions then
+                                        if M28Config.M28LogEngineerDecisions then
                                             LOG(sFunctionRef..': [Team'..iTeam..'] FAR_BEHIND_ON_AIR - Boosting air factory priority. iAirFactoriesForEveryLandFactory='..iAirFactoriesForEveryLandFactory..'; iLandFactoriesWantedBeforeAir='..iLandFactoriesWantedBeforeAir..'; Time='..GetGameTimeSeconds())
                                         end
                                     end

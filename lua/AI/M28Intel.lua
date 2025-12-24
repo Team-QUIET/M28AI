@@ -614,6 +614,100 @@ function GetSurpriseThreatAmount(tLZOrWZTeamData)
 end
 
 --===========================================
+-- BATTLE CONCLUDED DETECTION
+--===========================================
+
+-- References for battle concluded tracking
+refiPeakEnemyThreat = 'IntPeakEnThr'
+refiTimePeakThreat = 'IntPeakThrTm'
+refbBattleConcluded = 'IntBatConc'
+refiTimeBattleConcluded = 'IntBatConcTm'
+
+-- Thresholds for battle concluded detection
+iBattleConcludedThreatDropPercent = 0.25  -- Enemy threat dropped to 25% of peak = battle concluded
+iBattleConcludedMinPeakThreat = 500       -- Minimum peak threat to consider it a battle
+iBattleConcludedRecencySeconds = 30       -- How long battle concluded status lasts
+
+---Update peak enemy threat tracking for a zone
+---@param tLZOrWZTeamData table Zone team data
+---@param iCurrentEnemyThreat number Current enemy combat threat in zone
+function UpdatePeakThreatTracking(tLZOrWZTeamData, iCurrentEnemyThreat)
+    local iCurrentTime = GetGameTimeSeconds()
+    local iPeakThreat = tLZOrWZTeamData[refiPeakEnemyThreat] or 0
+
+    -- Update peak if current threat is higher
+    if iCurrentEnemyThreat > iPeakThreat then
+        tLZOrWZTeamData[refiPeakEnemyThreat] = iCurrentEnemyThreat
+        tLZOrWZTeamData[refiTimePeakThreat] = iCurrentTime
+    -- Decay peak threat over time if no new peak (prevents stale peaks)
+    elseif iCurrentTime - (tLZOrWZTeamData[refiTimePeakThreat] or 0) > 60 then
+        -- Decay peak by 10% per minute
+        tLZOrWZTeamData[refiPeakEnemyThreat] = iPeakThreat * 0.9
+    end
+end
+
+---Check if a battle has concluded in a zone (enemy threat dropped significantly)
+---@param tLZOrWZTeamData table Zone team data
+---@param iCurrentEnemyThreat number Current enemy combat threat in zone
+---@return boolean True if battle has concluded (enemy threat dropped significantly)
+function DetectBattleConcluded(tLZOrWZTeamData, iCurrentEnemyThreat)
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'DetectBattleConcluded'
+
+    local iCurrentTime = GetGameTimeSeconds()
+    local iPeakThreat = tLZOrWZTeamData[refiPeakEnemyThreat] or 0
+
+    -- Update peak tracking
+    UpdatePeakThreatTracking(tLZOrWZTeamData, iCurrentEnemyThreat)
+
+    -- Check if battle concluded (significant threat drop from peak)
+    if iPeakThreat >= iBattleConcludedMinPeakThreat then
+        local iThreatRatio = iCurrentEnemyThreat / iPeakThreat
+        if iThreatRatio <= iBattleConcludedThreatDropPercent then
+            -- Battle concluded - enemy threat dropped to 25% or less of peak
+            tLZOrWZTeamData[refbBattleConcluded] = true
+            tLZOrWZTeamData[refiTimeBattleConcluded] = iCurrentTime
+
+            if bDebugMessages == true then
+                LOG(sFunctionRef..': BATTLE CONCLUDED! Peak threat='..iPeakThreat..
+                    ' Current threat='..iCurrentEnemyThreat..' Ratio='..string.format('%.2f', iThreatRatio))
+            end
+            return true
+        end
+    end
+
+    -- Clear battle concluded flag if threat has risen again
+    if iCurrentEnemyThreat > iPeakThreat * 0.5 then
+        tLZOrWZTeamData[refbBattleConcluded] = false
+    end
+
+    return false
+end
+
+---Check if zone recently had a battle conclude
+---@param tLZOrWZTeamData table Zone team data
+---@return boolean True if battle concluded recently
+function HasRecentBattleConcluded(tLZOrWZTeamData)
+    local iCurrentTime = GetGameTimeSeconds()
+    local iTimeConcluded = tLZOrWZTeamData[refiTimeBattleConcluded] or 0
+
+    if tLZOrWZTeamData[refbBattleConcluded] == true then
+        -- Check if still within recency window
+        if iCurrentTime - iTimeConcluded <= iBattleConcludedRecencySeconds then
+            return true
+        end
+    end
+    return false
+end
+
+---Get the peak enemy threat that was recorded in a zone
+---@param tLZOrWZTeamData table Zone team data
+---@return number Peak enemy threat value
+function GetPeakEnemyThreat(tLZOrWZTeamData)
+    return tLZOrWZTeamData[refiPeakEnemyThreat] or 0
+end
+
+--===========================================
 -- NAVAL ZONE INTEL FUNCTIONS
 --===========================================
 

@@ -116,6 +116,9 @@ tTeamData = {} --[x] is the aiBrain.M28Team number - stores certain team-wide in
     --subrefiHighestEnemyMexTech = 'M28TeamHighestEnemyMex' --I.e. 1, 2 or 3
     subrefiTotalFactoryCountByType = 'M28TeamFactoryByType' --[x] is the factory type, returns the number that our team has; factory type per M28Factory.refiFactoryType..., e.g. M28Factory.refiFactoryTypeLand
     refbBuiltLotsOfT3Combat = 'M28TeamBuiltLotsOfT3Combat' --true once we have reached a certain lifetime count of T3 combat units (used e.g. to decide if we want to build an experimental)
+    --Forward factory tracking
+    subrefiTeamForwardFactoryCount = 'M28TeamFFacCnt' --Total number of forward factories for the team (max typically 3)
+    refiTimeLastForwardFactoryBuilt = 'M28TeamFFacTm' --Gametimeseconds when last forward factory was built (cooldown tracking)
     refiTimeLastHadNothingToBuildForAirFactory = 'M28TeamAirFacTimNoBuild' --Gametimeseconds that failed to find something to do with air factory that was our highest tech level
     refiTimeLastHadNothingToBuildForLandFactory = 'M28TeamLandFacTimNoBuild' --Gametimeseconds that failed to find something to do with land fac that was our highest tech level
 
@@ -682,6 +685,8 @@ function CreateNewTeam(aiBrain)
     tTeamData[iTotalTeamCount][refbNeedResourcesForMissile] = false
     tTeamData[iTotalTeamCount][subrefiLandZonesWantingSupportByPlateau] = {}
     tTeamData[iTotalTeamCount][subrefiTotalFactoryCountByType] = {[M28Factory.refiFactoryTypeLand] = 0, [M28Factory.refiFactoryTypeAir] = 0, [M28Factory.refiFactoryTypeNaval] = 0, [M28Factory.refiFactoryTypeOther] = 0}
+    tTeamData[iTotalTeamCount][subrefiTeamForwardFactoryCount] = 0
+    tTeamData[iTotalTeamCount][refiTimeLastForwardFactoryBuilt] = -120 --Set to negative to allow building immediately
     tTeamData[iTotalTeamCount][subrefiAlliedDFThreat] = 0
     tTeamData[iTotalTeamCount][subrefiAlliedIndirectThreat] = 0
     tTeamData[iTotalTeamCount][subrefiAlliedGroundAAThreat] = 0

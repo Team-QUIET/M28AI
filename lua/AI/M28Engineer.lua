@@ -22,6 +22,7 @@ local M28Air = import('/mods/M28AI/lua/AI/M28Air.lua')
 local M28ACU = import('/mods/M28AI/lua/AI/M28ACU.lua')
 local M28Chat = import('/mods/M28AI/lua/AI/M28Chat.lua')
 local M28Micro = import('/mods/M28AI/lua/AI/M28Micro.lua')
+local M28Intel = import('/mods/M28AI/lua/AI/M28Intel.lua')
 
 
 
@@ -369,8 +370,139 @@ tiActionSubstitute = { --Any actions where we want to take into account BP alrea
     [refActionBuildGameEnder] = refActionManageGameEnderTemplate,
 }
 
+--Returns a multiplier (1.0-2.0) based on how urgently we need mass (lower mass stored = higher urgency)
+--Used to scale BP wanted for reclaim actions when mass is low
+function GetReclaimUrgencyMultiplier(iTeam)
+    local iMassPercent = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0.5
+    if iMassPercent <= 0.05 then
+        return 2.0 --Very low mass, double the reclaim effort
+    elseif iMassPercent <= 0.15 then
+        return 1.75 --Low mass, significantly increase reclaim
+    elseif iMassPercent <= 0.25 then
+        return 1.5 --Moderately low mass, increase reclaim
+    elseif iMassPercent <= 0.35 then
+        return 1.25 --Slightly low mass, small increase
+    else
+        return 1.0 --Normal or high mass, no multiplier
+    end
+end
 
+--Forward factory eligibility constants
+local iForwardFactoryReclaimThreshold = 1000 --Minimum significant reclaim in zone
+local iForwardFactorySustainedTimeThreshold = 45 --Seconds reclaim must be sustained
+local iForwardFactoryDistanceThreshold = 100 --Minimum distance from nearest factory
+local iForwardFactoryMaxPerZone = 1 --Maximum forward factories per zone
+local iForwardFactoryMaxTotal = 3 --Maximum forward factories team-wide
+local iForwardFactoryCooldown = 60 --Seconds between forward factory builds
 
+--Checks if a land zone qualifies for a forward factory (built in high-reclaim zones far from base)
+--Returns true if zone qualifies, false otherwise
+function ZoneQualifiesForForwardFactory(iPlateau, iLandZone, iTeam, tLZData, tLZTeamData)
+    local sFunctionRef = 'ZoneQualifiesForForwardFactory'
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true  end
+
+    --Check if we already have a forward factory in this zone
+    if (tLZTeamData[M28Map.subrefiForwardFactoryCount] or 0) >= iForwardFactoryMaxPerZone then
+        if bDebugMessages == true then LOG(sFunctionRef..': Zone P'..iPlateau..'Z'..iLandZone..' already has max forward factories') end
+        return false
+    end
+
+    --Check team-wide forward factory limit
+    if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamForwardFactoryCount] or 0) >= iForwardFactoryMaxTotal then
+        if bDebugMessages == true then LOG(sFunctionRef..': Team already has max forward factories='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamForwardFactoryCount] or 0)) end
+        return false
+    end
+
+    --Check cooldown
+    if GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastForwardFactoryBuilt] or -120) < iForwardFactoryCooldown then
+        if bDebugMessages == true then LOG(sFunctionRef..': Still in cooldown from last forward factory') end
+        return false
+    end
+
+    --Check reclaim threshold
+    local iSignifReclaim = tLZData[M28Map.subrefTotalSignificantMassReclaim] or 0
+    if iSignifReclaim < iForwardFactoryReclaimThreshold then
+        if bDebugMessages == true then LOG(sFunctionRef..': Insufficient reclaim='..iSignifReclaim..' (need '..iForwardFactoryReclaimThreshold..')') end
+        --Reset sustained time tracking if reclaim dropped below threshold
+        tLZTeamData[M28Map.subrefiSustainedHighReclaimStartTime] = nil
+        return false
+    end
+
+    --Track sustained high reclaim time
+    local iCurTime = GetGameTimeSeconds()
+    if not(tLZTeamData[M28Map.subrefiSustainedHighReclaimStartTime]) then
+        tLZTeamData[M28Map.subrefiSustainedHighReclaimStartTime] = iCurTime
+        if bDebugMessages == true then LOG(sFunctionRef..': Started tracking sustained reclaim at time='..iCurTime) end
+        return false --Just started tracking, need to wait
+    end
+
+    local iSustainedTime = iCurTime - tLZTeamData[M28Map.subrefiSustainedHighReclaimStartTime]
+    if iSustainedTime < iForwardFactorySustainedTimeThreshold then
+        if bDebugMessages == true then LOG(sFunctionRef..': Reclaim not sustained long enough='..iSustainedTime..'s (need '..iForwardFactorySustainedTimeThreshold..'s)') end
+        return false
+    end
+
+    --Check safety conditions
+    if tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] then
+        if bDebugMessages == true then LOG(sFunctionRef..': Zone has dangerous enemies') end
+        return false
+    end
+
+    if (tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) > 500 then
+        if bDebugMessages == true then LOG(sFunctionRef..': Too much enemy air threat='..(tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0)) end
+        return false
+    end
+
+    --Check zone control - we should have decent presence vs enemy
+    local iAllyCombat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+    local iEnemyCombat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+    if iAllyCombat < iEnemyCombat * 0.8 then
+        if bDebugMessages == true then LOG(sFunctionRef..': Insufficient zone control, ally='..iAllyCombat..' vs enemy='..iEnemyCombat) end
+        return false
+    end
+
+    --Check economy thresholds - can we afford to build?
+    if M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] < 15 then
+        if bDebugMessages == true then LOG(sFunctionRef..': Insufficient mass income='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0)) end
+        return false
+    end
+
+    if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] < 0.05 then
+        if bDebugMessages == true then LOG(sFunctionRef..': Too low on mass storage='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0)) end
+        return false
+    end
+
+    if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] then
+        if bDebugMessages == true then LOG(sFunctionRef..': Team is stalling resources') end
+        return false
+    end
+
+    --Check distance from nearest existing factory
+    local tAllLandFactories = {}
+    for iBrain, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains] do
+        local tBrainFactories = oBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory, false, true)
+        if M28Utilities.IsTableEmpty(tBrainFactories) == false then
+            for iFactory, oFactory in tBrainFactories do
+                table.insert(tAllLandFactories, oFactory)
+            end
+        end
+    end
+    if M28Utilities.IsTableEmpty(tAllLandFactories) == false then
+        local oNearestFactory = M28Utilities.GetNearestUnit(tAllLandFactories, tLZData[M28Map.subrefMidpoint])
+        if oNearestFactory then
+            local iDistToFactory = M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], oNearestFactory:GetPosition())
+            if iDistToFactory < iForwardFactoryDistanceThreshold then
+                if bDebugMessages == true then LOG(sFunctionRef..': Too close to existing factory, dist='..iDistToFactory) end
+                return false
+            end
+        end
+    end
+
+    --All checks passed
+    if bDebugMessages == true then LOG(sFunctionRef..': Zone P'..iPlateau..'Z'..iLandZone..' QUALIFIES for forward factory! Reclaim='..iSignifReclaim..', sustained='..iSustainedTime..'s') end
+    tLZTeamData[M28Map.subrefbQualifiesForForwardFactory] = true
+    return true
+end
 
 function GetEngineerUniqueCount(oEngineer)
     local iUniqueRef = oEngineer[refiEngineerCurUniqueReference]
@@ -4942,8 +5074,20 @@ function FilterToAvailableEngineersByTech(tEngineers, bInCoreZone, tLZData, tLZT
                                                 end
                                                 if bDebugMessages == true then LOG(sFunctionRef..': Not close enough to reclaim enemy, and not a core LZ, iClosestDistUntilInRangeOfStaticEnemy='..iClosestDistUntilInRangeOfStaticEnemy..'; iClosestDistUntilInRangeOfMobileEnemy='..iClosestDistUntilInRangeOfMobileEnemy..'; iThresholdToRunFromMobileEnemies='..iThresholdToRunFromMobileEnemies) end
                                                 if (iClosestDistUntilInRangeOfStaticEnemy < 8 or iClosestDistUntilInRangeOfMobileEnemy <= iThresholdToRunFromMobileEnemies) and (not(tLZTeamData[M28Map.subrefLZbCoreBase]) or iClosestDistUntilInRangeOfStaticEnemy < 4 or iClosestDistUntilInRangeOfMobileEnemy < 8) then
-                                                    --Dont run if we are building a land factory and have a friendly combat threat in the zone or factory is near-complete
-                                                    if tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] >= 40 and (oEngineer:IsUnitState('Building') or oEngineer:IsUnitState('Reclaiming')) and (oEngineer:GetWorkProgress() >= 0.75 or (oEngineer[M28Orders.reftiLastOrders][1][M28Orders.subrefsOrderBlueprint] and EntityCategoryContains(M28UnitInfo.refCategoryFactory + M28UnitInfo.refCategoryPD, oEngineer[M28Orders.reftiLastOrders][1][M28Orders.subrefsOrderBlueprint]))) then
+                                                    --Dont run if we have friendly combat threat >= 50% of enemy threat
+                                                    local iAllyCombatThreat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+                                                    local iEnemyCombatThreat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+                                                    local bHasFriendlyProtection = iAllyCombatThreat >= 100 and iAllyCombatThreat >= iEnemyCombatThreat * 0.5
+                                                    local bHighValueReclaim = (tLZData[M28Map.subrefTotalSignificantMassReclaim] or 0) >= 500
+
+                                                    --Dont run if we are building/reclaiming and have friendly combat protection, especially for high value reclaim
+                                                    if (bHasFriendlyProtection and (oEngineer:IsUnitState('Building') or oEngineer:IsUnitState('Reclaiming'))) then
+                                                        if bDebugMessages == true then LOG(sFunctionRef..': Friendly army provides protection (ally='..iAllyCombatThreat..' vs enemy='..iEnemyCombatThreat..'), not running') end
+                                                    --Also dont run if high value reclaim zone with any friendly presence
+                                                    elseif bHighValueReclaim and iAllyCombatThreat >= 50 and oEngineer:IsUnitState('Reclaiming') then
+                                                        if bDebugMessages == true then LOG(sFunctionRef..': High value reclaim zone with friendly presence, continuing reclaim') end
+                                                    --Dont run if building factory/PD and near complete or have some friendly combat
+                                                    elseif tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] >= 40 and (oEngineer:IsUnitState('Building') or oEngineer:IsUnitState('Reclaiming')) and (oEngineer:GetWorkProgress() >= 0.75 or (oEngineer[M28Orders.reftiLastOrders][1][M28Orders.subrefsOrderBlueprint] and EntityCategoryContains(M28UnitInfo.refCategoryFactory + M28UnitInfo.refCategoryPD, oEngineer[M28Orders.reftiLastOrders][1][M28Orders.subrefsOrderBlueprint]))) then
                                                         if bDebugMessages == true then LOG(sFunctionRef..': Want to risk engineer sticking around to try and complete its building') end
                                                     else
                                                         local tPositionToRunFrom
@@ -9760,7 +9904,7 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
         end
 
         --Reclaim specific - limit BP to 5 if we have recenlty failed to find something to reclaim
-        if (iActionToAssign == refActionReclaimArea or iActionToAssign == refActionReclaimTrees) and tLZOrWZData[M28Map.subrefiTimeFailedToGetReclaim] and GetGameTimeSeconds() - tLZOrWZData[M28Map.subrefiTimeFailedToGetReclaim] <= 3 then
+        if (iActionToAssign == refActionReclaimArea or iActionToAssign == refActionReclaimTrees) and tLZOrWZData[M28Map.subrefiTimeFailedToGetReclaim] and GetGameTimeSeconds() - tLZOrWZData[M28Map.subrefiTimeFailedToGetReclaim] <= 1 then
             if bDebugMessages == true then LOG(sFunctionRef..': Time since last failed to get reclaim for this zone='..GetGameTimeSeconds() - tLZOrWZData[M28Map.subrefiTimeFailedToGetReclaim]..'; BP wanted before limitation='..iTotalBuildPowerWanted..'; will cap at 5') end
             iTotalBuildPowerWanted = math.min(5, iTotalBuildPowerWanted)
         end
@@ -11465,9 +11609,11 @@ function GetBPByTechWantedForAlternativeLandZone(iPlateau, iTeam, tLZData, iAdjL
         local tAltLZTeamData = tAltLZ[M28Map.subrefLZTeamData][iTeam]
         if bDebugMessages == true then LOG(sFunctionRef..': Start of code, Does iAdjLZ '..iAdjLZ..' for plateau '..iPlateau..' want BP='..tostring(tAltLZ[M28Map.subrefLZTeamData][iTeam][M28Map.subrefTbWantBP])..'; bIslandPathing='..tostring(bIslandPathing or false)..'; base tLZData[M28Map.subrefLZIslandRef]='..(tLZData[M28Map.subrefLZIslandRef] or 'nil')..'; iAdjLZ tAltLZ[M28Map.subrefLZIslandRef]='..(tAltLZ[M28Map.subrefLZIslandRef] or 'nil')..'; Is table of unbuilt mexes empty='..tostring(M28Utilities.IsTableEmpty(tAltLZ[M28Map.subrefMexUnbuiltLocations]))..'; bRequireUnbuiltMexes='..tostring(bRequireUnbuiltMexes or false)) end
         if (not(bRequireUnbuiltMexes) or (M28Utilities.IsTableEmpty(tAltLZ[M28Map.subrefMexUnbuiltLocations]) == false and (not(tAltLZ[M28Map.subrefLZTeamData][iTeam][M28Map.subrefLZbCoreBase]) or M28Utilities.IsTableEmpty(tAltLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) or M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryEngineer, tAltLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])))))
-        and (not(bCheckIfEngisRecentlyRun) or not(tAltLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) or
-            (M28Utilities.IsTableEmpty(tAltLZTeamData[M28Map.subrefTEngineersTravelingHere]) == false and (GetGameTimeSeconds() - (tAltLZTeamData[M28Map.refiTimeLastRunFromEnemyLand] or 0) >= 30 or (tAltLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] >= 100 and tAltLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] < 40 and GetGameTimeSeconds() - (tAltLZTeamData[M28Map.refiTimeLastRunFromEnemyLand] or 0) >= 15)))
-         or (M28Utilities.IsTableEmpty(tAltLZTeamData[M28Map.subrefTEngineersTravelingHere]) == true  and (GetGameTimeSeconds() - (tAltLZTeamData[M28Map.refiTimeLastRunFromEnemyLand] or 0) >= 20 or (tAltLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] >= 100 and tAltLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] < 40 and GetGameTimeSeconds() - (tAltLZTeamData[M28Map.refiTimeLastRunFromEnemyLand] or 0) >= 10)))) then
+        --Allow engineers when ally combat >= 50% enemy combat
+        and (not(bCheckIfEngisRecentlyRun) or not(tAltLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ])
+            or ((tAltLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) >= (tAltLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) * 0.5)
+            or (M28Utilities.IsTableEmpty(tAltLZTeamData[M28Map.subrefTEngineersTravelingHere]) == false and (GetGameTimeSeconds() - (tAltLZTeamData[M28Map.refiTimeLastRunFromEnemyLand] or 0) >= 30 or (tAltLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] >= 100 and tAltLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] < 40 and GetGameTimeSeconds() - (tAltLZTeamData[M28Map.refiTimeLastRunFromEnemyLand] or 0) >= 15)))
+            or (M28Utilities.IsTableEmpty(tAltLZTeamData[M28Map.subrefTEngineersTravelingHere]) == true  and (GetGameTimeSeconds() - (tAltLZTeamData[M28Map.refiTimeLastRunFromEnemyLand] or 0) >= 20 or (tAltLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] >= 100 and tAltLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] < 40 and GetGameTimeSeconds() - (tAltLZTeamData[M28Map.refiTimeLastRunFromEnemyLand] or 0) >= 10)))) then
             local iTotalBPWanted = 0
             --Do we need unbuilt mexes?
 
@@ -12656,6 +12802,8 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                 end
             end
         end
+        --Apply urgency multiplier based on mass storage
+        iBPWanted = iBPWanted * GetReclaimUrgencyMultiplier(iTeam)
 
         --Have 1 engi search for high value wrecks
         if tLZData[M28Map.subrefHighestIndividualReclaim] >= 50 then
@@ -12664,6 +12812,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
         end
         --Then have 1-2 engis search for reclaim generally
         iCurPriority = iCurPriority + 1
+        if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': High priority mass reclaim, iBPWanted='..iBPWanted) end
         HaveActionToAssign(refActionReclaimArea, 1, iBPWanted, {false, nil})
 
 
@@ -12778,6 +12927,26 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                 if bDebugMessages == true then LOG(sFunctionRef..': Want to assign 5 BP to complete a part built mex') end
                 HaveActionToAssign(refActionCompletePartBuiltMex, 1, 5)
             end
+        end
+    end
+
+    --Priority similar to mex building
+    --Trigger when: battle concluded recently, significant reclaim, and we have army protection
+    iCurPriority = iCurPriority + 1
+    local bBattleZoneReclaim = false
+    if tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 500 then
+        local bBattleConcludedHere = M28Intel.HasRecentBattleConcluded(tLZTeamData)
+        local iAllyCombat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+        local iEnemyCombat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+        --Trigger if: battle concluded and we have army, OR very high reclaim with army dominance
+        if (bBattleConcludedHere and iAllyCombat >= iEnemyCombat) or
+           (tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 2000 and iAllyCombat >= iEnemyCombat * 2 and bHaveLowMass) then
+            bBattleZoneReclaim = true
+            --Calculate BP based on reclaim value and urgency
+            iBPWanted = math.min(60, math.max(10, tLZData[M28Map.subrefTotalSignificantMassReclaim] / 100))
+            iBPWanted = iBPWanted * GetReclaimUrgencyMultiplier(iTeam)
+            if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': HIGH PRIORITY BATTLE ZONE RECLAIM: Signif reclaim='..tLZData[M28Map.subrefTotalSignificantMassReclaim]..'; iBPWanted='..iBPWanted..'; bBattleConcluded='..tostring(bBattleConcludedHere)) end
+            HaveActionToAssign(refActionReclaimArea, 1, iBPWanted, {false, nil})
         end
     end
 
@@ -13407,8 +13576,16 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                 iAdjLZ = tPathingDetails[M28Map.subrefLZNumber]
                 local tAdjLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ]
                 local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][iTeam]
-                if bDebugMessages == true then LOG(sFunctionRef..': Considering iAdjLZ='..iAdjLZ..'; Dangerous enemies here='..tostring(tAdjLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ])..'; Enemy air to ground threat='..(tAdjLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0)..'; Want bp='..tostring(tAdjLZTeamData[M28Map.subrefTbWantBP])..'; Signif mass reclaim='..(tAdjLZData[M28Map.subrefTotalSignificantMassReclaim] or 'nil')) end
-                if tAdjLZTeamData[M28Map.subrefTbWantBP] and tAdjLZData[M28Map.subrefTotalSignificantMassReclaim] >= 6000 and (not(tAdjLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or tAdjLZData[M28Map.subrefTotalSignificantMassReclaim] >= 10000 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 2 and (tAdjLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) > (tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) * 3)) and (tAdjLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) == 0 then
+                if bDebugMessages == true then LOG(sFunctionRef..': Considering iAdjLZ='..iAdjLZ..'; Dangerous enemies here='..tostring(tAdjLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ])..'; Enemy air to ground threat='..(tAdjLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0)..'; Want bp='..tostring(tAdjLZTeamData[M28Map.subrefTbWantBP])..'; Signif mass reclaim='..(tAdjLZData[M28Map.subrefTotalSignificantMassReclaim] or 'nil')..'; AllyCombat='..(tAdjLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0)..'; EnemyCombat='..(tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)) end
+                --Prioritize zones with reclaim: Base threshold 3000, lowered when protected or battle recently concluded
+                local bHaveArmyProtection = (tAdjLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) >= (tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) * 0.5
+                local bBattleConcluded = M28Intel.HasRecentBattleConcluded(tAdjLZTeamData)
+                local iReclaimThreshold = 3000
+                --Lower threshold when battle just concluded or we have protection and need mass
+                if bHaveArmyProtection and bHaveLowMass or bBattleConcluded then
+                    iReclaimThreshold = 1000
+                end
+                if tAdjLZTeamData[M28Map.subrefTbWantBP] and tAdjLZData[M28Map.subrefTotalSignificantMassReclaim] >= iReclaimThreshold and (not(tAdjLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) or bHaveArmyProtection or bBattleConcluded or (tAdjLZData[M28Map.subrefTotalSignificantMassReclaim] >= 10000 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 2 and (tAdjLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) > (tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) * 3)) and (tAdjLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) == 0 then
                     iEngineersTravelingHere = 0
                     iEngineersPresentHere = 0
                     if M28Utilities.IsTableEmpty(tAdjLZTeamData[M28Map.subrefTEngineersTravelingHere]) == false then
@@ -13421,6 +13598,13 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                         end
                     end
                     iMaxEngineersWanted = 1
+                    --Send more engineers when battle just concluded (urgent reclaim opportunity)
+                    if bBattleConcluded and tAdjLZData[M28Map.subrefTotalSignificantMassReclaim] >= 1000 then
+                        iMaxEngineersWanted = iMaxEngineersWanted + 1
+                        if tAdjLZData[M28Map.subrefTotalSignificantMassReclaim] >= 5000 then
+                            iMaxEngineersWanted = iMaxEngineersWanted + 1
+                        end
+                    end
                     if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 3 and not(tAdjLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and tAdjLZData[M28Map.subrefTotalSignificantMassReclaim] >= 10000 and bHaveLowMass then
                         iMaxEngineersWanted = iMaxEngineersWanted + 1
                     end
@@ -15508,6 +15692,9 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
         else
             iBPWanted = math.min(tiBPByTech[M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]] * 2, tLZData[M28Map.subrefTotalSignificantMassReclaim] / 20)
         end
+        --Apply urgency multiplier based on mass storage
+        iBPWanted = iBPWanted * GetReclaimUrgencyMultiplier(iTeam)
+        if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Lower priority reclaim, iBPWanted before urgency='..iBPWanted) end
         HaveActionToAssign(refActionReclaimArea, 1, iBPWanted, {false, nil})
     end
 
@@ -16286,8 +16473,16 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
     end
 
     local bEngineersRecentlyRunFromEnemy = false
-    if tLZTeamData[M28Map.refiTimeLastRunFromEnemyLand] and GetGameTimeSeconds() - tLZTeamData[M28Map.refiTimeLastRunFromEnemyLand] <= 20 then bEngineersRecentlyRunFromEnemy = true end
-    if bDebugMessages == true then LOG(sFunctionRef..': bTeammateHasBuiltHere='..tostring(bTeammateHasBuiltHere)..'; P'..iPlateau..'Z'..iLandZone) end
+    if tLZTeamData[M28Map.refiTimeLastRunFromEnemyLand] and GetGameTimeSeconds() - tLZTeamData[M28Map.refiTimeLastRunFromEnemyLand] <= 20 then
+        --Check if we now have friendly army protection - if so, ignore the "recently run" flag
+        local iAllyCombat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+        local iEnemyCombat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+        if iAllyCombat < iEnemyCombat * 0.5 then
+            --Only set flag if we don't have sufficient friendly army protection
+            bEngineersRecentlyRunFromEnemy = true
+        end
+    end
+    if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': bTeammateHasBuiltHere='..tostring(bTeammateHasBuiltHere)..'; P'..iPlateau..'Z'..iLandZone..'; bEngineersRecentlyRunFromEnemy='..tostring(bEngineersRecentlyRunFromEnemy)) end
     -- (tLZTeamData[M28Map.refiNonM28TeammateMexCount] >= tLZData[M28Map.subrefLZOrWZMexCount] tLZTeamData[M28Map.refiNonM28TeammateFactoryCount] > 0 and (tLZTeamData[M28Map.refiNonM28TeammateFactoryCount] >= 3 or
     --local iCurCondition = 0
     local iCurPriority = 0
@@ -16817,6 +17012,19 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
         end
     end
 
+    --Forward factory in high-reclaim zones far from base (non-core zones only)
+    iCurPriority = iCurPriority + 1
+    if bDebugMessages == true then LOG(sFunctionRef..': Considering forward factory, signif reclaim='..(tLZData[M28Map.subrefTotalSignificantMassReclaim] or 0)..'; is core base='..tostring(tLZTeamData[M28Map.subrefLZbCoreBase])..'; is core expansion='..tostring(tLZTeamData[M28Map.subrefLZCoreExpansion])) end
+    --Only consider if not already a core base or expansion
+    if not(tLZTeamData[M28Map.subrefLZbCoreBase]) and not(tLZTeamData[M28Map.subrefLZCoreExpansion]) then
+        if ZoneQualifiesForForwardFactory(iPlateau, iLandZone, iTeam, tLZData, tLZTeamData) then
+            --Zone qualifies - assign engineer to build a land factory here
+            iBPWanted = 15 --Moderate priority, not as high as core factories
+            if not(bHaveLowMass) then iBPWanted = 25 end
+            if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': FORWARD FACTORY: Zone P'..iPlateau..'Z'..iLandZone..' qualifies, signif reclaim='..(tLZData[M28Map.subrefTotalSignificantMassReclaim] or 0)..', iBPWanted='..iBPWanted) end
+            HaveActionToAssign(refActionBuildLandFactory, 1, iBPWanted)
+        end
+    end
 
     --High reclaim zone when ahve low mass - want to be reclaiming ahead of building mexes; also if high reclaim and on enemy side of map (as less likely to hold onto any mexes)
     iCurPriority = iCurPriority + 1
@@ -16846,6 +17054,9 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
                     end
                 end
             end
+            --Apply urgency multiplier based on mass storage
+            iBPWanted = iBPWanted * GetReclaimUrgencyMultiplier(iTeam)
+            if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Non-core base high reclaim zone, iBPWanted after urgency='..iBPWanted) end
             HaveActionToAssign(refActionReclaimArea, 1, iBPWanted, {false, nil})
         end
     else
@@ -17177,8 +17388,10 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
                     if bDontCheckPlayableArea or M28Conditions.IsLocationInPlayableArea(tAdjLZData[M28Map.subrefMidpoint]) then
                         local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][iTeam]
                         if bDebugMessages == true then LOG(sFunctionRef..': Considering whether to send engineers from iLandZone='..iLandZone..' to iAdjLZ='..iAdjLZ..'; does the adjLZ want BP='..tostring(tAdjLZTeamData[M28Map.subrefTbWantBP])..'; tAdjLZTeamData[M28Map.subrefTBuildPowerByTechWanted][1]='..tAdjLZTeamData[M28Map.subrefTBuildPowerByTechWanted][1]..'; T2 wanted='..(tAdjLZTeamData[M28Map.subrefTBuildPowerByTechWanted][2] or 'nil')..'; Is table of unbuild mexes empty='..tostring(M28Utilities.IsTableEmpty(tAdjLZData[M28Map.subrefMexUnbuiltLocations]))..'; Is table of enemy units empty='..tostring(M28Utilities.IsTableEmpty(tAdjLZTeamData[M28Map.subrefTEnemyUnits]))..'; subrefTEngineersTravelingHere is empty='..tostring(M28Utilities.IsTableEmpty(tAdjLZTeamData[M28Map.subrefTEngineersTravelingHere]))) end
+                        --Also allow when we have army protection (ally combat >= 50% enemy combat)
+                        local bHaveArmyProtectionAdj = (tAdjLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) >= (tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) * 0.5
                         if tAdjLZTeamData[M28Map.subrefTbWantBP] and tAdjLZTeamData[M28Map.subrefTBuildPowerByTechWanted][1] > 0 and M28Utilities.IsTableEmpty(tAdjLZTeamData[M28Map.subrefTEngineersTravelingHere]) and
-                                (M28Utilities.IsTableEmpty(tAdjLZData[M28Map.subrefMexUnbuiltLocations]) == false and (not(tAdjLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) or GetGameTimeSeconds() - (tAdjLZTeamData[M28Map.refiTimeLastRunFromEnemyLand] or 0) >= 40) and not(tAdjLZTeamData[M28Map.subrefLZCoreExpansion]) and not(tAdjLZTeamData[M28Map.subrefLZbCoreBase]) and M28Utilities.IsTableEmpty(tAdjLZTeamData[M28Map.subrefTEnemyUnits]))
+                                (M28Utilities.IsTableEmpty(tAdjLZData[M28Map.subrefMexUnbuiltLocations]) == false and (not(tAdjLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) or bHaveArmyProtectionAdj or GetGameTimeSeconds() - (tAdjLZTeamData[M28Map.refiTimeLastRunFromEnemyLand] or 0) >= 40) and not(tAdjLZTeamData[M28Map.subrefLZCoreExpansion]) and not(tAdjLZTeamData[M28Map.subrefLZbCoreBase]) and M28Utilities.IsTableEmpty(tAdjLZTeamData[M28Map.subrefTEnemyUnits]))
                                 --Enemy has mexes but nothing to protect them
                                 or (not(tAdjLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and tAdjLZTeamData[M28Map.subrefThreatEnemyStructureTotalMass] > 0 and tAdjLZTeamData[M28Map.subrefThreatEnemyStructureTotalMass] < 240 and (M28Utilities.IsTableEmpty(tAdjLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) or M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryFactory + M28UnitInfo.refCategoryEngineer, tAdjLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]))))
                         then
@@ -17199,21 +17412,29 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
 
     --High priority reclaim if are low on mass or energy or is a very high value wreck in the zone
     iCurPriority = iCurPriority + 1
+    --Check for battle concluded (enemy threat dropped significantly) - boost reclaim priority
+    local bBattleConcluded = M28Intel.DetectBattleConcluded(tLZTeamData, tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)
     if bDebugMessages == true then
-        LOG(sFunctionRef..': Considering if we want high priority reclaim, bHaveLowMass='..tostring(bHaveLowMass)..'; tLZData[M28Map.subrefTotalMassReclaim]='..(tLZData[M28Map.subrefTotalMassReclaim] or 'nil')..'; Significant mass reclaim='..tLZData[M28Map.subrefTotalSignificantMassReclaim])
+        LOG(sFunctionRef..': Considering if we want high priority reclaim, bHaveLowMass='..tostring(bHaveLowMass)..'; tLZData[M28Map.subrefTotalMassReclaim]='..(tLZData[M28Map.subrefTotalMassReclaim] or 'nil')..'; Significant mass reclaim='..tLZData[M28Map.subrefTotalSignificantMassReclaim]..'; bBattleConcluded='..tostring(bBattleConcluded))
         M28Land.DrawReclaimSegmentsInLandZone(iPlateau, iLandZone, true)
     end
-    if tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 25 and (bHaveLowMass or (tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 10000 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.4 and tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] >= 3 * tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal])) then
+    --Also trigger high priority reclaim if battle just concluded and there's significant reclaim
+    local bBattleConcludedReclaim = bBattleConcluded and tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 500 and (tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) >= (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)
+    if tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 25 and (bHaveLowMass or bBattleConcludedReclaim or (tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 10000 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.4 and tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] >= 3 * tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal])) then
         local iReclaimFactor = 60
         if GetGameTimeSeconds() <= 540 then iReclaimFactor = 90 end
         iBPWanted = math.min(40, math.max(5, tLZData[M28Map.subrefTotalMassReclaim] / iReclaimFactor))
         if iBPWanted > 15 and GetGameTimeSeconds() <= 540 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] < 3 then
             iBPWanted = math.min(iBPWanted, M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] * 15)
         end
-        if tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] then iBPWanted = math.max(5, iBPWanted * 0.6) end
+        if tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] and not(bBattleConcluded) then iBPWanted = math.max(5, iBPWanted * 0.6) end
         if tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 10000 then iBPWanted = iBPWanted * 2 end
-        if bEngineersRecentlyRunFromEnemy then iBPWanted = math.min(10, iBPWanted * 0.5) end
-        if bDebugMessages == true then LOG(sFunctionRef..': Higher priority reclaim, Total mass in Plateau '..iPlateau..' LZ '..iLandZone..'='..tLZData[M28Map.subrefTotalMassReclaim]) end
+        if bEngineersRecentlyRunFromEnemy and not(bBattleConcluded) then iBPWanted = math.min(10, iBPWanted * 0.5) end
+        --Apply urgency multiplier based on mass storage
+        iBPWanted = iBPWanted * GetReclaimUrgencyMultiplier(iTeam)
+        --Boost BP for battle concluded zones
+        if bBattleConcluded then iBPWanted = iBPWanted * 1.5 end
+        if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Higher priority reclaim, Total mass in Plateau '..iPlateau..' LZ '..iLandZone..'='..tLZData[M28Map.subrefTotalMassReclaim]..'; iBPWanted after urgency='..iBPWanted..'; bBattleConcluded='..tostring(bBattleConcluded)) end
         HaveActionToAssign(refActionReclaimArea, 1, iBPWanted, {false, nil})
         if bDebugMessages == true then LOG(sFunctionRef..': Have just tried assigning action to reclaim area') end
     elseif M28Conditions.WantToReclaimEnergyNotMass(iTeam, iPlateau, iLandZone) then
@@ -17691,7 +17912,9 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
             iBPWanted = math.min(iBPWanted, M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] * 10)
         end
         if tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] then iBPWanted = math.max(5, iBPWanted * 0.6) end
-        if bDebugMessages == true then LOG(sFunctionRef..': Lower priority reclaim, Total mass in Plateau '..iPlateau..' LZ '..iLandZone..'='..tLZData[M28Map.subrefTotalMassReclaim]..'; iBPWanted='..iBPWanted) end
+        --Apply urgency multiplier based on mass storage
+        iBPWanted = iBPWanted * GetReclaimUrgencyMultiplier(iTeam)
+        if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Lower priority reclaim, iBPWanted='..iBPWanted) end
         HaveActionToAssign(refActionReclaimArea, 1, iBPWanted, {false, nil})
     end
 
@@ -18484,7 +18707,15 @@ function ConsiderWaterZoneEngineerAssignment(tWZTeamData, iTeam, iPond, iWaterZo
     end
 
     local bEngineersRecentlyRunFromEnemy = false
-    if tWZTeamData[M28Map.refiTimeLastRunFromEnemyLand] and GetGameTimeSeconds() - tWZTeamData[M28Map.refiTimeLastRunFromEnemyLand] <= 30 then bEngineersRecentlyRunFromEnemy = true end
+    if tWZTeamData[M28Map.refiTimeLastRunFromEnemyLand] and GetGameTimeSeconds() - tWZTeamData[M28Map.refiTimeLastRunFromEnemyLand] <= 30 then
+        --Check if we now have friendly army protection - if so, ignore the "recently run" flag
+        local iAllyCombat = tWZTeamData[M28Map.subrefWZTThreatAllyCombatTotal] or 0
+        local iEnemyCombat = tWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+        if iAllyCombat < iEnemyCombat * 0.5 then
+            --Only set flag if we don't have sufficient friendly army protection
+            bEngineersRecentlyRunFromEnemy = true
+        end
+    end
 
     if tWZTeamData[M28Map.subrefWZbCoreBase] then
         local tExistingWaterFactory = EntityCategoryFilterDown(M28UnitInfo.refCategoryNavalFactory, tWZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
@@ -18691,7 +18922,7 @@ function ConsiderWaterZoneEngineerAssignment(tWZTeamData, iTeam, iPond, iWaterZo
     if bBlockNavalFacAfterSelfDestruct then
         --Recently self-destructed naval factories and still have low mass - block building more
         iFactoriesWanted = iExistingWaterFactory --Just maintain what we have
-        if M28Config.M28LogFactoryDecisions then
+        if M28Config.M28LogEngineerDecisions then
             LOG(sFunctionRef..': [WZ'..iWaterZone..'] NAVAL_FAC_BLOCKED_AFTER_SELFDESTRUCT - Blocking naval factory construction, recently self-destructed and still low mass. TimeSinceSelfDestruct='..math.floor(GetGameTimeSeconds() - M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastNavalSupportFactorySelfDestruct])..'s; MassStored%='..math.floor((M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0)*100)..'%')
         end
     elseif tWZTeamData[M28Map.subrefiTimeNavalFacHadNothingToBuild] and GetGameTimeSeconds() - tWZTeamData[M28Map.subrefiTimeNavalFacHadNothingToBuild] <= 60 and (GetGameTimeSeconds() - tWZTeamData[M28Map.subrefiTimeNavalFacHadNothingToBuild] <= 20 or M28UnitInfo.IsUnitRestricted('ues0103', tWZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex])) then
@@ -18709,13 +18940,13 @@ function ConsiderWaterZoneEngineerAssignment(tWZTeamData, iTeam, iPond, iWaterZo
                 elseif bNeedAirFactoryFirst then
                     --Delay first naval factory until we have at least 1 air factory (if we can path to enemy with land)
                     iFactoriesWanted = 0
-                    if M28Config.M28LogFactoryDecisions then
+                    if M28Config.M28LogEngineerDecisions then
                         LOG(sFunctionRef..': [WZ'..iWaterZone..'] NAVAL_DELAYED_FOR_AIR_FAC - Delaying naval factory, need air factory first. AirTech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech]..'; Time='..GetGameTimeSeconds())
                     end
                 elseif bShouldDelayNavalForAir then
                     --When far behind on air and already have naval factories, stop building more
                     iFactoriesWanted = iExistingWaterFactory --Just maintain what we have, don't build more
-                    if M28Config.M28LogFactoryDecisions then
+                    if M28Config.M28LogEngineerDecisions then
                         LOG(sFunctionRef..': [WZ'..iWaterZone..'] NAVAL_FAC_CAPPED_FOR_AIR - Capping naval factories at current level due to being far behind on air. iExistingWaterFactory='..iExistingWaterFactory..'; Time='..GetGameTimeSeconds())
                     end
                 else
@@ -18772,7 +19003,7 @@ function ConsiderWaterZoneEngineerAssignment(tWZTeamData, iTeam, iPond, iWaterZo
                         local bTeamFarBehindOnAir = M28Conditions.TeamIsFarBehindOnAir(iTeam)
                         if bTeamFarBehindOnAir then
                             iExtraFactoriesValue = iExtraFactoriesValue * 0.25
-                            if M28Config.M28LogFactoryDecisions then
+                            if M28Config.M28LogEngineerDecisions then
                                 LOG(sFunctionRef..': [WZ'..iWaterZone..'] NAVAL_FAC_REDUCED_FOR_AIR - Reducing naval factory priority due to being far behind on air. iExtraFactoriesValue='..iExtraFactoriesValue..'; Time='..GetGameTimeSeconds())
                             end
                         end
@@ -19023,9 +19254,11 @@ function ConsiderWaterZoneEngineerAssignment(tWZTeamData, iTeam, iPond, iWaterZo
             iBPWanted = math.max(5, iBPWanted * 0.6)
         end
         if bEngineersRecentlyRunFromEnemy then iBPWanted = math.min(15, iBPWanted * 0.25) end
+        --Apply urgency multiplier based on mass storage
+        iBPWanted = iBPWanted * GetReclaimUrgencyMultiplier(iTeam)
 
         if bDebugMessages == true then
-            LOG(sFunctionRef .. ': Lower priority reclaim, Total mass in Pond ' .. iPond .. ' WZ ' .. iWaterZone .. '=' .. tWZData[M28Map.subrefTotalMassReclaim]..'; BP to assign='..math.min(100, math.max(5, iBPWanted)))
+            LOG(sFunctionRef .. ': Lower priority reclaim, Total mass in Pond ' .. iPond .. ' WZ ' .. iWaterZone .. '=' .. tWZData[M28Map.subrefTotalMassReclaim]..'; BP to assign after urgency='..math.min(100, math.max(5, iBPWanted)))
         end
         HaveActionToAssign(refActionReclaimArea, 1, math.min(100, math.max(5, iBPWanted)), {false, nil}, false)
     end
@@ -19943,12 +20176,15 @@ function ConsiderLandOrWaterZoneEngineerAssignment(tLZOrWZData, tLZOrWZTeamData,
             --Exception - cap of 5 for campaign with objective to repair (i.e. M2 UEF)
             if M28Map.bIsCampaignMap and tLZOrWZTeamData[M28Map.subrefLZFortify] and (tLZOrWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) < 1000 and M28Map.tAllPlateaus[iPlateauOrPond][M28Map.subrefPlateauLandZones][iLandOrWaterZone][M28Map.subreftoUnitsToRepair][1] and M28UnitInfo.GetUnitHealthPercent(M28Map.tAllPlateaus[iPlateauOrPond][M28Map.subrefPlateauLandZones][iLandOrWaterZone][M28Map.subreftoUnitsToRepair][1]) < 0.15 then
                 iBPCap = 5
-                --Other exception - high reclaim zone where our combat units have more threat tahn the enemy
+                --Other exception - high reclaim zone where our combat units have more threat than the enemy
             elseif tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim] >= M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] * 250 then
                 if bDebugMessages == true then LOG(sFunctionRef..': Alot of reclaim so want to consider having engineers reclaim even though dangerous if we have enough friendly combat threat') end
-                if tLZOrWZTeamData[M28Map.subrefWZTThreatAllyCombatTotal] > (tLZOrWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) * 3 then
-                    if bDebugMessages == true then LOG(sFunctionRef..': We have more threat than enemy so will increase BP wanted based on how much reclaim there is') end
-                    if (tLZOrWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) > 500 * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] then
+                local iAllyCombat = tLZOrWZTeamData[M28Map.subrefWZTThreatAllyCombatTotal] or tLZOrWZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+                local iEnemyCombat = tLZOrWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+                --Allow reclaim if we have at least half the enemy combat threat (was 3x)
+                if iAllyCombat > iEnemyCombat * 0.5 then
+                    if bDebugMessages == true then LOG(sFunctionRef..': We have sufficient threat vs enemy so will increase BP wanted based on how much reclaim there is') end
+                    if iEnemyCombat > 500 * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] then
                         if tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim] >= 1000 then
                             iBPCap = math.min(30, tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim] / 250) --i.e. more than 0
                         else
@@ -19957,9 +20193,26 @@ function ConsiderLandOrWaterZoneEngineerAssignment(tLZOrWZData, tLZOrWZTeamData,
                     else
                         iBPCap = 5
                         --If lots of reclaim increase cap further
-                        if tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim] >= 1000 then
-                            iBPCap = math.min(60, tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim] / 80)
+                        if tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim] >= 500 then
+                            iBPCap = math.min(60, tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim] / 60)
                         end
+                    end
+                --Also allow some reclaim if ACU is in the zone reclaiming
+                elseif iAllyCombat >= 100 then
+                    --Check if ACU is reclaiming in this zone
+                    local bACUReclaimingInZone = false
+                    if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
+                        local tACUs = EntityCategoryFilterDown(categories.COMMAND, tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
+                        for _, oACU in tACUs do
+                            if M28UnitInfo.IsUnitValid(oACU) and oACU:IsUnitState('Reclaiming') then
+                                bACUReclaimingInZone = true
+                                break
+                            end
+                        end
+                    end
+                    if bACUReclaimingInZone then
+                        iBPCap = math.max(10, math.min(40, tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim] / 80))
+                        if bDebugMessages == true then LOG(sFunctionRef..': ACU is reclaiming in zone with enemies, setting iBPCap='..iBPCap) end
                     end
                 end
             end
@@ -19986,9 +20239,42 @@ function ConsiderLandOrWaterZoneEngineerAssignment(tLZOrWZData, tLZOrWZTeamData,
             end
             if bDebugMessages == true then LOG(sFunctionRef..': iBPCap after clearing traveling engineers='..iBPCap) end
         elseif tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or tLZOrWZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ] then
-            iBPCap = 5
-            if tLZOrWZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] >= 400 and tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim] >= 250 * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] then
-                iBPCap = math.max(5, math.min(60, tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim] / 75))
+            --Enemies in adjacent zones - allow more BP when we have friendly combat units providing protection
+            local iAllyCombat = tLZOrWZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or tLZOrWZTeamData[M28Map.subrefWZTThreatAllyCombatTotal] or 0
+            local iEnemyCombat = tLZOrWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+            local iSignifReclaim = tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim] or 0
+
+            if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Enemies in adj zone BP cap calc - iAllyCombat='..iAllyCombat..'; iEnemyCombat='..iEnemyCombat..'; iSignifReclaim='..iSignifReclaim) end
+
+            --Check if ACU is in this zone reclaiming - if so, be more aggressive about sending engineers
+            local bACUReclaimingInZone = false
+            if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
+                local tACUs = EntityCategoryFilterDown(categories.COMMAND, tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
+                for _, oACU in tACUs do
+                    if M28UnitInfo.IsUnitValid(oACU) and oACU:IsUnitState('Reclaiming') then
+                        bACUReclaimingInZone = true
+                        break
+                    end
+                end
+            end
+
+            if bACUReclaimingInZone and iSignifReclaim >= 100 then
+                --ACU is reclaiming here - send engineers to help (up to 60 BP)
+                iBPCap = math.max(10, math.min(60, iSignifReclaim / 40))
+                if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': ACU is reclaiming in zone, increasing iBPCap to '..iBPCap) end
+            elseif iAllyCombat >= 100 and iAllyCombat >= iEnemyCombat * 0.5 then
+                --We have decent friendly combat presence - allow more engineers
+                if iSignifReclaim >= 100 then
+                    iBPCap = math.max(10, math.min(60, iSignifReclaim / 50))
+                else
+                    iBPCap = 10
+                end
+                if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Friendly army present, setting iBPCap='..iBPCap) end
+            elseif iAllyCombat >= 400 and iSignifReclaim >= 250 * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] then
+                --High combat threat required
+                iBPCap = math.max(5, math.min(60, iSignifReclaim / 75))
+            else
+                iBPCap = 5
             end
         end
         if not(iBPCap) and M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subreftEnemyFirebasesInRange]) == false and bIsWaterZone then
@@ -21842,7 +22128,10 @@ function HighValueReclaimOrder(iTeam, oWreck, tPosition)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tPosition)
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, iTeam='..iTeam..'; tPosition='..repru(tPosition)..'; Wreck mass value='..(oWreck.MaxMassReclaim or 'nil')..'; iPlateauOrZero='..(iPlateauOrZero or 'nil')..'; iLandOrWaterZone='..(iLandOrWaterZone or 'nil')..'; Time='..GetGameTimeSeconds()) end
+    local iWreckMass = oWreck.MaxMassReclaim or 0
+    --Scale engineers based on wreck value: 1 per 4000 mass, minimum 1, maximum 5
+    local iEngineersWanted = math.max(1, math.min(5, math.floor(iWreckMass / 4000)))
+    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, iTeam='..iTeam..'; tPosition='..repru(tPosition)..'; Wreck mass value='..iWreckMass..'; iEngineersWanted='..iEngineersWanted..'; iPlateauOrZero='..(iPlateauOrZero or 'nil')..'; iLandOrWaterZone='..(iLandOrWaterZone or 'nil')..'; Time='..GetGameTimeSeconds()) end
     if iPlateauOrZero and iLandOrWaterZone then
         local tLZOrWZData
         local tLZOrWZTeamData
@@ -21868,35 +22157,78 @@ function HighValueReclaimOrder(iTeam, oWreck, tPosition)
                 end
                 if bDebugMessages == true then LOG(sFunctionRef..': iEnemyDFValue='..iEnemyDFValue..'; Ally LZ combat='..(tLZOrWZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0)..'; Ally WZ combat='..(tLZOrWZTeamData[M28Map.subrefWZTThreatAllyCombatTotal] or 0)) end
                 if iEnemyDFValue < 20000 or (tLZOrWZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) >= 10000 or (tLZOrWZTeamData[M28Map.subrefWZTThreatAllyCombatTotal] or 0) >= 10000 then
-                    --Get an engineer from the nearest base
+                    --Get engineers from the nearest base (scaled by wreck value)
                     local tNearestBaseLZData, tNearestBaseLZTeamData = M28Map.GetLandOrWaterZoneData(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase], true, iTeam)
-                    if tNearestBaseLZTeamData and M28Utilities.IsTableEmpty(tNearestBaseLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
-                        local oEngineerToTryAndReclaim
-                        local tFriendlyEngineers = EntityCategoryFilterDown(M28UnitInfo.refCategoryEngineer, tNearestBaseLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
-                        if bDebugMessages == true then LOG(sFunctionRef..': Is table of friendly engineers empty='..tostring(M28Utilities.IsTableEmpty(tFriendlyEngineers))) end
-                        if M28Utilities.IsTableEmpty(tFriendlyEngineers) == false then
-                            local iHighestPriority = 0
-                            local iHighestTech = 0
-                            local iCurTech
-                            for iEngi, oEngi in tFriendlyEngineers do
-                                if bDebugMessages == true and M28UnitInfo.IsUnitValid(oEngi) then LOG(sFunctionRef..': Considering oEngi='..oEngi.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngi)..'; Primary builder='..tostring(oEngi[refbPrimaryBuilder] or false)..'; % complete='..oEngi:GetFractionComplete()..'; Unit state='..M28UnitInfo.GetUnitState(oEngi)..'; Special micro active='..tostring(oEngi[M28UnitInfo.refbSpecialMicroActive] or false)..'; Priority='..(oEngi[refiAssignedActionPriority] or 'nil')..'; Tech level='..M28UnitInfo.GetUnitTechLevel(oEngi)) end
+                    local iEngineersAssigned = 0
+                    local tEngineersAlreadyAssigned = {} --Track engineers already assigned to avoid duplicates
 
-                                if M28UnitInfo.IsUnitValid(oEngi) and not(oEngi[refbPrimaryBuilder]) and oEngi:GetFractionComplete() == 1 and not(oEngi:IsUnitState('Attached')) and not(oEngi[M28UnitInfo.refbSpecialMicroActive]) then
-                                    --Get the highest tech engi, and then the highest number for priority
-                                    iCurTech = M28UnitInfo.GetUnitTechLevel(oEngi)
-                                    if iCurTech > iHighestTech then iHighestTech = iCurTech iHighestPriority = 0 end
-                                    if (oEngi[refiAssignedActionPriority] or 1000) > iHighestPriority then
-                                        iHighestPriority = (oEngi[refiAssignedActionPriority] or 1000)
-                                        oEngineerToTryAndReclaim = oEngi
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Have a new highest priority engi to give the order to') end
+                    --Helper function to find and assign available engineers from a zone
+                    local function AssignEngineersFromZone(tZoneTeamData)
+                        if not(tZoneTeamData) or M28Utilities.IsTableEmpty(tZoneTeamData[M28Map.subreftoLZOrWZAlliedUnits]) then return end
+                        local tFriendlyEngineers = EntityCategoryFilterDown(M28UnitInfo.refCategoryEngineer, tZoneTeamData[M28Map.subreftoLZOrWZAlliedUnits])
+                        if M28Utilities.IsTableEmpty(tFriendlyEngineers) then return end
+
+                        --Sort engineers by tech level (descending) then by priority (descending - higher number = lower priority task)
+                        local tSortedEngineers = {}
+                        for iEngi, oEngi in tFriendlyEngineers do
+                            if M28UnitInfo.IsUnitValid(oEngi) and not(oEngi[refbPrimaryBuilder]) and oEngi:GetFractionComplete() == 1 and not(oEngi:IsUnitState('Attached')) and not(oEngi[M28UnitInfo.refbSpecialMicroActive]) and not(tEngineersAlreadyAssigned[oEngi]) then
+                                table.insert(tSortedEngineers, oEngi)
+                            end
+                        end
+                        --Sort by tech level desc, then priority desc
+                        table.sort(tSortedEngineers, function(a, b)
+                            local aTech = M28UnitInfo.GetUnitTechLevel(a)
+                            local bTech = M28UnitInfo.GetUnitTechLevel(b)
+                            if aTech ~= bTech then return aTech > bTech end
+                            return (a[refiAssignedActionPriority] or 1000) > (b[refiAssignedActionPriority] or 1000)
+                        end)
+
+                        --Assign engineers up to limit
+                        for _, oEngi in tSortedEngineers do
+                            if iEngineersAssigned >= iEngineersWanted then break end
+                            if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Assigning oEngi='..oEngi.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngi)..'; Tech='..M28UnitInfo.GetUnitTechLevel(oEngi)..'; iEngineersAssigned='..iEngineersAssigned) end
+                            tEngineersAlreadyAssigned[oEngi] = true
+                            iEngineersAssigned = iEngineersAssigned + 1
+                            ForkThread(TrackEngineerWithHighReclaimOrder, oEngi, oWreck, 500)
+                        end
+                    end
+
+                    --First try nearest base zone
+                    if tNearestBaseLZTeamData then
+                        AssignEngineersFromZone(tNearestBaseLZTeamData)
+                    end
+
+                    --If we still need more engineers and wreck is high value, check adjacent zones
+                    if iEngineersAssigned < iEngineersWanted and iWreckMass >= 6000 then
+                        if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Need more engineers, checking adjacent zones. iEngineersAssigned='..iEngineersAssigned..'; iEngineersWanted='..iEngineersWanted) end
+                        if iPlateauOrZero > 0 then
+                            --Land zone: check adjacent land zones
+                            if M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subrefLZAdjacentLandZones]) == false then
+                                for _, iAdjLZ in tLZOrWZData[M28Map.subrefLZAdjacentLandZones] do
+                                    if iEngineersAssigned >= iEngineersWanted then break end
+                                    local tAdjLZData = M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iAdjLZ]
+                                    if tAdjLZData then
+                                        local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][iTeam]
+                                        AssignEngineersFromZone(tAdjLZTeamData)
+                                    end
+                                end
+                            end
+                        else
+                            --Water zone: check adjacent water zones
+                            if M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subrefWZAdjacentWaterZones]) == false then
+                                local iPond = M28Map.tiPondByWaterZone[iLandOrWaterZone]
+                                for _, iAdjWZ in tLZOrWZData[M28Map.subrefWZAdjacentWaterZones] do
+                                    if iEngineersAssigned >= iEngineersWanted then break end
+                                    local tAdjWZData = M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones][iAdjWZ]
+                                    if tAdjWZData then
+                                        local tAdjWZTeamData = tAdjWZData[M28Map.subrefWZTeamData][iTeam]
+                                        AssignEngineersFromZone(tAdjWZTeamData)
                                     end
                                 end
                             end
                         end
-                        if oEngineerToTryAndReclaim then
-                            TrackEngineerWithHighReclaimOrder(oEngineerToTryAndReclaim, oWreck, 1000)
-                        end
                     end
+                    if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Final iEngineersAssigned='..iEngineersAssigned) end
                 end
             end
         end

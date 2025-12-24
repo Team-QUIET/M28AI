@@ -534,6 +534,22 @@ function UpdateHighestFactoryTechLevelForBuiltUnit(oUnitJustBuilt)
                         end
                     end
                 end
+
+                --Check if this factory was built in a zone that qualified for forward factory
+                if tFactoryLZTeamData[M28Map.subrefbQualifiesForForwardFactory] then
+                    tFactoryLZTeamData[M28Map.subrefiForwardFactoryCount] = (tFactoryLZTeamData[M28Map.subrefiForwardFactoryCount] or 0) + 1
+                    M28Team.tTeamData[iTeam][M28Team.subrefiTeamForwardFactoryCount] = (M28Team.tTeamData[iTeam][M28Team.subrefiTeamForwardFactoryCount] or 0) + 1
+                    M28Team.tTeamData[iTeam][M28Team.refiTimeLastForwardFactoryBuilt] = GetGameTimeSeconds()
+                    --Mark the factory as a forward factory so we can decrement counts when destroyed
+                    oUnitJustBuilt.M28IsForwardFactory = true
+                    oUnitJustBuilt.M28ForwardFactoryPlateau = iPlateau
+                    oUnitJustBuilt.M28ForwardFactoryLandZone = iLandZone
+                    --Clear the qualification flag so we don't keep building more
+                    tFactoryLZTeamData[M28Map.subrefbQualifiesForForwardFactory] = nil
+                    --Reset sustained reclaim tracking
+                    tFactoryLZTeamData[M28Map.subrefiSustainedHighReclaimStartTime] = nil
+                    if true then LOG(sFunctionRef..': Built FORWARD FACTORY in P'..iPlateau..'Z'..iLandZone..'; Zone count='..(tFactoryLZTeamData[M28Map.subrefiForwardFactoryCount] or 0)..'; Team count='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamForwardFactoryCount] or 0)) end
+                end
             end
         elseif EntityCategoryContains(M28UnitInfo.refCategoryNavalHQ, oUnitJustBuilt.UnitId) then
             --Is this our highest naval fac HQ, and we lack any others of this tech level in this pond?
@@ -602,6 +618,20 @@ function UpdateHighestFactoryTechLevelForDestroyedUnit(oUnitJustDestroyed)
         UpdateFactoryCountForFactoryKilledOrBuilt(oUnitJustDestroyed, true)
         if bDebugMessages == true then LOG(sFunctionRef..': Factory was destroyed, oUnitJustDestroyed='..oUnitJustDestroyed.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitJustDestroyed)..'; is this an HQ factory='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryAllHQFactories, oUnitJustDestroyed.UnitId))..'; Time='..GetGameTimeSeconds()) end
         local aiBrain = oUnitJustDestroyed:GetAIBrain()
+
+        --Decrement counts if this was a forward factory
+        if oUnitJustDestroyed.M28IsForwardFactory then
+            local iTeam = aiBrain.M28Team
+            local iPlateau = oUnitJustDestroyed.M28ForwardFactoryPlateau
+            local iLandZone = oUnitJustDestroyed.M28ForwardFactoryLandZone
+            local tLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone]
+            local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
+            if tLZTeamData then
+                tLZTeamData[M28Map.subrefiForwardFactoryCount] = math.max(0, (tLZTeamData[M28Map.subrefiForwardFactoryCount] or 1) - 1)
+            end
+            M28Team.tTeamData[iTeam][M28Team.subrefiTeamForwardFactoryCount] = math.max(0, (M28Team.tTeamData[iTeam][M28Team.subrefiTeamForwardFactoryCount] or 1) - 1)
+            if bDebugMessages == true then LOG(sFunctionRef..': FORWARD FACTORY DESTROYED in P'..iPlateau..'Z'..iLandZone..'; Zone count='..(tLZTeamData and tLZTeamData[M28Map.subrefiForwardFactoryCount] or 0)..'; Team count='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamForwardFactoryCount] or 0)) end
+        end
         if EntityCategoryContains(M28UnitInfo.refCategoryAllHQFactories, oUnitJustDestroyed.UnitId) then
             local iUnitTechLevel = M28UnitInfo.GetUnitTechLevel(oUnitJustDestroyed)
             if bDebugMessages == true then LOG(sFunctionRef..': iUnitTechLevel='..iUnitTechLevel..'; owned by brain '..aiBrain.Nickname) end

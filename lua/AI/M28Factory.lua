@@ -21,6 +21,7 @@ local M28ACU = import('/mods/M28AI/lua/AI/M28ACU.lua')
 local M28Land = import('/mods/M28AI/lua/AI/M28Land.lua')
 local M28Intel = import('/mods/M28AI/lua/AI/M28Intel.lua')
 local M28Config = import('/mods/M28AI/lua/M28Config.lua')
+local M28Intel = import('/mods/M28AI/lua/AI/M28Intel.lua')
 
 reftBlueprintPriorityOverride = 'M28FactoryPreferredBlueprintByCategory' --[x] is the blueprint ref, if there's a priority override it returns a numerical value (higher number = higher priority)
 local refiTimeSinceLastOrderCheck = 'M28FactoryTimeSinceLastCheck' --against factory, gametime in seconds when the factory was last checked to consider an order
@@ -44,6 +45,7 @@ refbWantMoreEngineersBeforeUpgrading = 'M28FWnE' --against oFactory, true if hav
 refbPausedToStopDefaultAI = 'M28FPsC' --true if we have paused factory to stop a campaign AI giving it orders
 refbActiveDelayedCheck = 'M28FAcDC' --true if we are running code to consider if factory has nearby blocked units
 refbPrimaryFactoryForIslandOrPond = 'M28FaPrim' --true if this is the primary factory for a zone that has a decent number of mexes (so it doesnt get paused in a mass stall)
+refbIsForwardFactory = 'M28FacFwd' --true if this is a forward/reclaim factory built in a zone with high sustained reclaim
 reftsFactoryEnhancementPreferences = 'M28FaPref' --false if no enhancements available or wanted, otherwise, contains a table of enhancement strings for a factory to try and get
 
 --Variables against units (generally):
@@ -1859,6 +1861,24 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         return nil
     end
 
+    --Forward factories prioritize engineer production to reclaim nearby wrecks
+    iCurrentConditionToTry = iCurrentConditionToTry + 1
+    if (tLZTeamData[M28Map.subrefiForwardFactoryCount] or 0) > 0 and not(tLZTeamData[M28Map.subrefLZbCoreBase]) and not(tLZTeamData[M28Map.subrefLZCoreExpansion]) then
+        --This is a forward factory zone - prioritize engineers for reclaim
+        local iSignifReclaim = tLZData[M28Map.subrefTotalSignificantMassReclaim] or 0
+        if bDebugMessages == true then LOG(sFunctionRef..': Forward factory zone detected, signif reclaim='..iSignifReclaim..'; build count='..(oFactory[refiTotalBuildCount] or 0)) end
+        --Build engineers if there's still significant reclaim and we don't have too many already
+        if iSignifReclaim >= 500 then
+            local iEngisInZone = GetEngiCountInZone()
+            local iMaxEngisWanted = math.min(12, math.max(2, math.floor(iSignifReclaim / 1000)))
+            if bDebugMessages == true then LOG(sFunctionRef..': Forward factory wants engineers, iEngisInZone='..iEngisInZone..'; iMaxEngisWanted='..iMaxEngisWanted) end
+            if iEngisInZone < iMaxEngisWanted then
+                if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end
+            end
+        end
+        --If reclaim is depleted, forward factory should build combat units like normal
+    end
+
     --Enemy early bomber defence (higher priority than tanks since we have our ACU to deal with tanks as a last resort)
     iCurrentConditionToTry = iCurrentConditionToTry + 1
     if bDebugMessages == true then
@@ -1942,6 +1962,18 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         end
         if bDebugMessages == true then LOG(sFunctionRef..': Emergency AA production triggered - building MAA to counter T3 air tech disparity') end
         if ConsiderBuildingCategory(iMAACategory) then return sBPIDToBuild end
+    end
+
+    --High priority engineer production after battle concludes - to reclaim wrecks quickly
+    iCurrentConditionToTry = iCurrentConditionToTry + 1
+    if M28Intel.HasRecentBattleConcluded(tLZTeamData) and tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 500 then
+        --Check we have army protection
+        local iAllyCombat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+        local iEnemyCombat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+        if iAllyCombat >= iEnemyCombat * 0.5 then
+            if bDebugMessages == true then LOG(sFunctionRef..': Battle concluded with '..tLZData[M28Map.subrefTotalSignificantMassReclaim]..' mass reclaim, building engineer') end
+            if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end
+        end
     end
 
     --Engineers for transport - build engineers as high priority if no enemies in this zone and no nearby long range threats
@@ -6990,7 +7022,7 @@ function GetBlueprintToBuildForNavalFactory(aiBrain, oFactory)
         --Skip production on most naval factories when behind on air (allow every 3rd factory to still produce for basic defense)
         --This frees up resources that engineers and factories would have spent on naval production
         if (oFactory[refiTotalBuildCount] or 0) >= 3 and math.mod((M28UnitInfo.GetUnitLifetimeCount(oFactory) or 0), 3) ~= 0 then
-            if M28Config.M28LogFactoryDecisions then
+            if M28Config.M28LogEngineerDecisions then
                 LOG(sFunctionRef..': [WZ'..iWaterZone..'] NAVAL_PROD_THROTTLED_FOR_AIR - Factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..' pausing production to prioritize air factories or economic investment. Time='..GetGameTimeSeconds())
             end
             tWZTeamData[M28Map.subrefiTimeNavalFacHadNothingToBuild] = GetGameTimeSeconds()
@@ -8227,7 +8259,7 @@ function GetBlueprintToBuildForMobileLandFactory(aiBrain, oFactory)
         --Build engineer if we have lots of reclaim in this zone and dont have a large enemy threat
         iCurrentConditionToTry = iCurrentConditionToTry + 1
         if bDebugMessages == true then LOG(sFunctionRef..': Engineer for reclaim builder - mass in LZ='..tLZData[M28Map.subrefTotalMassReclaim]..'; Enemy mobile DF='..tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal]..'; Want BP='..tostring(tLZTeamData[M28Map.subrefTbWantBP])) end
-        if tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 500 and tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 5000 or M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] and tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] <= 500 and tLZTeamData[M28Map.subrefTbWantBP] then
+        if tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 500 and tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 2000 or M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] and tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] <= 500 and tLZTeamData[M28Map.subrefTbWantBP] then
             if bDebugMessages == true then LOG(sFunctionRef..': Will try and get an engineer') end
             if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end
         end
