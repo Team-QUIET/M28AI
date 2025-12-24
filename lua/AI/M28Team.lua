@@ -676,7 +676,7 @@ function CreateNewTeam(aiBrain)
     tTeamData[iTotalTeamCount][refiTimeOfLastEnergyStall] = 0
     tTeamData[iTotalTeamCount][refiTimeOfLastEngiSelfDestruct] = 0
     tTeamData[iTotalTeamCount][refiTimeOfLastMexUpgrade] = 0
-    tTeamData[iTotalTeamCount][refiTimeOfLastNavalSupportFactorySelfDestruct] = 0
+    tTeamData[iTotalTeamCount][refiTimeOfLastNavalSupportFactorySelfDestruct] = nil
     tTeamData[iTotalTeamCount][refiTimeStartedLowMassStorage] = nil
     tTeamData[iTotalTeamCount][refiTimeStartedNavalDominance] = nil
     tTeamData[iTotalTeamCount][refbNeedResourcesForMissile] = false

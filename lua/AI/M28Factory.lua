@@ -732,6 +732,54 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                 end
             end
         end
+
+    end
+
+    --Limit units with high energy maintenance costs (cloak, stealth, etc.) - e.g. SRL0320 Slink
+    if sBPIDToBuild then
+        local tBP = __blueprints[sBPIDToBuild]
+        if tBP and tBP.Economy and tBP.Economy.MaintenanceConsumptionPerSecondEnergy then
+            local iMaintenanceEnergy = tBP.Economy.MaintenanceConsumptionPerSecondEnergy
+            --Only apply limiting if maintenance is significant (>=100 energy/sec)
+            if iMaintenanceEnergy >= 100 then
+                local iCurUnits = aiBrain:GetCurrentUnits(categories[sBPIDToBuild])
+                local iGrossEnergy = aiBrain[M28Economy.refiGrossEnergyBaseIncome] or 0
+                local iEnergyStored = aiBrain:GetEconomyStoredRatio('ENERGY')
+
+                --Mobile stealth and shields get a tighter budget of 15% since they can easily drain energy
+                --Other high-maintenance units use 20% budget
+                local bIsMobileStealthOrShield = EntityCategoryContains(M28UnitInfo.refCategoryMobileLandStealth + M28UnitInfo.refCategoryMobileLandShield, sBPIDToBuild)
+                local iEnergyBudgetMultiplier = 2 --20% budget for most units: (GrossE * 10 * 0.2) / MaintE = (GrossE * 2) / MaintE
+                if bIsMobileStealthOrShield then
+                    iEnergyBudgetMultiplier = 1.5 --15% budget for mobile stealth/shields
+                end
+
+                local iMaxUnits = math.floor((iGrossEnergy * iEnergyBudgetMultiplier) / iMaintenanceEnergy)
+                --Enforce minimum of 2 and maximum of 25 per AI brain
+                iMaxUnits = math.max(2, math.min(25, iMaxUnits))
+                local bStallingEnergy = M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefbTeamIsStallingEnergy]
+
+                if iCurUnits >= iMaxUnits then
+                    if bStallingEnergy or iEnergyStored < 0.5 then
+                        if M28Config.M28LogFactoryDecisions then
+                            LOG(sFunctionRef..': HIGH_MAINT_BLOCKED_ENERGY - Unit='..sBPIDToBuild..' blocked due to energy concerns. MaintenanceE='..iMaintenanceEnergy..'/s; CurUnits='..iCurUnits..'; MaxUnits='..iMaxUnits..'; GrossE='..iGrossEnergy..'; EnergyStored='..string.format('%.1f%%', iEnergyStored * 100)..'; Stalling='..(bStallingEnergy and 'YES' or 'NO')..'; IsMobileStealthOrShield='..tostring(bIsMobileStealthOrShield)..'; Time='..GetGameTimeSeconds())
+                        end
+                        sBPIDToBuild = nil
+                    elseif iCurUnits >= iMaxUnits * 2 then
+                        if M28Config.M28LogFactoryDecisions then
+                            LOG(sFunctionRef..': HIGH_MAINT_BLOCKED_HARDCAP - Unit='..sBPIDToBuild..' blocked due to hard cap (2x max). MaintenanceE='..iMaintenanceEnergy..'/s; CurUnits='..iCurUnits..'; MaxUnits='..iMaxUnits..'; HardCap='..(iMaxUnits * 2)..'; GrossE='..iGrossEnergy..'; IsMobileStealthOrShield='..tostring(bIsMobileStealthOrShield)..'; Time='..GetGameTimeSeconds())
+                        end
+                        sBPIDToBuild = nil
+                    else
+                        if M28Config.M28LogFactoryDecisions then
+                            LOG(sFunctionRef..': HIGH_MAINT_AT_LIMIT_OK - Unit='..sBPIDToBuild..' at limit but economy OK, allowing build. MaintenanceE='..iMaintenanceEnergy..'/s; CurUnits='..iCurUnits..'; MaxUnits='..iMaxUnits..'; GrossE='..iGrossEnergy..'; EnergyStored='..string.format('%.1f%%', iEnergyStored * 100)..'; IsMobileStealthOrShield='..tostring(bIsMobileStealthOrShield)..'; Time='..GetGameTimeSeconds())
+                        end
+                    end
+                elseif M28Config.M28LogFactoryDecisions and iCurUnits > 0 then
+                    LOG(sFunctionRef..': HIGH_MAINT_UNDER_LIMIT - Unit='..sBPIDToBuild..' under limit, allowing build. MaintenanceE='..iMaintenanceEnergy..'/s; CurUnits='..iCurUnits..'; MaxUnits='..iMaxUnits..'; GrossE='..iGrossEnergy..'; IsMobileStealthOrShield='..tostring(bIsMobileStealthOrShield)..'; Time='..GetGameTimeSeconds())
+                end
+            end
+        end
     end
 
     --NoRush
