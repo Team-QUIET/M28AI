@@ -375,15 +375,15 @@ tiActionSubstitute = { --Any actions where we want to take into account BP alrea
 function GetReclaimUrgencyMultiplier(iTeam)
     local iMassPercent = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0.5
     if iMassPercent <= 0.05 then
-        return 2.0 --Very low mass, double the reclaim effort
+        return 2.0
     elseif iMassPercent <= 0.15 then
-        return 1.75 --Low mass, significantly increase reclaim
+        return 1.75
     elseif iMassPercent <= 0.25 then
-        return 1.5 --Moderately low mass, increase reclaim
+        return 1.5
     elseif iMassPercent <= 0.35 then
-        return 1.25 --Slightly low mass, small increase
+        return 1.25
     else
-        return 1.0 --Normal or high mass, no multiplier
+        return 1.0
     end
 end
 
