@@ -3304,17 +3304,15 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                 --Only allow if enemy has strategic assets (turtling), or we're not ahead on both eco and land experimentals
                 if not(iCategoryWanted) and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] <= 3 and not(bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats) and not(tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) and not(aiBrain[M28Overseer.refbPrioritiseLand]) and not(aiBrain[M28Overseer.refbPrioritiseAir]) and not(aiBrain[M28Overseer.refbPrioritiseNavy]) and M28Map.iMapSize >= 512 then
                     if not(tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionUEF]) and (not(tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionSeraphim]) or not(M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbHaveAirControl])) then
-                        local iEnemyLandExpCount = table.getn(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals])
                         --Check for turtling: has strategic assets, OR (little enemy DF near our side AND we have significantly more friendly DF on our side AND enemy isn't massing on their side)
+                        local iEnemyLandExpCount = table.getn(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals])
                         local iLandSubteam = aiBrain.M28LandSubteam
                         local iEnemyDFNearOurSide = M28Team.tLandSubteamData[iLandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] or 0
                         local iAllyDFNearOurSide = M28Team.tLandSubteamData[iLandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide] or 0
                         local iEnemyDFOnEnemySide = M28Team.tLandSubteamData[iLandSubteam][M28Team.refiEnemyMobileDFThreatOnEnemySide] or 0
-                        --Enemy is turtling if: has strategic assets, OR has nukes, OR (low DF near us AND we have 4x more AND enemy isn't massing a big force on their side)
                         local bEnemyIsTurtling = M28Team.tTeamData[iTeam][M28Team.refbDefendAgainstArti] or (iEnemyDFNearOurSide < 2000 and iAllyDFNearOurSide > 4 * iEnemyDFNearOurSide and iEnemyDFOnEnemySide < 5000)
                         local iEnemyMassIncome = M28Conditions.GetEnemyTeamActualMassIncome(iTeam)
                         local iOurMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0
-                        --enemy turtling, OR (we have significantly more land exp than enemy AND we're significantly ahead on eco)
                         local bSituationAllowsEarlyArti = bEnemyIsTurtling or (iTeamLandExperimentals >= iEnemyLandExpCount + 2 and iOurMass >= iEnemyMassIncome * 1.5)
                         if bDebugMessages == true then LOG(sFunctionRef..': Early arti check: bEnemyIsTurtling='..tostring(bEnemyIsTurtling)..'; EnemyLandExp='..iEnemyLandExpCount..'; OurLandExp='..iTeamLandExperimentals..'; OurMass='..iOurMass..'; EnemyMass='..iEnemyMassIncome..'; bAllowed='..tostring(bSituationAllowsEarlyArti)..'; EnemyDFNearOurSide='..iEnemyDFNearOurSide..'; AllyDFNearOurSide='..iAllyDFNearOurSide..'; EnemyDFOnEnemySide='..iEnemyDFOnEnemySide) end
                         if bSituationAllowsEarlyArti then
@@ -15908,18 +15906,16 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     --Game ender builder (in addition to normal experimental builders) - intended for extreme scenarios where overflowing lots of mass, or where are in campaign, at unit cap and have decent eco
     iCurPriority = iCurPriority + 1
     --Check if we're losing ground to enemy experimental pushes - don't build game enders if we can't defend against their exp army
+    --Check for turtling: has strategic assets, OR (little enemy DF near our side AND we have significantly more friendly DF on our side AND enemy isn't massing on their side)
     local iOurLandExpCount = M28Conditions.GetCurrentM28UnitsOfCategoryInTeam(M28UnitInfo.refCategoryLandExperimental, iTeam)
     local iEnemyLandExpCount = table.getn(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals] or {})
     local iOurMassIncome = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0
     local iEnemyMassIncome = M28Conditions.GetEnemyTeamActualMassIncome(iTeam)
-    --Check for turtling: has strategic assets, OR (little enemy DF near our side AND we have significantly more friendly DF on our side AND enemy isn't massing on their side)
     local iLandSubteam = aiBrain.M28LandSubteam
     local iEnemyDFNearOurSide = M28Team.tLandSubteamData[iLandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] or 0
     local iAllyDFNearOurSide = M28Team.tLandSubteamData[iLandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide] or 0
     local iEnemyDFOnEnemySide = M28Team.tLandSubteamData[iLandSubteam][M28Team.refiEnemyMobileDFThreatOnEnemySide] or 0
-    --Enemy is turtling if: has strategic assets, OR (low DF near us AND we have 4x more AND enemy isn't massing a big force on their side)
     local bEnemyIsTurtling = M28Team.tTeamData[iTeam][M28Team.refbDefendAgainstArti] or (iEnemyDFNearOurSide < 2000 and iAllyDFNearOurSide > 4 * iEnemyDFNearOurSide and iEnemyDFOnEnemySide < 5000)
-    --Enemy is turtling, OR we have significantly more land exp than enemy AND significantly ahead on eco
     local bCanBuildGameEnder = bEnemyIsTurtling or (iOurLandExpCount >= iEnemyLandExpCount + 2 and iOurMassIncome >= iEnemyMassIncome * 1.25)
     if bDebugMessages == true then LOG(sFunctionRef..': Considering whether to build gameender, bHaveLowPower='..tostring(bHaveLowPower)..'; M28Team.tTeamData[iTeam][M28Team.refiLowestUnitCapAdjustmentLevel]='..(M28Team.tTeamData[iTeam][M28Team.refiLowestUnitCapAdjustmentLevel] or 'nil')..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Gameender count='..M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount]..'; bCanBuildGameEnder='..tostring(bCanBuildGameEnder)..'; OurLandExp='..iOurLandExpCount..'; EnemyLandExp='..iEnemyLandExpCount..'; OurMass='..iOurMassIncome..'; EnemyMass='..iEnemyMassIncome..'; bEnemyIsTurtling='..tostring(bEnemyIsTurtling)..'; EnemyDFNearOurSide='..iEnemyDFNearOurSide..'; AllyDFNearOurSide='..iAllyDFNearOurSide..'; EnemyDFOnEnemySide='..iEnemyDFOnEnemySide) end
     if bCanBuildGameEnder and not(bHaveLowPower) and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] >= 3 and not(bSaveMassForMML) and not(bPrioritiseProduction) and (
