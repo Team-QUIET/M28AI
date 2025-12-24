@@ -5339,7 +5339,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
             end
         end
     end
-    if tLZTeamData[M28Map.subreftiLandZoneTargetedByOurDF] then RecordDFLandZoneTarget(nil) end
+    --NOTE: We no longer clear the target at start of cycles
+    --Instead, target is only updated when we make a new attack/retreat decision.
+    --The old code was: if tLZTeamData[M28Map.subreftiLandZoneTargetedByOurDF] then RecordDFLandZoneTarget(nil) end
 
     local bGivenCombatUnitsOrders = false
 
@@ -8667,19 +8669,50 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         if not(bAttackWithEverything) and oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][1] == iPlateau then
                             local iLikelyTargetZone = oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2]
                             local tLikelyTargetLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLikelyTargetZone][M28Map.subrefLZTeamData][iTeam]
+
+                            --Signal intent to attack this zone (even if we haven't decided yet)
+                            --This allows adjacent zones to see our intent and coordinate
+                            if not(tLikelyTargetLZTeamData[M28Map.subreftiLandZonesConsideringAttackingThis]) then
+                                tLikelyTargetLZTeamData[M28Map.subreftiLandZonesConsideringAttackingThis] = {}
+                            end
+                            tLikelyTargetLZTeamData[M28Map.subreftiLandZonesConsideringAttackingThis][iLandZone] = {iOurDFAndT1ArtiCombatThreat, GetGameTimeSeconds()}
+
                             if bDebugMessages == true then LOG(sFunctionRef..': We are likely to be targeting nearest enemy in LZ='..(iLikelyTargetZone or 'nil')..'; is subreftiLandZonesTargetingThisWithOurDF empty='..tostring(M28Utilities.IsTableEmpty(tLikelyTargetLZTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF]))) end
                             if tLikelyTargetLZTeamData and M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
                                 local iAdjacentMobileDFThreat = 0
                                 local tbAdjZoneUnitsInAvailableCombatUnits
                                 local tContributingZones = {} --Track which zones contribute threat for logging
+
+                                --Include threat from zones that are CONSIDERING attacking (intent) as well as committed
+                                --This allows better coordination when multiple zones are evaluating simultaneously
+                                local tZonesConsideringOrCommitted = {}
                                 if M28Utilities.IsTableEmpty(tLikelyTargetLZTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF]) == false then
+                                    for iZone, iType in tLikelyTargetLZTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF] do
+                                        tZonesConsideringOrCommitted[iZone] = 'COMMITTED'
+                                    end
+                                end
+                                if M28Utilities.IsTableEmpty(tLikelyTargetLZTeamData[M28Map.subreftiLandZonesConsideringAttackingThis]) == false then
+                                    for iZone, tIntentData in tLikelyTargetLZTeamData[M28Map.subreftiLandZonesConsideringAttackingThis] do
+                                        --Only include intent from last 2 seconds (recent cycle)
+                                        if GetGameTimeSeconds() - tIntentData[2] < 2 then
+                                            if not(tZonesConsideringOrCommitted[iZone]) then
+                                                tZonesConsideringOrCommitted[iZone] = 'CONSIDERING'
+                                            end
+                                        end
+                                    end
+                                end
+
+                                if M28Utilities.IsTableEmpty(tZonesConsideringOrCommitted) == false then
                                     local tbZonesAdjacentToThis = {}
                                     for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
                                         tbZonesAdjacentToThis[iAdjLZ] = true
                                     end
                                     local bIncludeCurZoneDF = false
-                                    for iOtherLZ, iAttackingType in tLikelyTargetLZTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF] do
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Considering iOtherLZ='..iOtherLZ..'; tbZonesAdjacentToThis[iOtherLZ]='..tostring(tbZonesAdjacentToThis[iOtherLZ] or false)..'; iLikelyTargetZone='..iLikelyTargetZone) end
+                                    --Iterate over combined table of committed + considering zones
+                                    for iOtherLZ, sCoordStatus in tZonesConsideringOrCommitted do
+                                        --Get actual attack type from committed table if available, otherwise treat as moving-to
+                                        local iAttackingType = (tLikelyTargetLZTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF] and tLikelyTargetLZTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF][iOtherLZ]) or M28Map.subrefiLZTMovingToOtherZone
+                                        if bDebugMessages == true then LOG(sFunctionRef..': Considering iOtherLZ='..iOtherLZ..'; tbZonesAdjacentToThis[iOtherLZ]='..tostring(tbZonesAdjacentToThis[iOtherLZ] or false)..'; iLikelyTargetZone='..iLikelyTargetZone..'; sCoordStatus='..sCoordStatus) end
                                         if tbZonesAdjacentToThis[iOtherLZ] and not(iLikelyTargetZone == iOtherLZ) then
                                             local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iOtherLZ][M28Map.subrefLZTeamData][iTeam]
                                             if bDebugMessages == true then LOG(sFunctionRef..': subrefLZThreatAllyMobileDFTotal for otherLZ='..(tAdjLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 'nil')..'; OtherLZ subrefLZTValue='..(tAdjLZTeamData[M28Map.subrefLZTValue] or 'nil')..'; ThisLandZone subrefLZTValue='..(tLZTeamData[M28Map.subrefLZTValue] or 'nil')) end
@@ -8995,10 +9028,43 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         bCheckIfNearestUnitVisible = true
                     end
 
-                    if bAttackWithEverything then
-                        if not(oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2] == iLandZone) and oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][1] == iPlateau then
-                            RecordDFLandZoneTarget(oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2], M28Map.subrefiLZTAttackingUnit)
+                    --Finalize decision and update coordination state
+                    local iTargetZoneForDecision = oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2] or nil
+
+                    --Record our current target for next cycle
+                    local iLastTargetZone = tLZTeamData[M28Map.subrefiLandZoneLastTargetZone]
+                    local bTargetChanged = (iLastTargetZone ~= iTargetZoneForDecision) and bAttackWithEverything
+                    if bAttackWithEverything and iTargetZoneForDecision then
+                        tLZTeamData[M28Map.subrefiLandZoneLastTargetZone] = iTargetZoneForDecision
+                        tLZTeamData[M28Map.subrefiLandZoneLastTargetTime] = GetGameTimeSeconds()
+                    elseif not(bAttackWithEverything) then
+                        --Only clear on explicit retreat decision
+                        tLZTeamData[M28Map.subrefiLandZoneLastTargetZone] = nil
+                        tLZTeamData[M28Map.subrefiLandZoneLastTargetTime] = nil
+                    end
+
+                    --Log the decision with additional context about target changes
+                    if M28Config.M28LogLandZoneDebug then
+                        local sDecision = bAttackWithEverything and 'ATTACK' or 'RETREAT'
+                        local sTargetInfo = iTargetZoneForDecision and ('LZ'..iTargetZoneForDecision) or 'nil'
+                        local sTargetChange = ''
+                        if bTargetChanged and iLastTargetZone then
+                            sTargetChange = ' (was LZ'..iLastTargetZone..')'
                         end
+                        LOG('CrossZoneCoord: [P'..iPlateau..'-LZ'..iLandZone..'] Decision='..sDecision..', Our='..math.floor(iOurDFAndT1ArtiCombatThreat or 0)..', Enemy='..math.floor(iEnemyCombatThreat or 0)..', Target='..sTargetInfo..sTargetChange..', Time='..GetGameTimeSeconds())
+                    end
+
+                    --Update cross-zone coordination target based on decision
+                    if bAttackWithEverything then
+                        if iTargetZoneForDecision and iTargetZoneForDecision ~= iLandZone and oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][1] == iPlateau then
+                            RecordDFLandZoneTarget(iTargetZoneForDecision, M28Map.subrefiLZTAttackingUnit)
+                        end
+                    else
+                        --Retreating - clear our attack target (only on explicit retreat)
+                        RecordDFLandZoneTarget(nil)
+                    end
+
+                    if bAttackWithEverything then
                         --oTODO
                         local bMoveToStopPDConstruction = false
                         if bDebugMessages == true then LOG(sFunctionRef..': Seeing if we have enough threat to try and stop PD being built, tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal]='..(tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 'nil')..'; iAvailableCombatUnitThreat='..(iAvailableCombatUnitThreat or 'nil')) end

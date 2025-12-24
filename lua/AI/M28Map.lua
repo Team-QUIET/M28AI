@@ -310,6 +310,10 @@ iLandZoneSegmentSize = 5 --Gets updated by the SetupLandZones - the size of one 
             subreftiLandZoneTargetedByOurDF = 'LZTBD' --returns land zone ref we are sending DF units in this LZ to
             subrefiLandZoneLastLoggedTarget = 'LZLLT' --last target we logged about (to avoid log spam when target is cleared and re-set each cycle)
             subrefiLandZoneLastLoggedAttackType = 'LZLLA' --last attack type we logged about
+            --Two-phase coordination: Intent signaling (Phase 1) before commitment (Phase 2)
+            subreftiLandZonesConsideringAttackingThis = 'LZCAT' --table, [iSourceZone] = {iThreat, iGameTime} - zones signaling intent to attack this zone (before finalizing)
+            subrefiLandZoneLastTargetZone = 'LZLTZ' --the zone we were targeting last cycle (for persistent target memory)
+            subrefiLandZoneLastTargetTime = 'LZLTT' --game time when we last set our target (for target stability)
 
             --Engineer related values
             subreftoPartBuiltMexes = 'PBMex' --If we are building a mex and the builder gets its orders cleared or dies, and it was building a mex, then the mex should be recorded in a table so it can be rebuilt
