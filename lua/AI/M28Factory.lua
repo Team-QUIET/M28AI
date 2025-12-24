@@ -5363,6 +5363,42 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
             if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirScout) then return sBPIDToBuild end
         end
 
+        --Early game proactive air scout for enemy base scouting (within first 3 minutes)
+        --Build 1-2 air scouts early to ensure we have intel on enemy positions even before bombers
+        iCurrentConditionToTry = iCurrentConditionToTry + 1
+        local iEarlyScoutTimeLimit = 180 --3 minutes
+        local iAirScoutsInTeam = M28Conditions.GetNumberOfConstructedUnitsInAirSubteam(iAirSubteam, M28UnitInfo.refCategoryAirScout)
+        local iAirScoutsUnderConstruction = M28Conditions.GetNumberOfUnderConstructionUnitsOfCategoryInOtherCoreZones(tLZTeamData, iTeam, M28UnitInfo.refCategoryAirScout)
+        local iMinEarlyScouts = math.max(1, math.min(2, table.getn(M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains] or {}))) --1 scout per enemy up to 2
+        if bDebugMessages == true then LOG(sFunctionRef..': Early game proactive air scout check, Time='..GetGameTimeSeconds()..'; iAirScoutsInTeam='..iAirScoutsInTeam..'; iAirScoutsUnderConstruction='..iAirScoutsUnderConstruction..'; iMinEarlyScouts='..iMinEarlyScouts..'; MapSize='..M28Map.iMapSize..'; iFactoryTechLevel='..iFactoryTechLevel) end
+        if GetGameTimeSeconds() <= iEarlyScoutTimeLimit and iFactoryTechLevel == 1 and not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) then
+            --Adjust for map size: larger maps need scouts earlier and more of them
+            if M28Map.iMapSize >= 512 then
+                iMinEarlyScouts = math.max(iMinEarlyScouts, 2)
+            end
+            if iAirScoutsInTeam + iAirScoutsUnderConstruction < iMinEarlyScouts then
+                --Only build if factory has built at least 1 unit (intie or bomber) to not delay first combat unit
+                if (oFactory[refiTotalBuildCount] or 0) >= 1 or GetGameTimeSeconds() >= 90 then
+                    if bDebugMessages == true then LOG(sFunctionRef..': Building early game proactive air scout to scout enemy bases') end
+                    if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirScout) then return sBPIDToBuild end
+                end
+            end
+        end
+
+        --Proactive air scout maintenance throughout game - maintain minimum scouts based on map size and enemies
+        iCurrentConditionToTry = iCurrentConditionToTry + 1
+        local iDesiredMinScouts = M28Intel.GetDesiredAirScoutCount(iTeam, M28Team.tTeamData[iTeam][M28Team.refiFriendlyGameEnderCount] or 0)
+        --Scale down desired for low power conditions - aim for about 50% of normal
+        iDesiredMinScouts = math.max(1, math.ceil(iDesiredMinScouts * 0.5))
+        if bDebugMessages == true then LOG(sFunctionRef..': Proactive air scout maintenance (low power), iAirScoutsInTeam='..iAirScoutsInTeam..'; iAirScoutsUnderConstruction='..iAirScoutsUnderConstruction..'; iDesiredMinScouts='..iDesiredMinScouts..'; LongestOverdue='..(M28Team.tTeamData[iTeam][M28Team.subrefiLongestOverdueScoutingTarget] or 0)) end
+        if iAirScoutsInTeam + iAirScoutsUnderConstruction < iDesiredMinScouts and not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision]) then
+            --Build scout if we have some scouting deficit (overdue by 60+ seconds) or have no scouts at all
+            if iAirScoutsInTeam == 0 or (M28Team.tTeamData[iTeam][M28Team.subrefiLongestOverdueScoutingTarget] or 0) >= 60 then
+                if bDebugMessages == true then LOG(sFunctionRef..': Building proactive air scout (low power) - below minimum threshold') end
+                if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirScout) then return sBPIDToBuild end
+            end
+        end
+
         --Get inties ASAP if enemy has t2 transport in  case they are planning a drop
         iCurrentConditionToTry = iCurrentConditionToTry + 1
         if bDebugMessages == true then LOG(sFunctionRef..': Low power enemy t2 transport intie builder, M28Team.tTeamData[iTeam][M28Team.refiEnemyAirOtherThreat]='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirOtherThreat]..'; M28Team.tTeamData[iTeam][M28Team.subrefiOurAirAAThreat]='..M28Team.tTeamData[iTeam][M28Team.subrefiOurAirAAThreat]..'; M28Team.tTeamData[iTeam][M28Team.refbEnemyHasT2PlusTransport]='..tostring(M28Team.tTeamData[iTeam][M28Team.refbEnemyHasT2PlusTransport] or false)..'; Stalling E='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])) end
@@ -5724,6 +5760,37 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
         if iFactoryTechLevel < 3 and not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) and (oFactory[refbJustBuiltFirstT1Bomber] or GetGameTimeSeconds() - (M28Team.tAirSubteamData[iAirSubteam][M28Team.reftiTimeOfLastEngiHunterBomberOrder] or 0) <= 3) and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryAirScout) == 0 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryBomber) > 0 then
             if bDebugMessages == true then LOG(sFunctionRef..': Will try and get an air scout, cur air scouts='..aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryAirScout)) end
             if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirScout) then return sBPIDToBuild end
+        end
+
+        --Early game proactive air scout for enemy base scouting (within first 3 minutes) - non-low-power version
+        iCurrentConditionToTry = iCurrentConditionToTry + 1
+        local iEarlyScoutTimeLimit = 180 --3 minutes
+        local iAirScoutsInTeam = M28Conditions.GetNumberOfConstructedUnitsInAirSubteam(iAirSubteam, M28UnitInfo.refCategoryAirScout)
+        local iAirScoutsUnderConstruction = M28Conditions.GetNumberOfUnderConstructionUnitsOfCategoryInOtherCoreZones(tLZTeamData, iTeam, M28UnitInfo.refCategoryAirScout)
+        local iMinEarlyScouts = math.max(1, math.min(2, table.getn(M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains] or {})))
+        if bDebugMessages == true then LOG(sFunctionRef..': Early game proactive air scout check (non-low-power), Time='..GetGameTimeSeconds()..'; iAirScoutsInTeam='..iAirScoutsInTeam..'; iAirScoutsUnderConstruction='..iAirScoutsUnderConstruction..'; iMinEarlyScouts='..iMinEarlyScouts) end
+        if GetGameTimeSeconds() <= iEarlyScoutTimeLimit and iFactoryTechLevel == 1 and not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) then
+            if M28Map.iMapSize >= 512 then
+                iMinEarlyScouts = math.max(iMinEarlyScouts, 2)
+            end
+            if iAirScoutsInTeam + iAirScoutsUnderConstruction < iMinEarlyScouts then
+                if (oFactory[refiTotalBuildCount] or 0) >= 1 or GetGameTimeSeconds() >= 90 then
+                    if bDebugMessages == true then LOG(sFunctionRef..': Building early game proactive air scout (non-low-power)') end
+                    if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirScout) then return sBPIDToBuild end
+                end
+            end
+        end
+
+        --Proactive air scout maintenance throughout game - maintain scouts based on scouting needs
+        iCurrentConditionToTry = iCurrentConditionToTry + 1
+        local iDesiredMinScouts = M28Intel.GetDesiredAirScoutCount(iTeam, M28Team.tTeamData[iTeam][M28Team.refiFriendlyGameEnderCount] or 0)
+        if bDebugMessages == true then LOG(sFunctionRef..': Proactive air scout maintenance (normal power), iAirScoutsInTeam='..iAirScoutsInTeam..'; iAirScoutsUnderConstruction='..iAirScoutsUnderConstruction..'; iDesiredMinScouts='..iDesiredMinScouts..'; LongestOverdue='..(M28Team.tTeamData[iTeam][M28Team.subrefiLongestOverdueScoutingTarget] or 0)) end
+        if iAirScoutsInTeam + iAirScoutsUnderConstruction < iDesiredMinScouts and not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision]) then
+            --Build scout if we have some scouting deficit (overdue by 30+ seconds) or have very few scouts
+            if iAirScoutsInTeam <= 1 or (M28Team.tTeamData[iTeam][M28Team.subrefiLongestOverdueScoutingTarget] or 0) >= 30 then
+                if bDebugMessages == true then LOG(sFunctionRef..': Building proactive air scout (normal power) - below desired threshold') end
+                if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirScout) then return sBPIDToBuild end
+            end
         end
 
         --Enemy ground threat and enemy lacks AirAA and we havent built many gunships or bombers
