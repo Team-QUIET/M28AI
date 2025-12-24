@@ -308,6 +308,8 @@ iLandZoneSegmentSize = 5 --Gets updated by the SetupLandZones - the size of one 
                 subrefiLZTAttackingUnit = 1
                 subrefiLZTMovingToOtherZone = 2
             subreftiLandZoneTargetedByOurDF = 'LZTBD' --returns land zone ref we are sending DF units in this LZ to
+            subrefiLandZoneLastLoggedTarget = 'LZLLT' --last target we logged about (to avoid log spam when target is cleared and re-set each cycle)
+            subrefiLandZoneLastLoggedAttackType = 'LZLLA' --last attack type we logged about
 
             --Engineer related values
             subreftoPartBuiltMexes = 'PBMex' --If we are building a mex and the builder gets its orders cleared or dies, and it was building a mex, then the mex should be recorded in a table so it can be rebuilt

@@ -5307,26 +5307,35 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
     function RecordDFLandZoneTarget(iLandZoneTarget, iAttackType)
         --Send nil value to clear previously recorded values
+        local iPreviousTarget = tLZTeamData[M28Map.subreftiLandZoneTargetedByOurDF]
+        --Track last logged target separately to avoid log spam (target gets cleared each cycle then re-set)
+        local iLastLoggedTarget = tLZTeamData[M28Map.subrefiLandZoneLastLoggedTarget]
+        local iLastLoggedAttackType = tLZTeamData[M28Map.subrefiLandZoneLastLoggedAttackType]
+
         if not(iLandZoneTarget) then
-            if tLZTeamData[M28Map.subreftiLandZoneTargetedByOurDF] then
-                local tTargetingLandZoneTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][tLZTeamData[M28Map.subreftiLandZoneTargetedByOurDF]][M28Map.subrefLZTeamData][iTeam]
-                if bDebugMessages == true then LOG(sFunctionRef..': About to update for iPlateau='..iPlateau..'subreftiLandZoneTargetedByOurDF='..(tLZTeamData[M28Map.subreftiLandZoneTargetedByOurDF] or 'nil')..'; is tTargetingLandZoneTeamData nil='..tostring(tTargetingLandZoneTeamData == nil)) end
+            if iPreviousTarget then
+                local tTargetingLandZoneTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iPreviousTarget][M28Map.subrefLZTeamData][iTeam]
+                if bDebugMessages == true then LOG(sFunctionRef..': About to update for iPlateau='..iPlateau..'subreftiLandZoneTargetedByOurDF='..(iPreviousTarget or 'nil')..'; is tTargetingLandZoneTeamData nil='..tostring(tTargetingLandZoneTeamData == nil)) end
                 if not(tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF]) then tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF] = {} end
                 tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF][iLandZone] = nil --Use iLandZone (source) not target zone number
-                if M28Config.M28LogLandZoneDebug then
-                    LOG('CrossZoneCoord: [P'..iPlateau..'-LZ'..iLandZone..'] CLEARED targeting of LZ'..tLZTeamData[M28Map.subreftiLandZoneTargetedByOurDF]..', Time='..GetGameTimeSeconds())
-                end
                 tLZTeamData[M28Map.subreftiLandZoneTargetedByOurDF] = nil
             end
         else
+            --Only log if target or attack type actually changed from last logged value (not just from cleared state)
+            local bTargetChanged = (iLastLoggedTarget ~= iLandZoneTarget) or (iLastLoggedAttackType ~= iAttackType)
+
             tLZTeamData[M28Map.subreftiLandZoneTargetedByOurDF] = iLandZoneTarget
             local tTargetingLandZoneTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZoneTarget][M28Map.subrefLZTeamData][iTeam]
             if tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF] then
                 tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF][iLandZone] = iAttackType
             end
-            if M28Config.M28LogLandZoneDebug then
+            if M28Config.M28LogLandZoneDebug and bTargetChanged then
                 local sAttackType = (iAttackType == M28Map.subrefiLZTAttackingUnit) and 'ATTACKING' or 'MOVING_TO'
-                LOG('CrossZoneCoord: [P'..iPlateau..'-LZ'..iLandZone..'] Now targeting LZ'..iLandZoneTarget..' ('..sAttackType..'), Time='..GetGameTimeSeconds())
+                local sPreviousTarget = iLastLoggedTarget and ('LZ'..iLastLoggedTarget) or 'nil'
+                LOG('CrossZoneCoord: [P'..iPlateau..'-LZ'..iLandZone..'] Target: '..sPreviousTarget..' -> LZ'..iLandZoneTarget..' ('..sAttackType..'), Time='..GetGameTimeSeconds())
+                --Update last logged values
+                tLZTeamData[M28Map.subrefiLandZoneLastLoggedTarget] = iLandZoneTarget
+                tLZTeamData[M28Map.subrefiLandZoneLastLoggedAttackType] = iAttackType
             end
         end
     end
@@ -8662,6 +8671,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             if tLikelyTargetLZTeamData and M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
                                 local iAdjacentMobileDFThreat = 0
                                 local tbAdjZoneUnitsInAvailableCombatUnits
+                                local tContributingZones = {} --Track which zones contribute threat for logging
                                 if M28Utilities.IsTableEmpty(tLikelyTargetLZTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF]) == false then
                                     local tbZonesAdjacentToThis = {}
                                     for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
@@ -8723,6 +8733,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                     else
                                                         iAdjacentMobileDFThreat = iAdjacentMobileDFThreat + (tAdjLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0)
                                                     end
+                                                    --Track contributing zone for debug logging
+                                                    table.insert(tContributingZones, iOtherLZ)
                                                     if bDebugMessages == true then LOG(sFunctionRef..': Including threat of friendly DF units in iOtherLZ='..iOtherLZ..', iAdjacentMobileDFThreat after this='..iAdjacentMobileDFThreat) end
                                                 end
                                             end
@@ -8739,6 +8751,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     end
                                     if not(tbAdjZoneUnitsInAvailableCombatUnits[iLikelyTargetZone]) then
                                         iAdjacentMobileDFThreat = iAdjacentMobileDFThreat + (tLikelyTargetLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0)
+                                        --Track target zone contributing threat
+                                        table.insert(tContributingZones, iLikelyTargetZone)
                                         if bDebugMessages == true then LOG(sFunctionRef..': Including threat of friendly DF units in iLikelyTargetZone, iAdjacentMobileDFThreat after this='..iAdjacentMobileDFThreat) end
                                     end
                                 end
@@ -8750,7 +8764,16 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     if bDebugMessages == true then LOG(sFunctionRef..': bAttackWithEverything after including adjacent zones iwth same target='..tostring(bAttackWithEverything or false)) end
                                     --Log when cross-zone coordination changes the attack decision
                                     if M28Config.M28LogLandZoneDebug and bAttackWithEverything and not(bPreviousAttackDecision) then
-                                        LOG('CrossZoneCoord: [P'..iPlateau..'-LZ'..iLandZone..'] COORDINATED ATTACK enabled! TargetLZ='..iLikelyTargetZone..', OurThreat='..iOurDFAndT1ArtiCombatThreat..', AdjZoneThreat='..iAdjacentMobileDFThreat..', CombinedThreat='..(iOurDFAndT1ArtiCombatThreat + iAdjacentMobileDFThreat)..', EnemyThreat='..iEnemyCombatThreat..', Time='..GetGameTimeSeconds())
+                                        --Build list of contributing zones for debug output
+                                        local sContributingZones = ''
+                                        for _, iContribZone in tContributingZones do
+                                            sContributingZones = sContributingZones .. 'LZ' .. iContribZone .. ' '
+                                        end
+                                        LOG('CrossZoneCoord: [P'..iPlateau..'-LZ'..iLandZone..'] COORDINATED ATTACK! Target=LZ'..iLikelyTargetZone..', Our='..math.floor(iOurDFAndT1ArtiCombatThreat)..', Adj='..math.floor(iAdjacentMobileDFThreat)..' (from '..sContributingZones..'), Combined='..math.floor(iOurDFAndT1ArtiCombatThreat + iAdjacentMobileDFThreat)..' vs Enemy='..math.floor(iEnemyCombatThreat)..', Time='..GetGameTimeSeconds())
+                                    end
+                                    --Log when coordination was attempted but still insufficient
+                                    if M28Config.M28LogLandZoneDebug and not(bAttackWithEverything) then
+                                        LOG('CrossZoneCoord: [P'..iPlateau..'-LZ'..iLandZone..'] Coord INSUFFICIENT. Combined='..math.floor(iOurDFAndT1ArtiCombatThreat + iAdjacentMobileDFThreat)..' vs Enemy='..math.floor(iEnemyCombatThreat)..', Time='..GetGameTimeSeconds())
                                     end
                                 end
                             end
