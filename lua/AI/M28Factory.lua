@@ -2150,7 +2150,11 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 
         else
             --Avoid overbuilding t1 arti too much - will allow slight overbuild though to cover the risk of t1 arti being killed for unrelated reason and delaying the transport too much
-            if iCombatUnitsWanted > 0 and (M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoCombatUnitsLoadingOntoTransport]) or table.getn(tLZTeamData[M28Map.reftoCombatUnitsLoadingOntoTransport]) <= iCombatUnitsWanted) then
+            local iT1ArtiInZone = M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryIndirect * categories.TECH1)
+            local iT1ArtiUnderConstruction = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryIndirect * categories.TECH1, false)
+            local iMaxT1ArtiForTransport = math.max(6, iCombatUnitsWanted + 2) --Allow iCombatUnitsWanted + small buffer, minimum 6
+            if bDebugMessages == true then LOG(sFunctionRef..': Transport arti check: iT1ArtiInZone='..iT1ArtiInZone..'; iT1ArtiUnderConstruction='..iT1ArtiUnderConstruction..'; iMaxT1ArtiForTransport='..iMaxT1ArtiForTransport..'; iCombatUnitsWanted='..iCombatUnitsWanted) end
+            if iCombatUnitsWanted > 0 and (iT1ArtiInZone + iT1ArtiUnderConstruction) < iMaxT1ArtiForTransport and (M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoCombatUnitsLoadingOntoTransport]) or table.getn(tLZTeamData[M28Map.reftoCombatUnitsLoadingOntoTransport]) <= iCombatUnitsWanted) then
                 --Exception - we lack 2 engis of this tech level or better in the zone and want more BP, in which case build engis first
                 local iEngiCategoryToCheck = M28UnitInfo.refCategoryEngineer
                 if iFactoryTechLevel == 2 then iEngiCategoryToCheck = iEngiCategoryToCheck - categories.TECH1
