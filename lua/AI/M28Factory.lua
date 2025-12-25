@@ -593,18 +593,18 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
             if M28Utilities.bQuietModActive and sBPIDToBuild and iFactoryTechLevel <= 2 and aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] then
                 if not(iCurEngineers) then iCurEngineers = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer) end
                 local iCurCombat = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandCombat)
-                --Early game (first 5 minutes): limit engineers to 1:2 ratio with combat units, max 10 engineers
-                --(5-10 minutes): limit engineers to 1:1.5 ratio with combat units, max 15 engineers
+                --Early game (first 5 minutes): limit engineers to 1:2 ratio with combat units, max 15 engineers
+                --(5-10 minutes): limit engineers to 1:1.5 ratio with combat units, max 20 engineers
                 local iGameTime = GetGameTimeSeconds()
                 local iMaxEngineers, iEngiToCombatRatio
                 if iGameTime <= 300 then
-                    iMaxEngineers = 10
+                    iMaxEngineers = 15
                     iEngiToCombatRatio = 0.5 --1 engi per 2 combat
                 elseif iGameTime <= 600 then
-                    iMaxEngineers = 15
+                    iMaxEngineers = 20
                     iEngiToCombatRatio = 0.67 --1 engi per 1.5 combat
                 else
-                    iMaxEngineers = 20
+                    iMaxEngineers = 30
                     iEngiToCombatRatio = 1 --1:1 ratio
                 end
                 if iCurEngineers >= iMaxEngineers or (iCurCombat > 0 and iCurEngineers > iCurCombat * iEngiToCombatRatio) then
