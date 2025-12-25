@@ -3631,7 +3631,7 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
     --Submarine surfacing decision for AA defense
     local bSurfacingConditionMet = (iEnemyAdjacentAirToGroundThreat > 2000 or tWZTeamData[M28Map.refiEnemyAirToGroundThreat] > 0) and M28Utilities.IsTableEmpty(tAvailableSubmarines) == false
     --Only log when surfacing condition is met (actual decision to evaluate) - throttle to reduce spam
-    local bLogSurfacingDecision = M28Config.M28LogWaterZoneDebug and bSurfacingConditionMet
+    local bLogSurfacingDecision = bDebugMessages and bSurfacingConditionMet
     if bSurfacingConditionMet then
         if bLogSurfacingDecision then
             LOG('M28SubDefense: ========== SUBMARINE SURFACING DECISION ==========')
@@ -3764,7 +3764,7 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
             local iEnemyTorpThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] or 0
             local iTorpThreshold1 = iFriendlyAdjacentAAThreat * 1.5
             local iTorpThreshold2 = 0.1 * iSubMassCost
-            if M28Config.M28LogWaterZoneDebug then
+            if bDebugMessages == true then
                 LOG('M28SubDefense: ========== SUBMARINE DEFENSE DECISION ==========')
                 LOG('M28SubDefense: Time='..GetGameTimeSeconds()..'; WaterZone='..iWaterZone..'; Pond='..iPond..'; Team='..iTeam)
                 LOG('M28SubDefense: SubmarineCount='..table.getn(tAvailableSubmarines)..'; SubMassCost='..iSubMassCost)
@@ -3776,7 +3776,7 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
                 bHaveRunFromAir = true
                 tWZTeamData[M28Map.refiTimeLastRunFromEnemyAir] = iCurTime
                 if bDebugMessages == true then LOG(sFunctionRef..': Will retreat to closest friendly base for amphibious unit, or rally point for subs') end
-                if M28Config.M28LogWaterZoneDebug then
+                if bDebugMessages == true then
                     LOG('M28SubDefense: DECISION: RETREAT - Submarines retreating from torp bomber threat')
                     LOG('M28SubDefense: ========== END SUBMARINE DEFENSE DECISION ==========')
                 end
@@ -3800,7 +3800,7 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
                 tAvailableSubmarines = nil--]]
             else
                 if bDebugMessages == true then LOG(sFunctionRef..': Wont retreat subs as not enough for a torp bomber threat') end
-                if M28Config.M28LogWaterZoneDebug then
+                if bDebugMessages == true then
                     LOG('M28SubDefense: DECISION: STAY - Torp bomber threat insufficient to warrant retreat')
                     LOG('M28SubDefense: ========== END SUBMARINE DEFENSE DECISION ==========')
                 end

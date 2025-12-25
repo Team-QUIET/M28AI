@@ -566,7 +566,7 @@ function AirSubteamOverseer(iTeam, iAirSubteam)
 
         --Comprehensive air cycle debug logging with cooldown (every 60 seconds per air subteam)
         --Uses separate timer from AIR_AA_STATUS to prevent cooldown conflicts
-        if M28Config.M28LogAirSystemDebug then
+        if bDebugMessages == true then
             local iCurTime = GetGameTimeSeconds()
             local iLastLogTime = M28Team.tAirSubteamData[iAirSubteam][M28Team.refiTimeLastAirCycleSummaryLog] or 0
             if iCurTime - iLastLogTime >= 60 then
@@ -3529,7 +3529,7 @@ function FindAlternativeApproachToWaterZone(iTeam, iTargetWaterZone, iStartPlate
 
             if not(bPathBlocked) then
                 --Found a safe approach!
-                if M28Config.M28LogAirSystemDebug then
+                if bDebugMessages == true then
                     LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] TORP_ALT_ROUTE_FOUND - WZ='..iTargetWaterZone..', AngleOffset='..iOffset..', SafeAngle='..iTestAngle)
                 end
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -3771,7 +3771,7 @@ function DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOr
                                 if bDebugMessages == true then LOG(sFunctionRef..': After doing detailed check it is safe, i.e. groundAA is too far away') end
                             end
                         else
-                            if M28Config.M28LogAirSystemDebug and iAirSubteam then
+                            if bDebugMessages == true then
                                 LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] AA_PATH_BLOCKED - LandZone P'..tPlateauAndLandZone[1]..'Z'..tPlateauAndLandZone[2]..', GroundAA='..(tLZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0)..', AirAA='..(tLZTeamData[M28Map.refiEnemyAirAAThreat] or 0)..', GroundThreshold='..(iGroundAAThreatThreshold or 'nil')..', AirThreshold='..(iAirAAThreatThreshold or 'nil'))
                             end
                             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -3832,7 +3832,7 @@ function DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOr
                                 if bDebugMessages == true then LOG(sFunctionRef..': After doing detailed check it is safe, i.e. groundAA is too far away') end
                             end
                         else
-                            if M28Config.M28LogAirSystemDebug and iAirSubteam then
+                            if bDebugMessages == true then
                                 LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] AA_PATH_BLOCKED - WaterZone WZ'..iWaterZone..', GroundAA='..(tWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0)..', AirAA='..(tWZTeamData[M28Map.refiEnemyAirAAThreat] or 0)..', GroundThreshold='..(iGroundAAThreatThreshold or 'nil')..', AirThreshold='..(iAirAAThreatThreshold or 'nil'))
                             end
                             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -3845,7 +3845,7 @@ function DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOr
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 
-    if M28Config.M28LogAirSystemDebug and iAirSubteam then
+    if bDebugMessages == true then
         if bReturnGroundAAThreatInstead then
             LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] AA_PATH_ANALYSIS - Path SAFE, Start=P'..iStartPlateauOrZero..'Z'..iStartLandOrWaterZone..', End=P'..iEndPlateauOrZero..'Z'..iEndLandOrWaterZone..', TotalGroundAA='..math.floor(iGroundAAThreat)..', Threshold='..(iGroundAAThreatThreshold or 'nil')..', DetailedCheck='..tostring(bDoDetailedCheckForAA or false))
         else
@@ -4162,7 +4162,7 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
     if bDebugMessages == true then LOG(sFunctionRef..': M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl])..'; M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir])..'; refiEnemyAirAAThreat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]..'; subrefiHighestFriendlyFactoryTech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]..'; OurAAThreat='..M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat]..'; iAirControlFactor='..iAirControlFactor) end
 
     --Comprehensive air AA debug logging with cooldown (every 30 seconds per air subteam)
-    if M28Config.M28LogAirSystemDebug then
+    if bDebugMessages == true then
         local iCurTime = GetGameTimeSeconds()
         local iLastLogTime = M28Team.tAirSubteamData[iAirSubteam][M28Team.refiTimeLastAirDebugLog] or 0
         if iCurTime - iLastLogTime >= 30 then
@@ -5852,7 +5852,7 @@ function ManageBombers(iTeam, iAirSubteam)
     M28Team.tAirSubteamData[iAirSubteam][M28Team.reftoActiveBomberTargets] = {} --Reset
 
     --Comprehensive bomber debug logging with cooldown (every 30 seconds per air subteam)
-    if M28Config.M28LogAirSystemDebug then
+    if bDebugMessages == true then
         local iCurTime = GetGameTimeSeconds()
         local iLastLogTime = M28Team.tAirSubteamData[iAirSubteam][M28Team.refiTimeLastAirDebugLog] or 0
         if iCurTime - iLastLogTime >= 30 or (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurT1ToT3BomberThreat] or 0) >= 1000 then
@@ -6485,7 +6485,7 @@ function ManageTorpedoBombers(iTeam, iAirSubteam)
     local iTorpBomberThreat = 0
 
     --Comprehensive torpedo bomber debug logging with cooldown (every 30 seconds per air subteam)
-    if M28Config.M28LogAirSystemDebug then
+    if bDebugMessages == true then
         local iCurTime = GetGameTimeSeconds()
         local iLastLogTime = M28Team.tAirSubteamData[iAirSubteam][M28Team.refiTimeLastAirDebugLog] or 0
         if iCurTime - iLastLogTime >= 30 or (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurTorpBomberThreat] or 0) >= 500 then
@@ -6803,7 +6803,7 @@ function ManageTorpedoBombers(iTeam, iAirSubteam)
 
                         if bDebugMessages == true then LOG(sFunctionRef..': Considering if enemies in iWaterZone='..iWaterZone..'; iStartPlateauOrZero='..iStartPlateauOrZero..'; iStartLandOrWaterZone='..iStartLandOrWaterZone..';  iDistance='..iDistance..'; Is table of enemy units in this WZ empty='..tostring(M28Utilities.IsTableEmpty(tWZTeamData[M28Map.subrefTEnemyUnits]))..'; tWZTeamData[M28Map.subrefWZbCoreBase]='..tostring(tWZTeamData[M28Map.subrefWZbCoreBase] or false)..'; iTorpBomberThreat='..iTorpBomberThreat..'; tWZTeamData[M28Map.refiModDistancePercent]='..tWZTeamData[M28Map.refiModDistancePercent]..'; iMassValueOfEnemyUnits='..iMassValueOfEnemyUnits..'; tWZTeamData[M28Map.refiEnemyTorpDefenceCount]='..(tWZTeamData[M28Map.refiEnemyTorpDefenceCount] or 'nil')..'; Enemy groundAA just in this water zone='..tWZTeamData[M28Map.subrefiThreatEnemyGroundAA]) end
                         --Detailed logging for torpedo bomber attack decisions
-                        if M28Config.M28LogAirSystemDebug and M28Utilities.IsTableEmpty(tWZTeamData[M28Map.subrefTEnemyUnits]) == false then
+                        if bDebugMessages == true then
                             local iEnemyUnitCount = table.getn(tWZTeamData[M28Map.subrefTEnemyUnits])
                             LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] TORP_ZONE_EVAL - WZ='..iWaterZone..', Dist='..math.floor(iDistance)..', EnemyMass='..math.floor(iMassValueOfEnemyUnits)..', EnemyUnits='..iEnemyUnitCount..', EnemyGroundAA='..(tWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0)..', TorpDef='..(tWZTeamData[M28Map.refiEnemyTorpDefenceCount] or 0)..', AAThreshold='..math.floor(iAAThreatThreshold)..', TorpThreat='..iTorpBomberThreat..', ModDist%='..string.format('%.2f', tWZTeamData[M28Map.refiModDistancePercent])..', AirAAThreshold='..iAirAAThreatThreshold..', Time='..GetGameTimeSeconds())
                         end
@@ -6823,11 +6823,11 @@ function ManageTorpedoBombers(iTeam, iAirSubteam)
                             --DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, iEndPlateauOrZero, iEndLandOrWaterZone, bIgnoreAirAAThreat, iGroundAAThreatThreshold, iAirAAThreatThreshold, bUsingTorpBombers, iAirSubteam, bDoDetailedCheckForAA)
                             if bIgnoreDueToSimilarAngleAAThreat then
                                 if bDebugMessages == true then LOG(sFunctionRef..': Ignoring due to nearby angle zone that does have significant threat') end
-                                if M28Config.M28LogAirSystemDebug then LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] TORP_ZONE_BLOCKED - WZ='..iWaterZone..', Reason=SimilarAngleAAThreat') end
+                                if bDebugMessages == true then LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] TORP_ZONE_BLOCKED - WZ='..iWaterZone..', Reason=SimilarAngleAAThreat') end
                                 --DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, iEndPlateauOrZero, iEndLandOrWaterZone, bIgnoreAirAAThreat, iGroundAAThreatThreshold, iAirAAThreatThreshold, bUsingTorpBombers, iAirSubteam, bDoDetailedCheckForAA, bReturnGroundAAThreatInstead, tOptionalStartMidpointAdjustForDetailedCheck, bReturnGroundAAUnitsAlongsideAAThreat, tOptionalEndMidpointAdjustForDetailedCheck, bOptionalIgnoreOppositeDirectionZones, bIncludeEnemyGroundAAInAirAAThreat, bAssumeWontTargetInterimAAForDetailedCheck)
                             elseif not(DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, 0, iWaterZone, false,      iAAThreatThreshold,     iAirAAThreatThreshold, true, iAirSubteam) or (bDoDetailedCheck and not(DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone,        0,              iWaterZone,         false,              iAAThreatThreshold,      iAirAAThreatThreshold,     true,           iAirSubteam,        true,               false,                      nil,                                        false,                                      nil,                                        true,                               false,                              true)))) then
                                 --Add enemies in this water zone and any adjacent water zone
-                                if M28Config.M28LogAirSystemDebug then LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] TORP_ZONE_ATTACKING - WZ='..iWaterZone..', EnemyMass='..math.floor(iMassValueOfEnemyUnits)..', AAThreshold='..math.floor(iAAThreatThreshold)) end
+                                if bDebugMessages == true then LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] TORP_ZONE_ATTACKING - WZ='..iWaterZone..', EnemyMass='..math.floor(iMassValueOfEnemyUnits)..', AAThreshold='..math.floor(iAAThreatThreshold)) end
                                 AddEnemyTargetsInWaterZone(iWaterZone, true)
                                 tWZTeamData[M28Map.refiTimeOfLastTorpAttack] = GetGameTimeSeconds()
                                 if bDebugMessages == true then LOG(sFunctionRef..': will attack enemies in this water zone if any valid targets, is tEnemyTargets empty='..tostring(M28Utilities.IsTableEmpty(tEnemyTargets))) end
@@ -6917,17 +6917,17 @@ function ManageTorpedoBombers(iTeam, iAirSubteam)
                                     --DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, iEndPlateauOrZero, iEndLandOrWaterZone, bIgnoreAirAAThreat, iGroundAAThreatThreshold, iAirAAThreatThreshold, bUsingTorpBombers, iAirSubteam, bDoDetailedCheckForAA, bReturnGroundAAThreatInstead, tOptionalStartMidpointAdjustForDetailedCheck, bReturnGroundAAUnitsAlongsideAAThreat, tOptionalEndMidpointAdjustForDetailedCheck, bOptionalIgnoreOppositeDirectionZones, bIncludeEnemyGroundAAInAirAAThreat, bAssumeWontTargetInterimAAForDetailedCheck)
                                     if not(DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone,        0,              iWaterZone,         false,              iAAThreatThreshold,      iAirAAThreatThreshold,     true,           iAirSubteam,        true,               false,                      nil,                                        false,                                      oUnitToConsiderTargeting:GetPosition(),         true,                               false,                              true)) then
                                         if bDebugMessages == true then LOG(sFunctionRef..': Will target just this unit') end
-                                        if M28Config.M28LogAirSystemDebug then LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] TORP_ZONE_SINGLE_TARGET - WZ='..iWaterZone..', Unit='..oUnitToConsiderTargeting.UnitId) end
+                                        if bDebugMessages == true then LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] TORP_ZONE_SINGLE_TARGET - WZ='..iWaterZone..', Unit='..oUnitToConsiderTargeting.UnitId) end
                                         ConsiderRecordingFrontTorpedoBomber()
                                         AssignTorpOrBomberTargets(tAvailableBombers, { oUnitToConsiderTargeting }, iAirSubteam,  nil,                nil,                    nil,            1.5)
                                     else
-                                        if M28Config.M28LogAirSystemDebug then
+                                        if bDebugMessages == true then
                                             local iActualAAThreat = DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, 0, iWaterZone, false, iAAThreatThreshold, iAirAAThreatThreshold, true, iAirSubteam, true, true, nil, false, oUnitToConsiderTargeting:GetPosition(), true, false, true)
                                             LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] TORP_ZONE_BLOCKED - WZ='..iWaterZone..', Reason=SingleTargetAAThreat, Unit='..oUnitToConsiderTargeting.UnitId..', ActualAA='..(iActualAAThreat or 'nil')..', AAThreshold='..math.floor(iAAThreatThreshold))
                                         end
                                     end
                                 else
-                                    if M28Config.M28LogAirSystemDebug then
+                                    if bDebugMessages == true then
                                         LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] TORP_ZONE_BLOCKED - WZ='..iWaterZone..', Reason=NoValidSingleTarget, oUnitToConsiderTargeting='..(oUnitToConsiderTargeting and oUnitToConsiderTargeting.UnitId or 'nil')..', EnemyGroundAA='..(tWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0))
                                     end
                                 end
@@ -6941,7 +6941,7 @@ function ManageTorpedoBombers(iTeam, iAirSubteam)
                                         --Found an alternative route - proceed with attack via waypoint
                                         bFoundAlternativeRoute = true
                                         if bDebugMessages == true then LOG(sFunctionRef..': Found alternative route to WZ='..iWaterZone..' via angle='..iSafeAngle..', waypoint='..repru(tAltPosition)) end
-                                        if M28Config.M28LogAirSystemDebug then LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] TORP_ZONE_ALT_ROUTE - WZ='..iWaterZone..', SafeAngle='..math.floor(iSafeAngle)..', EnemyMass='..math.floor(iMassValueOfEnemyUnits)..', Waypoint='..repru(tAltPosition)) end
+                                        if bDebugMessages == true then LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] TORP_ZONE_ALT_ROUTE - WZ='..iWaterZone..', SafeAngle='..math.floor(iSafeAngle)..', EnemyMass='..math.floor(iMassValueOfEnemyUnits)..', Waypoint='..repru(tAltPosition)) end
                                         AddEnemyTargetsInWaterZone(iWaterZone, true)
                                         tWZTeamData[M28Map.refiTimeOfLastTorpAttack] = GetGameTimeSeconds()
                                         if M28Utilities.IsTableEmpty(tEnemyTargets) == false then
@@ -6972,7 +6972,7 @@ function ManageTorpedoBombers(iTeam, iAirSubteam)
                                     end
                                 end
                                 if not(bFoundAlternativeRoute) then
-                                    if M28Config.M28LogAirSystemDebug then
+                                    if bDebugMessages == true then
                                         --Get the actual AA threat along path for logging
                                         local iActualAAThreat = DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, 0, iWaterZone, false, iAAThreatThreshold, iAirAAThreatThreshold, true, iAirSubteam, false, true)
                                         LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] TORP_ZONE_BLOCKED - WZ='..iWaterZone..', Reason=AAThreatAlongPath, ActualAA='..(iActualAAThreat or 'nil')..', AAThreshold='..math.floor(iAAThreatThreshold)..', EnemyGroundAAInZone='..(tWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0))
@@ -6987,7 +6987,7 @@ function ManageTorpedoBombers(iTeam, iAirSubteam)
                     end
                 end
                 --Summary log after evaluating all water zones
-                if M28Config.M28LogAirSystemDebug then
+                if bDebugMessages == true then
                     local iBlockedZoneCount = 0
                     for _ in tiWZWithTooMuchAA do iBlockedZoneCount = iBlockedZoneCount + 1 end
                     LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] TORP_ZONE_SUMMARY - ZonesEvaluated='..table.getn(tiWaterZoneByDistance)..', ZonesBlockedByAA='..iBlockedZoneCount..', AvailableTorpsRemaining='..(M28Utilities.IsTableEmpty(tAvailableBombers) and 0 or table.getn(tAvailableBombers)))
@@ -7188,7 +7188,7 @@ function AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam
 
             toEnemyUnitsByScore[iUnit] = iCompositeScore
 
-            if M28Config.M28LogAirSystemDebug then
+            if bDebugMessages == true then
                 LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] BOMBER_TARGET_EVAL - Unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..', Score='..string.format('%.3f', iCompositeScore)..', Dist='..math.floor(iDistanceToRally)..', NormDist='..string.format('%.2f', iNormalizedDist)..', ModDist='..string.format('%.2f', iModDist)..', StratValue='..string.format('%.2f', iStrategicValue)..', MassFactor='..string.format('%.2f', iMassFactor)..', MassCost='..iMassCost..', TechLevel='..iTechLevel)
             end
         end
@@ -7326,7 +7326,7 @@ function AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam
                         end
                         AddAssignedAttacker(oEnemyUnit, oClosestUnit) --Must do this after sending the order or else will be cleared
                         
-                        if M28Config.M28LogAirSystemDebug then
+                        if bDebugMessages == true then
                             local sOrderType = 'Attack'
                             if bBlockingShoreline then sOrderType = 'BeachBlock'
                             elseif not(bIssueAttackUnitOrder) then
@@ -7365,7 +7365,7 @@ function AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam
         end
     end
 
-    if M28Config.M28LogAirSystemDebug then
+    if bDebugMessages == true then
         local iRemainingBombers = M28Utilities.IsTableEmpty(tAvailableBombers) and 0 or table.getn(tAvailableBombers)
         local iTargetCount = M28Utilities.IsTableEmpty(tEnemyTargets) and 0 or table.getn(tEnemyTargets)
         LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] BOMBER_ASSIGN_SUMMARY - TargetsConsidered='..iTargetCount..', BombersRemaining='..iRemainingBombers..', ForceGroundFire='..tostring(bForceGroundFire or false)..', TargetAAFirst='..tostring(bTargetAAAndShieldsFirst or false)..', Waypoint='..tostring(tOptionalWaypointPosition ~= nil))
@@ -7642,7 +7642,7 @@ function ManageGunships(iTeam, iAirSubteam)
     M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat] = M28UnitInfo.GetAirThreatLevel(tAvailableGunships, false, false, false, true, false, false) + M28UnitInfo.GetAirThreatLevel(tGunshipsForRefueling, false, false, false, true, false, false) + M28UnitInfo.GetAirThreatLevel(tUnavailableUnits, false, false, false, true, false, false)
 
     --Comprehensive gunship debug logging with cooldown (every 30 seconds per air subteam)
-    if M28Config.M28LogAirSystemDebug then
+    if bDebugMessages == true then
         local iCurTime = GetGameTimeSeconds()
         local iLastLogTime = M28Team.tAirSubteamData[iAirSubteam][M28Team.refiTimeLastAirDebugLog] or 0
         if iCurTime - iLastLogTime >= 30 or M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat] >= 2000 then

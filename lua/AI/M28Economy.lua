@@ -2205,7 +2205,7 @@ function ManageMassStalls(iTeam)
                         local oFactoryToDestroy = tFactoryData.oUnit
                         if M28UnitInfo.IsUnitValid(oFactoryToDestroy) then
                             local sTechLevel = EntityCategoryContains(categories.TECH3, oFactoryToDestroy.UnitId) and 'T3' or 'T2'
-                            if M28Config.M28LogEconomicDecisions then LOG(sFunctionRef..': NAVAL_FAC_SELFDESTRUCT - Reason=EconomicStagnation, Tech='..sTechLevel..', Count='..(iFactoriesDestroyed+1)..'/'..iFactoriesToDestroy..', TimeSinceMexUpgrade='..math.floor(iTimeSinceLastMexUpgrade)..'s, MassStored%='..math.floor((M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0)*100)..'%') end
+                            if bDebugMessages == true then LOG(sFunctionRef..': NAVAL_FAC_SELFDESTRUCT - Reason=EconomicStagnation, Tech='..sTechLevel..', Count='..(iFactoriesDestroyed+1)..'/'..iFactoriesToDestroy..', TimeSinceMexUpgrade='..math.floor(iTimeSinceLastMexUpgrade)..'s, MassStored%='..math.floor((M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0)*100)..'%') end
                             M28Orders.IssueTrackedKillUnit(oFactoryToDestroy)
                             iFactoriesDestroyed = iFactoriesDestroyed + 1
                         end
@@ -3021,7 +3021,7 @@ function ConsiderNavalFactorySelfDestructForDominance(iTeam)
         local oFactoryToDestroy = tFactoryData.oUnit
         if M28UnitInfo.IsUnitValid(oFactoryToDestroy) then
             local sTechLevel = EntityCategoryContains(categories.TECH3, oFactoryToDestroy.UnitId) and 'T3' or 'T2'
-            if M28Config.M28LogEconomicDecisions then LOG(sFunctionRef..': NAVAL_FAC_SELFDESTRUCT - Reason=NavalDominance+LowMass, Tech='..sTechLevel..', Count='..(iFactoriesDestroyed+1)..'/'..iFactoriesToDestroy..', LowMassDuration='..math.floor(iLowMassDuration)..'s, NavalDomDuration='..math.floor(iNavalDominanceDuration)..'s, MassStored%='..math.floor(iCurMassStoragePercent*100)..'%') end
+            if bDebugMessages == true then LOG(sFunctionRef..': NAVAL_FAC_SELFDESTRUCT - Reason=NavalDominance+LowMass, Tech='..sTechLevel..', Count='..(iFactoriesDestroyed+1)..'/'..iFactoriesToDestroy..', LowMassDuration='..math.floor(iLowMassDuration)..'s, NavalDomDuration='..math.floor(iNavalDominanceDuration)..'s, MassStored%='..math.floor(iCurMassStoragePercent*100)..'%') end
             M28Orders.IssueTrackedKillUnit(oFactoryToDestroy)
             iFactoriesDestroyed = iFactoriesDestroyed + 1
         end

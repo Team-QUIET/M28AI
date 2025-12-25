@@ -1417,7 +1417,7 @@ function OnBombFired(oWeapon, projectile, bIgnoreProjectileCheck)
 
             if bDebugMessages == true then LOG(sFunctionRef..': bomber position when firing bomb='..repru(oUnit:GetPosition())..'; Bomber='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Owner='..oUnit:GetAIBrain().Nickname..'; Time='..GetGameTimeSeconds()..'; Time since last bomber event='..(GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastDodgeBombEvent] or 0))) end
 
-            if M28Config.M28LogAirSystemDebug and oUnit:GetAIBrain().M28AirSubteam then
+            if bDebugMessages == true then
                 local oTarget = oUnit[M28Air.refoStrikeDamageAssigned]
                 local sTargetInfo = M28UnitInfo.IsUnitValid(oTarget) and (oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..', TargetHP='..math.floor(oTarget:GetHealth())) or 'NoTarget'
                 local sBomberType = EntityCategoryContains(M28UnitInfo.refCategoryTorpBomber, sUnitID) and 'TorpBomber' or (EntityCategoryContains(categories.EXPERIMENTAL, sUnitID) and 'ExpBomber' or 'Bomber')

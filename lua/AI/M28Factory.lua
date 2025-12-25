@@ -730,7 +730,7 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
             if EntityCategoryContains(categories.TECH1, sBPIDToBuild) and GetGameTimeSeconds() >= 600 then
                 local iCurT1MAA = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMAA * categories.TECH1)
                 if iCurT1MAA >= 25 then
-                    if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': MAA_CAP_TIGHTEN - Blocking T1 MAA production after 10 min (have '..iCurT1MAA..' T1 MAA)') end
+                    if bDebugMessages == true then LOG(sFunctionRef..': MAA_CAP_TIGHTEN - Blocking T1 MAA production after 10 min (have '..iCurT1MAA..' T1 MAA)') end
                     sBPIDToBuild = nil
                 end
             end
@@ -771,21 +771,21 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
 
                 if iCurUnits >= iMaxUnits then
                     if bStallingEnergy or iEnergyStored < 0.5 then
-                        if M28Config.M28LogEngineerDecisions then
+                        if bDebugMessages == true then
                             LOG(sFunctionRef..': HIGH_MAINT_BLOCKED_ENERGY - Unit='..sBPIDToBuild..' blocked due to energy concerns. MaintenanceE='..iMaintenanceEnergy..'/s; CurUnits='..iCurUnits..'; MaxUnits='..iMaxUnits..'; GrossE='..iGrossEnergy..'; EnergyStored='..string.format('%.1f%%', iEnergyStored * 100)..'; Stalling='..(bStallingEnergy and 'YES' or 'NO')..'; IsMobileStealthOrShield='..tostring(bIsMobileStealthOrShield)..'; Time='..GetGameTimeSeconds())
                         end
                         sBPIDToBuild = nil
                     elseif iCurUnits >= iMaxUnits * 2 then
-                        if M28Config.M28LogEngineerDecisions then
+                        if bDebugMessages == true then
                             LOG(sFunctionRef..': HIGH_MAINT_BLOCKED_HARDCAP - Unit='..sBPIDToBuild..' blocked due to hard cap (2x max). MaintenanceE='..iMaintenanceEnergy..'/s; CurUnits='..iCurUnits..'; MaxUnits='..iMaxUnits..'; HardCap='..(iMaxUnits * 2)..'; GrossE='..iGrossEnergy..'; IsMobileStealthOrShield='..tostring(bIsMobileStealthOrShield)..'; Time='..GetGameTimeSeconds())
                         end
                         sBPIDToBuild = nil
                     else
-                        if M28Config.M28LogEngineerDecisions then
+                        if bDebugMessages == true then
                             LOG(sFunctionRef..': HIGH_MAINT_AT_LIMIT_OK - Unit='..sBPIDToBuild..' at limit but economy OK, allowing build. MaintenanceE='..iMaintenanceEnergy..'/s; CurUnits='..iCurUnits..'; MaxUnits='..iMaxUnits..'; GrossE='..iGrossEnergy..'; EnergyStored='..string.format('%.1f%%', iEnergyStored * 100)..'; IsMobileStealthOrShield='..tostring(bIsMobileStealthOrShield)..'; Time='..GetGameTimeSeconds())
                         end
                     end
-                elseif M28Config.M28LogEngineerDecisions and iCurUnits > 0 then
+                elseif bDebugMessages == true then
                     LOG(sFunctionRef..': HIGH_MAINT_UNDER_LIMIT - Unit='..sBPIDToBuild..' under limit, allowing build. MaintenanceE='..iMaintenanceEnergy..'/s; CurUnits='..iCurUnits..'; MaxUnits='..iMaxUnits..'; GrossE='..iGrossEnergy..'; IsMobileStealthOrShield='..tostring(bIsMobileStealthOrShield)..'; Time='..GetGameTimeSeconds())
                 end
             end
@@ -861,7 +861,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
         local bEnemyHasT3Air = M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3
         local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
         if bEnemyHasT3Air and iFactoryTechLevel < 3 then
-            if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping MAA0 (enemy has T3 air, T2 MAA ineffective)') end
+            if bDebugMessages == true then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping MAA0 (enemy has T3 air, T2 MAA ineffective)') end
         else
             if M28Conditions.WantT3MAAInsteadOfT2(oFactory, iTeam) then
                 iBaseCategoryWanted = M28UnitInfo.refCategoryMAA
@@ -869,7 +869,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
                 iBaseCategoryWanted = M28UnitInfo.refCategoryMAA - categories.TECH3
             end
             if not(bInSameIsland) then iBaseCategoryWanted = iBaseCategoryWanted * M28UnitInfo.refCategoryAmphibious + iBaseCategoryWanted * categories.HOVER end
-            if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': Will get MAA0') end
+            if bDebugMessages == true then LOG(sFunctionRef..': Will get MAA0') end
         end
     end
 
@@ -911,7 +911,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
             local bEnemyHasT3Air = M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3
             local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
             if bEnemyHasT3Air and iFactoryTechLevel < 3 then
-                if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping MAA1, building indirect instead (enemy has T3 air, T2 MAA ineffective)') end
+                if bDebugMessages == true then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping MAA1, building indirect instead (enemy has T3 air, T2 MAA ineffective)') end
                 bWantMAANotIndirect = false
             else
                 if M28Conditions.WantT3MAAInsteadOfT2(oFactory, iTeam) then
@@ -920,7 +920,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
                     iBaseCategoryWanted = M28UnitInfo.refCategoryMAA - categories.TECH3
                 end
                 if not(bInSameIsland) then iBaseCategoryWanted = iBaseCategoryWanted * M28UnitInfo.refCategoryAmphibious + iBaseCategoryWanted * categories.HOVER end
-                if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': Will get MAA1') end
+                if bDebugMessages == true then LOG(sFunctionRef..': Will get MAA1') end
             end
         end
         if not(bWantMAANotIndirect) then
@@ -1025,7 +1025,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
                 local bEnemyHasT3Air = M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3
                 local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
                 if bEnemyHasT3Air and iFactoryTechLevel < 3 then
-                    if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping MAA2 (enemy has T3 air, T2 MAA ineffective)') end
+                    if bDebugMessages == true then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping MAA2 (enemy has T3 air, T2 MAA ineffective)') end
                 else
                     if M28Conditions.WantT3MAAInsteadOfT2(oFactory, iTeam) then
                         iBaseCategoryWanted = M28UnitInfo.refCategoryMAA
@@ -1033,7 +1033,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
                         iBaseCategoryWanted = M28UnitInfo.refCategoryMAA - categories.TECH3
                     end
                     if not(bInSameIsland) then iBaseCategoryWanted = iBaseCategoryWanted * M28UnitInfo.refCategoryAmphibious + iBaseCategoryWanted * categories.HOVER end
-                    if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': Will build MAA2') end
+                    if bDebugMessages == true then LOG(sFunctionRef..': Will build MAA2') end
                 end
             end
         end
@@ -1442,12 +1442,12 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             local tEnemyT2Gunships = EntityCategoryFilterDown(categories.TECH2 * M28UnitInfo.refCategoryGunship, tLZTeamData[M28Map.reftLZEnemyAirUnits])
             if M28Utilities.IsTableEmpty(tEnemyT2Gunships) == false then
                 bDontConsiderBuildingMAA = false
-                if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': T3_AIR_FIX - Enemy has T3 air but T2 gunships in zone, allowing T2 MAA production') end
+                if bDebugMessages == true then LOG(sFunctionRef..': T3_AIR_FIX - Enemy has T3 air but T2 gunships in zone, allowing T2 MAA production') end
             else
-                if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': T3_AIR_FIX - Blocking T2 MAA production because enemy has T3 air and we only have T2 factories - T2 flak is ineffective vs T3 air') end
+                if bDebugMessages == true then LOG(sFunctionRef..': T3_AIR_FIX - Blocking T2 MAA production because enemy has T3 air and we only have T2 factories - T2 flak is ineffective vs T3 air') end
             end
         else
-            if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': T3_AIR_FIX - Blocking T2 MAA production because enemy has T3 air and we only have T2 factories') end
+            if bDebugMessages == true then LOG(sFunctionRef..': T3_AIR_FIX - Blocking T2 MAA production because enemy has T3 air and we only have T2 factories') end
         end
     end
 
@@ -1499,13 +1499,13 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     if not(bDontConsiderBuildingMAA) and iStaticAA >= 1500 then
         if iStaticAA >= iEnemyAirThreat * 0.6 then
             bDontConsiderBuildingMAA = true
-            if M28Config.M28LogLandProductionDecisions then
+            if bDebugMessages == true then
                 LOG(sFunctionRef .. ': STATIC_AA_CHECK - Static AA ('..iStaticAA..') covers 60%+ of enemy air threat ('..iEnemyAirThreat..'), reducing MAA priority')
             end
         --If we have strong static AA and enemy air is mostly T3, static AA is more effective than MAA
         elseif iStaticAA >= 3000 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3 and iFactoryTechLevel < 3 then
             bDontConsiderBuildingMAA = true
-            if M28Config.M28LogLandProductionDecisions then
+            if bDebugMessages == true then
                 LOG(sFunctionRef .. ': STATIC_AA_CHECK - Strong static AA ('..iStaticAA..') against T3 air, T2 MAA less effective, skipping')
             end
         end
@@ -1530,14 +1530,14 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 
             if bEarlyGameNoAirThreat then
                 iMinMAARatioFactor = iMinMAARatioFactor * 1.25
-                if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': MAA_RATIO_FIX - Early game no air threat, reducing MAA priority (factor='..iMinMAARatioFactor..')') end
+                if bDebugMessages == true then LOG(sFunctionRef..': MAA_RATIO_FIX - Early game no air threat, reducing MAA priority (factor='..iMinMAARatioFactor..')') end
             else
                 iMinMAARatioFactor = iMinMAARatioFactor * 1.5
-                if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': MAA_RATIO_FIX - Far behind on air, significantly reducing MAA priority to save mass for interceptors (factor='..iMinMAARatioFactor..')') end
+                if bDebugMessages == true then LOG(sFunctionRef..': MAA_RATIO_FIX - Far behind on air, significantly reducing MAA priority to save mass for interceptors (factor='..iMinMAARatioFactor..')') end
             end
         else
             iMinMAARatioFactor = iMinMAARatioFactor * 1.1
-            if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': MAA_RATIO_FIX - Behind on air, slightly reducing MAA priority (factor='..iMinMAARatioFactor..')') end
+            if bDebugMessages == true then LOG(sFunctionRef..': MAA_RATIO_FIX - Behind on air, slightly reducing MAA priority (factor='..iMinMAARatioFactor..')') end
         end
     end
 
@@ -1641,10 +1641,10 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         if iOurHighestAirFactoryTech > 0 and not(bTeamStallsEnergy) and bFarBehindOnAir then
             if iTeamMassStored >= 400 then
                 bShouldPrioritizeAirFactoryOverMAA = true
-                if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': AIR_PRIORITY_FIX - We have air factories and mass to spare, skipping MAA to invest in air production') end
+                if bDebugMessages == true then LOG(sFunctionRef..': AIR_PRIORITY_FIX - We have air factories and mass to spare, skipping MAA to invest in air production') end
             elseif iEnemyAirTech > iOurHighestAirFactoryTech and iTeamMassStored >= 200 then
                 bShouldPrioritizeAirFactoryOverMAA = true
-                if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': AIR_PRIORITY_FIX - Enemy has higher air tech, skipping MAA to prioritize air factory upgrades') end
+                if bDebugMessages == true then LOG(sFunctionRef..': AIR_PRIORITY_FIX - Enemy has higher air tech, skipping MAA to prioritize air factory upgrades') end
             end
         end
 
@@ -1655,7 +1655,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             if bHaveEngiToAssist and iTeamMassStored >= 300 and not(bTeamStallsEnergy) then
                 if M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 6000 then
                     bShouldPrioritizeAirFactoryOverMAA = true
-                    if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': AIR_PRIORITY_FIX - No air factory but could afford one, skipping MAA to save mass for air factory construction') end
+                    if bDebugMessages == true then LOG(sFunctionRef..': AIR_PRIORITY_FIX - No air factory but could afford one, skipping MAA to save mass for air factory construction') end
                 end
             end
         end
@@ -2029,9 +2029,9 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                     if M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryMAA) < iMaxMAAUnderConstructionWanted then
                         local bEnemyHasT3Air = M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3
                         if bEnemyHasT3Air and iFactoryTechLevel < 3 then
-                            if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef .. ': MAA_TIGHTEN - Skipping T1/T2 MAA (enemy has T3 air, ineffective)') end
+                            if bDebugMessages == true then LOG(sFunctionRef .. ': MAA_TIGHTEN - Skipping T1/T2 MAA (enemy has T3 air, ineffective)') end
                         else
-                            if M28Config.M28LogLandProductionDecisions then
+                            if bDebugMessages == true then
                                 LOG(sFunctionRef .. ': Will try and get MAA to combat enemy air to ground threat, iNearbyMAAThreat='..iNearbyMAAThreat..'; iNearbyAirToGroundThreat='..iNearbyAirToGroundThreat)
                             end
                             if ConsiderBuildingCategory(M28UnitInfo.refCategoryMAA - categories.TECH3) then return sBPIDToBuild end
@@ -2060,13 +2060,13 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         if iFactoryTechLevel >= 3 then
             iMAACategory = M28UnitInfo.refCategoryMAA * categories.TECH3
         elseif iFactoryTechLevel == 2 then
-            if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': MAA_TIGHTEN - T2 factory vs T3 strat, prioritizing engineers for T3 SAM construction') end
+            if bDebugMessages == true then LOG(sFunctionRef..': MAA_TIGHTEN - T2 factory vs T3 strat, prioritizing engineers for T3 SAM construction') end
             if ConsiderBuildingCategory(iEngiCategory) then return sBPIDToBuild end
             iMAACategory = nil
         end
         if iMAACategory then
             if not(tLZTeamData[M28Map.subrefTbWantBP]) or M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, iEngiCategory) >= iEngisWanted then
-                if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': Enemy strat MAA defense - building T3 MAA') end
+                if bDebugMessages == true then LOG(sFunctionRef..': Enemy strat MAA defense - building T3 MAA') end
                 if ConsiderBuildingCategory(iMAACategory) then return sBPIDToBuild end
             else
                 if ConsiderBuildingCategory(iEngiCategory) then return sBPIDToBuild end
@@ -2081,7 +2081,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     if not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and iNearbyAirToGroundThreat > (tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0) * 2 and (not(bDontConsiderBuildingMAA) or iNearbyMAAThreat + (tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0) < iNearbyAirToGroundThreat * 0.25) then
         local bEnemyHasT3Air = M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3
         if bEnemyHasT3Air and iFactoryTechLevel < 3 then
-            if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping T1/T2 MAA vs nearby bombers (enemy has T3 air)') end
+            if bDebugMessages == true then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping T1/T2 MAA vs nearby bombers (enemy has T3 air)') end
         else
             if ConsiderBuildingCategory(M28UnitInfo.refCategoryMAA - categories.TECH3) then return sBPIDToBuild end
         end
@@ -2095,15 +2095,15 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 
         if bEnemyHasT3Air then
             if iFactoryTechLevel >= 3 then
-                if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': EMERGENCY_AA_FIX - Building T3 MAA to counter T3 air threat') end
+                if bDebugMessages == true then LOG(sFunctionRef..': EMERGENCY_AA_FIX - Building T3 MAA to counter T3 air threat') end
                 if ConsiderBuildingCategory(M28UnitInfo.refCategoryMAA * categories.TECH3) then return sBPIDToBuild end
             else
-                if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': EMERGENCY_AA_FIX - Skipping T2 MAA production against T3 air (ineffective). Need T3 land factory or T3 static AA instead.') end
+                if bDebugMessages == true then LOG(sFunctionRef..': EMERGENCY_AA_FIX - Skipping T2 MAA production against T3 air (ineffective). Need T3 land factory or T3 static AA instead.') end
             end
         else
             if iFactoryTechLevel >= 2 then
                 local iMAACategory = M28UnitInfo.refCategoryMAA - categories.TECH1
-                if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': Emergency AA production triggered - building T2+ MAA to counter T2 air threat') end
+                if bDebugMessages == true then LOG(sFunctionRef..': Emergency AA production triggered - building T2+ MAA to counter T2 air threat') end
                 if ConsiderBuildingCategory(iMAACategory) then return sBPIDToBuild end
             end
         end
@@ -2335,10 +2335,10 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] <= 2 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3 then
         if not(bDontConsiderBuildingMAA) and tLZTeamData[M28Map.subrefLZMAAThreatWanted] > tLZTeamData[M28Map.subrefLZThreatAllyMAA] + 0.5 * (tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] - tLZTeamData[M28Map.subrefLZThreatAllyMAA]) then
             if iFactoryTechLevel >= 3 then
-                if bM28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': Want T3 MAA as enemy has T3 air and we dont have T3 air factory') end
+                if bDebugMessages == true then LOG(sFunctionRef..': Want T3 MAA as enemy has T3 air and we dont have T3 air factory') end
                 if ConsiderBuildingCategory(M28UnitInfo.refCategoryMAA * categories.TECH3) then return sBPIDToBuild end
             else
-                if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping MAA production (enemy has T3 air but we only have T2 factory - T2 MAA ineffective)') end
+                if bDebugMessages == true then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping MAA production (enemy has T3 air but we only have T2 factory - T2 MAA ineffective)') end
             end
         end
     end
@@ -3283,14 +3283,14 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             local bEnemyHasT3Air = M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3
             if bEnemyHasT3Air then
                 if iFactoryTechLevel >= 3 then
-                    if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': Will get T3 MAA for ground exp protection (enemy has T3 air)') end
+                    if bDebugMessages == true then LOG(sFunctionRef..': Will get T3 MAA for ground exp protection (enemy has T3 air)') end
                     if ConsiderBuildingCategory(M28UnitInfo.refCategoryMAA * categories.TECH3) then return sBPIDToBuild end
                 else
-                    if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping T2 MAA for exp protection (enemy T3 air, T2 MAA ineffective)') end
+                    if bDebugMessages == true then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping T2 MAA for exp protection (enemy T3 air, T2 MAA ineffective)') end
                 end
             else
                 --T2 MAA is effective against T2 or lower air
-                if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': Will get MAA as we are building a ground exp, enemy has signif air to ground threat, and we lack air control') end
+                if bDebugMessages == true then LOG(sFunctionRef..': Will get MAA as we are building a ground exp, enemy has signif air to ground threat, and we lack air control') end
                 if ConsiderBuildingCategory(M28UnitInfo.refCategoryMAA - categories.TECH1) then return sBPIDToBuild end
             end
         end
@@ -3740,13 +3740,13 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                 local bEnemyHasT3Air = M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3
                 if bEnemyHasT3Air then
                     if iFactoryTechLevel >= 3 then
-                        if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': Want to build T3 MAA due to potential enemy strat threat') end
+                        if bDebugMessages == true then LOG(sFunctionRef..': Want to build T3 MAA due to potential enemy strat threat') end
                         if ConsiderBuildingCategory(M28UnitInfo.refCategoryMAA * categories.TECH3) then return sBPIDToBuild end
                     else
-                        if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping T2 MAA for strat defense (T2 MAA ineffective vs T3 strats)') end
+                        if bDebugMessages == true then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping T2 MAA for strat defense (T2 MAA ineffective vs T3 strats)') end
                     end
                 else
-                    if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': Want to build MAA due to potential enemy air threat (T2 or lower)') end
+                    if bDebugMessages == true then LOG(sFunctionRef..': Want to build MAA due to potential enemy air threat (T2 or lower)') end
                     if ConsiderBuildingCategory(M28UnitInfo.refCategoryMAA - categories.TECH1) then return sBPIDToBuild end
                 end
             end
@@ -4323,13 +4323,13 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                         local bEnemyHasT3Air = M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3
                         if bEnemyHasT3Air then
                             if iFactoryTechLevel >= 3 then
-                                if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': Want T3 AA as low AA threat vs T3 air') end
+                                if bDebugMessages == true then LOG(sFunctionRef..': Want T3 AA as low AA threat vs T3 air') end
                                 if ConsiderBuildingCategory(M28UnitInfo.refCategoryMAA * categories.TECH3) then return sBPIDToBuild end
                             else
-                                if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping MAA (low AA threat but enemy T3 air, T2 MAA ineffective)') end
+                                if bDebugMessages == true then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping MAA (low AA threat but enemy T3 air, T2 MAA ineffective)') end
                             end
                         else
-                            if M28Config.M28LogLandProductionDecisions then LOG(sFunctionRef..': Want AA as low AA threat') end
+                            if bDebugMessages == true then LOG(sFunctionRef..': Want AA as low AA threat') end
                             if ConsiderBuildingCategory(M28UnitInfo.refCategoryMAA) then return sBPIDToBuild end
                         end
                     end
@@ -5324,60 +5324,20 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
         bSaveMassDueToEnemyFirebaseOrOurExperimental = M28Conditions.WantToEcoDueToEnemyFirebase(iTeam, tLZTeamData, iPlateau)
     end
 
-    --Air production decision logging for M28LogAirProductionDecisions
     local sProductionDecisionReason = nil --Track why we chose to build what we did
 
     if bDebugMessages == true then
         LOG(sFunctionRef .. ': Near start of code, time=' .. GetGameTimeSeconds() .. '; oFactory=' .. oFactory.UnitId .. M28UnitInfo.GetUnitLifetimeCount(oFactory) .. '; Checking if we have the highest tech land factory in the current land zone, iFactoryTechLevel=' .. iFactoryTechLevel .. '; Highest friendly factory tech=' .. M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] .. '; Allied ground threat=' .. (M28Team.tTeamData[iTeam][M28Team.subrefiAlliedMAAThreat] or 'nil') .. '; M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]=' .. (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 'nil') .. '; M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]=' .. (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 'nil') .. '; M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat]=' .. (M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] or 'nil') .. '; M28Team.tTeamData[iTeam][M28Team.refiEnemyAirOtherThreat]=' .. (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirOtherThreat] or 'nil') .. '; Is factory paused=' .. tostring(oFactory:IsPaused()) .. '; IsPaused value=' .. tostring(oFactory[M28UnitInfo.refbPaused]) .. '; Does LZ factory is in need BP=' .. tostring(tLZTeamData[M28Map.subrefTbWantBP]) .. '; Core LZ=' .. tostring(tLZTeamData[M28Map.subrefLZbCoreBase] or false) .. '; Core expansion=' .. tostring(tLZTeamData[M28Map.subrefLZCoreExpansion] or false) .. '; Time since a factory in this LZ last built something=' .. GetGameTimeSeconds() - (tLZTeamData[M28Map.refiTimeLastBuiltAtFactory] or -100) .. '; bHaveLowMass=' .. tostring(bHaveLowMass) .. '; bHaveLowPower=' .. tostring(bHaveLowPower)..'; brain='..oFactory:GetAIBrain().Nickname..'; Net E (brain)='..aiBrain[M28Economy.refiNetEnergyBaseIncome]..'; GrossE='..aiBrain[M28Economy.refiGrossEnergyBaseIncome]..'; E % stored='..aiBrain:GetEconomyStoredRatio('ENERGY'))
     end
 
-    --Verbose air production decision logging
-    if M28Config.M28LogAirProductionDecisions then
-        LOG('M28AirProduction: ========== AIR FACTORY PRODUCTION DECISION ==========')
-        LOG('M28AirProduction: Time='..GetGameTimeSeconds()..'; Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; TechLevel='..iFactoryTechLevel..'; Brain='..aiBrain.Nickname)
-        LOG('M28AirProduction: Location: Plateau='..iPlateau..'; LandZone='..iLandZone..'; CoreBase='..tostring(tLZTeamData[M28Map.subrefLZbCoreBase] or false)..'; CoreExpansion='..tostring(tLZTeamData[M28Map.subrefLZCoreExpansion] or false))
-        LOG('M28AirProduction: Economy: LowMass='..tostring(bHaveLowMass)..'; LowPower='..tostring(bHaveLowPower)..'; SaveMassForFirebase/Exp='..tostring(bSaveMassDueToEnemyFirebaseOrOurExperimental))
-        LOG('M28AirProduction: Economy Details: GrossMass='..(aiBrain[M28Economy.refiGrossMassBaseIncome] or 0)..'; GrossEnergy='..(aiBrain[M28Economy.refiGrossEnergyBaseIncome] or 0)..'; MassStored%='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0)..'; EnergyStored%='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] or 0))
-        LOG('M28AirProduction: Air Threats: EnemyAirAA='..(M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 0)..'; EnemyAirToGround='..(M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0)..'; EnemyTorpBombers='..(M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] or 0))
-        LOG('M28AirProduction: Our Air: OurAirAAThreat='..(M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] or 0)..'; FarBehindOnAir='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] or false)..'; HighestEnemyAirTech='..(M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] or 0))
-        LOG('M28AirProduction: Ground Threats: EnemyGroundAA='..(tLZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0)..'; EnemyCombatTotal='..(tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)..'; AllyGroundAA='..(tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0))
-        LOG('M28AirProduction: Factory State: BuildCount='..(oFactory[refiTotalBuildCount] or 0)..'; WantNextEngi='..tostring(oFactory[refbWantNextUnitToBeEngineer] or false)..'; WantBP='..tostring(tLZTeamData[M28Map.subrefTbWantBP] or false))
-    end
-
-
     iCategoryToBuild = M28UnitInfo.refCategoryEngineer --Placeholder
     local sBPIDToBuild
     local iCurrentConditionToTry = 0
-
-    --Lookup table for condition descriptions (for verbose logging)
-    local tConditionDescriptions = {
-        [1] = 'Early bomber build order',
-        [2] = 'Early game engineer',
-        [3] = 'Unit cap limit - abort',
-        [4] = 'Priority engineer flag',
-        [5] = 'T2-T3 factory first engineers',
-        [6] = 'Emergency gunship for nearby enemies',
-        [7] = 'Emergency AirAA for enemy air threat',
-        [8] = 'Snipe target bomber',
-        [9] = 'High priority transport',
-        [10] = 'Engineer for low power',
-        [11] = 'Air scout priority',
-        [12] = 'Torpedo bomber for naval threat',
-        [13] = 'AirAA for enemy air superiority',
-        [14] = 'Bomber/Gunship for ground targets',
-        [15] = 'Transport for land operations',
-        [16] = 'Factory upgrade',
-        [17] = 'Default fallback',
-    }
 
     function ConsiderUpgrading()
         if not(M28Conditions.CheckIfNeedMoreEngineersOrSnipeUnitsBeforeUpgrading(oFactory)) then
             sBPIDToBuild = M28UnitInfo.GetUnitUpgradeBlueprint(oFactory, true)
             if sBPIDToBuild then
-                if M28Config.M28LogAirProductionDecisions then
-                    LOG('M28AirProduction: DECISION: Upgrading factory; Condition='..iCurrentConditionToTry..'; Reason='..tostring(sProductionDecisionReason or tConditionDescriptions[iCurrentConditionToTry] or 'Upgrade available')..'; Blueprint='..sBPIDToBuild)
-                    LOG('M28AirProduction: ========== END AIR FACTORY DECISION ==========')
-                end
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
             end
             return sBPIDToBuild
@@ -5397,11 +5357,6 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
         end
         if sBPIDToBuild then
             if bDebugMessages == true then LOG(sFunctionRef..': Blueprint still valid after considering overrides') end
-            if M28Config.M28LogAirProductionDecisions then
-                local sConditionDesc = tConditionDescriptions[iCurrentConditionToTry] or ('Condition #'..iCurrentConditionToTry)
-                LOG('M28AirProduction: DECISION: Building unit; Condition='..iCurrentConditionToTry..'; Reason='..tostring(sProductionDecisionReason or sConditionDesc)..'; Blueprint='..sBPIDToBuild..'; Category='..tostring(iCategoryToBuild))
-                LOG('M28AirProduction: ========== END AIR FACTORY DECISION ==========')
-            end
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd) --Assumes we will end code if we get to this point
             return sBPIDToBuild
         elseif bDebugMessages == true then LOG(sFunctionRef..': No valid BP after override')
@@ -5417,10 +5372,6 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
             if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end
         end
         if bDebugMessages == true then LOG(sFunctionRef..': Will just not build anything') end
-        if M28Config.M28LogAirProductionDecisions then
-            LOG('M28AirProduction: DECISION: No build due to enemy ground AA; EnemyGroundAA='..(tLZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0)..'; Threshold='..(iFactoryTechLevel * iFactoryTechLevel * 50))
-            LOG('M28AirProduction: ========== END AIR FACTORY DECISION (GROUND AA BLOCK) ==========')
-        end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         return nil
     end
@@ -5454,7 +5405,7 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
     iCurrentConditionToTry = iCurrentConditionToTry + 1
     if aiBrain[M28Overseer.refbCloseToUnitCap] and iFactoryTechLevel >= 3 and not(bHaveLowMass) and not(bHaveLowPower) and M28Team.tTeamData[aiBrain.M28Team][M28Team.refiLowestUnitCapAdjustmentLevel] <= -1 and aiBrain[M28Overseer.refiExpectedRemainingCap] < 20 then
         if bDebugMessages == true then LOG(sFunctionRef..': Close to unit cap with high mass stored so wont build anything from air fac') end
-        if M28Config.M28LogAirProductionDecisions then
+        if bDebugMessages == true then
             LOG('M28AirProduction: DECISION: No build due to unit cap; ExpectedRemainingCap='..(aiBrain[M28Overseer.refiExpectedRemainingCap] or 0)..'; CapAdjustmentLevel='..(M28Team.tTeamData[aiBrain.M28Team][M28Team.refiLowestUnitCapAdjustmentLevel] or 0))
             LOG('M28AirProduction: ========== END AIR FACTORY DECISION (UNIT CAP) ==========')
         end
@@ -7127,7 +7078,7 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
     oFactory[refiTimeSinceLastFailedToGetOrder] = GetGameTimeSeconds() --Redundancy, will also include in parent logic
 
     --Verbose logging for no blueprint decision
-    if M28Config.M28LogAirProductionDecisions then
+    if bDebugMessages == true then
         LOG('M28AirProduction: DECISION: No blueprint to build; LastConditionChecked='..iCurrentConditionToTry..'; LowMass='..tostring(bHaveLowMass)..'; LowPower='..tostring(bHaveLowPower))
         LOG('M28AirProduction: ========== END AIR FACTORY DECISION (NO BUILD) ==========')
     end
@@ -7206,7 +7157,7 @@ function GetBlueprintToBuildForNavalFactory(aiBrain, oFactory)
         --Skip production on most naval factories when behind on air (allow every 3rd factory to still produce for basic defense)
         --This frees up resources that engineers and factories would have spent on naval production
         if (oFactory[refiTotalBuildCount] or 0) >= 3 and math.mod((M28UnitInfo.GetUnitLifetimeCount(oFactory) or 0), 3) ~= 0 then
-            if M28Config.M28LogEngineerDecisions then
+            if bDebugMessages == true then
                 LOG(sFunctionRef..': [WZ'..iWaterZone..'] NAVAL_PROD_THROTTLED_FOR_AIR - Factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..' pausing production to prioritize air factories or economic investment. Time='..GetGameTimeSeconds())
             end
             tWZTeamData[M28Map.subrefiTimeNavalFacHadNothingToBuild] = GetGameTimeSeconds()

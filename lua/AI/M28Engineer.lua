@@ -12813,7 +12813,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
         end
         --Then have 1-2 engis search for reclaim generally
         iCurPriority = iCurPriority + 1
-        if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': High priority mass reclaim, iBPWanted='..iBPWanted) end
+        if bDebugMessages == true then LOG(sFunctionRef..': High priority mass reclaim, iBPWanted='..iBPWanted) end
         HaveActionToAssign(refActionReclaimArea, 1, iBPWanted, {false, nil})
 
 
@@ -12946,7 +12946,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
             --Calculate BP based on reclaim value and urgency
             iBPWanted = math.min(60, math.max(10, tLZData[M28Map.subrefTotalSignificantMassReclaim] / 100))
             iBPWanted = iBPWanted * GetReclaimUrgencyMultiplier(iTeam)
-            if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': HIGH PRIORITY BATTLE ZONE RECLAIM: Signif reclaim='..tLZData[M28Map.subrefTotalSignificantMassReclaim]..'; iBPWanted='..iBPWanted..'; bBattleConcluded='..tostring(bBattleConcludedHere)) end
+            if bDebugMessages == true then LOG(sFunctionRef..': HIGH PRIORITY BATTLE ZONE RECLAIM: Signif reclaim='..tLZData[M28Map.subrefTotalSignificantMassReclaim]..'; iBPWanted='..iBPWanted..'; bBattleConcluded='..tostring(bBattleConcludedHere)) end
             HaveActionToAssign(refActionReclaimArea, 1, iBPWanted, {false, nil})
         end
     end
@@ -15695,7 +15695,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
         end
         --Apply urgency multiplier based on mass storage
         iBPWanted = iBPWanted * GetReclaimUrgencyMultiplier(iTeam)
-        if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Lower priority reclaim, iBPWanted before urgency='..iBPWanted) end
+        if bDebugMessages == true then LOG(sFunctionRef..': Lower priority reclaim, iBPWanted before urgency='..iBPWanted) end
         HaveActionToAssign(refActionReclaimArea, 1, iBPWanted, {false, nil})
     end
 
@@ -16483,7 +16483,7 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
             bEngineersRecentlyRunFromEnemy = true
         end
     end
-    if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': bTeammateHasBuiltHere='..tostring(bTeammateHasBuiltHere)..'; P'..iPlateau..'Z'..iLandZone..'; bEngineersRecentlyRunFromEnemy='..tostring(bEngineersRecentlyRunFromEnemy)) end
+    if bDebugMessages == true then LOG(sFunctionRef..': bTeammateHasBuiltHere='..tostring(bTeammateHasBuiltHere)..'; P'..iPlateau..'Z'..iLandZone..'; bEngineersRecentlyRunFromEnemy='..tostring(bEngineersRecentlyRunFromEnemy)) end
     -- (tLZTeamData[M28Map.refiNonM28TeammateMexCount] >= tLZData[M28Map.subrefLZOrWZMexCount] tLZTeamData[M28Map.refiNonM28TeammateFactoryCount] > 0 and (tLZTeamData[M28Map.refiNonM28TeammateFactoryCount] >= 3 or
     --local iCurCondition = 0
     local iCurPriority = 0
@@ -17022,7 +17022,7 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
             --Zone qualifies - assign engineer to build a land factory here
             iBPWanted = 15 --Moderate priority, not as high as core factories
             if not(bHaveLowMass) then iBPWanted = 25 end
-            if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': FORWARD FACTORY: Zone P'..iPlateau..'Z'..iLandZone..' qualifies, signif reclaim='..(tLZData[M28Map.subrefTotalSignificantMassReclaim] or 0)..', iBPWanted='..iBPWanted) end
+            if bDebugMessages == true then LOG(sFunctionRef..': FORWARD FACTORY: Zone P'..iPlateau..'Z'..iLandZone..' qualifies, signif reclaim='..(tLZData[M28Map.subrefTotalSignificantMassReclaim] or 0)..', iBPWanted='..iBPWanted) end
             HaveActionToAssign(refActionBuildLandFactory, 1, iBPWanted)
         end
     end
@@ -17057,7 +17057,7 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
             end
             --Apply urgency multiplier based on mass storage
             iBPWanted = iBPWanted * GetReclaimUrgencyMultiplier(iTeam)
-            if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Non-core base high reclaim zone, iBPWanted after urgency='..iBPWanted) end
+            if bDebugMessages == true then LOG(sFunctionRef..': Non-core base high reclaim zone, iBPWanted after urgency='..iBPWanted) end
             HaveActionToAssign(refActionReclaimArea, 1, iBPWanted, {false, nil})
         end
     else
@@ -17435,7 +17435,7 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
         iBPWanted = iBPWanted * GetReclaimUrgencyMultiplier(iTeam)
         --Boost BP for battle concluded zones
         if bBattleConcluded then iBPWanted = iBPWanted * 1.5 end
-        if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Higher priority reclaim, Total mass in Plateau '..iPlateau..' LZ '..iLandZone..'='..tLZData[M28Map.subrefTotalMassReclaim]..'; iBPWanted after urgency='..iBPWanted..'; bBattleConcluded='..tostring(bBattleConcluded)) end
+        if bDebugMessages == true then LOG(sFunctionRef..': Higher priority reclaim, Total mass in Plateau '..iPlateau..' LZ '..iLandZone..'='..tLZData[M28Map.subrefTotalMassReclaim]..'; iBPWanted after urgency='..iBPWanted..'; bBattleConcluded='..tostring(bBattleConcluded)) end
         HaveActionToAssign(refActionReclaimArea, 1, iBPWanted, {false, nil})
         if bDebugMessages == true then LOG(sFunctionRef..': Have just tried assigning action to reclaim area') end
     elseif M28Conditions.WantToReclaimEnergyNotMass(iTeam, iPlateau, iLandZone) then
@@ -17915,7 +17915,7 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
         if tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] then iBPWanted = math.max(5, iBPWanted * 0.6) end
         --Apply urgency multiplier based on mass storage
         iBPWanted = iBPWanted * GetReclaimUrgencyMultiplier(iTeam)
-        if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Lower priority reclaim, iBPWanted='..iBPWanted) end
+        if bDebugMessages == true then LOG(sFunctionRef..': Lower priority reclaim, iBPWanted='..iBPWanted) end
         HaveActionToAssign(refActionReclaimArea, 1, iBPWanted, {false, nil})
     end
 
@@ -18923,7 +18923,7 @@ function ConsiderWaterZoneEngineerAssignment(tWZTeamData, iTeam, iPond, iWaterZo
     if bBlockNavalFacAfterSelfDestruct then
         --Recently self-destructed naval factories and still have low mass - block building more
         iFactoriesWanted = iExistingWaterFactory --Just maintain what we have
-        if M28Config.M28LogEngineerDecisions then
+        if bDebugMessages == true then
             LOG(sFunctionRef..': [WZ'..iWaterZone..'] NAVAL_FAC_BLOCKED_AFTER_SELFDESTRUCT - Blocking naval factory construction, recently self-destructed and still low mass. TimeSinceSelfDestruct='..math.floor(GetGameTimeSeconds() - M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastNavalSupportFactorySelfDestruct])..'s; MassStored%='..math.floor((M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0)*100)..'%')
         end
     elseif tWZTeamData[M28Map.subrefiTimeNavalFacHadNothingToBuild] and GetGameTimeSeconds() - tWZTeamData[M28Map.subrefiTimeNavalFacHadNothingToBuild] <= 60 and (GetGameTimeSeconds() - tWZTeamData[M28Map.subrefiTimeNavalFacHadNothingToBuild] <= 20 or M28UnitInfo.IsUnitRestricted('ues0103', tWZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex])) then
@@ -18941,13 +18941,13 @@ function ConsiderWaterZoneEngineerAssignment(tWZTeamData, iTeam, iPond, iWaterZo
                 elseif bNeedAirFactoryFirst then
                     --Delay first naval factory until we have at least 1 air factory (if we can path to enemy with land)
                     iFactoriesWanted = 0
-                    if M28Config.M28LogEngineerDecisions then
+                    if bDebugMessages == true then
                         LOG(sFunctionRef..': [WZ'..iWaterZone..'] NAVAL_DELAYED_FOR_AIR_FAC - Delaying naval factory, need air factory first. AirTech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech]..'; Time='..GetGameTimeSeconds())
                     end
                 elseif bShouldDelayNavalForAir then
                     --When far behind on air and already have naval factories, stop building more
                     iFactoriesWanted = iExistingWaterFactory --Just maintain what we have, don't build more
-                    if M28Config.M28LogEngineerDecisions then
+                    if bDebugMessages == true then
                         LOG(sFunctionRef..': [WZ'..iWaterZone..'] NAVAL_FAC_CAPPED_FOR_AIR - Capping naval factories at current level due to being far behind on air. iExistingWaterFactory='..iExistingWaterFactory..'; Time='..GetGameTimeSeconds())
                     end
                 else
@@ -19004,7 +19004,7 @@ function ConsiderWaterZoneEngineerAssignment(tWZTeamData, iTeam, iPond, iWaterZo
                         local bTeamFarBehindOnAir = M28Conditions.TeamIsFarBehindOnAir(iTeam)
                         if bTeamFarBehindOnAir then
                             iExtraFactoriesValue = iExtraFactoriesValue * 0.25
-                            if M28Config.M28LogEngineerDecisions then
+                            if bDebugMessages == true then
                                 LOG(sFunctionRef..': [WZ'..iWaterZone..'] NAVAL_FAC_REDUCED_FOR_AIR - Reducing naval factory priority due to being far behind on air. iExtraFactoriesValue='..iExtraFactoriesValue..'; Time='..GetGameTimeSeconds())
                             end
                         end
@@ -19646,7 +19646,7 @@ function ConsiderWaterZoneEngineerAssignment(tWZTeamData, iTeam, iPond, iWaterZo
         if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] then iBPWanted = iBPWanted * 0.25 end
 
         HaveActionToAssign(refActionBuildNavalFactory, 1, iBPWanted, nil)
-    elseif bSkipNavalForAir and iHighestTechEngiAvailable > 0 and M28Config.M28LogEngineerDecisions then
+    elseif bDebugMessages == true then
         LOG(sFunctionRef..': [WZ'..iWaterZone..'] NAVAL_FAC_SKIPPED_FOR_AIR - Skipping naval factory construction, team is far behind on air. Time='..GetGameTimeSeconds())
     end
 
@@ -19712,7 +19712,7 @@ function ConsiderWaterZoneEngineerAssignment(tWZTeamData, iTeam, iPond, iWaterZo
         if bDebugMessages == true then LOG(sFunctionRef..': Want to assist naval fac, iBPWanted='..iBPWanted) end
         NavUtils.GetLabel(M28Map.refPathingTypeHover, tWZData[M28Map.subrefMidpoint])
         AssignBuildExperimentalOrT3NavyAction(HaveActionToAssign, NavUtils.GetLabel(M28Map.refPathingTypeHover, tWZData[M28Map.subrefMidpoint]), iWaterZone, iTeam, tWZData, tWZTeamData, true, refActionAssistNavalFactory, 1, iBPWanted, false, false)
-    elseif bSkipNavalAssistForAir and M28Config.M28LogEngineerDecisions and iExistingWaterFactory > 0 then
+    elseif bDebugMessages == true then
         LOG(sFunctionRef..': [WZ'..iWaterZone..'] NAVAL_ASSIST_SKIPPED_FOR_AIR - Engineers redirected to air factory priority. Time='..GetGameTimeSeconds())
     end
 
@@ -20245,7 +20245,7 @@ function ConsiderLandOrWaterZoneEngineerAssignment(tLZOrWZData, tLZOrWZTeamData,
             local iEnemyCombat = tLZOrWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
             local iSignifReclaim = tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim] or 0
 
-            if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Enemies in adj zone BP cap calc - iAllyCombat='..iAllyCombat..'; iEnemyCombat='..iEnemyCombat..'; iSignifReclaim='..iSignifReclaim) end
+            if bDebugMessages == true then LOG(sFunctionRef..': Enemies in adj zone BP cap calc - iAllyCombat='..iAllyCombat..'; iEnemyCombat='..iEnemyCombat..'; iSignifReclaim='..iSignifReclaim) end
 
             --Check if ACU is in this zone reclaiming - if so, be more aggressive about sending engineers
             local bACUReclaimingInZone = false
@@ -20262,7 +20262,7 @@ function ConsiderLandOrWaterZoneEngineerAssignment(tLZOrWZData, tLZOrWZTeamData,
             if bACUReclaimingInZone and iSignifReclaim >= 100 then
                 --ACU is reclaiming here - send engineers to help (up to 60 BP)
                 iBPCap = math.max(10, math.min(60, iSignifReclaim / 40))
-                if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': ACU is reclaiming in zone, increasing iBPCap to '..iBPCap) end
+                if bDebugMessages == true then LOG(sFunctionRef..': ACU is reclaiming in zone, increasing iBPCap to '..iBPCap) end
             elseif iAllyCombat >= 100 and iAllyCombat >= iEnemyCombat * 0.5 then
                 --We have decent friendly combat presence - allow more engineers
                 if iSignifReclaim >= 100 then
@@ -20270,7 +20270,7 @@ function ConsiderLandOrWaterZoneEngineerAssignment(tLZOrWZData, tLZOrWZTeamData,
                 else
                     iBPCap = 10
                 end
-                if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Friendly army present, setting iBPCap='..iBPCap) end
+                if bDebugMessages == true then LOG(sFunctionRef..': Friendly army present, setting iBPCap='..iBPCap) end
             elseif iAllyCombat >= 400 and iSignifReclaim >= 250 * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] then
                 --High combat threat required
                 iBPCap = math.max(5, math.min(60, iSignifReclaim / 75))
@@ -22187,7 +22187,7 @@ function HighValueReclaimOrder(iTeam, oWreck, tPosition)
                         --Assign engineers up to limit
                         for _, oEngi in tSortedEngineers do
                             if iEngineersAssigned >= iEngineersWanted then break end
-                            if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Assigning oEngi='..oEngi.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngi)..'; Tech='..M28UnitInfo.GetUnitTechLevel(oEngi)..'; iEngineersAssigned='..iEngineersAssigned) end
+                            if bDebugMessages == true then LOG(sFunctionRef..': Assigning oEngi='..oEngi.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngi)..'; Tech='..M28UnitInfo.GetUnitTechLevel(oEngi)..'; iEngineersAssigned='..iEngineersAssigned) end
                             tEngineersAlreadyAssigned[oEngi] = true
                             iEngineersAssigned = iEngineersAssigned + 1
                             ForkThread(TrackEngineerWithHighReclaimOrder, oEngi, oWreck, 500)
@@ -22201,7 +22201,7 @@ function HighValueReclaimOrder(iTeam, oWreck, tPosition)
 
                     --If we still need more engineers and wreck is high value, check adjacent zones
                     if iEngineersAssigned < iEngineersWanted and iWreckMass >= 6000 then
-                        if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Need more engineers, checking adjacent zones. iEngineersAssigned='..iEngineersAssigned..'; iEngineersWanted='..iEngineersWanted) end
+                        if bDebugMessages == true then LOG(sFunctionRef..': Need more engineers, checking adjacent zones. iEngineersAssigned='..iEngineersAssigned..'; iEngineersWanted='..iEngineersWanted) end
                         if iPlateauOrZero > 0 then
                             --Land zone: check adjacent land zones
                             if M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subrefLZAdjacentLandZones]) == false then
@@ -22229,7 +22229,7 @@ function HighValueReclaimOrder(iTeam, oWreck, tPosition)
                             end
                         end
                     end
-                    if M28Config.M28LogEngineerDecisions then LOG(sFunctionRef..': Final iEngineersAssigned='..iEngineersAssigned) end
+                    if bDebugMessages == true then LOG(sFunctionRef..': Final iEngineersAssigned='..iEngineersAssigned) end
                 end
             end
         end
