@@ -6538,6 +6538,7 @@ function MonitorReclaimPathEngineer(oEngineer, iTeam)
     --Monitor thread to clean up reclaim path tracking when engineer finishes or is reassigned
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'MonitorReclaimPathEngineer'
+    local iIdleCheckCount = 0 --Count consecutive idle checks to avoid premature exit
 
     while M28UnitInfo.IsUnitValid(oEngineer) and oEngineer[refiAssignedAction] == refActionReclaimPath do
         WaitTicks(20) --Check every 2 seconds
@@ -6545,9 +6546,17 @@ function MonitorReclaimPathEngineer(oEngineer, iTeam)
         --Check if engineer is done reclaiming (idle or has different action)
         if M28UnitInfo.IsUnitValid(oEngineer) then
             if not(oEngineer:IsUnitState('Reclaiming')) and not(oEngineer:IsUnitState('Moving')) then
-                --Engineer appears to be done
-                if bDebugMessages == true then LOG(sFunctionRef..': Engineer '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' appears done with reclaim path') end
-                break
+                --Engineer might be briefly idle between commands, wait for a few checks before concluding it's done
+                iIdleCheckCount = iIdleCheckCount + 1
+                if bDebugMessages == true then LOG(sFunctionRef..': Engineer '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' not reclaiming or moving, iIdleCheckCount='..iIdleCheckCount) end
+                if iIdleCheckCount >= 2 then
+                    --Engineer has been idle for 2 consecutive checks (~4 seconds), likely done
+                    if bDebugMessages == true then LOG(sFunctionRef..': Engineer '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' appears done with reclaim path after '..iIdleCheckCount..' idle checks') end
+                    break
+                end
+            else
+                --Reset idle count if engineer is actively working
+                iIdleCheckCount = 0
             end
         end
     end
@@ -6573,7 +6582,6 @@ function QueueReclaimPath(oEngineer, iPriorityOverride, tLZOrWZTeamData, iPlatea
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local bGivenOrder = false
-    iMaxReclaimCount = iMaxReclaimCount or 10
     local iCurPriority = (iPriorityOverride or oEngineer[refiAssignedActionPriority] or 1)
     local iTeam = oEngineer:GetAIBrain().M28Team
 
@@ -6592,6 +6600,30 @@ function QueueReclaimPath(oEngineer, iPriorityOverride, tLZOrWZTeamData, iPlatea
     local tLZOrWZData
     if bIsWaterZone then tLZOrWZData = M28Map.tPondDetails[iPlateauOrPond][M28Map.subrefPondWaterZones][iLandOrWaterZone]
     else tLZOrWZData = M28Map.tAllPlateaus[iPlateauOrPond][M28Map.subrefPlateauLandZones][iLandOrWaterZone]
+    end
+
+    --Calculate iMaxReclaimCount based on total reclaim in zone and adjacent zones if not specified
+    if not(iMaxReclaimCount) then
+        local iTotalZoneReclaim = tLZOrWZData[M28Map.subrefTotalMassReclaim] or 0
+        --Add reclaim from adjacent zones
+        if bIsWaterZone then
+            if M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subrefWZAdjacentWaterZones]) == false then
+                for _, iAdjWZ in tLZOrWZData[M28Map.subrefWZAdjacentWaterZones] do
+                    local iPond = M28Map.tiPondByWaterZone[iAdjWZ]
+                    if iPond then
+                        iTotalZoneReclaim = iTotalZoneReclaim + (M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones][iAdjWZ][M28Map.subrefTotalMassReclaim] or 0)
+                    end
+                end
+            end
+        else
+            if M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subrefLZAdjacentLandZones]) == false then
+                for _, iAdjLZ in tLZOrWZData[M28Map.subrefLZAdjacentLandZones] do
+                    iTotalZoneReclaim = iTotalZoneReclaim + (M28Map.tAllPlateaus[iPlateauOrPond][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefTotalMassReclaim] or 0)
+                end
+            end
+        end
+        --Scale: 10 base, +5 for every 500 mass, cap at 30
+        iMaxReclaimCount = math.min(30, 10 + math.floor(iTotalZoneReclaim / 500) * 5)
     end
 
     if bDebugMessages == true then LOG(sFunctionRef..': Start of code, oEngineer='..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..'; iMaxReclaimCount='..iMaxReclaimCount..'; Total mass in zone='..tLZOrWZData[M28Map.subrefTotalMassReclaim]..'; Current path engineers='..iCurrentPathEngineers) end
