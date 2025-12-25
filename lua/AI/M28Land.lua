@@ -14237,3 +14237,62 @@ function HaveAttackingExperimentalToSupport(tLZTeamData)
         end
     end
 end
+
+function ConsiderMusteringForRetreat(oUnit, iTeam, iPlateau, iLandZone, iEnemyThreat)
+    --When a unit is retreating, check if it should join a mustering effort instead
+    --Returns the mustering zone midpoint if unit should muster, nil otherwise
+    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'ConsiderMusteringForRetreat'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    --Muster whenever we're retreating - the decision to retreat was already based on enemy threat >= our threat
+    --Check if there's already active mustering for this plateau
+    if M28Team.IsMusteringActive(iTeam, iPlateau) then
+        local iMusteringTargetLZ = M28Team.GetMusteringTargetZone(iTeam, iPlateau)
+        --If mustering for a different zone, check if this zone is more urgent
+        if iMusteringTargetLZ ~= iLandZone then
+            M28Team.UpdateMusteringTarget(iTeam, iPlateau, iLandZone, iEnemyThreat)
+        end
+        --Add unit to mustering
+        M28Team.AddUnitToMustering(iTeam, iPlateau, oUnit)
+        local tMusteringMidpoint = M28Team.GetMusteringZoneMidpoint(iTeam, iPlateau)
+        if bDebugMessages == true then LOG(sFunctionRef..': Unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' joining existing mustering at '..repru(tMusteringMidpoint)) end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return tMusteringMidpoint
+    else
+        --No active mustering, consider starting one
+        if M28Team.InitializeMustering(iTeam, iPlateau, iLandZone, iEnemyThreat) then
+            M28Team.AddUnitToMustering(iTeam, iPlateau, oUnit)
+            local tMusteringMidpoint = M28Team.GetMusteringZoneMidpoint(iTeam, iPlateau)
+            if bDebugMessages == true then LOG(sFunctionRef..': Unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' started new mustering at '..repru(tMusteringMidpoint)) end
+            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+            return tMusteringMidpoint
+        end
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return nil
+end
+
+function CheckAndCommitMusteredArmy(iTeam, iPlateau)
+    --Check if mustered army is ready to commit and execute the attack
+    --Returns true if army was committed
+    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'CheckAndCommitMusteredArmy'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    if not(M28Team.IsMusteringActive(iTeam, iPlateau)) then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    if M28Team.ShouldCommitMusteredArmy(iTeam, iPlateau) then
+        local toCommittedUnits = M28Team.CommitMusteredArmy(iTeam, iPlateau)
+        if bDebugMessages == true then LOG(sFunctionRef..': Committed '..table.getn(toCommittedUnits)..' units from mustering') end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return true
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return false
+end
