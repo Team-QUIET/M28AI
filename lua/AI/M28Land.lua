@@ -8369,8 +8369,17 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                         end
                                     end
                                 else
-                                    --Maybe the units have micro active so arent being included? havent traced back the code to confirm
-                                    M28Utilities.ErrorHandler('We somehow think we outrange the enemy with DF units, but have no DF units with a long range, P'..iPlateau..'Z'..iLandZone, true)
+                                    --No units to support - retreat SR units to rally point
+                                    --This can happen when we have threat superiority at same range but no long-range units (e.g. early T1 with only tanks)
+                                    if bDebugMessages == true then LOG(sFunctionRef..': No units to support, retreating SR units to rally, tOutrangedCombatUnits count='..table.getn(tOutrangedCombatUnits)) end
+                                    for iSRUnit, oSRUnit in tOutrangedCombatUnits do
+                                        oSRUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
+                                        if EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oSRUnit.UnitId) then
+                                            M28Orders.IssueTrackedMove(oSRUnit, tAmphibiousRallyPoint, 4, false, 'SRNoSup'..iLandZone)
+                                        else
+                                            M28Orders.IssueTrackedMove(oSRUnit, tRallyPoint, 4, false, 'SRNoSup'..iLandZone)
+                                        end
+                                    end
                                 end
                             end
                         end

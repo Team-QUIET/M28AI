@@ -6448,7 +6448,8 @@ function GetEngineerToReclaimNearbyArea(oEngineer, iPriorityOverride, tLZOrWZTea
             else
                 if bDebugMessages == true then LOG(sFunctionRef..': Time since last zone refresh='..GetGameTimeSeconds() - (tLZOrWZData[M28Map.subrefLastReclaimRefresh] or 0)..'; LZ total recalim='..(tLZOrWZData[M28Map.subrefTotalMassReclaim] or 0)..'; tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim]='..(tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim] or 'nil')) end
                 if not(bWantEnergyNotMass) and not(bOnlyConsiderReclaimInRangeOfEngineer) then
-                    if iTotalMassAtStartOfCodeInZone == 0 then M28Utilities.ErrorHandler('We tried getting an engi to reclaim mass in a zone when there is no mass, P'..iPlateauOrPond..'Z'..iLandOrWaterZone..';WZ='..tostring(bIsWaterZone or false), true)
+                    if (iTotalMassAtStartOfCodeInZone or 0) == 0 then
+                        if bDebugMessages == true then LOG(sFunctionRef..': Tried to reclaim mass in zone with no mass, P'..iPlateauOrPond..'Z'..iLandOrWaterZone..'; WZ='..tostring(bIsWaterZone or false)..'; engineer will be reassigned') end
                     else
                         if GetGameTimeSeconds() - (tLZOrWZData[M28Map.subrefLastComprehensiveReclaimRefresh] or 0) >= 3 then
                             if bDebugMessages == true then LOG(sFunctionRef..': Will refresh reclaim data in this zone P'..iPlateauOrPond..'Z'..iLandOrWaterZone..', including any underlying segments, mass before refresh='..tLZOrWZData[M28Map.subrefTotalMassReclaim]) end
