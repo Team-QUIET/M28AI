@@ -13,6 +13,7 @@ M28LogWaterZoneDebug = false --If true, logs detailed water zone threat calculat
 M28LogAirSystemDebug = false --If true, logs comprehensive air system debug: interceptors, bombers, gunships, transports, scouts, threat calculations, target assignments, and all air decision-making
 M28LogEngineerDecisions = false --If true, logs engineer decisions including factory type prioritization (air/land/naval), factory balance ratios, and construction triggers
 M28LogAirProductionDecisions = false --If true, logs air production decisions including unit type priorities (bomber/gunship/transport/scout) and production focus
+M28LogLandProductionDecisions = false --If true, logs land production decisions including unit type priorities and production focus
 M28LogEconomicDecisions = false --If true, logs detailed economic decisions: income, expenses, trends, storage, and spending priorities
 
 --Detailed profiling config options

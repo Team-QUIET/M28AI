@@ -1416,6 +1416,14 @@ function OnBombFired(oWeapon, projectile, bIgnoreProjectileCheck)
             local sUnitID = oUnit.UnitId
 
             if bDebugMessages == true then LOG(sFunctionRef..': bomber position when firing bomb='..repru(oUnit:GetPosition())..'; Bomber='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Owner='..oUnit:GetAIBrain().Nickname..'; Time='..GetGameTimeSeconds()..'; Time since last bomber event='..(GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastDodgeBombEvent] or 0))) end
+
+            if M28Config.M28LogAirSystemDebug and oUnit:GetAIBrain().M28AirSubteam then
+                local oTarget = oUnit[M28Air.refoStrikeDamageAssigned]
+                local sTargetInfo = M28UnitInfo.IsUnitValid(oTarget) and (oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..', TargetHP='..math.floor(oTarget:GetHealth())) or 'NoTarget'
+                local sBomberType = EntityCategoryContains(M28UnitInfo.refCategoryTorpBomber, sUnitID) and 'TorpBomber' or (EntityCategoryContains(categories.EXPERIMENTAL, sUnitID) and 'ExpBomber' or 'Bomber')
+                LOG(sFunctionRef..': [AirSub'..oUnit:GetAIBrain().M28AirSubteam..'] BOMB_FIRED - '..sBomberType..'='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..', Pos='..math.floor(oUnit:GetPosition()[1])..','..math.floor(oUnit:GetPosition()[3])..', Target='..sTargetInfo..', HP='..math.floor(oUnit:GetHealth())..'/'..math.floor(oUnit:GetMaxHealth())..', Time='..string.format('%.1f', GetGameTimeSeconds()))
+            end
+
             if EntityCategoryContains(M28UnitInfo.refCategoryBomber + M28UnitInfo.refCategoryTorpBomber, sUnitID) then
                 --if not(EntityCategoryContains(categories.EXPERIMENTAL, sUnitID)) then
                 if GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastDodgeBombEvent] or 0) >= 2 then
