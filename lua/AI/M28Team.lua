@@ -199,6 +199,15 @@ tTeamData = {} --[x] is the aiBrain.M28Team number - stores certain team-wide in
     subrefiStagedReinforcementThreatByPlateauAndZone = 'M28TeamStagedReinfThreat' --[iPlateau][iLandZone] returns total mass cost of staged reinforcements
     subrefiTimeReinforcementStagingStartedByPlateauAndZone = 'M28TeamReinfStageTime' --[iPlateau][iLandZone] returns gametimeseconds when first unit started staging
     subrefiMinReinforcementThreatByPlateauAndZone = 'M28TeamMinReinfThreat' --[iPlateau][iLandZone] returns minimum threat threshold before committing reinforcements
+    --Global Army Mustering System - coordinates reinforcements across multiple zones before committing to attack
+    subreftMusteringDataByPlateau = 'M28TeamMusterData' --[iPlateau] returns mustering data table with subrefs below
+        subrefiMusteringTargetLZ = 'MustTgtLZ' --The land zone we are mustering to attack
+        subrefiMusteringZoneLZ = 'MustZnLZ' --The safe land zone where units gather before attacking
+        subrefiMusteringEnemyThreat = 'MustEnThr' --Enemy threat in the target zone when mustering started
+        subreftMusteringUnits = 'MustUnits' --Table of units currently mustering
+        subrefiMusteringTotalThreat = 'MustTotThr' --Total threat of units mustering
+        subrefiMusteringStartTime = 'MustStTm' --Gametimeseconds when mustering started
+        subrefiMusteringLastUpdateTime = 'MustUpdTm' --Gametimeseconds when mustering was last updated
     refiLastTimeNoShieldTargetsByIsland = 'M28TeamLastTimeNoShieldTargets' --[x] is the island ref (i.e. navutils.getlabel(M28Map.refPathingTypeLand...), returns gametime seconds
     refiLastTimeNoShieldBoatTargetsByPond = 'M28TeamLastTimeNoShieldBoatTargets' --[x] is the pond ref, returns gametimeseconds
     refiLastTimeNoStealthTargetsByPlateau = 'M28TeamLastTimeNoStealthTargets' --[x] is the plateau ref, returns gametime seconds
@@ -6033,18 +6042,12 @@ function ShouldCommitStagedReinforcements(iTeam, iPlateau, iLandZone, iEnemyThre
     local iMinThreshold = GetMinimumReinforcementThreshold(iTeam, iPlateau, iLandZone, iEnemyThreat)
     local iTimeStaging = GetGameTimeSeconds() - (tTeamData[iTeam][subrefiTimeReinforcementStagingStartedByPlateauAndZone][iPlateau][iLandZone] or GetGameTimeSeconds())
 
-    --Timeout: commit after 60 seconds regardless of threshold
-    local iMaxStagingTime = 60
-
     if bDebugMessages == true then LOG(sFunctionRef..': Staged threat='..iStagedThreat..' min threshold='..iMinThreshold..' time staging='..iTimeStaging) end
 
-    --Commit if we've reached threshold OR timeout
+    --Only commit when threshold reached
     if iStagedThreat >= iMinThreshold then
         bShouldCommit = true
         if bDebugMessages == true then LOG(sFunctionRef..': Committing - threshold reached') end
-    elseif iTimeStaging >= iMaxStagingTime then
-        bShouldCommit = true
-        if bDebugMessages == true then LOG(sFunctionRef..': Committing - timeout reached') end
     end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -6069,6 +6072,321 @@ function ClearStagedReinforcements(iTeam, iPlateau, iLandZone)
     end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+end
+
+function GetMusteringData(iTeam, iPlateau)
+    --Returns the mustering data for a plateau, or nil if no active mustering
+    if not(tTeamData[iTeam][subreftMusteringDataByPlateau]) then return nil end
+    return tTeamData[iTeam][subreftMusteringDataByPlateau][iPlateau]
+end
+
+function GetMusteringZone(iTeam, iPlateau)
+    --Returns the mustering zone LZ for a plateau, or nil if no active mustering
+    local tMusterData = GetMusteringData(iTeam, iPlateau)
+    if tMusterData then return tMusterData[subrefiMusteringZoneLZ] end
+    return nil
+end
+
+function GetMusteringTargetZone(iTeam, iPlateau)
+    --Returns the target zone we're mustering to attack, or nil if no active mustering
+    local tMusterData = GetMusteringData(iTeam, iPlateau)
+    if tMusterData then return tMusterData[subrefiMusteringTargetLZ] end
+    return nil
+end
+
+function FindSafeMusteringZone(iTeam, iPlateau, iTargetLZ)
+    --Find a safe zone to gather units before attacking the target zone
+    --Ideal zone is 3-5 zones behind the frontline, on the path toward target
+    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'FindSafeMusteringZone'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local tTargetLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iTargetLZ]
+    local tTargetLZTeamData = tTargetLZData[M28Map.subrefLZTeamData][iTeam]
+    local iTargetModDist = tTargetLZTeamData[M28Map.refiModDistancePercent] or 0.5
+
+    --Find a zone with lower mod distance (closer to our base) that isn't contested
+    local iBestMusterZone = nil
+    local iBestModDist = 1.0
+    local iIdealModDist = math.max(0.1, iTargetModDist - 0.25) --Aim for zone 25% closer to our base
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Looking for mustering zone for target LZ '..iTargetLZ..' with modDist='..iTargetModDist..', idealModDist='..iIdealModDist) end
+
+    for iLandZone, tLZData in M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones] do
+        local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
+        local iZoneModDist = tLZTeamData[M28Map.refiModDistancePercent] or 0
+
+        --Zone must be:
+        -- 1. Closer to our base than target (lower modDist)
+        -- 2. Not have dangerous enemies
+        -- 3. On same island as target
+        local bZoneSafe = not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ])
+        local bSameIsland = (tLZData[M28Map.subrefLZIslandRef] == tTargetLZData[M28Map.subrefLZIslandRef])
+        local bCloserToBase = iZoneModDist < iTargetModDist - 0.1
+
+        if bZoneSafe and bSameIsland and bCloserToBase then
+            --Prefer zones close to ideal distance
+            local iDistFromIdeal = math.abs(iZoneModDist - iIdealModDist)
+            if not(iBestMusterZone) or iDistFromIdeal < math.abs(iBestModDist - iIdealModDist) then
+                --Check we can path to target from this zone
+                local iTravelDist = M28Map.GetTravelDistanceBetweenLandZones(iPlateau, iLandZone, iTargetLZ)
+                if iTravelDist and iTravelDist < 10000 then
+                    iBestMusterZone = iLandZone
+                    iBestModDist = iZoneModDist
+                    if bDebugMessages == true then LOG(sFunctionRef..': Found candidate mustering zone '..iLandZone..' with modDist='..iZoneModDist) end
+                end
+            end
+        end
+    end
+
+    --Fallback: if no ideal zone found, use a rally point zone
+    if not(iBestMusterZone) then
+        if tTeamData[iTeam][subrefiRallyPointLandZonesByPlateau] and
+           tTeamData[iTeam][subrefiRallyPointLandZonesByPlateau][iPlateau] and
+           M28Utilities.IsTableEmpty(tTeamData[iTeam][subrefiRallyPointLandZonesByPlateau][iPlateau]) == false then
+            iBestMusterZone = tTeamData[iTeam][subrefiRallyPointLandZonesByPlateau][iPlateau][1]
+            if bDebugMessages == true then LOG(sFunctionRef..': Using rally point zone '..iBestMusterZone..' as fallback mustering zone') end
+        end
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return iBestMusterZone
+end
+
+function InitializeMustering(iTeam, iPlateau, iTargetLZ, iEnemyThreat)
+    --Start mustering units for an attack on the target zone
+    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'InitializeMustering'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local iMusteringZone = FindSafeMusteringZone(iTeam, iPlateau, iTargetLZ)
+    if not(iMusteringZone) then
+        if bDebugMessages == true then LOG(sFunctionRef..': Could not find mustering zone for target '..iTargetLZ) end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    --Initialize data structures
+    if not(tTeamData[iTeam][subreftMusteringDataByPlateau]) then tTeamData[iTeam][subreftMusteringDataByPlateau] = {} end
+
+    tTeamData[iTeam][subreftMusteringDataByPlateau][iPlateau] = {
+        [subrefiMusteringTargetLZ] = iTargetLZ,
+        [subrefiMusteringZoneLZ] = iMusteringZone,
+        [subrefiMusteringEnemyThreat] = iEnemyThreat,
+        [subreftMusteringUnits] = {},
+        [subrefiMusteringTotalThreat] = 0,
+        [subrefiMusteringStartTime] = GetGameTimeSeconds(),
+        [subrefiMusteringLastUpdateTime] = GetGameTimeSeconds()
+    }
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Initialized mustering for target LZ '..iTargetLZ..' at mustering zone '..iMusteringZone..' with enemy threat '..iEnemyThreat) end
+    if bDebugMessages == true then
+        LOG('ArmyMustering: [P'..iPlateau..'] INIT mustering at LZ'..iMusteringZone..' to attack LZ'..iTargetLZ..', EnemyThreat='..iEnemyThreat..', Time='..GetGameTimeSeconds())
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return true
+end
+
+function AddUnitToMustering(iTeam, iPlateau, oUnit)
+    --Add a unit to the mustering army
+    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'AddUnitToMustering'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local tMusterData = GetMusteringData(iTeam, iPlateau)
+    if not(tMusterData) then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    --Add unit to table
+    table.insert(tMusterData[subreftMusteringUnits], oUnit)
+
+    --Update threat value
+    local iUnitThreat = M28UnitInfo.GetCombatThreatRating({oUnit}, false, false)
+    tMusterData[subrefiMusteringTotalThreat] = tMusterData[subrefiMusteringTotalThreat] + iUnitThreat
+    tMusterData[subrefiMusteringLastUpdateTime] = GetGameTimeSeconds()
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Added unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' to mustering, total threat now='..tMusterData[subrefiMusteringTotalThreat]) end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return true
+end
+
+function GetMusteringThreat(iTeam, iPlateau)
+    --Get the total threat of units currently mustering
+    local tMusterData = GetMusteringData(iTeam, iPlateau)
+    if not(tMusterData) then return 0 end
+
+    --Clean up dead units and recalculate threat
+    local iValidThreat = 0
+    local toValidUnits = {}
+    for _, oUnit in tMusterData[subreftMusteringUnits] do
+        if M28UnitInfo.IsUnitValid(oUnit) then
+            table.insert(toValidUnits, oUnit)
+            iValidThreat = iValidThreat + M28UnitInfo.GetCombatThreatRating({oUnit}, false, false)
+        end
+    end
+    tMusterData[subreftMusteringUnits] = toValidUnits
+    tMusterData[subrefiMusteringTotalThreat] = iValidThreat
+
+    return iValidThreat
+end
+
+function ShouldCommitMusteredArmy(iTeam, iPlateau)
+    --Check if we have enough units mustered to attack
+    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'ShouldCommitMusteredArmy'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local tMusterData = GetMusteringData(iTeam, iPlateau)
+    if not(tMusterData) then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    local iMusteredThreat = GetMusteringThreat(iTeam, iPlateau)
+    local iEnemyThreat = tMusterData[subrefiMusteringEnemyThreat]
+    local iTimeMusteringSeconds = GetGameTimeSeconds() - tMusterData[subrefiMusteringStartTime]
+
+    --Get current enemy threat in target zone (may have changed)
+    local iTargetLZ = tMusterData[subrefiMusteringTargetLZ]
+    local tTargetLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iTargetLZ][M28Map.subrefLZTeamData][iTeam]
+    local iCurrentEnemyThreat = tTargetLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+    iEnemyThreat = math.max(iEnemyThreat, iCurrentEnemyThreat)
+
+    --Calculate required threat ratio based on tech level
+    local iHighestTech = tTeamData[iTeam][subrefiHighestFriendlyLandFactoryTech] or 1
+    local iThreatRatioRequired = 1.3
+    if iHighestTech >= 3 then
+        iThreatRatioRequired = 1.5
+    elseif iHighestTech >= 2 then
+        iThreatRatioRequired = 1.4
+    end
+
+    --Minimum unit count based on tech
+    local iMinUnitCount = 4
+    if iHighestTech >= 3 then iMinUnitCount = 2
+    elseif iHighestTech >= 2 then iMinUnitCount = 3 end
+
+    local iUnitCount = table.getn(tMusterData[subreftMusteringUnits])
+
+    local bShouldCommit = false
+    local sReason = ''
+
+    --Only commit based on threat advantage or enemy retreat 
+    --Commit conditions:
+    -- 1. Have enough threat ratio AND minimum units
+    if iMusteredThreat >= iEnemyThreat * iThreatRatioRequired and iUnitCount >= iMinUnitCount then
+        bShouldCommit = true
+        sReason = 'threat threshold reached'
+    -- 2. Enemy threat dropped significantly (they retreated or died)
+    elseif iCurrentEnemyThreat < iEnemyThreat * 0.3 and iUnitCount >= 2 then
+        bShouldCommit = true
+        sReason = 'enemy retreated'
+    end
+
+    if bDebugMessages == true then LOG(sFunctionRef..': MusteredThreat='..iMusteredThreat..', EnemyThreat='..iEnemyThreat..', Ratio='..iThreatRatioRequired..', Units='..iUnitCount..', Time='..iTimeMusteringSeconds..', ShouldCommit='..tostring(bShouldCommit)..' ('..sReason..')') end
+
+    if bDebugMessages == true then
+        LOG('ArmyMustering: [P'..iPlateau..'] COMMIT! Reason='..sReason..', MusteredThreat='..math.floor(iMusteredThreat)..', EnemyThreat='..math.floor(iEnemyThreat)..', Units='..iUnitCount..', Time='..GetGameTimeSeconds())
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return bShouldCommit
+end
+
+function CommitMusteredArmy(iTeam, iPlateau)
+    --Commit all mustered units to attack the target zone
+    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'CommitMusteredArmy'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local tMusterData = GetMusteringData(iTeam, iPlateau)
+    if not(tMusterData) then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return {}
+    end
+
+    local iTargetLZ = tMusterData[subrefiMusteringTargetLZ]
+    local tTargetMidpoint = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iTargetLZ][M28Map.subrefMidpoint]
+    local toUnitsToCommit = {}
+
+    --Collect valid units
+    for _, oUnit in tMusterData[subreftMusteringUnits] do
+        if M28UnitInfo.IsUnitValid(oUnit) then
+            table.insert(toUnitsToCommit, oUnit)
+        end
+    end
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Committing '..table.getn(toUnitsToCommit)..' units to attack LZ '..iTargetLZ) end
+
+    --Issue move orders to all units
+    for _, oUnit in toUnitsToCommit do
+        M28Orders.IssueTrackedMove(oUnit, tTargetMidpoint, 6, false, 'MustAtk'..iTargetLZ)
+    end
+
+    --Clear mustering data
+    ClearMustering(iTeam, iPlateau)
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return toUnitsToCommit
+end
+
+function ClearMustering(iTeam, iPlateau)
+    --Clear mustering data for a plateau
+    if tTeamData[iTeam][subreftMusteringDataByPlateau] then
+        tTeamData[iTeam][subreftMusteringDataByPlateau][iPlateau] = nil
+    end
+end
+
+function IsMusteringActive(iTeam, iPlateau)
+    --Check if there is active mustering for this plateau
+    return GetMusteringData(iTeam, iPlateau) ~= nil
+end
+
+function UpdateMusteringTarget(iTeam, iPlateau, iNewTargetLZ, iNewEnemyThreat)
+    --Update the target zone if the threat situation has changed
+    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'UpdateMusteringTarget'
+
+    local tMusterData = GetMusteringData(iTeam, iPlateau)
+    if not(tMusterData) then return false end
+
+    --Only update if this is a more urgent target (closer or higher threat)
+    local iCurrentTargetLZ = tMusterData[subrefiMusteringTargetLZ]
+    if iNewTargetLZ ~= iCurrentTargetLZ then
+        --Check if new target is more urgent
+        local iMusteringZone = tMusterData[subrefiMusteringZoneLZ]
+        local iDistToCurrent = M28Map.GetTravelDistanceBetweenLandZones(iPlateau, iMusteringZone, iCurrentTargetLZ) or 10000
+        local iDistToNew = M28Map.GetTravelDistanceBetweenLandZones(iPlateau, iMusteringZone, iNewTargetLZ) or 10000
+
+        if iDistToNew < iDistToCurrent * 0.7 or iNewEnemyThreat > tMusterData[subrefiMusteringEnemyThreat] * 1.5 then
+            tMusterData[subrefiMusteringTargetLZ] = iNewTargetLZ
+            tMusterData[subrefiMusteringEnemyThreat] = math.max(tMusterData[subrefiMusteringEnemyThreat], iNewEnemyThreat)
+            if bDebugMessages == true then LOG(sFunctionRef..': Updated mustering target from '..iCurrentTargetLZ..' to '..iNewTargetLZ) end
+            return true
+        end
+    else
+        --Same target, just update threat if higher
+        if iNewEnemyThreat > tMusterData[subrefiMusteringEnemyThreat] then
+            tMusterData[subrefiMusteringEnemyThreat] = iNewEnemyThreat
+        end
+    end
+    return false
+end
+
+function GetMusteringZoneMidpoint(iTeam, iPlateau)
+    --Get the midpoint of the mustering zone for issuing move orders
+    local tMusterData = GetMusteringData(iTeam, iPlateau)
+    if not(tMusterData) then return nil end
+
+    local iMusteringZone = tMusterData[subrefiMusteringZoneLZ]
+    if iMusteringZone then
+        return M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iMusteringZone][M28Map.subrefMidpoint]
+    end
+    return nil
 end
 
 function ConsiderDelayedMexDetection(oMex)

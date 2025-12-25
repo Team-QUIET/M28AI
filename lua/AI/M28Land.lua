@@ -5534,6 +5534,24 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
             local bNearestEnemyNeedsManualAttack = false --If nearest enemy is below water with its base but still visible on the top then units wont fire at it unless given a specific attack order
             local bAreInScenario1 = false --true if are in scenario 1
+
+            --Muster instead of attacking when enemy threat >= our threat (unless defending core base)
+            --This prevents feeding units piecemeal into a stronger enemy army
+            local bShouldMusterNotAttack = false
+            local iNearbyEnemyThreatForMuster = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+            --Include adjacent zone threats for a more accurate picture
+            if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
+                for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
+                    local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
+                    iNearbyEnemyThreatForMuster = iNearbyEnemyThreatForMuster + (tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)
+                end
+            end
+            --If enemy has equal or greater threat and we're not defending a core base, muster instead of attacking
+            if iNearbyEnemyThreatForMuster >= iAvailableCombatUnitThreat and not(tLZTeamData[M28Map.subrefLZbCoreBase]) then
+                bShouldMusterNotAttack = true
+                if true then LOG(sFunctionRef..': Muster check - bShouldMusterNotAttack=true, iNearbyEnemyThreatForMuster='..iNearbyEnemyThreatForMuster..', iAvailableCombatUnitThreat='..iAvailableCombatUnitThreat) end
+            end
+
             local tEnemyEngineers = {} --So can avoid getting in reclaim range, and consider targeting as a priority
             local tSkirmisherDFEnemies = {}
             local tHiddenIFEnemies --If have any IF units that we lack visibility of, will add here so we can avoid with skirmishers
@@ -6827,6 +6845,12 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
                 if bDebugMessages == true then LOG(sFunctionRef..': Finished checking if should move blocked units, bMoveBlockedNotAttackMove='..tostring(bMoveBlockedNotAttackMove)..'; iFriendlyBestMobileIndirectRange='..(iFriendlyBestMobileIndirectRange or 'nil')..';  tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal]='..(tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 'nil')..'; Enemy DF structure='..(tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0)..'; Enemy DF mobile='..(tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0)..'; tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal]='..(tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 'nil')..'; iFriendlyBestMobileDFRange='..(iFriendlyBestMobileDFRange or 'nil')..'; Enemy best DF range='..iEnemyBestDFRange..'; iFriendlyBestMobileIndirectRange='..(iFriendlyBestMobileIndirectRange or 'nil')..'; iEnemyBestStructureDFRange='..(iEnemyBestStructureDFRange or 'nil')..'; Enemy structure threat indirect='..(tLZTeamData[M28Map.subrefLZThreatEnemyStructureIndirect] or 'nil')..'; bEnemyHasNoDFUnits='..tostring(bEnemyHasNoDFUnits or false)..'; iEnemyBestDFRange='..(iEnemyBestDFRange or 'nil')..'; tLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal]='..(tLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal] or 'nil')..'; tLZTeamData[M28Map.subrefLZThreatEnemyMobileIndirectTotal]='..(tLZTeamData[M28Map.subrefLZThreatEnemyMobileIndirectTotal] or 'nil')..'; iAvailableCombatUnitThreat='..iAvailableCombatUnitThreat..'; subrefiNearbyEnemyLongRangeDFThreat='..(tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 0)..'; bAreInScenario1='..tostring(bAreInScenario1)) end
                 --SCENARIO 1 - We outrange enemy DF units (mobile and fix), or have equal range but with either significantly more threat at that range, or nearest enemy lacks that range
+                --Skip Scenario 1 attacks if we should muster instead (enemy has equal or greater threat)
+                if bAreInScenario1 and bShouldMusterNotAttack then
+                    bAreInScenario1 = false --Force into Scenario 2 which will then retreat/muster
+                    if true then LOG(sFunctionRef..': Overriding Scenario 1 due to bShouldMusterNotAttack=true, will muster instead of kiting attack') end
+                end
+
                 if bAreInScenario1 then
                     --ARE IN SCENARIO 1
 
@@ -9072,6 +9096,14 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         tLZTeamData[M28Map.subrefiLandZoneLastTargetTime] = nil
                     end
 
+                    --Override attack decision if we should muster (enemy has equal or greater threat)
+                    --This is the final check before acting on the decision - ensures we don't attack when outgunned
+                    if bAttackWithEverything and bShouldMusterNotAttack then
+                        bAttackWithEverything = false
+                        bWantReinforcements = true
+                        if true then LOG(sFunctionRef..': Overriding bAttackWithEverything to false due to bShouldMusterNotAttack=true, will muster/retreat instead') end
+                    end
+
                     --Log the decision with additional context about target changes
                     if bDebugMessages == true then
                         local sDecision = bAttackWithEverything and 'ATTACK' or 'RETREAT'
@@ -10428,17 +10460,26 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             else
                                 M28Orders.IssueTrackedMove(oUnit, oUnit[refoSREnemyTarget]:GetPosition(), 6, false, 'SRHistMT'..iLandZone)
                             end
-                        elseif EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oUnit.UnitId) then
-                            if bConsiderAttackMoveIfClose and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tAmphibiousRallyPoint) <= 30 then
-                                M28Orders.IssueTrackedAggressiveMove(oUnit, tAmphibiousRallyPoint, 6, false, 'AFBARetr'..iLandZone)
-                            else
-                                M28Orders.IssueTrackedMove(oUnit, tAmphibiousRallyPoint, 6, false, 'AFBMRetr'..iLandZone)
-                            end
                         else
-                            if bConsiderAttackMoveIfClose and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tRallyPoint) <= 30 then
-                                M28Orders.IssueTrackedAggressiveMove(oUnit, tRallyPoint, 6, false, 'FBARetr'..iLandZone)
+                            --Consider mustering instead of simple retreat for significant threats
+                            local iEnemyThreatForMustering = (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) + (tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0)
+                            local tMusteringPoint = ConsiderMusteringForRetreat(oUnit, iTeam, iPlateau, iLandZone, iEnemyThreatForMustering)
+                            --Throttled debug logging for muster evaluation (every 30 seconds per zone)
+                            if tMusteringPoint then
+                                --Unit is joining mustering effort
+                                M28Orders.IssueTrackedMove(oUnit, tMusteringPoint, 6, false, 'MustRetr'..iLandZone)
+                            elseif EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oUnit.UnitId) then
+                                if bConsiderAttackMoveIfClose and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tAmphibiousRallyPoint) <= 30 then
+                                    M28Orders.IssueTrackedAggressiveMove(oUnit, tAmphibiousRallyPoint, 6, false, 'AFBARetr'..iLandZone)
+                                else
+                                    M28Orders.IssueTrackedMove(oUnit, tAmphibiousRallyPoint, 6, false, 'AFBMRetr'..iLandZone)
+                                end
                             else
-                                M28Orders.IssueTrackedMove(oUnit, tRallyPoint, 6, false, 'FBRetr'..iLandZone)
+                                if bConsiderAttackMoveIfClose and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tRallyPoint) <= 30 then
+                                    M28Orders.IssueTrackedAggressiveMove(oUnit, tRallyPoint, 6, false, 'FBARetr'..iLandZone)
+                                else
+                                    M28Orders.IssueTrackedMove(oUnit, tRallyPoint, 6, false, 'FBRetr'..iLandZone)
+                                end
                             end
                         end
                     end
@@ -12483,6 +12524,8 @@ function ManageAllLandZones(aiBrain, iTeam, bIgnoreMinorPlateaus, iCurMinorPlate
                         end
                     end
                 end
+                --Check if mustered army is ready to commit for this plateau
+                CheckAndCommitMusteredArmy(iTeam, iPlateau)
             else
                 if bDebugMessages == true then LOG(sFunctionRef..': Warning - no land zones found for plateau '..iPlateau) end
             end
@@ -14689,6 +14732,65 @@ function GetRetreatZone(iCurrentPlateau, iCurrentLZ, iTeam)
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     return iBestRetreatLZ
+end
+
+function ConsiderMusteringForRetreat(oUnit, iTeam, iPlateau, iLandZone, iEnemyThreat)
+    --When a unit is retreating, check if it should join a mustering effort instead
+    --Returns the mustering zone midpoint if unit should muster, nil otherwise
+    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'ConsiderMusteringForRetreat'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    --Muster whenever we're retreating - the decision to retreat was already based on enemy threat >= our threat
+    --Check if there's already active mustering for this plateau
+    if M28Team.IsMusteringActive(iTeam, iPlateau) then
+        local iMusteringTargetLZ = M28Team.GetMusteringTargetZone(iTeam, iPlateau)
+        --If mustering for a different zone, check if this zone is more urgent
+        if iMusteringTargetLZ ~= iLandZone then
+            M28Team.UpdateMusteringTarget(iTeam, iPlateau, iLandZone, iEnemyThreat)
+        end
+        --Add unit to mustering
+        M28Team.AddUnitToMustering(iTeam, iPlateau, oUnit)
+        local tMusteringMidpoint = M28Team.GetMusteringZoneMidpoint(iTeam, iPlateau)
+        if bDebugMessages == true then LOG(sFunctionRef..': Unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' joining existing mustering at '..repru(tMusteringMidpoint)) end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return tMusteringMidpoint
+    else
+        --No active mustering, consider starting one
+        if M28Team.InitializeMustering(iTeam, iPlateau, iLandZone, iEnemyThreat) then
+            M28Team.AddUnitToMustering(iTeam, iPlateau, oUnit)
+            local tMusteringMidpoint = M28Team.GetMusteringZoneMidpoint(iTeam, iPlateau)
+            if bDebugMessages == true then LOG(sFunctionRef..': Unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' started new mustering at '..repru(tMusteringMidpoint)) end
+            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+            return tMusteringMidpoint
+        end
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return nil
+end
+
+function CheckAndCommitMusteredArmy(iTeam, iPlateau)
+    --Check if mustered army is ready to commit and execute the attack
+    --Returns true if army was committed
+    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'CheckAndCommitMusteredArmy'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    if not(M28Team.IsMusteringActive(iTeam, iPlateau)) then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    if M28Team.ShouldCommitMusteredArmy(iTeam, iPlateau) then
+        local toCommittedUnits = M28Team.CommitMusteredArmy(iTeam, iPlateau)
+        if bDebugMessages == true then LOG(sFunctionRef..': Committed '..table.getn(toCommittedUnits)..' units from mustering') end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return true
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return false
 end
 
 function ManageRaidingForce(tRaiders, iTargetPlateau, iTargetLandZone, iTeam)
