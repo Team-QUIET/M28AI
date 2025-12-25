@@ -77,6 +77,13 @@ refiPlateauAndZoneTravelingBeforeTempReclaimOrder = 'M28EngTrZT' --If engineer w
 refiSequentialReclaimCount = 'M28EngSeqRc' --when an engineer finishes reclaiming, it should continue to try reclaiming; this is used as a count, so if it is reclaiming a lot it should periodically consider new orders
 refiRepairProgressWhenLastChecked = 'M28EngRePr' --If engi assisting GE template this should be recorded so we reassess if we want to repair periodically
 
+--Reclaim path tracking
+reftAssignedReclaimPath = 'M28EngReclaimPath' --Table of reclaim objects assigned to this engineer for path reclaiming
+refbHasReclaimPath = 'M28EngHasReclaimPath' --True if engineer has an active reclaim path assignment
+iMaxReclaimPathEngineers = 9 --Maximum number of engineers that can be doing reclaim path at once per team
+tTeamReclaimPathEngineers = {} --[iTeam] = table of engineers with reclaim path; initialized in team setup
+tTeamAssignedReclaim = {} --[iTeam] = table of reclaim objects already assigned; key is reclaim object, value is engineer
+
 --Shield related variables against a unit
 refiFailedShieldBuildDistance = 'M28EngFailedShieldBuildDist' --against a building wanting shielding - records the distance of the closest location that we can build (so can decide if the unit can even be shielded)
 refiFailedShieldConstructionCount = 'M28EngFailedShdCnt' --Number of times we have tried to get a build locatino to cover this unit and failed
@@ -173,6 +180,7 @@ refActionAssistQuantumGateway = 79
 refActionBuildSecondPD = 80
 refActionGiveEngineerToTeammate = 81 --Transfers engineer to subrefoBrainWantingEngi
 refActionBuildThirdTMD = 82 --used for T2 arti builder
+refActionReclaimPath = 83 --queue up efficient reclaim path through multiple rocks using move orders at max build range
 
 --tiEngiActionsThatDontBuild = {refActionReclaimArea, refActionSpare, refActionNavalSpareAction, refActionHasNearbyEnemies, refActionReclaimFriendlyUnit, refActionReclaimTrees, refActionUpgradeBuilding, refActionAssistSMD, refActionAssistTML, refActionAssistMexUpgrade, refActionAssistAirFactory, refActionAssistNavalFactory, refActionUpgradeHQ, refActionAssistNuke, refActionLoadOntoTransport, refActionAssistShield}
 
@@ -332,6 +340,7 @@ tbActionsThatDontHaveCategory = {
     [refActionRepairAllyUnit] = true,
     [refActionAttackMoveToLandZone] = true,
     [refActionGiveEngineerToTeammate] = true,
+    [refActionReclaimPath] = true,
     --Not set for refActionManageGameEnderTemplate as will treat it as having a category ref equal to the action ref itself
 }
 
@@ -5627,6 +5636,11 @@ function ClearEngineerTracking(oEngineer)
     oEngineer[refbHasSpareAction] = nil
     if oEngineer[refiRepairProgressWhenLastChecked] then oEngineer[refiRepairProgressWhenLastChecked] = nil end
 
+    --Clear reclaim path tracking if engineer had one
+    if oEngineer[refbHasReclaimPath] then
+        ClearReclaimPathTracking(oEngineer, oEngineer:GetAIBrain().M28Team)
+    end
+
     --Update experimental construction tracking:
     if oEngineer[refbBuildingExperimental] then
         --As backup, also remove any dead engineers from this table
@@ -5873,7 +5887,15 @@ function TrackEngineerAction(oEngineer, iActionToAssign, bIsPrimaryBuilder, iCur
 
 
     --Special logic (done in a genric way in case end up with more scenarios like this) - if action to assign currnetly is special shield logic and we have a different action to assign then clear engineer tracking (as we have an override that prevents it being cleared via orders)
-    if oEngineer[refiAssignedAction] and not(oEngineer[refiAssignedAction] == iActionToAssign) then ClearEngineerTracking(oEngineer) end
+    --Don't clear tracking for protected actions (shield defence, GE template, reclaim path) - they should complete their assigned task
+    if oEngineer[refiAssignedAction] and not(oEngineer[refiAssignedAction] == iActionToAssign) then
+        if oEngineer[refiAssignedAction] == refActionSpecialShieldDefence or oEngineer[refiAssignedAction] == refActionManageGameEnderTemplate or oEngineer[refiAssignedAction] == refActionReclaimPath then
+            --Don't reassign this engineer - it has a protected action
+            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+            return
+        end
+        ClearEngineerTracking(oEngineer)
+    end
 
     oEngineer[refiAssignedAction] = iActionToAssign
     oEngineer[refbPrimaryBuilder] = (bIsPrimaryBuilder or false)
@@ -6472,6 +6494,274 @@ function GetEngineerToReclaimNearbyArea(oEngineer, iPriorityOverride, tLZOrWZTea
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     if bGivenOrder and bOptionalReturnTrueIfGivenOrder then return true end
+end
+
+function GetReclaimPathEngineerCount(iTeam)
+    --Returns the number of engineers currently doing reclaim path for this team
+    if not(tTeamReclaimPathEngineers[iTeam]) then return 0 end
+    local iCount = 0
+    for iEngi, oEngi in tTeamReclaimPathEngineers[iTeam] do
+        if M28UnitInfo.IsUnitValid(oEngi) and oEngi[refiAssignedAction] == refActionReclaimPath then
+            iCount = iCount + 1
+        end
+    end
+    return iCount
+end
+
+function ClearReclaimPathTracking(oEngineer, iTeam)
+    --Clear tracking for an engineer that was doing reclaim path
+    if oEngineer[reftAssignedReclaimPath] then
+        --Clear the reclaim assignments from team table
+        if tTeamAssignedReclaim[iTeam] then
+            for _, oReclaim in oEngineer[reftAssignedReclaimPath] do
+                if tTeamAssignedReclaim[iTeam][oReclaim] == oEngineer then
+                    tTeamAssignedReclaim[iTeam][oReclaim] = nil
+                end
+            end
+        end
+        oEngineer[reftAssignedReclaimPath] = nil
+    end
+    oEngineer[refbHasReclaimPath] = nil
+
+    --Remove from team engineer list
+    if tTeamReclaimPathEngineers[iTeam] then
+        for iEngi, oEngi in tTeamReclaimPathEngineers[iTeam] do
+            if oEngi == oEngineer then
+                table.remove(tTeamReclaimPathEngineers[iTeam], iEngi)
+                break
+            end
+        end
+    end
+end
+
+function MonitorReclaimPathEngineer(oEngineer, iTeam)
+    --Monitor thread to clean up reclaim path tracking when engineer finishes or is reassigned
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'MonitorReclaimPathEngineer'
+
+    while M28UnitInfo.IsUnitValid(oEngineer) and oEngineer[refiAssignedAction] == refActionReclaimPath do
+        WaitTicks(20) --Check every 2 seconds
+
+        --Check if engineer is done reclaiming (idle or has different action)
+        if M28UnitInfo.IsUnitValid(oEngineer) then
+            if not(oEngineer:IsUnitState('Reclaiming')) and not(oEngineer:IsUnitState('Moving')) then
+                --Engineer appears to be done
+                if bDebugMessages == true then LOG(sFunctionRef..': Engineer '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' appears done with reclaim path') end
+                break
+            end
+        end
+    end
+
+    --Clean up tracking and make engineer available for reassignment
+    if bDebugMessages == true then LOG(sFunctionRef..': Cleaning up reclaim path tracking for engineer') end
+    ClearReclaimPathTracking(oEngineer, iTeam)
+
+    --Clear engineer's assigned action so they become available for new tasks
+    if M28UnitInfo.IsUnitValid(oEngineer) and oEngineer[refiAssignedAction] == refActionReclaimPath then
+        oEngineer[refiAssignedAction] = nil
+        oEngineer[refiAssignedActionPriority] = nil
+        if bDebugMessages == true then LOG(sFunctionRef..': Cleared engineer action, now available for reassignment') end
+    end
+end
+
+function QueueReclaimPath(oEngineer, iPriorityOverride, tLZOrWZTeamData, iPlateauOrPond, iLandOrWaterZone, bWantEnergyNotMass, iMinIndividualValueOverride, bIsWaterZone, iMaxReclaimCount)
+    --Queue up an efficient reclaim path through multiple rocks
+    --Uses nearest-neighbor algorithm to plan path, then issues move orders at max build range followed by reclaim orders
+    --iMaxReclaimCount: Maximum number of reclaim targets to queue (default 10)
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'QueueReclaimPath'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local bGivenOrder = false
+    iMaxReclaimCount = iMaxReclaimCount or 10
+    local iCurPriority = (iPriorityOverride or oEngineer[refiAssignedActionPriority] or 1)
+    local iTeam = oEngineer:GetAIBrain().M28Team
+
+    --Initialize team tracking tables if needed
+    if not(tTeamReclaimPathEngineers[iTeam]) then tTeamReclaimPathEngineers[iTeam] = {} end
+    if not(tTeamAssignedReclaim[iTeam]) then tTeamAssignedReclaim[iTeam] = {} end
+
+    --Check if we already have max engineers doing reclaim path
+    local iCurrentPathEngineers = GetReclaimPathEngineerCount(iTeam)
+    if iCurrentPathEngineers >= iMaxReclaimPathEngineers then
+        if bDebugMessages == true then LOG(sFunctionRef..': Already have '..iCurrentPathEngineers..' engineers doing reclaim path, max='..iMaxReclaimPathEngineers) end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    local tLZOrWZData
+    if bIsWaterZone then tLZOrWZData = M28Map.tPondDetails[iPlateauOrPond][M28Map.subrefPondWaterZones][iLandOrWaterZone]
+    else tLZOrWZData = M28Map.tAllPlateaus[iPlateauOrPond][M28Map.subrefPlateauLandZones][iLandOrWaterZone]
+    end
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, oEngineer='..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..'; iMaxReclaimCount='..iMaxReclaimCount..'; Total mass in zone='..tLZOrWZData[M28Map.subrefTotalMassReclaim]..'; Current path engineers='..iCurrentPathEngineers) end
+
+    --Get engineer build distance
+    local oEngBP = oEngineer:GetBlueprint()
+    if not(oEngBP.SizeX) then oEngBP = __blueprints[oEngBP.UnitId] end
+    local iMaxBuildDist = oEngBP.Economy.MaxBuildDistance or 5
+    local iEngiSize = math.min(oEngBP.SizeX or 1, oEngBP.SizeZ or 1) * 0.5
+    local iEffectiveBuildRange = iMaxBuildDist + iEngiSize
+
+    local iMinReclaimValue = (iMinIndividualValueOverride or M28Map.iLowestMassThreshold)
+    local sReclaimValueRef = bWantEnergyNotMass and 'MaxEnergyReclaim' or 'MaxMassReclaim'
+
+    --Get all reclaim in the zone within a reasonable search area
+    local tEngiPos = oEngineer:GetPosition()
+    local iSearchRadius = 150 --Search radius around engineer
+    local rSearchRect = M28Utilities.GetRectAroundLocation(tEngiPos, iSearchRadius)
+    local tAllReclaim = M28Map.GetReclaimInRectangle(4, rSearchRect)
+
+    if M28Utilities.IsTableEmpty(tAllReclaim) then
+        if bDebugMessages == true then LOG(sFunctionRef..': No reclaim found in search area') end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    --Filter reclaim to valid targets not already assigned
+    local tValidReclaim = {}
+    local iEngiPlateau = NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, tEngiPos)
+    for _, oReclaim in tAllReclaim do
+        if oReclaim.CachePosition and not(oReclaim:BeenDestroyed()) then
+            --Check if already assigned to another engineer
+            if not(tTeamAssignedReclaim[iTeam][oReclaim]) then
+                --Filter by reclaim type: energy (trees) vs mass (rocks)
+                local iMassValue = oReclaim.MaxMassReclaim or 0
+                local iEnergyValue = oReclaim.MaxEnergyReclaim or 0
+                local bIsEnergyReclaim = iEnergyValue > iMassValue
+
+                --Only include if it matches what we want (energy or mass)
+                if (bWantEnergyNotMass and bIsEnergyReclaim) or (not(bWantEnergyNotMass) and not(bIsEnergyReclaim)) then
+                    --Check we can path to it
+                    local iReclaimPlateau = NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, oReclaim.CachePosition)
+                    if iReclaimPlateau == iEngiPlateau then
+                        table.insert(tValidReclaim, oReclaim)
+                    end
+                end
+            elseif bDebugMessages == true then
+                LOG(sFunctionRef..': Skipping reclaim already assigned to another engineer')
+            end
+        end
+    end
+
+    if table.getn(tValidReclaim) == 0 then
+        if bDebugMessages == true then LOG(sFunctionRef..': No valid reclaim targets after filtering') end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Found '..table.getn(tValidReclaim)..' valid reclaim targets') end
+
+    --Sort by distance from engineer (nearest-neighbor greedy algorithm)
+    --Only grab rocks that are close together - stop if next rock is too far
+    local tSortedReclaim = {}
+    local tRemainingReclaim = {}
+    local iRemainingCount = 0
+    for i, oReclaim in ipairs(tValidReclaim) do
+        tRemainingReclaim[i] = oReclaim
+        iRemainingCount = iRemainingCount + 1
+    end
+
+    local tCurrentPos = {tEngiPos[1], tEngiPos[2], tEngiPos[3]}
+    local iSortedCount = 0
+    --Max distance between consecutive rocks - keeps reclaim localized to a cluster
+    local iMaxDistBetweenRocks = 80
+
+    while iRemainingCount > 0 and iSortedCount < iMaxReclaimCount do
+        local iNearestIdx = nil
+        local iNearestDist = 999999
+
+        for i = 1, iRemainingCount do
+            local iDist = M28Utilities.GetDistanceBetweenPositions(tCurrentPos, tRemainingReclaim[i].CachePosition)
+            if iDist < iNearestDist then
+                iNearestDist = iDist
+                iNearestIdx = i
+            end
+        end
+
+        if not(iNearestIdx) then break end
+
+        --First rock has no distance limit - just find the nearest one
+        --Subsequent rocks must be within iMaxDistBetweenRocks of the previous rock
+        if iSortedCount > 0 and iNearestDist > iMaxDistBetweenRocks then
+            if bDebugMessages == true then LOG(sFunctionRef..': Nearest rock is '..iNearestDist..' away, max allowed='..iMaxDistBetweenRocks..', stopping path') end
+            break
+        end
+
+        local oNearest = tRemainingReclaim[iNearestIdx]
+        table.insert(tSortedReclaim, oNearest)
+        iSortedCount = iSortedCount + 1
+        tCurrentPos = oNearest.CachePosition
+        table.remove(tRemainingReclaim, iNearestIdx)
+        iRemainingCount = iRemainingCount - 1
+    end
+
+    if iSortedCount == 0 then
+        if bDebugMessages == true then LOG(sFunctionRef..': No reclaim in sorted list') end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Sorted '..iSortedCount..' reclaim targets into localized path') end
+
+    --Mark all sorted reclaim as assigned to this engineer
+    oEngineer[reftAssignedReclaimPath] = {}
+    for _, oReclaim in ipairs(tSortedReclaim) do
+        tTeamAssignedReclaim[iTeam][oReclaim] = oEngineer
+        table.insert(oEngineer[reftAssignedReclaimPath], oReclaim)
+    end
+
+    --Issue the queued orders: for each rock, move to max build range position, then reclaim
+    M28Orders.IssueTrackedClearCommands(oEngineer)
+    local tPreviousPos = {tEngiPos[1], tEngiPos[2], tEngiPos[3]}
+    local bFirstOrder = true
+
+    for i, oReclaim in ipairs(tSortedReclaim) do
+        local tReclaimPos = oReclaim.CachePosition
+        local iReclaimRadius = math.min((oReclaim:GetBlueprint().SizeX or 0.5), (oReclaim:GetBlueprint().SizeZ or 0.5)) * 0.5
+        local iDistToReclaim = M28Utilities.GetDistanceBetweenPositions(tPreviousPos, tReclaimPos)
+
+        --Calculate the position at max build range from the reclaim, approaching from our previous position
+        local iAngleFromReclaimToEngi = M28Utilities.GetAngleFromAToB(tReclaimPos, tPreviousPos)
+        local iMoveDistance = iEffectiveBuildRange + iReclaimRadius
+
+        --Only issue move order if we're not already in range
+        if iDistToReclaim > iMoveDistance then
+            local tMovePos = M28Utilities.MoveInDirection(tReclaimPos, iAngleFromReclaimToEngi, iMoveDistance, true, false, M28Map.bIsCampaignMap)
+            if tMovePos and not(M28Utilities.IsTableEmpty(tMovePos)) then
+                --Check the move position is pathable
+                local iMovePlateau = NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, tMovePos)
+                if iMovePlateau == iEngiPlateau then
+                    if bFirstOrder then
+                        M28Orders.IssueTrackedMove(oEngineer, tMovePos, 1, false, 'ReclPath'..i, false)
+                        bFirstOrder = false
+                    else
+                        IssueMove({oEngineer}, tMovePos)
+                    end
+                    if bDebugMessages == true then LOG(sFunctionRef..': Queued move to '..repru(tMovePos)..' for reclaim '..i) end
+                end
+            end
+        end
+
+        --Queue reclaim order
+        IssueReclaim({oEngineer}, oReclaim)
+        if bDebugMessages == true then LOG(sFunctionRef..': Queued reclaim for '..i..' at '..repru(tReclaimPos)..' value='..(oReclaim[sReclaimValueRef] or 0)) end
+
+        tPreviousPos = tReclaimPos
+        bGivenOrder = true
+    end
+
+    if bGivenOrder then
+        TrackEngineerAction(oEngineer, refActionReclaimPath, false, iCurPriority, nil, nil)
+        oEngineer[refbHasReclaimPath] = true
+        table.insert(tTeamReclaimPathEngineers[iTeam], oEngineer)
+        --Start monitor thread to clean up when done
+        ForkThread(MonitorReclaimPathEngineer, oEngineer, iTeam)
+        if bDebugMessages == true then LOG(sFunctionRef..': Successfully queued reclaim path with '..iSortedCount..' targets') end
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return bGivenOrder
 end
 
 function FilterEngineersOfTechAndEngiCountForFaction(iOptionalFactionRequired, tEngineersOfTechWanted, bOkWithNoEngisIfDontHaveFactionRequired)
@@ -10004,7 +10294,10 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                 local iHighestPriorityEngi = iCurPriority
                 local oHighestPriorityEngi
                 for iEngi, oEngi in toAssignedEngisOfTechLevel do
-                    if not(oEngi[refbPrimaryBuilder]) and not(oEngi[refiAssignedAction] == iActionToAssign) and oEngi[refiAssignedActionPriority] > iHighestPriorityEngi and not(oEngi:IsUnitState('Reclaiming')) and not(oEngi:IsUnitState('Attached')) and not(oEngi:IsUnitState('Capturing')) then
+                    --Don't reassign engineers on a reclaim path - they should complete their path
+                    if oEngi[refiAssignedAction] == refActionReclaimPath then
+                        --Skip this engineer entirely
+                    elseif not(oEngi[refbPrimaryBuilder]) and not(oEngi[refiAssignedAction] == iActionToAssign) and oEngi[refiAssignedActionPriority] > iHighestPriorityEngi and not(oEngi:IsUnitState('Reclaiming')) and not(oEngi:IsUnitState('Attached')) and not(oEngi:IsUnitState('Capturing')) then
                         --Exception for engineers assisting a shield
                         if not(oEngi[refiAssignedAction] == refActionAssistShield) or not(M28Team.tTeamData[iTeam][M28Team.refbDefendAgainstArti]) or (M28Team.tTeamData[iTeam][M28Team.refiEnemyT3ArtiCount] == 0 and M28Team.tTeamData[iTeam][M28Team.refiEnemyNovaxCount] <= 2) then
                             iHighestPriorityEngi = oEngi[refiAssignedActionPriority]
@@ -10644,9 +10937,24 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                     local bWantEnergyNotMass = vOptionalVariable[1]
                     local bGivenOrder = false
                     while iTotalBuildPowerWanted > 0 and iEngiCount > 0 do
-                        if bDebugMessages == true then LOG(sFunctionRef..': About to tell engineer '..tEngineersOfTechWanted[iEngiCount].UnitId..M28UnitInfo.GetUnitLifetimeCount(tEngineersOfTechWanted[iEngiCount])..' to reclaim nearby, iTotalBuildPowerWanted='..iTotalBuildPowerWanted..'; iEngiCount='..iEngiCount) end
-                        --GetEngineerToReclaimNearbyArea(oEngineer,                       iPriorityOverride,   tLZOrWZTeamData, iPlateauOrPondOrPond, iLandOrWaterZone, bWantEnergyNotMass, bOnlyConsiderReclaimInRangeOfEngineer, iMinIndividualValueOverride, bIsWaterZone, bOptionalReturnTrueIfGivenOrder)
-                        bGivenOrder = GetEngineerToReclaimNearbyArea(tEngineersOfTechWanted[iEngiCount], iCurPriority, tLZOrWZTeamData, iPlateauOrPond,           iLandOrWaterZone,      bWantEnergyNotMass, false,                               vOptionalVariable[2],        bIsWaterZone,  true)
+                        if bDebugMessages == true then LOG(sFunctionRef..': About to tell engineer '..tEngineersOfTechWanted[iEngiCount].UnitId..M28UnitInfo.GetUnitLifetimeCount(tEngineersOfTechWanted[iEngiCount])..' to reclaim nearby, iTotalBuildPowerWanted='..iTotalBuildPowerWanted..'; iEngiCount='..iEngiCount..'; bWantEnergyNotMass='..tostring(bWantEnergyNotMass)) end
+                        --Try to use efficient reclaim path for both mass and energy reclaim
+                        local bUseReclaimPath = false
+                        if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] <= 3 then
+                            --Use reclaim path for both mass and energy reclaim
+                            bUseReclaimPath = true
+                        end
+
+                        if bUseReclaimPath then
+                            bGivenOrder = QueueReclaimPath(tEngineersOfTechWanted[iEngiCount], iCurPriority, tLZOrWZTeamData, iPlateauOrPond, iLandOrWaterZone, bWantEnergyNotMass, vOptionalVariable[2], bIsWaterZone, 10)
+                            if bDebugMessages == true then LOG(sFunctionRef..': Used QueueReclaimPath for '..(bWantEnergyNotMass and 'energy' or 'mass')..', bGivenOrder='..tostring(bGivenOrder)) end
+                        end
+
+                        --Fallback to original method if reclaim path failed or not applicable
+                        if not(bGivenOrder) then
+                            --GetEngineerToReclaimNearbyArea(oEngineer,                       iPriorityOverride,   tLZOrWZTeamData, iPlateauOrPondOrPond, iLandOrWaterZone, bWantEnergyNotMass, bOnlyConsiderReclaimInRangeOfEngineer, iMinIndividualValueOverride, bIsWaterZone, bOptionalReturnTrueIfGivenOrder)
+                            bGivenOrder = GetEngineerToReclaimNearbyArea(tEngineersOfTechWanted[iEngiCount], iCurPriority, tLZOrWZTeamData, iPlateauOrPond,           iLandOrWaterZone,      bWantEnergyNotMass, false,                               vOptionalVariable[2],        bIsWaterZone,  true)
+                        end
                         if not(bGivenOrder) then
                             if bDebugMessages == true then LOG(sFunctionRef..': Failed to give a valid reclaim order so aborting') end
                             iTotalBuildPowerWanted = 0 break

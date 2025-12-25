@@ -548,7 +548,7 @@ function UpdateHighestFactoryTechLevelForBuiltUnit(oUnitJustBuilt)
                     tFactoryLZTeamData[M28Map.subrefbQualifiesForForwardFactory] = nil
                     --Reset sustained reclaim tracking
                     tFactoryLZTeamData[M28Map.subrefiSustainedHighReclaimStartTime] = nil
-                    if true then LOG(sFunctionRef..': Built FORWARD FACTORY in P'..iPlateau..'Z'..iLandZone..'; Zone count='..(tFactoryLZTeamData[M28Map.subrefiForwardFactoryCount] or 0)..'; Team count='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamForwardFactoryCount] or 0)) end
+                    if bDebugMessages == true then LOG(sFunctionRef..': Built FORWARD FACTORY in P'..iPlateau..'Z'..iLandZone..'; Zone count='..(tFactoryLZTeamData[M28Map.subrefiForwardFactoryCount] or 0)..'; Team count='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamForwardFactoryCount] or 0)) end
                 end
             end
         elseif EntityCategoryContains(M28UnitInfo.refCategoryNavalHQ, oUnitJustBuilt.UnitId) then

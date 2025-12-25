@@ -5548,7 +5548,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
             --If enemy has equal or greater threat and we're not defending a core base, muster instead of attacking
             if iNearbyEnemyThreatForMuster >= iAvailableCombatUnitThreat and not(tLZTeamData[M28Map.subrefLZbCoreBase]) then
                 bShouldMusterNotAttack = true
-                if true then LOG(sFunctionRef..': Muster check - bShouldMusterNotAttack=true, iNearbyEnemyThreatForMuster='..iNearbyEnemyThreatForMuster..', iAvailableCombatUnitThreat='..iAvailableCombatUnitThreat) end
+                if bDebugMessages == true then LOG(sFunctionRef..': Muster check - bShouldMusterNotAttack=true, iNearbyEnemyThreatForMuster='..iNearbyEnemyThreatForMuster..', iAvailableCombatUnitThreat='..iAvailableCombatUnitThreat) end
             end
 
             local tEnemyEngineers = {} --So can avoid getting in reclaim range, and consider targeting as a priority
@@ -6847,7 +6847,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 --Skip Scenario 1 attacks if we should muster instead (enemy has equal or greater threat)
                 if bAreInScenario1 and bShouldMusterNotAttack then
                     bAreInScenario1 = false --Force into Scenario 2 which will then retreat/muster
-                    if true then LOG(sFunctionRef..': Overriding Scenario 1 due to bShouldMusterNotAttack=true, will muster instead of kiting attack') end
+                    if bDebugMessages == true then LOG(sFunctionRef..': Overriding Scenario 1 due to bShouldMusterNotAttack=true, will muster instead of kiting attack') end
                 end
 
                 if bAreInScenario1 then
@@ -9100,7 +9100,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     if bAttackWithEverything and bShouldMusterNotAttack then
                         bAttackWithEverything = false
                         bWantReinforcements = true
-                        if true then LOG(sFunctionRef..': Overriding bAttackWithEverything to false due to bShouldMusterNotAttack=true, will muster/retreat instead') end
+                        if bDebugMessages == true then LOG(sFunctionRef..': Overriding bAttackWithEverything to false due to bShouldMusterNotAttack=true, will muster/retreat instead') end
                     end
 
                     --Log the decision with additional context about target changes
