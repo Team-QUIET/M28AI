@@ -19645,7 +19645,7 @@ function ConsiderWaterZoneEngineerAssignment(tWZTeamData, iTeam, iPond, iWaterZo
         if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] then iBPWanted = iBPWanted * 0.25 end
 
         HaveActionToAssign(refActionBuildNavalFactory, 1, iBPWanted, nil)
-    elseif bSkipNavalForAir and iHighestTechEngiAvailable > 0 and M28Config.M28LogFactoryDecisions then
+    elseif bSkipNavalForAir and iHighestTechEngiAvailable > 0 and M28Config.M28LogEngineerDecisions then
         LOG(sFunctionRef..': [WZ'..iWaterZone..'] NAVAL_FAC_SKIPPED_FOR_AIR - Skipping naval factory construction, team is far behind on air. Time='..GetGameTimeSeconds())
     end
 
@@ -19711,7 +19711,7 @@ function ConsiderWaterZoneEngineerAssignment(tWZTeamData, iTeam, iPond, iWaterZo
         if bDebugMessages == true then LOG(sFunctionRef..': Want to assist naval fac, iBPWanted='..iBPWanted) end
         NavUtils.GetLabel(M28Map.refPathingTypeHover, tWZData[M28Map.subrefMidpoint])
         AssignBuildExperimentalOrT3NavyAction(HaveActionToAssign, NavUtils.GetLabel(M28Map.refPathingTypeHover, tWZData[M28Map.subrefMidpoint]), iWaterZone, iTeam, tWZData, tWZTeamData, true, refActionAssistNavalFactory, 1, iBPWanted, false, false)
-    elseif bSkipNavalAssistForAir and M28Config.M28LogFactoryDecisions and iExistingWaterFactory > 0 then
+    elseif bSkipNavalAssistForAir and M28Config.M28LogEngineerDecisions and iExistingWaterFactory > 0 then
         LOG(sFunctionRef..': [WZ'..iWaterZone..'] NAVAL_ASSIST_SKIPPED_FOR_AIR - Engineers redirected to air factory priority. Time='..GetGameTimeSeconds())
     end
 

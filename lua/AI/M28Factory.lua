@@ -763,21 +763,21 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
 
                 if iCurUnits >= iMaxUnits then
                     if bStallingEnergy or iEnergyStored < 0.5 then
-                        if M28Config.M28LogFactoryDecisions then
+                        if M28Config.M28LogEngineerDecisions then
                             LOG(sFunctionRef..': HIGH_MAINT_BLOCKED_ENERGY - Unit='..sBPIDToBuild..' blocked due to energy concerns. MaintenanceE='..iMaintenanceEnergy..'/s; CurUnits='..iCurUnits..'; MaxUnits='..iMaxUnits..'; GrossE='..iGrossEnergy..'; EnergyStored='..string.format('%.1f%%', iEnergyStored * 100)..'; Stalling='..(bStallingEnergy and 'YES' or 'NO')..'; IsMobileStealthOrShield='..tostring(bIsMobileStealthOrShield)..'; Time='..GetGameTimeSeconds())
                         end
                         sBPIDToBuild = nil
                     elseif iCurUnits >= iMaxUnits * 2 then
-                        if M28Config.M28LogFactoryDecisions then
+                        if M28Config.M28LogEngineerDecisions then
                             LOG(sFunctionRef..': HIGH_MAINT_BLOCKED_HARDCAP - Unit='..sBPIDToBuild..' blocked due to hard cap (2x max). MaintenanceE='..iMaintenanceEnergy..'/s; CurUnits='..iCurUnits..'; MaxUnits='..iMaxUnits..'; HardCap='..(iMaxUnits * 2)..'; GrossE='..iGrossEnergy..'; IsMobileStealthOrShield='..tostring(bIsMobileStealthOrShield)..'; Time='..GetGameTimeSeconds())
                         end
                         sBPIDToBuild = nil
                     else
-                        if M28Config.M28LogFactoryDecisions then
+                        if M28Config.M28LogEngineerDecisions then
                             LOG(sFunctionRef..': HIGH_MAINT_AT_LIMIT_OK - Unit='..sBPIDToBuild..' at limit but economy OK, allowing build. MaintenanceE='..iMaintenanceEnergy..'/s; CurUnits='..iCurUnits..'; MaxUnits='..iMaxUnits..'; GrossE='..iGrossEnergy..'; EnergyStored='..string.format('%.1f%%', iEnergyStored * 100)..'; IsMobileStealthOrShield='..tostring(bIsMobileStealthOrShield)..'; Time='..GetGameTimeSeconds())
                         end
                     end
-                elseif M28Config.M28LogFactoryDecisions and iCurUnits > 0 then
+                elseif M28Config.M28LogEngineerDecisions and iCurUnits > 0 then
                     LOG(sFunctionRef..': HIGH_MAINT_UNDER_LIMIT - Unit='..sBPIDToBuild..' under limit, allowing build. MaintenanceE='..iMaintenanceEnergy..'/s; CurUnits='..iCurUnits..'; MaxUnits='..iMaxUnits..'; GrossE='..iGrossEnergy..'; IsMobileStealthOrShield='..tostring(bIsMobileStealthOrShield)..'; Time='..GetGameTimeSeconds())
                 end
             end
