@@ -3284,7 +3284,8 @@ function ManageMassOverflow(iTeam)
                 if M28Utilities.IsTableEmpty(tEngineers) == false then
                     for iUnit, oUnit in tEngineers do
                         iEngiCycleCount = iEngiCycleCount + 1
-                        if M28UnitInfo.IsUnitValid(oUnit) and (oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionReclaimArea or oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionReclaimFriendlyUnit) then
+                        --Don't stop ReclaimPath or MexBuildPath engineers - they should complete their assigned path
+                        if M28UnitInfo.IsUnitValid(oUnit) and (oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionReclaimArea or oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionReclaimFriendlyUnit) and not(oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionReclaimPath) and not(oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionMexBuildPath) then
                             if bDebugMessages == true then LOG(sFunctionRef..': About to stop engineer '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' from reclaiming as have lots of mass now') end
                             M28Orders.IssueTrackedClearCommands(oUnit)
                         end

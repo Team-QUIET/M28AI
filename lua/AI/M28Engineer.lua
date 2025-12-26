@@ -84,6 +84,13 @@ iMaxReclaimPathEngineers = 9 --Maximum number of engineers that can be doing rec
 tTeamReclaimPathEngineers = {} --[iTeam] = table of engineers with reclaim path; initialized in team setup
 tTeamAssignedReclaim = {} --[iTeam] = table of reclaim objects already assigned; key is reclaim object, value is engineer
 
+--Mex build path tracking
+reftAssignedMexBuildPath = 'M28EngMexBuildPath' --Table of mex locations assigned to this engineer for path building
+refbHasMexBuildPath = 'M28EngHasMexBuildPath' --True if engineer has an active mex build path assignment
+iMaxMexBuildPathEngineers = 5 --Maximum number of engineers that can be doing mex build path at once per team
+tTeamMexBuildPathEngineers = {} --[iTeam] = table of engineers with mex build path
+tTeamAssignedMexLocations = {} --[iTeam] = table of mex locations already assigned; key is location string, value is engineer
+
 --Shield related variables against a unit
 refiFailedShieldBuildDistance = 'M28EngFailedShieldBuildDist' --against a building wanting shielding - records the distance of the closest location that we can build (so can decide if the unit can even be shielded)
 refiFailedShieldConstructionCount = 'M28EngFailedShdCnt' --Number of times we have tried to get a build locatino to cover this unit and failed
@@ -181,6 +188,8 @@ refActionBuildSecondPD = 80
 refActionGiveEngineerToTeammate = 81 --Transfers engineer to subrefoBrainWantingEngi
 refActionBuildThirdTMD = 82 --used for T2 arti builder
 refActionReclaimPath = 83 --queue up efficient reclaim path through multiple rocks using move orders at max build range
+refActionMexBuildPath = 84 --queue up efficient mex build path through multiple unbuilt mex locations
+refActionExpandToLandZone = 85 --queue mexes in target zone directly with reclaim along path
 
 --tiEngiActionsThatDontBuild = {refActionReclaimArea, refActionSpare, refActionNavalSpareAction, refActionHasNearbyEnemies, refActionReclaimFriendlyUnit, refActionReclaimTrees, refActionUpgradeBuilding, refActionAssistSMD, refActionAssistTML, refActionAssistMexUpgrade, refActionAssistAirFactory, refActionAssistNavalFactory, refActionUpgradeHQ, refActionAssistNuke, refActionLoadOntoTransport, refActionAssistShield}
 
@@ -253,6 +262,7 @@ tiActionOrder = {
     [refActionRunToLandZone] = M28Orders.refiOrderIssueMove,
     [refActionMoveToWaterZone] = M28Orders.refiOrderIssueMove,
     [refActionRunToWaterZone] = M28Orders.refiOrderIssueMove,
+    [refActionExpandToLandZone] = M28Orders.refiOrderIssueBuild, --Queues mex builds with reclaim
     [refActionReclaimFriendlyUnit] = M28Orders.refiOrderIssueReclaim,
     [refActionAssistUpgrade] = M28Orders.refiOrderIssueGuard,
     [refActionAssistAirFactory] = M28Orders.refiOrderIssueGuard,
@@ -341,6 +351,7 @@ tbActionsThatDontHaveCategory = {
     [refActionAttackMoveToLandZone] = true,
     [refActionGiveEngineerToTeammate] = true,
     [refActionReclaimPath] = true,
+    [refActionExpandToLandZone] = true, --Custom handling for expansion with queued mexes
     --Not set for refActionManageGameEnderTemplate as will treat it as having a category ref equal to the action ref itself
 }
 
@@ -1577,23 +1588,54 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
                 --ACU shouldnt check for queued buildings as otherwise it treats its own queued order as meaning it cant build there!
                 if EntityCategoryContains(categories.COMMAND, oEngineer.UnitId) then bCheckForQueuedBuildings = false end
                 local tBackupResourceLocation
+                local iTeam = aiBrain.M28Team
+                local bIsMex = EntityCategoryContains(M28UnitInfo.refCategoryMex, sBlueprintToBuild)
                 for iCurResource, tCurResource in tResourceLocations do
-                    if bDebugMessages == true then
-                        --CanBuildAtLocation(aiBrain, sBlueprintToBuild, tTargetLocation, iOptionalPlateauGroupOrZero, iOptionalLandOrWaterZone, iEngiActionToIgnore, bClearActionsIfNotStartedBuilding, bCheckForQueuedBuildings, bCheckForOverlappingBuildings)
-                        LOG(sFunctionRef..': Checking if can build '..sBlueprintToBuild..' on resource location '..repru(tCurResource)..'; result='..tostring(CanBuildAtLocation(aiBrain, sBlueprintToBuild, tCurResource, iPlateauOrZero,              iLandOrWaterZone,          nil,                    false,                          bCheckForQueuedBuildings,   false,                          false,                      true))..'; Can we build just using the brain function check='..tostring(aiBrain:CanBuildStructureAt(sBlueprintToBuild, tCurResource))..'; Is table of units in rect around tCurResource empty='..tostring(M28Utilities.IsTableEmpty(GetUnitsInRect(M28Utilities.GetRectAroundLocation(tCurResource, 0.49))))..'; will draw locations we can build on in blue, and those we cant in red. bCheckForQueuedBuildings='..tostring(bCheckForQueuedBuildings or false))
-                        --CanBuildAtLocation(aiBrain, sBlueprintToBuild, tTargetLocation, iOptionalPlateauGroupOrZero, iOptionalLandOrWaterZone, iEngiActionToIgnore, bClearActionsIfNotStartedBuilding, bCheckForQueuedBuildings, bCheckForOverlappingBuildings, bCheckBlacklistIfNoGameEnder, bConsideringResourceLocation)
-                        if CanBuildAtLocation(aiBrain, sBlueprintToBuild, tCurResource, iPlateauOrZero,              iLandOrWaterZone,          nil,                    false,                          bCheckForQueuedBuildings,   false,                          false,                      true) then
-                            M28Utilities.DrawLocation(tCurResource, 1)
+                    --Skip mex locations already assigned to a MexBuildPath engineer
+                    if bIsMex and tTeamAssignedMexLocations[iTeam] then
+                        local sLocKey = tostring(tCurResource[1])..','..tostring(tCurResource[3])
+                        if tTeamAssignedMexLocations[iTeam][sLocKey] then
+                            if bDebugMessages == true then LOG(sFunctionRef..': Skipping mex location '..repru(tCurResource)..' as it is already assigned to MexBuildPath engineer') end
+                            --continue to next resource (using goto or just skip this iteration)
                         else
-                            M28Utilities.DrawLocation(tCurResource, 2)
+                            --Process this mex location normally
+                            if bDebugMessages == true then
+                                --CanBuildAtLocation(aiBrain, sBlueprintToBuild, tTargetLocation, iOptionalPlateauGroupOrZero, iOptionalLandOrWaterZone, iEngiActionToIgnore, bClearActionsIfNotStartedBuilding, bCheckForQueuedBuildings, bCheckForOverlappingBuildings)
+                                LOG(sFunctionRef..': Checking if can build '..sBlueprintToBuild..' on resource location '..repru(tCurResource)..'; result='..tostring(CanBuildAtLocation(aiBrain, sBlueprintToBuild, tCurResource, iPlateauOrZero,              iLandOrWaterZone,          nil,                    false,                          bCheckForQueuedBuildings,   false,                          false,                      true))..'; Can we build just using the brain function check='..tostring(aiBrain:CanBuildStructureAt(sBlueprintToBuild, tCurResource))..'; Is table of units in rect around tCurResource empty='..tostring(M28Utilities.IsTableEmpty(GetUnitsInRect(M28Utilities.GetRectAroundLocation(tCurResource, 0.49))))..'; will draw locations we can build on in blue, and those we cant in red. bCheckForQueuedBuildings='..tostring(bCheckForQueuedBuildings or false))
+                                --CanBuildAtLocation(aiBrain, sBlueprintToBuild, tTargetLocation, iOptionalPlateauGroupOrZero, iOptionalLandOrWaterZone, iEngiActionToIgnore, bClearActionsIfNotStartedBuilding, bCheckForQueuedBuildings, bCheckForOverlappingBuildings, bCheckBlacklistIfNoGameEnder, bConsideringResourceLocation)
+                                if CanBuildAtLocation(aiBrain, sBlueprintToBuild, tCurResource, iPlateauOrZero,              iLandOrWaterZone,          nil,                    false,                          bCheckForQueuedBuildings,   false,                          false,                      true) then
+                                    M28Utilities.DrawLocation(tCurResource, 1)
+                                else
+                                    M28Utilities.DrawLocation(tCurResource, 2)
+                                end
+                            end
+                            if CanBuildAtLocation(aiBrain, sBlueprintToBuild, tCurResource, iPlateauOrZero, iLandOrWaterZone, nil, false, bCheckForQueuedBuildings, false, false, true) then
+                                if bDontCheckForNoRush or M28Conditions.IsLocationInNoRushArea(tCurResource) then
+                                    table.insert(tPotentialBuildLocations, tCurResource)
+                                end
+                            elseif not(tBackupResourceLocation) and aiBrain:CanBuildStructureAt(sBlueprintToBuild, tCurResource) then
+                                tBackupResourceLocation = {tCurResource[1], tCurResource[2], tCurResource[3]}
+                            end
                         end
-                    end
-                    if CanBuildAtLocation(aiBrain, sBlueprintToBuild, tCurResource, iPlateauOrZero, iLandOrWaterZone, nil, false, bCheckForQueuedBuildings, false, false, true) then
-                        if bDontCheckForNoRush or M28Conditions.IsLocationInNoRushArea(tCurResource) then
-                            table.insert(tPotentialBuildLocations, tCurResource)
+                    else
+                        --Not a mex or no assigned mex locations, process normally
+                        if bDebugMessages == true then
+                            --CanBuildAtLocation(aiBrain, sBlueprintToBuild, tTargetLocation, iOptionalPlateauGroupOrZero, iOptionalLandOrWaterZone, iEngiActionToIgnore, bClearActionsIfNotStartedBuilding, bCheckForQueuedBuildings, bCheckForOverlappingBuildings)
+                            LOG(sFunctionRef..': Checking if can build '..sBlueprintToBuild..' on resource location '..repru(tCurResource)..'; result='..tostring(CanBuildAtLocation(aiBrain, sBlueprintToBuild, tCurResource, iPlateauOrZero,              iLandOrWaterZone,          nil,                    false,                          bCheckForQueuedBuildings,   false,                          false,                      true))..'; Can we build just using the brain function check='..tostring(aiBrain:CanBuildStructureAt(sBlueprintToBuild, tCurResource))..'; Is table of units in rect around tCurResource empty='..tostring(M28Utilities.IsTableEmpty(GetUnitsInRect(M28Utilities.GetRectAroundLocation(tCurResource, 0.49))))..'; will draw locations we can build on in blue, and those we cant in red. bCheckForQueuedBuildings='..tostring(bCheckForQueuedBuildings or false))
+                            --CanBuildAtLocation(aiBrain, sBlueprintToBuild, tTargetLocation, iOptionalPlateauGroupOrZero, iOptionalLandOrWaterZone, iEngiActionToIgnore, bClearActionsIfNotStartedBuilding, bCheckForQueuedBuildings, bCheckForOverlappingBuildings, bCheckBlacklistIfNoGameEnder, bConsideringResourceLocation)
+                            if CanBuildAtLocation(aiBrain, sBlueprintToBuild, tCurResource, iPlateauOrZero,              iLandOrWaterZone,          nil,                    false,                          bCheckForQueuedBuildings,   false,                          false,                      true) then
+                                M28Utilities.DrawLocation(tCurResource, 1)
+                            else
+                                M28Utilities.DrawLocation(tCurResource, 2)
+                            end
                         end
-                    elseif not(tBackupResourceLocation) and aiBrain:CanBuildStructureAt(sBlueprintToBuild, tCurResource) then
-                        tBackupResourceLocation = {tCurResource[1], tCurResource[2], tCurResource[3]}
+                        if CanBuildAtLocation(aiBrain, sBlueprintToBuild, tCurResource, iPlateauOrZero, iLandOrWaterZone, nil, false, bCheckForQueuedBuildings, false, false, true) then
+                            if bDontCheckForNoRush or M28Conditions.IsLocationInNoRushArea(tCurResource) then
+                                table.insert(tPotentialBuildLocations, tCurResource)
+                            end
+                        elseif not(tBackupResourceLocation) and aiBrain:CanBuildStructureAt(sBlueprintToBuild, tCurResource) then
+                            tBackupResourceLocation = {tCurResource[1], tCurResource[2], tCurResource[3]}
+                        end
                     end
                 end
                 --Backup - sometimes (very rarely) we might have 1 engineer trying to build a mex, aibrain shows it as able to build, but hte main canbuildatlocation doesnt; this will add the first such location as somewhere to build if otherwise we wouldnt build anywhere despite having unbuilt locations
@@ -5083,6 +5125,10 @@ function FilterToAvailableEngineersByTech(tEngineers, bInCoreZone, tLZData, tLZT
                                                 end
                                                 if bDebugMessages == true then LOG(sFunctionRef..': Not close enough to reclaim enemy, and not a core LZ, iClosestDistUntilInRangeOfStaticEnemy='..iClosestDistUntilInRangeOfStaticEnemy..'; iClosestDistUntilInRangeOfMobileEnemy='..iClosestDistUntilInRangeOfMobileEnemy..'; iThresholdToRunFromMobileEnemies='..iThresholdToRunFromMobileEnemies) end
                                                 if (iClosestDistUntilInRangeOfStaticEnemy < 8 or iClosestDistUntilInRangeOfMobileEnemy <= iThresholdToRunFromMobileEnemies) and (not(tLZTeamData[M28Map.subrefLZbCoreBase]) or iClosestDistUntilInRangeOfStaticEnemy < 4 or iClosestDistUntilInRangeOfMobileEnemy < 8) then
+                                                    --Don't run if engineer is on a ReclaimPath or MexBuildPath - they should complete their path
+                                                    if oEngineer[refiAssignedAction] == refActionReclaimPath or oEngineer[refiAssignedAction] == refActionMexBuildPath then
+                                                        if bDebugMessages == true then LOG(sFunctionRef..': Not running path engineer, let them complete their path') end
+                                                    else
                                                     --Dont run if we have friendly combat threat >= 50% of enemy threat
                                                     local iAllyCombatThreat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
                                                     local iEnemyCombatThreat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
@@ -5151,6 +5197,7 @@ function FilterToAvailableEngineersByTech(tEngineers, bInCoreZone, tLZData, tLZT
                                                             end
                                                         end
                                                     end
+                                                    end --Close else block for path engineer check
                                                 else
                                                     --We arent yet close enough that we want to run so do nothing
                                                 end
@@ -5220,7 +5267,7 @@ function FilterToAvailableEngineersByTech(tEngineers, bInCoreZone, tLZData, tLZT
                     bEngiIsUnavailable = not(M28Conditions.IsEngineerAvailable(oEngineer))
 
                     if bDebugMessages == true then LOG(sFunctionRef..': Entry in table='..iEngineer..'; Considering if engineer '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' is available, result='..tostring(M28Conditions.IsEngineerAvailable(oEngineer, true) or false)..'; Eng unit state='..M28UnitInfo.GetUnitState(oEngineer)..'; bEngiIsUnavailable='..tostring(bEngiIsUnavailable or false)..'; oEngineer[refiPlateauAndZoneTravelingBeforeTempReclaimOrder] ='..repru(oEngineer[refiPlateauAndZoneTravelingBeforeTempReclaimOrder] )) end
-                    if oEngineer[refiPlateauAndZoneTravelingBeforeTempReclaimOrder] and not(oEngineer[refiAssignedAction] == refActionMoveToLandZone) and not(oEngineer[refiAssignedAction] == refActionAttackMoveToLandZone) and not(oEngineer:IsUnitState('Reclaiming')) then
+                    if oEngineer[refiPlateauAndZoneTravelingBeforeTempReclaimOrder] and not(oEngineer[refiAssignedAction] == refActionMoveToLandZone) and not(oEngineer[refiAssignedAction] == refActionAttackMoveToLandZone) and not(oEngineer[refiAssignedAction] == refActionExpandToLandZone) and not(oEngineer:IsUnitState('Reclaiming')) then
                         local iTargetPlateau = oEngineer[refiPlateauAndZoneTravelingBeforeTempReclaimOrder][1]
                         local iTargetZone = oEngineer[refiPlateauAndZoneTravelingBeforeTempReclaimOrder][2]
 
@@ -5246,7 +5293,7 @@ function FilterToAvailableEngineersByTech(tEngineers, bInCoreZone, tLZData, tLZT
                             if M28ACU.ConsiderNearbyReclaimForACUOrEngineer(iPlateauOrPond, iLandZone, tLZData, tLZTeamData, oEngineer, true, 20) then
                                 bEngiIsUnavailable = true
                             end
-                        elseif oEngineer:IsUnitState('Moving') and oEngineer[refiAssignedAction] == refActionMoveToLandZone then
+                        elseif oEngineer:IsUnitState('Moving') and (oEngineer[refiAssignedAction] == refActionMoveToLandZone or oEngineer[refiAssignedAction] == refActionExpandToLandZone) then
                             --Engineer is already busy; exception if engineer is traveling to another zone where want to reissue its old order after issuing a reclaim order
                             local iTargetPlateau = oEngineer[M28Land.reftiPlateauAndLZToMoveTo][1]
                             local iTargetZone = oEngineer[M28Land.reftiPlateauAndLZToMoveTo][2]
@@ -5641,6 +5688,11 @@ function ClearEngineerTracking(oEngineer)
         ClearReclaimPathTracking(oEngineer, oEngineer:GetAIBrain().M28Team)
     end
 
+    --Clear mex build path tracking if engineer had one
+    if oEngineer[refbHasMexBuildPath] then
+        ClearMexBuildPathTracking(oEngineer, oEngineer:GetAIBrain().M28Team)
+    end
+
     --Update experimental construction tracking:
     if oEngineer[refbBuildingExperimental] then
         --As backup, also remove any dead engineers from this table
@@ -5884,12 +5936,26 @@ function TrackEngineerAction(oEngineer, iActionToAssign, bIsPrimaryBuilder, iCur
     local sFunctionRef = 'TrackEngineerAction'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
+    --QUIET DEBUG: Log expansion-related actions (throttled per engineer)
+    if iActionToAssign == refActionMoveToLandZone or iActionToAssign == refActionBuildMex or iActionToAssign == refActionExpandToLandZone then
+        local iLastLog = oEngineer['QUIETLastActionLog'] or 0
+        if GetGameTimeSeconds() - iLastLog >= 5 then
+            oEngineer['QUIETLastActionLog'] = GetGameTimeSeconds()
+            local sActionName = iActionToAssign == refActionMoveToLandZone and 'MoveToLZ' or (iActionToAssign == refActionExpandToLandZone and 'ExpandToLZ' or 'BuildMex')
+            local sTargetInfo = ''
+            if tOptionalPlatAndLandToMoveTo then
+                sTargetInfo = ' TargetP'..tostring(tOptionalPlatAndLandToMoveTo[1] or tOptionalPlatAndLandToMoveTo)..'Z'..tostring(tOptionalPlatAndLandToMoveTo[2] or '?')
+            end
+            LOG('QUIET-EngiAction: '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' T='..math.floor(GetGameTimeSeconds())..' Action='..sActionName..sTargetInfo..' Priority='..tostring(iCurPriority))
+        end
+    end
+
 
 
     --Special logic (done in a genric way in case end up with more scenarios like this) - if action to assign currnetly is special shield logic and we have a different action to assign then clear engineer tracking (as we have an override that prevents it being cleared via orders)
-    --Don't clear tracking for protected actions (shield defence, GE template, reclaim path) - they should complete their assigned task
+    --Don't clear tracking for protected actions (shield defence, GE template, reclaim path, mex build path, expand to zone) - they should complete their assigned task
     if oEngineer[refiAssignedAction] and not(oEngineer[refiAssignedAction] == iActionToAssign) then
-        if oEngineer[refiAssignedAction] == refActionSpecialShieldDefence or oEngineer[refiAssignedAction] == refActionManageGameEnderTemplate or oEngineer[refiAssignedAction] == refActionReclaimPath then
+        if oEngineer[refiAssignedAction] == refActionSpecialShieldDefence or oEngineer[refiAssignedAction] == refActionManageGameEnderTemplate or oEngineer[refiAssignedAction] == refActionReclaimPath or oEngineer[refiAssignedAction] == refActionMexBuildPath or oEngineer[refiAssignedAction] == refActionExpandToLandZone then
             --Don't reassign this engineer - it has a protected action
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
             return
@@ -6352,7 +6418,12 @@ function GetEngineerToReclaimNearbyArea(oEngineer, iPriorityOverride, tLZOrWZTea
                 local iEngiTerrainLabel = NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, oEngineer:GetPosition())
 
 
+                local iTeamForReclaim = oEngineer:GetAIBrain().M28Team
                 for iReclaim, oReclaim in tNearbyReclaim do
+                    --Skip reclaim already assigned to a ReclaimPath engineer
+                    if tTeamAssignedReclaim[iTeamForReclaim] and tTeamAssignedReclaim[iTeamForReclaim][oReclaim] then
+                        if bDebugMessages == true then LOG(sFunctionRef..': Skipping reclaim as it is already assigned to ReclaimPath engineer') end
+                    else
                     --is this valid reclaim within our build area?
                     if bDebugMessages == true then
                         LOG(sFunctionRef..': iReclaim='..iReclaim..'; oReclaim.MaxMassReclaim='..(oReclaim.MaxMassReclaim or 0))
@@ -6400,6 +6471,7 @@ function GetEngineerToReclaimNearbyArea(oEngineer, iPriorityOverride, tLZOrWZTea
                             end
                         end
                     end
+                    end --Close else block for ReclaimPath check
                     if M28Utilities.bCPUPerformanceMode and oNearestReclaim then break end
                 end
                 if bDebugMessages == true then LOG(sFunctionRef..': Finished cycling through reclaim, is oNearestReclaim nil='..tostring(oNearestReclaim == nil)) end
@@ -6790,6 +6862,325 @@ function QueueReclaimPath(oEngineer, iPriorityOverride, tLZOrWZTeamData, iPlatea
         --Start monitor thread to clean up when done
         ForkThread(MonitorReclaimPathEngineer, oEngineer, iTeam)
         if bDebugMessages == true then LOG(sFunctionRef..': Successfully queued reclaim path with '..iSortedCount..' targets') end
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return bGivenOrder
+end
+
+function GetMexBuildPathEngineerCount(iTeam)
+    --Returns the number of engineers currently doing mex build path for this team
+    if not(tTeamMexBuildPathEngineers[iTeam]) then return 0 end
+    local iCount = 0
+    for iEngi, oEngi in tTeamMexBuildPathEngineers[iTeam] do
+        if M28UnitInfo.IsUnitValid(oEngi) and oEngi[refiAssignedAction] == refActionMexBuildPath then
+            iCount = iCount + 1
+        end
+    end
+    return iCount
+end
+
+function ClearMexBuildPathTracking(oEngineer, iTeam)
+    --Clear tracking for an engineer that was doing mex build path
+    if oEngineer[reftAssignedMexBuildPath] then
+        --Clear the mex location assignments from team table
+        if tTeamAssignedMexLocations[iTeam] then
+            for _, tMexLocation in oEngineer[reftAssignedMexBuildPath] do
+                local sLocKey = tostring(tMexLocation[1])..','..tostring(tMexLocation[3])
+                if tTeamAssignedMexLocations[iTeam][sLocKey] == oEngineer then
+                    tTeamAssignedMexLocations[iTeam][sLocKey] = nil
+                end
+            end
+        end
+        oEngineer[reftAssignedMexBuildPath] = nil
+    end
+    oEngineer[refbHasMexBuildPath] = nil
+
+    --Remove from team engineer list
+    if tTeamMexBuildPathEngineers[iTeam] then
+        for iEngi, oEngi in tTeamMexBuildPathEngineers[iTeam] do
+            if oEngi == oEngineer then
+                table.remove(tTeamMexBuildPathEngineers[iTeam], iEngi)
+                break
+            end
+        end
+    end
+end
+
+function MonitorMexBuildPathEngineer(oEngineer, iTeam)
+    --Monitor thread to clean up mex build path tracking when engineer finishes or is reassigned
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'MonitorMexBuildPathEngineer'
+    local iIdleCheckCount = 0 --Count consecutive idle checks to avoid premature exit
+
+    while M28UnitInfo.IsUnitValid(oEngineer) and oEngineer[refiAssignedAction] == refActionMexBuildPath do
+        WaitTicks(20) --Check every 2 seconds
+
+        --Check if engineer is done building (idle or has different action)
+        if M28UnitInfo.IsUnitValid(oEngineer) then
+            if not(oEngineer:IsUnitState('Building')) and not(oEngineer:IsUnitState('Moving')) then
+                --Engineer might be briefly idle between commands, wait for a few checks before concluding it's done
+                iIdleCheckCount = iIdleCheckCount + 1
+                if bDebugMessages == true then LOG(sFunctionRef..': Engineer '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' not building or moving, iIdleCheckCount='..iIdleCheckCount) end
+                if iIdleCheckCount >= 2 then
+                    --Engineer has been idle for 2 consecutive checks (~4 seconds), likely done
+                    if bDebugMessages == true then LOG(sFunctionRef..': Engineer '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' appears done with mex build path after '..iIdleCheckCount..' idle checks') end
+                    break
+                end
+            else
+                --Reset idle count if engineer is actively working
+                iIdleCheckCount = 0
+            end
+        end
+    end
+
+    --Clean up tracking and make engineer available for reassignment
+    if bDebugMessages == true then LOG(sFunctionRef..': Cleaning up mex build path tracking for engineer') end
+    ClearMexBuildPathTracking(oEngineer, iTeam)
+
+    --Clear engineer's assigned action so they become available for new tasks
+    if M28UnitInfo.IsUnitValid(oEngineer) and oEngineer[refiAssignedAction] == refActionMexBuildPath then
+        oEngineer[refiAssignedAction] = nil
+        oEngineer[refiAssignedActionPriority] = nil
+        if bDebugMessages == true then LOG(sFunctionRef..': Cleared engineer action, now available for reassignment') end
+    end
+end
+
+function GetReclaimAlongPath(tStartPos, tEndPos, iMinReclaimValue, iBuildRange)
+    --Find reclaim objects along the path from tStartPos to tEndPos
+    --Returns table of reclaim objects sorted by distance from tStartPos
+    --Grabs ALL reclaim within build range of the path - no artificial limits since it's efficient
+    --iMinReclaimValue: Minimum mass value of reclaim to consider
+    --iBuildRange: How far from the path to look for reclaim
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'GetReclaimAlongPath'
+
+    iMinReclaimValue = iMinReclaimValue or 5
+    iBuildRange = iBuildRange or 10
+
+    local tReclaimFound = {}
+    local iReclaimCount = 0
+
+    --Calculate path direction and length
+    local iPathDist = M28Utilities.GetDistanceBetweenPositions(tStartPos, tEndPos)
+    if iPathDist < 5 then return tReclaimFound end
+
+    --Get reclaim in a rectangle around the path
+    local iMinX = math.min(tStartPos[1], tEndPos[1]) - iBuildRange
+    local iMaxX = math.max(tStartPos[1], tEndPos[1]) + iBuildRange
+    local iMinZ = math.min(tStartPos[3], tEndPos[3]) - iBuildRange
+    local iMaxZ = math.max(tStartPos[3], tEndPos[3]) + iBuildRange
+
+    local rPathRect = Rect(iMinX, iMinZ, iMaxX, iMaxZ)
+    local tReclaimables = GetReclaimablesInRect(rPathRect)
+
+    if M28Utilities.IsTableEmpty(tReclaimables) then return tReclaimFound end
+
+    --Filter reclaim by value and distance from path
+    local tPathDir = {tEndPos[1] - tStartPos[1], 0, tEndPos[3] - tStartPos[3]}
+    local iPathLength = math.sqrt(tPathDir[1] * tPathDir[1] + tPathDir[3] * tPathDir[3])
+    if iPathLength > 0 then
+        tPathDir[1] = tPathDir[1] / iPathLength
+        tPathDir[3] = tPathDir[3] / iPathLength
+    end
+
+    for _, oReclaim in tReclaimables do
+        if oReclaim and oReclaim.MaxMassReclaim and oReclaim.MaxMassReclaim >= iMinReclaimValue then
+            local tReclaimPos = oReclaim.CachePosition or (oReclaim.GetPosition and oReclaim:GetPosition())
+            if tReclaimPos then
+                --Calculate perpendicular distance from path
+                local tToReclaim = {tReclaimPos[1] - tStartPos[1], 0, tReclaimPos[3] - tStartPos[3]}
+                local iProjection = tToReclaim[1] * tPathDir[1] + tToReclaim[3] * tPathDir[3]
+
+                --Only consider reclaim that's along the path (not behind start or past end)
+                if iProjection > 0 and iProjection < iPathLength then
+                    local iPerpDistSq = (tToReclaim[1] - iProjection * tPathDir[1]) * (tToReclaim[1] - iProjection * tPathDir[1]) +
+                                        (tToReclaim[3] - iProjection * tPathDir[3]) * (tToReclaim[3] - iProjection * tPathDir[3])
+
+                    if iPerpDistSq <= iBuildRange * iBuildRange then
+                        iReclaimCount = iReclaimCount + 1
+                        tReclaimFound[iReclaimCount] = {
+                            oReclaim = oReclaim,
+                            iDistFromStart = iProjection,
+                            iMassValue = oReclaim.MaxMassReclaim
+                        }
+                    end
+                end
+            end
+        end
+    end
+
+    --Sort by distance from start so we reclaim in order along the path
+    table.sort(tReclaimFound, function(a, b) return a.iDistFromStart < b.iDistFromStart end)
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Found '..table.getn(tReclaimFound)..' reclaim objects along path') end
+    return tReclaimFound
+end
+
+function QueueMexBuildPath(oEngineer, iTeam, tLZOrWZData, tLZOrWZTeamData, iPlateauOrPond, iLandOrWaterZone, bIsWaterZone, iMaxMexCount)
+    --Queue up an efficient mex build path through multiple unbuilt mex locations
+    --Uses nearest-neighbor algorithm to plan path, then issues move-and-build orders
+    --Also queues reclaim along the path between mexes for efficiency
+    --iMaxMexCount: Maximum number of mexes to queue (default 5)
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'QueueMexBuildPath'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local bGivenOrder = false
+    iMaxMexCount = iMaxMexCount or 5
+    local aiBrain = oEngineer:GetAIBrain()
+    local iBuildRange = oEngineer:GetBlueprint().Economy.MaxBuildDistance or 5
+
+    --Initialize team tracking tables if needed
+    if not(tTeamMexBuildPathEngineers[iTeam]) then tTeamMexBuildPathEngineers[iTeam] = {} end
+    if not(tTeamAssignedMexLocations[iTeam]) then tTeamAssignedMexLocations[iTeam] = {} end
+
+    --Get unbuilt mex locations for this zone
+    local tUnbuiltMexes = tLZOrWZData[M28Map.subrefMexUnbuiltLocations]
+    if M28Utilities.IsTableEmpty(tUnbuiltMexes) then
+        if bDebugMessages == true then LOG(sFunctionRef..': No unbuilt mex locations in zone') end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    --Filter out already assigned mex locations
+    local tAvailableMexes = {}
+    for _, tMexLocation in tUnbuiltMexes do
+        local sLocKey = tostring(tMexLocation[1])..','..tostring(tMexLocation[3])
+        if not(tTeamAssignedMexLocations[iTeam][sLocKey]) then
+            table.insert(tAvailableMexes, tMexLocation)
+        end
+    end
+
+    if table.getn(tAvailableMexes) < 1 then
+        --No mexes available
+        if bDebugMessages == true then LOG(sFunctionRef..': No available mexes for build path') end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    --Get mex blueprint
+    local sMexBlueprint = M28Factory.GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryT1Mex, oEngineer, false, false, true, nil)
+    if not(sMexBlueprint) then
+        if bDebugMessages == true then LOG(sFunctionRef..': Could not get mex blueprint') end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    --Use nearest-neighbor algorithm to sort mex locations
+    local tSortedMexes = {}
+    local tRemainingMexes = {}
+    for i, tMex in tAvailableMexes do
+        tRemainingMexes[i] = tMex
+    end
+
+    --Start from engineer's current position
+    local tCurrentPos = oEngineer:GetPosition()
+    local iSortedCount = 0
+
+    while table.getn(tRemainingMexes) > 0 and iSortedCount < iMaxMexCount do
+        local iNearestIndex = nil
+        local iNearestDist = nil
+
+        --Find nearest mex to current position
+        for iMex, tMex in tRemainingMexes do
+            local iDist = M28Utilities.GetDistanceBetweenPositions(tCurrentPos, tMex)
+            if not(iNearestDist) or iDist < iNearestDist then
+                iNearestDist = iDist
+                iNearestIndex = iMex
+            end
+        end
+
+        if iNearestIndex then
+            iSortedCount = iSortedCount + 1
+            tSortedMexes[iSortedCount] = tRemainingMexes[iNearestIndex]
+            tCurrentPos = tRemainingMexes[iNearestIndex]
+            table.remove(tRemainingMexes, iNearestIndex)
+            --Need to re-index remaining table after removal
+            local tNewRemaining = {}
+            local iNewIndex = 0
+            for _, tMex in tRemainingMexes do
+                iNewIndex = iNewIndex + 1
+                tNewRemaining[iNewIndex] = tMex
+            end
+            tRemainingMexes = tNewRemaining
+        else
+            break
+        end
+    end
+
+    if iSortedCount < 1 then
+        if bDebugMessages == true then LOG(sFunctionRef..': No mexes sorted for build path') end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
+
+    if bDebugMessages == true then LOG(sFunctionRef..': Sorted '..iSortedCount..' mexes for build path') end
+
+    --Mark all sorted mexes as assigned to this engineer
+    oEngineer[reftAssignedMexBuildPath] = {}
+    for _, tMex in ipairs(tSortedMexes) do
+        local sLocKey = tostring(tMex[1])..','..tostring(tMex[3])
+        tTeamAssignedMexLocations[iTeam][sLocKey] = oEngineer
+        table.insert(oEngineer[reftAssignedMexBuildPath], tMex)
+    end
+
+    --Issue build orders for each mex in the sorted path, with reclaim along the way
+    local bFirstOrder = true
+    local iCurPriority = 1
+    local tPrevPos = oEngineer:GetPosition()
+    local iMinReclaimValue = 5 --Minimum mass value to bother reclaiming
+
+    for iMex, tMexLocation in ipairs(tSortedMexes) do
+        --Check if we can build at this location
+        if aiBrain:CanBuildStructureAt(sMexBlueprint, tMexLocation) then
+            --Find all reclaim along the path to this mex (no limit - grab everything in efficient direction)
+            local tReclaimAlongPath = GetReclaimAlongPath(tPrevPos, tMexLocation, iMinReclaimValue, iBuildRange)
+
+            if bFirstOrder then
+                --First order - clear existing commands
+                M28Orders.IssueTrackedClearCommands(oEngineer)
+                if not(oEngineer[M28Orders.reftiLastOrders]) then oEngineer[M28Orders.reftiLastOrders] = {} oEngineer[M28Orders.refiOrderCount] = 0 end
+
+                --Queue reclaim along the path first
+                for _, tReclaimData in tReclaimAlongPath do
+                    if tReclaimData.oReclaim and not IsDestroyed(tReclaimData.oReclaim) then
+                        IssueReclaim({oEngineer}, tReclaimData.oReclaim)
+                        if bDebugMessages == true then LOG(sFunctionRef..': Queued reclaim of '..tReclaimData.iMassValue..' mass along path to mex '..iMex) end
+                    end
+                end
+
+                --Then build the mex
+                IssueBuildMobile({oEngineer}, tMexLocation, sMexBlueprint, {})
+                TrackQueuedBuilding(oEngineer, sMexBlueprint, tMexLocation)
+                bFirstOrder = false
+                bGivenOrder = true
+            else
+                --Subsequent orders - queue with shift (reclaim then mex)
+                for _, tReclaimData in tReclaimAlongPath do
+                    if tReclaimData.oReclaim and not IsDestroyed(tReclaimData.oReclaim) then
+                        IssueReclaim({oEngineer}, tReclaimData.oReclaim)
+                        if bDebugMessages == true then LOG(sFunctionRef..': Queued reclaim of '..tReclaimData.iMassValue..' mass along path to mex '..iMex) end
+                    end
+                end
+                IssueBuildMobile({oEngineer}, tMexLocation, sMexBlueprint, {})
+                TrackQueuedBuilding(oEngineer, sMexBlueprint, tMexLocation)
+            end
+
+            if bDebugMessages == true then LOG(sFunctionRef..': Queued mex '..iMex..' at '..repru(tMexLocation)..' with '..table.getn(tReclaimAlongPath)..' reclaim along path') end
+            tPrevPos = tMexLocation
+        else
+            if bDebugMessages == true then LOG(sFunctionRef..': Cannot build mex at '..repru(tMexLocation)) end
+        end
+    end
+
+    if bGivenOrder then
+        TrackEngineerAction(oEngineer, refActionMexBuildPath, false, iCurPriority, nil, nil)
+        oEngineer[refbHasMexBuildPath] = true
+        table.insert(tTeamMexBuildPathEngineers[iTeam], oEngineer)
+        --Start monitor thread to clean up when done
+        ForkThread(MonitorMexBuildPathEngineer, oEngineer, iTeam)
+        if bDebugMessages == true then LOG(sFunctionRef..': Successfully queued mex build path with '..iSortedCount..' targets and reclaim') end
     end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -10326,8 +10717,8 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                 local iHighestPriorityEngi = iCurPriority
                 local oHighestPriorityEngi
                 for iEngi, oEngi in toAssignedEngisOfTechLevel do
-                    --Don't reassign engineers on a reclaim path - they should complete their path
-                    if oEngi[refiAssignedAction] == refActionReclaimPath then
+                    --Don't reassign engineers on a reclaim path or mex build path - they should complete their path
+                    if oEngi[refiAssignedAction] == refActionReclaimPath or oEngi[refiAssignedAction] == refActionMexBuildPath then
                         --Skip this engineer entirely
                     elseif not(oEngi[refbPrimaryBuilder]) and not(oEngi[refiAssignedAction] == iActionToAssign) and oEngi[refiAssignedActionPriority] > iHighestPriorityEngi and not(oEngi:IsUnitState('Reclaiming')) and not(oEngi:IsUnitState('Attached')) and not(oEngi:IsUnitState('Capturing')) then
                         --Exception for engineers assisting a shield
@@ -10885,6 +11276,43 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                                 M28Orders.IssueTrackedMove(tEngineersOfTechWanted[iEngiCount], tMoveLocation, 5, false, sOrderRef)
                             end
                             TrackEngineerAction(tEngineersOfTechWanted[iEngiCount], iActionToAssign, false, iCurPriority, {iPlateauToMoveTo, iTargetLZ}, nil, bMarkAsSpare)
+                            UpdateBPTracking()
+                        end
+                    end
+                elseif iActionToAssign == refActionExpandToLandZone then
+                    --Queue mexes in target zone directly with reclaim along path (locked priority)
+                    local iTargetLZ
+                    local iPlateauToMoveTo
+                    if bIsWaterZone then
+                        iTargetLZ = vOptionalVariable[2]
+                        iPlateauToMoveTo = vOptionalVariable[1]
+                    else
+                        iTargetLZ = vOptionalVariable
+                        iPlateauToMoveTo = iPlateauOrPond
+                    end
+                    local tTargetLZData = M28Map.tAllPlateaus[iPlateauToMoveTo][M28Map.subrefPlateauLandZones][iTargetLZ]
+                    local tTargetLZTeamData = tTargetLZData[M28Map.subrefLZTeamData][iTeam]
+                    sOrderRef = sOrderRef..'ExpandLZ='..iTargetLZ
+
+                    if M28Utilities.IsTableEmpty(tTargetLZData) then
+                        M28Utilities.ErrorHandler('Invalid LZ for expanding to, iPlateauOrPond='..iPlateauOrPond..'; iPlateauToMoveTo='..(iPlateauToMoveTo or 'nil'))
+                    else
+                        while iTotalBuildPowerWanted > 0 and iEngiCount > 0 do
+                            local oEngineer = tEngineersOfTechWanted[iEngiCount]
+                            if bDebugMessages == true then
+                                LOG(sFunctionRef..': About to queue mex build path for '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' to expand P'..iPlateauToMoveTo..'Z'..iTargetLZ)
+                            end
+                            --Try to queue mex build path with reclaim - this handles everything
+                            local bQueued = QueueMexBuildPath(oEngineer, iTeam, tTargetLZData, tTargetLZTeamData, iPlateauToMoveTo, iTargetLZ, false, 10)
+                            if bQueued then
+                                --TrackEngineerAction already called by QueueMexBuildPath, just update our tracking
+                                oEngineer[refiAssignedAction] = refActionExpandToLandZone
+                                LOG('QUIET-EngiAction: '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' T='..math.floor(GetGameTimeSeconds())..' Action=ExpandToLZ TargetP'..iPlateauToMoveTo..'Z'..iTargetLZ..' Priority='..iCurPriority)
+                            else
+                                --No mexes to queue, fall back to move order
+                                M28Orders.IssueTrackedMove(oEngineer, tTargetLZData[M28Map.subrefMidpoint], 5, false, sOrderRef)
+                                TrackEngineerAction(oEngineer, refActionMoveToLandZone, false, iCurPriority, {iPlateauToMoveTo, iTargetLZ}, nil, bMarkAsSpare)
+                            end
                             UpdateBPTracking()
                         end
                     end
@@ -17434,6 +17862,17 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
             end
         end
     end
+    --QUIET DEBUG: Throttled logging for minor zone mex building decisions
+    local iLastMinorMexLog = tLZTeamData['QUIETLastMinorMexLog'] or 0
+    local iEngiCount = (tEngineers and table.getn(tEngineers)) or 0
+    if GetGameTimeSeconds() - iLastMinorMexLog >= 10 and iEngiCount > 0 then
+        local iUnbuiltMexCount = (tLZData[M28Map.subrefMexUnbuiltLocations] and table.getn(tLZData[M28Map.subrefMexUnbuiltLocations])) or 0
+        local iBPWantedForMex = (tLZTeamData[M28Map.subreftiBPWantedByAction] and tLZTeamData[M28Map.subreftiBPWantedByAction][refActionBuildMex]) or 0
+        if iUnbuiltMexCount > 0 or iBPWantedForMex > 0 then
+            tLZTeamData['QUIETLastMinorMexLog'] = GetGameTimeSeconds()
+            LOG('QUIET-MinorZoneMex: P'..iPlateau..'Z'..iLandZone..' T='..math.floor(GetGameTimeSeconds())..' Engis='..iEngiCount..' UnbuiltMex='..iUnbuiltMexCount..' BPWanted='..iBPWantedForMex..' TeammateBuilt='..tostring(bTeammateHasBuiltHere)..' RecentlyRan='..tostring(bEngineersRecentlyRunFromEnemy))
+        end
+    end
 
     --Reclaim enemy building if have available engineers, and enemy has buildings but no combat threat
     iCurPriority = iCurPriority + 1
@@ -17638,15 +18077,40 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
     --Unclaimed mex in the zone
     iCurPriority = iCurPriority + 1
     if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefMexUnbuiltLocations]) == false and not(M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tLZData, true)) then
-        iBPWanted = math.max(5, table.getn(tLZData[M28Map.subrefMexUnbuiltLocations]) * 2.5)
-        if bDebugMessages == true then LOG(sFunctionRef..': We have unbuilt mex locations for this land zone, iBPWanted='..iBPWanted..', locations='..repru(tLZData[M28Map.subrefMexUnbuiltLocations])) end
+        local iUnbuiltMexCount = table.getn(tLZData[M28Map.subrefMexUnbuiltLocations])
+        iBPWanted = math.max(5, iUnbuiltMexCount * 2.5)
+        if bDebugMessages == true then LOG(sFunctionRef..': We have unbuilt mex locations for this land zone, iBPWanted='..iBPWanted..', iUnbuiltMexCount='..iUnbuiltMexCount..', locations='..repru(tLZData[M28Map.subrefMexUnbuiltLocations])) end
         if bEngineersRecentlyRunFromEnemy then iBPWanted =5
         elseif bHaveLowPower and not(bHaveLowMass) and iBPWanted > 5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 then
             iBPWanted = 5
         elseif bHaveLowPower and iBPWanted > 10 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.2 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 80  then
             iBPWanted = 10
         end
-        HaveActionToAssign(refActionBuildMex, 1, iBPWanted)
+
+        --Consider using mex build path if we have multiple unbuilt mexes and not too many engineers already doing mex build path
+        local bUsedMexBuildPath = false
+        if iUnbuiltMexCount > 1 and not(bEngineersRecentlyRunFromEnemy) and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and GetMexBuildPathEngineerCount(iTeam) < iMaxMexBuildPathEngineers then
+            --Try to assign an available engineer to mex build path
+            local iHighestTechAvailable = GetHighestTechEngiAvailable(toAvailableEngineersByTech)
+            if iHighestTechAvailable > 0 then
+                local oEngineerForPath = toAvailableEngineersByTech[iHighestTechAvailable][1]
+                if oEngineerForPath and M28UnitInfo.IsUnitValid(oEngineerForPath) then
+                    if bDebugMessages == true then LOG(sFunctionRef..': Attempting mex build path with engineer '..oEngineerForPath.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineerForPath)) end
+                    bUsedMexBuildPath = QueueMexBuildPath(oEngineerForPath, iTeam, tLZData, tLZTeamData, iPlateau, iLandZone, false, 5)
+                    if bUsedMexBuildPath then
+                        --Remove engineer from available list
+                        table.remove(toAvailableEngineersByTech[iHighestTechAvailable], 1)
+                        table.insert(toAssignedEngineers, oEngineerForPath)
+                        if bDebugMessages == true then LOG(sFunctionRef..': Successfully assigned engineer to mex build path') end
+                    end
+                end
+            end
+        end
+
+        --Fall back to normal mex building if mex build path wasn't used or we still have more mexes to build
+        if not(bUsedMexBuildPath) or iUnbuiltMexCount > 5 then
+            HaveActionToAssign(refActionBuildMex, 1, iBPWanted)
+        end
         if not(bEngineersRecentlyRunFromEnemy) and (tLZTeamData[M28Map.subreftiBPWantedByAction][refActionBuildMex] or 0) > 0 and not(tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex]) then
             tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex] = true
             if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
@@ -20459,7 +20923,7 @@ function ConsiderLandOrWaterZoneEngineerAssignment(tLZOrWZData, tLZOrWZTeamData,
         function KeepCurEntry(tArray, iEntry)
             if M28UnitInfo.IsUnitValid(tArray[iEntry]) then
                 if EntityCategoryContains(M28UnitInfo.refCategoryEngineer, tArray[iEntry].UnitId) then
-                    if (tArray[iEntry][refiAssignedAction] == refActionRunToLandZone or tArray[iEntry][refiAssignedAction] == refActionMoveToLandZone) and tArray[iEntry][M28Land.reftiPlateauAndLZToMoveTo][2] == iLandOrWaterZone then
+                    if (tArray[iEntry][refiAssignedAction] == refActionRunToLandZone or tArray[iEntry][refiAssignedAction] == refActionMoveToLandZone or tArray[iEntry][refiAssignedAction] == refActionExpandToLandZone) and tArray[iEntry][M28Land.reftiPlateauAndLZToMoveTo][2] == iLandOrWaterZone then
                         return true
                     elseif (tArray[iEntry][refiAssignedAction] == refActionMoveToWaterZone or tArray[iEntry][refiAssignedAction] == refActionRunToWaterZone) and tArray[iEntry][M28Navy.refiWZToMoveTo] == iLandOrWaterZone then
                         return true
