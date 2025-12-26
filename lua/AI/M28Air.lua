@@ -11518,8 +11518,8 @@ function ManageTransports(iTeam, iAirSubteam)
                             end
                         end
 
-                        --Also set expansion flag for 1-2 mex land zone locations where we are dropping engineers if not many mexes on map and it's not too close to enemy (so not just throwing away mass by trying to fortify more)
-                        if tLZTeamData and not(tLZTeamData[M28Map.subrefLZExpansionOverride]) and (tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0) >= 1 and tLZOrWZData[M28Map.refiModDistancePercent] <= 0.6 then
+                        --Also set expansion flag for 2+ mex land zone locations where we are dropping engineers if not many mexes on map and it's not too close to enemy (so not just throwing away mass by trying to fortify more)
+                        if tLZTeamData and not(tLZTeamData[M28Map.subrefLZExpansionOverride]) and (tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0) >= 2 and tLZOrWZData[M28Map.refiModDistancePercent] <= 0.6 then
                             --Decide if we want to treat a low mex location as still valuable - consider for lowish mex maps
                             local iMapMexCount = table.getn(M28Map.tMassPoints)
                             if bDebugMessages == true then LOG(sFunctionRef..': Considering whether to also set expansion override for P'..iPlateauToTravelTo..'; iIslandToTravelTo='..iIslandToTravelTo..'; iLandZoneToTravelTo='..(iLandZoneToTravelTo or 'nil')..'; iMapMexCount='..iMapMexCount..'; Players at game tsart='..M28Team.iPlayersAtGameStart..'; Island mex count='..(M28Map.tAllPlateaus[iPlateauToTravelTo][M28Map.subrefPlateauIslandMexCount][iIslandToTravelTo] or 0)) end

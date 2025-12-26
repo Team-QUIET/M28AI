@@ -138,7 +138,8 @@ function IssueTrackedClearCommands(oUnit)
         --Update tracking for engineers (and clear any assisting engineers via ClearEngineerTracking)
         if EntityCategoryContains(M28UnitInfo.refCategoryEngineer + categories.COMMAND + categories.SUBCOMMANDER, oUnit.UnitId) then
             --Dont clear active shield engineers, reclaim path engineers, or mex build path engineers since they can be given different orders (resulting in a clear commands being sent)
-            if not(oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionSpecialShieldDefence) and not(oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionManageGameEnderTemplate) and not(oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionReclaimPath) and not(oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionMexBuildPath) then
+            --Also don't clear if engineer has a saved home zone (it's on an expansion task and we need to preserve its return destination)
+            if not(oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionSpecialShieldDefence) and not(oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionManageGameEnderTemplate) and not(oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionReclaimPath) and not(oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionMexBuildPath) and not(oUnit[M28Engineer.reftOriginalHomeZone]) then
                 M28Engineer.ClearEngineerTracking(oUnit) --note - will also clear if try assigning action to engineer that is different to its currently assigned action as part of the track engineer action function, which covers cases where we dont trigger this such as shield special defence
             end
             --Unpause engineers who are about to be cleared

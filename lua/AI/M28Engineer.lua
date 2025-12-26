@@ -87,7 +87,8 @@ tTeamAssignedReclaim = {} --[iTeam] = table of reclaim objects already assigned;
 --Mex build path tracking
 reftAssignedMexBuildPath = 'M28EngMexBuildPath' --Table of mex locations assigned to this engineer for path building
 refbHasMexBuildPath = 'M28EngHasMexBuildPath' --True if engineer has an active mex build path assignment
-iMaxMexBuildPathEngineers = 5 --Maximum number of engineers that can be doing mex build path at once per team
+reftOriginalHomeZone = 'M28EngOrigHomeZone' --Stores {iPlateau, iLandZone} of engineer's home zone when starting expansion so we can return them there after
+iMaxMexBuildPathEngineers = 15 --Maximum number of engineers that can be doing mex build path at once per team
 tTeamMexBuildPathEngineers = {} --[iTeam] = table of engineers with mex build path
 tTeamAssignedMexLocations = {} --[iTeam] = table of mex locations already assigned; key is location string, value is engineer
 
@@ -5314,7 +5315,10 @@ function FilterToAvailableEngineersByTech(tEngineers, bInCoreZone, tLZData, tLZT
                     table.insert(toAssignedEngineers, oEngineer)
                 else
                     --Clear engineer trackers as redundancy in case failed to clear previously
-                    if oEngineer[refiAssignedAction] then ClearEngineerTracking(oEngineer) end
+                    --Don't clear tracking if engineer has a saved home zone (it's on an expansion task)
+                    if oEngineer[refiAssignedAction] and not oEngineer[reftOriginalHomeZone] then
+                        ClearEngineerTracking(oEngineer)
+                    end
 
                     table.insert(toAvailableEngineersByTech[M28UnitInfo.GetUnitTechLevel(oEngineer)], oEngineer)
                     if bDebugMessages == true then LOG(sFunctionRef..': Just added engineer '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' to toAvailableEngineersByTech, Eng tech level='..M28UnitInfo.GetUnitTechLevel(oEngineer)..'; Size of table='..table.getn(toAvailableEngineersByTech[M28UnitInfo.GetUnitTechLevel(oEngineer)])) end
@@ -5693,6 +5697,11 @@ function ClearEngineerTracking(oEngineer)
         ClearMexBuildPathTracking(oEngineer, oEngineer:GetAIBrain().M28Team)
     end
 
+    --Clear saved original home zone if engineer had one
+    if oEngineer[reftOriginalHomeZone] then
+        oEngineer[reftOriginalHomeZone] = nil
+    end
+
     --Update experimental construction tracking:
     if oEngineer[refbBuildingExperimental] then
         --As backup, also remove any dead engineers from this table
@@ -5936,22 +5945,6 @@ function TrackEngineerAction(oEngineer, iActionToAssign, bIsPrimaryBuilder, iCur
     local sFunctionRef = 'TrackEngineerAction'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    --QUIET DEBUG: Log expansion-related actions (throttled per engineer)
-    if iActionToAssign == refActionMoveToLandZone or iActionToAssign == refActionBuildMex or iActionToAssign == refActionExpandToLandZone then
-        local iLastLog = oEngineer['QUIETLastActionLog'] or 0
-        if GetGameTimeSeconds() - iLastLog >= 5 then
-            oEngineer['QUIETLastActionLog'] = GetGameTimeSeconds()
-            local sActionName = iActionToAssign == refActionMoveToLandZone and 'MoveToLZ' or (iActionToAssign == refActionExpandToLandZone and 'ExpandToLZ' or 'BuildMex')
-            local sTargetInfo = ''
-            if tOptionalPlatAndLandToMoveTo then
-                sTargetInfo = ' TargetP'..tostring(tOptionalPlatAndLandToMoveTo[1] or tOptionalPlatAndLandToMoveTo)..'Z'..tostring(tOptionalPlatAndLandToMoveTo[2] or '?')
-            end
-            LOG('QUIET-EngiAction: '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' T='..math.floor(GetGameTimeSeconds())..' Action='..sActionName..sTargetInfo..' Priority='..tostring(iCurPriority))
-        end
-    end
-
-
-
     --Special logic (done in a genric way in case end up with more scenarios like this) - if action to assign currnetly is special shield logic and we have a different action to assign then clear engineer tracking (as we have an override that prevents it being cleared via orders)
     --Don't clear tracking for protected actions (shield defence, GE template, reclaim path, mex build path, expand to zone) - they should complete their assigned task
     if oEngineer[refiAssignedAction] and not(oEngineer[refiAssignedAction] == iActionToAssign) then
@@ -5960,7 +5953,11 @@ function TrackEngineerAction(oEngineer, iActionToAssign, bIsPrimaryBuilder, iCur
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
             return
         end
-        ClearEngineerTracking(oEngineer)
+        --Don't clear tracking if engineer has a saved home zone - preserve it for return-to-base logic
+        --This handles cases like MoveToLZ->MexBuildPath transition during expansion
+        if not oEngineer[reftOriginalHomeZone] then
+            ClearEngineerTracking(oEngineer)
+        end
     end
 
     oEngineer[refiAssignedAction] = iActionToAssign
@@ -6909,19 +6906,25 @@ end
 
 function MonitorMexBuildPathEngineer(oEngineer, iTeam)
     --Monitor thread to clean up mex build path tracking when engineer finishes or is reassigned
+    --Also monitors refActionExpandToLandZone since that's used for expansion mex builds
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'MonitorMexBuildPathEngineer'
     local iIdleCheckCount = 0 --Count consecutive idle checks to avoid premature exit
 
-    while M28UnitInfo.IsUnitValid(oEngineer) and oEngineer[refiAssignedAction] == refActionMexBuildPath do
+    --Check for both MexBuildPath and ExpandToLandZone actions
+    local function IsMexBuildAction(oEng)
+        return oEng[refiAssignedAction] == refActionMexBuildPath or oEng[refiAssignedAction] == refActionExpandToLandZone
+    end
+
+    while M28UnitInfo.IsUnitValid(oEngineer) and IsMexBuildAction(oEngineer) do
         WaitTicks(20) --Check every 2 seconds
 
         --Check if engineer is done building (idle or has different action)
         if M28UnitInfo.IsUnitValid(oEngineer) then
-            if not(oEngineer:IsUnitState('Building')) and not(oEngineer:IsUnitState('Moving')) then
+            if not(oEngineer:IsUnitState('Building')) and not(oEngineer:IsUnitState('Moving')) and not(oEngineer:IsUnitState('Reclaiming')) then
                 --Engineer might be briefly idle between commands, wait for a few checks before concluding it's done
                 iIdleCheckCount = iIdleCheckCount + 1
-                if bDebugMessages == true then LOG(sFunctionRef..': Engineer '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' not building or moving, iIdleCheckCount='..iIdleCheckCount) end
+                if bDebugMessages == true then LOG(sFunctionRef..': Engineer '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' not building/moving/reclaiming, iIdleCheckCount='..iIdleCheckCount) end
                 if iIdleCheckCount >= 2 then
                     --Engineer has been idle for 2 consecutive checks (~4 seconds), likely done
                     if bDebugMessages == true then LOG(sFunctionRef..': Engineer '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' appears done with mex build path after '..iIdleCheckCount..' idle checks') end
@@ -6936,13 +6939,59 @@ function MonitorMexBuildPathEngineer(oEngineer, iTeam)
 
     --Clean up tracking and make engineer available for reassignment
     if bDebugMessages == true then LOG(sFunctionRef..': Cleaning up mex build path tracking for engineer') end
-    ClearMexBuildPathTracking(oEngineer, iTeam)
 
-    --Clear engineer's assigned action so they become available for new tasks
-    if M28UnitInfo.IsUnitValid(oEngineer) and oEngineer[refiAssignedAction] == refActionMexBuildPath then
-        oEngineer[refiAssignedAction] = nil
-        oEngineer[refiAssignedActionPriority] = nil
-        if bDebugMessages == true then LOG(sFunctionRef..': Cleared engineer action, now available for reassignment') end
+    --Fully clear engineer tracking so they become available for new tasks
+    if M28UnitInfo.IsUnitValid(oEngineer) then
+        --QUIET: Save the original home zone BEFORE calling ClearEngineerTracking (which clears it)
+        local tOriginalHome = oEngineer[reftOriginalHomeZone]
+        local iHomePlateau, iHomeLZ
+        if tOriginalHome then
+            iHomePlateau = tOriginalHome[1]
+            iHomeLZ = tOriginalHome[2]
+        end
+
+        --ClearEngineerTracking handles all cleanup including mex path tracking (and clears reftOriginalHomeZone)
+        ClearEngineerTracking(oEngineer)
+
+        --QUIET: Return engineer to its original home zone (saved when expansion started)
+        --This ensures the engineer goes back to its core base zone, not stays in the minor expansion zone
+        if iHomePlateau and iHomeLZ then
+            --Get current zone tracking
+            local tAssigned = oEngineer[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam]
+            if tAssigned and tAssigned[iTeam] then
+                local iCurTrackedPlateau = tAssigned[iTeam][1]
+                local iCurTrackedLZ = tAssigned[iTeam][2]
+
+                --If engineer is tracked to a different zone than home, move it back
+                if iCurTrackedPlateau ~= iHomePlateau or iCurTrackedLZ ~= iHomeLZ then
+                    --Remove from current zone's unit list
+                    local tCurLZTeamData = M28Map.tAllPlateaus[iCurTrackedPlateau][M28Map.subrefPlateauLandZones][iCurTrackedLZ][M28Map.subrefLZTeamData][iTeam]
+                    if M28Utilities.IsTableEmpty(tCurLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
+                        for iUnit, oUnit in tCurLZTeamData[M28Map.subreftoLZOrWZAlliedUnits] do
+                            if oUnit == oEngineer then
+                                table.remove(tCurLZTeamData[M28Map.subreftoLZOrWZAlliedUnits], iUnit)
+                                break
+                            end
+                        end
+                    end
+                    --Add to home zone's unit list
+                    local tHomeLZTeamData = M28Map.tAllPlateaus[iHomePlateau][M28Map.subrefPlateauLandZones][iHomeLZ][M28Map.subrefLZTeamData][iTeam]
+                    table.insert(tHomeLZTeamData[M28Map.subreftoLZOrWZAlliedUnits], oEngineer)
+                    --Update the engineer's assigned zone back to home
+                    oEngineer[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam] = {iHomePlateau, iHomeLZ}
+
+                    --Actually issue a move order to send the engineer back to its home zone
+                    local tHomeZoneData = M28Map.tAllPlateaus[iHomePlateau][M28Map.subrefPlateauLandZones][iHomeLZ]
+                    if tHomeZoneData and tHomeZoneData[M28Map.subrefMidpoint] then
+                        local tHomeMidpoint = tHomeZoneData[M28Map.subrefMidpoint]
+                        M28Orders.IssueTrackedMove(oEngineer, tHomeMidpoint, false, 'ReturnToHomeZone', false)
+                    end
+                end
+            end
+        end
+    else
+        --Engineer died, just clean up the mex location assignments
+        ClearMexBuildPathTracking(oEngineer, iTeam)
     end
 end
 
@@ -11302,12 +11351,19 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                             if bDebugMessages == true then
                                 LOG(sFunctionRef..': About to queue mex build path for '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' to expand P'..iPlateauToMoveTo..'Z'..iTargetLZ)
                             end
+                            --QUIET: Save original home zone BEFORE the expansion starts (only if not already saved)
+                            --This is the zone where the engineer originally was and should return to after expansion
+                            if not oEngineer[reftOriginalHomeZone] then
+                                local tAssigned = oEngineer[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam]
+                                if tAssigned and tAssigned[iTeam] then
+                                    oEngineer[reftOriginalHomeZone] = {tAssigned[iTeam][1], tAssigned[iTeam][2]}
+                                end
+                            end
                             --Try to queue mex build path with reclaim - this handles everything
                             local bQueued = QueueMexBuildPath(oEngineer, iTeam, tTargetLZData, tTargetLZTeamData, iPlateauToMoveTo, iTargetLZ, false, 10)
                             if bQueued then
                                 --TrackEngineerAction already called by QueueMexBuildPath, just update our tracking
                                 oEngineer[refiAssignedAction] = refActionExpandToLandZone
-                                LOG('QUIET-EngiAction: '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' T='..math.floor(GetGameTimeSeconds())..' Action=ExpandToLZ TargetP'..iPlateauToMoveTo..'Z'..iTargetLZ..' Priority='..iCurPriority)
                             else
                                 --No mexes to queue, fall back to move order
                                 M28Orders.IssueTrackedMove(oEngineer, tTargetLZData[M28Map.subrefMidpoint], 5, false, sOrderRef)
@@ -13782,8 +13838,8 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                                 if tiBPByTechWanted[iTech] > 0 then
                                     iPrevEngisAvailable = table.getn(toAvailableEngineersByTech[iTech])
                                     iBPWanted = iNearbyZonesWantingEngineers * 5 + tiBPByTechWanted[iTech]
-                                    HaveActionToAssign(refActionMoveToLandZone, iTech, iBPWanted, iAdjLZ, true)
-                                    if (tLZTeamData[M28Map.subreftiBPWantedByAction][refActionMoveToLandZone] or 0) > 0 then tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex] = true end
+                                    HaveActionToAssign(refActionExpandToLandZone, iTech, iBPWanted, iAdjLZ, true)
+                                    if (tLZTeamData[M28Map.subreftiBPWantedByAction][refActionExpandToLandZone] or 0) > 0 then tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex] = true end
                                     if table.getn(toAvailableEngineersByTech[iTech]) < iPrevEngisAvailable then
                                         iNearbyZonesWantingEngineers = iNearbyZonesWantingEngineers + 1
                                     end
@@ -14315,8 +14371,8 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                                             if tiBPByTechWanted[iTech] > 0 then
                                                 iPrevEngisAvailable = table.getn(toAvailableEngineersByTech[iTech])
                                                 --HaveActionToAssign(iActionToAssign, iMinTechLevelWanted, iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iOptionalSpecificFactionWanted, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
-                                                HaveActionToAssign(refActionMoveToLandZone, iTech, tiBPByTechWanted[iTech], iAdjLZ,                 true,                   true)
-                                                if (tLZTeamData[M28Map.subreftiBPWantedByAction][refActionMoveToLandZone] or 0) > 0 then tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex] = true end
+                                                HaveActionToAssign(refActionExpandToLandZone, iTech, tiBPByTechWanted[iTech], iAdjLZ,                 true,                   true)
+                                                if (tLZTeamData[M28Map.subreftiBPWantedByAction][refActionExpandToLandZone] or 0) > 0 then tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex] = true end
                                                 if table.getn(toAvailableEngineersByTech[iTech]) < iPrevEngisAvailable then
                                                     iNearbyZonesWantingEngineers = iNearbyZonesWantingEngineers + 1
                                                 end
@@ -14390,8 +14446,8 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                                 if tiBPByTechWanted[iTech] > 0 then
                                     iPrevEngisAvailable = table.getn(toAvailableEngineersByTech[iTech])
                                     --HaveActionToAssign(iActionToAssign, iMinTechLevelWanted, iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iOptionalSpecificFactionWanted, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
-                                    HaveActionToAssign(refActionMoveToLandZone, iTech, tiBPByTechWanted[iTech], iAdjLZ,                 true,                   true)
-                                    if (tLZTeamData[M28Map.subreftiBPWantedByAction][refActionMoveToLandZone] or 0) > 0 then tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex] = true end
+                                    HaveActionToAssign(refActionExpandToLandZone, iTech, tiBPByTechWanted[iTech], iAdjLZ,                 true,                   true)
+                                    if (tLZTeamData[M28Map.subreftiBPWantedByAction][refActionExpandToLandZone] or 0) > 0 then tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex] = true end
                                     if table.getn(toAvailableEngineersByTech[iTech]) < iPrevEngisAvailable then
                                         iNearbyZonesWantingEngineers = iNearbyZonesWantingEngineers + 1
                                     end
@@ -14698,7 +14754,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                     if tiBPByTechWanted[iTech] > 0 then
                         iPrevEngisAvailable = table.getn(toAvailableEngineersByTech[iTech])
                         iBPWanted = iNearbyZonesWantingEngineers * 5 + tiBPByTechWanted[iTech]
-                        HaveActionToAssign(refActionMoveToLandZone, iTech, iBPWanted, iAdjLZ, true)
+                        HaveActionToAssign(refActionExpandToLandZone, iTech, iBPWanted, iAdjLZ, true)
                         if table.getn(toAvailableEngineersByTech[iTech]) < iPrevEngisAvailable then
                             iNearbyZonesWantingEngineers = iNearbyZonesWantingEngineers + 1
                         end
@@ -16625,7 +16681,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     if iHighestTechEngiAvailable > 0 then
         if M28Utilities.IsTableEmpty(toAssignedEngineers) == false then
             for iEngi, oEngi in toAssignedEngineers do
-                if oEngi[refiAssignedAction] == refActionMoveToLandZone then
+                if oEngi[refiAssignedAction] == refActionMoveToLandZone or oEngi[refiAssignedAction] == refActionExpandToLandZone then
                     iBPAlreadyTraveling = iBPAlreadyTraveling + oEngi:GetBlueprint().Economy.BuildRate
                 end
             end
@@ -17320,7 +17376,7 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
                 end
             end
             if bDebugMessages == true then LOG(sFunctionRef..': tLZData[M28Map.subrefLZOrWZMexCount]='..(tLZData[M28Map.subrefLZOrWZMexCount] or 'nil')..'; Island mex count='..(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauIslandMexCount][tLZData[M28Map.subrefLZIslandRef]] or 'nil')..'; bExpansionOnSameIslandAsBase='..tostring(bExpansionOnSameIslandAsBase or false)..'; tLZData[M28Map.subrefLZIslandRef]='..(tLZData[M28Map.subrefLZIslandRef] or 'nil')..'; Closest firendly base island ref='..(NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestFriendlyBase]) or 'nil')) end
-            if (tLZData[M28Map.subrefLZOrWZMexCount] > 0 or (M28Map.bIsCampaignMap and M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauIslandMexCount][tLZData[M28Map.subrefLZIslandRef]] >= 4)) and M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauIslandMexCount][tLZData[M28Map.subrefLZIslandRef]] >= 3 and not(bExpansionOnSameIslandAsBase) then
+            if (tLZData[M28Map.subrefLZOrWZMexCount] >= 2 or (M28Map.bIsCampaignMap and M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauIslandMexCount][tLZData[M28Map.subrefLZIslandRef]] >= 4)) and M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauIslandMexCount][tLZData[M28Map.subrefLZIslandRef]] >= 3 and not(bExpansionOnSameIslandAsBase) then
                 iHighestTechEngiAvailable = GetHighestTechEngiAvailable(toAvailableEngineersByTech)
                 if bDebugMessages == true then LOG(sFunctionRef..': iHighestTechEngiAvailable='..iHighestTechEngiAvailable) end
                 if iHighestTechEngiAvailable > 0 then
@@ -17862,17 +17918,6 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
             end
         end
     end
-    --QUIET DEBUG: Throttled logging for minor zone mex building decisions
-    local iLastMinorMexLog = tLZTeamData['QUIETLastMinorMexLog'] or 0
-    local iEngiCount = (tEngineers and table.getn(tEngineers)) or 0
-    if GetGameTimeSeconds() - iLastMinorMexLog >= 10 and iEngiCount > 0 then
-        local iUnbuiltMexCount = (tLZData[M28Map.subrefMexUnbuiltLocations] and table.getn(tLZData[M28Map.subrefMexUnbuiltLocations])) or 0
-        local iBPWantedForMex = (tLZTeamData[M28Map.subreftiBPWantedByAction] and tLZTeamData[M28Map.subreftiBPWantedByAction][refActionBuildMex]) or 0
-        if iUnbuiltMexCount > 0 or iBPWantedForMex > 0 then
-            tLZTeamData['QUIETLastMinorMexLog'] = GetGameTimeSeconds()
-            LOG('QUIET-MinorZoneMex: P'..iPlateau..'Z'..iLandZone..' T='..math.floor(GetGameTimeSeconds())..' Engis='..iEngiCount..' UnbuiltMex='..iUnbuiltMexCount..' BPWanted='..iBPWantedForMex..' TeammateBuilt='..tostring(bTeammateHasBuiltHere)..' RecentlyRan='..tostring(bEngineersRecentlyRunFromEnemy))
-        end
-    end
 
     --Reclaim enemy building if have available engineers, and enemy has buildings but no combat threat
     iCurPriority = iCurPriority + 1
@@ -18087,28 +18132,35 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
             iBPWanted = 10
         end
 
-        --Consider using mex build path if we have multiple unbuilt mexes and not too many engineers already doing mex build path
-        local bUsedMexBuildPath = false
-        if iUnbuiltMexCount > 1 and not(bEngineersRecentlyRunFromEnemy) and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and GetMexBuildPathEngineerCount(iTeam) < iMaxMexBuildPathEngineers then
-            --Try to assign an available engineer to mex build path
-            local iHighestTechAvailable = GetHighestTechEngiAvailable(toAvailableEngineersByTech)
-            if iHighestTechAvailable > 0 then
+        --Assign multiple engineers to mex build paths for rapid expansion
+        local iMexBuildPathsAssigned = 0
+        local iMaxLocalPaths = math.min(3, math.ceil(iUnbuiltMexCount / 3)) --Up to 3 engineers per zone, ~3 mexes each
+        if not(bEngineersRecentlyRunFromEnemy) and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) then
+            while iUnbuiltMexCount > 0 and GetMexBuildPathEngineerCount(iTeam) < iMaxMexBuildPathEngineers and iMexBuildPathsAssigned < iMaxLocalPaths do
+                local iHighestTechAvailable = GetHighestTechEngiAvailable(toAvailableEngineersByTech)
+                if iHighestTechAvailable <= 0 then break end
+
                 local oEngineerForPath = toAvailableEngineersByTech[iHighestTechAvailable][1]
-                if oEngineerForPath and M28UnitInfo.IsUnitValid(oEngineerForPath) then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Attempting mex build path with engineer '..oEngineerForPath.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineerForPath)) end
-                    bUsedMexBuildPath = QueueMexBuildPath(oEngineerForPath, iTeam, tLZData, tLZTeamData, iPlateau, iLandZone, false, 5)
-                    if bUsedMexBuildPath then
-                        --Remove engineer from available list
-                        table.remove(toAvailableEngineersByTech[iHighestTechAvailable], 1)
-                        table.insert(toAssignedEngineers, oEngineerForPath)
-                        if bDebugMessages == true then LOG(sFunctionRef..': Successfully assigned engineer to mex build path') end
-                    end
+                if not(oEngineerForPath) or not(M28UnitInfo.IsUnitValid(oEngineerForPath)) then break end
+
+                if bDebugMessages == true then LOG(sFunctionRef..': Attempting mex build path #'..(iMexBuildPathsAssigned + 1)..' with engineer '..oEngineerForPath.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineerForPath)) end
+                local bQueued = QueueMexBuildPath(oEngineerForPath, iTeam, tLZData, tLZTeamData, iPlateau, iLandZone, false, 5)
+                if bQueued then
+                    table.remove(toAvailableEngineersByTech[iHighestTechAvailable], 1)
+                    table.insert(toAssignedEngineers, oEngineerForPath)
+                    iMexBuildPathsAssigned = iMexBuildPathsAssigned + 1
+                    --Reduce unbuilt count estimate (path queues ~5 mexes)
+                    iUnbuiltMexCount = iUnbuiltMexCount - 5
+                    if bDebugMessages == true then LOG(sFunctionRef..': Successfully assigned engineer to mex build path, total='..iMexBuildPathsAssigned) end
+                else
+                    --No more available mexes to queue
+                    break
                 end
             end
         end
 
-        --Fall back to normal mex building if mex build path wasn't used or we still have more mexes to build
-        if not(bUsedMexBuildPath) or iUnbuiltMexCount > 5 then
+        --Fall back to normal mex building if no mex paths were used or we still have more mexes to build
+        if iMexBuildPathsAssigned == 0 or iUnbuiltMexCount > 5 then
             HaveActionToAssign(refActionBuildMex, 1, iBPWanted)
         end
         if not(bEngineersRecentlyRunFromEnemy) and (tLZTeamData[M28Map.subreftiBPWantedByAction][refActionBuildMex] or 0) > 0 and not(tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex]) then
@@ -18515,7 +18567,7 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
                         for iTech = 1, iHighestTechEngiAvailable, 1 do
                             if tiBPByTechWanted[iTech] > 0 then
                                 iPrevEngisAvailable = table.getn(toAvailableEngineersByTech[iTech])
-                                HaveActionToAssign(refActionMoveToLandZone, iTech, iNearbyZonesWantingEngineers * 5 + tiBPByTechWanted[iTech], iAdjLZ, true)
+                                HaveActionToAssign(refActionExpandToLandZone, iTech, iNearbyZonesWantingEngineers * 5 + tiBPByTechWanted[iTech], iAdjLZ, true)
                                 if table.getn(toAvailableEngineersByTech[iTech]) < iPrevEngisAvailable then
                                     iNearbyZonesWantingEngineers = iNearbyZonesWantingEngineers + 1
                                 end
@@ -19007,7 +19059,7 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
             local iBPAlreadyTraveling = 0
             if M28Utilities.IsTableEmpty(toAssignedEngineers) == false then
                 for iEngi, oEngi in toAssignedEngineers do
-                    if oEngi[refiAssignedAction] == refActionMoveToLandZone then
+                    if oEngi[refiAssignedAction] == refActionMoveToLandZone or oEngi[refiAssignedAction] == refActionExpandToLandZone then
                         iBPAlreadyTraveling = iBPAlreadyTraveling + oEngi:GetBlueprint().Economy.BuildRate
                     end
                 end
@@ -19421,9 +19473,11 @@ end--]]
                     --Adjacent core zones if we have spare engis in this zone
                     if iHighestTechEngiAvailable > 0 then
                         local iTotalAvailableEngineerBP = 0
+                        local iTotalAvailableEngis = 0
                         for iTech, tEngineers in toAvailableEngineersByTech do
                             if M28Utilities.IsTableEmpty(tEngineers) == false then
                                 iTotalAvailableEngineerBP = iTotalAvailableEngineerBP + tiBPByTech[iTech] * table.getn(tEngineers)
+                                iTotalAvailableEngis = iTotalAvailableEngis + table.getn(tEngineers)
                             end
                         end
                         if iTotalAvailableEngineerBP >= 80 then
@@ -19475,13 +19529,15 @@ end--]]
 
     --Do we have stuff to reclaim in this LZ and arent about to overflow mass? Decided to leave this out as looks like it can do more harm than good
     --[[iCurPriority = iCurPriority + 1
-iHighestTechEngiAvailable = GetHighestTechEngiAvailable(toAvailableEngineersByTech)
-if iHighestTechEngiAvailable > 0 and tLZData[M28Map.subrefTotalMassReclaim] >= 5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.6 then
-HaveActionToAssign(refActionReclaimArea, 1, math.min(100, math.max(10, tLZData[M28Map.subrefTotalMassReclaim] / 10)), false, true)
-end--]]
+    iHighestTechEngiAvailable = GetHighestTechEngiAvailable(toAvailableEngineersByTech)
+    if iHighestTechEngiAvailable > 0 and tLZData[M28Map.subrefTotalMassReclaim] >= 5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.6 then
+        HaveActionToAssign(refActionReclaimArea, 1, math.min(100, math.max(10, tLZData[M28Map.subrefTotalMassReclaim] / 10)), false, true)
+    end]]
 
-
-
+    --[[Log if engineers are left unassigned at end of minor zone processing
+    iHighestTechEngiAvailable = GetHighestTechEngiAvailable(toAvailableEngineersByTech)
+    if iHighestTechEngiAvailable > 0 then
+    end]]
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 

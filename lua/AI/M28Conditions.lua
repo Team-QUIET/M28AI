@@ -206,7 +206,14 @@ function IsEngineerAvailable(oEngineer, bDebugOnly)
         local iCurPlateau, iCurLZ = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oEngineer:GetPosition(), true, oEngineer)
         LOG(sFunctionRef..': GameTIme '..GetGameTimeSeconds()..': Engineer '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' owned by '..oEngineer:GetAIBrain().Nickname..': oEngineer:GetFractionComplete()='..oEngineer:GetFractionComplete()..'; Unit state='..M28UnitInfo.GetUnitState(oEngineer)..'; Are last orders empty='..tostring(oEngineer[M28Orders.reftiLastOrders] == nil)..'; Engineer Plateau='..(iCurPlateau or 'nil')..'; LZ='..(iCurLZ or 'nil')..'; Is unit state moving='..tostring(oEngineer:IsUnitState('Moving'))..'; Engineer position='..repru(oEngineer:GetPosition())..'; Engineer assigned action='..(oEngineer[M28Engineer.refiAssignedAction] or 'nil')..'; Special micro active='..tostring(oEngineer[M28UnitInfo.refbSpecialMicroActive] or false)..'; oEngineer[refiEngineerStuckCheckCount]='..(oEngineer[refiEngineerStuckCheckCount] or 'nil')..'; refiSequentialReclaimCount='..(oEngineer[M28Engineer.refiSequentialReclaimCount] or 'nil'))
     end
-    if oEngineer:GetFractionComplete() == 1 and not(oEngineer:IsUnitState('Attached')) and not(oEngineer[M28Engineer.refiAssignedAction] == M28Engineer.refActionSpecialShieldDefence) and not(oEngineer[M28Engineer.refiAssignedAction] == M28Engineer.refActionManageGameEnderTemplate) and not(oEngineer[M28Engineer.refiAssignedAction] == M28Engineer.refActionReclaimPath) and not(oEngineer[M28Engineer.refiAssignedAction] == M28Engineer.refActionMexBuildPath) and not(oEngineer:IsUnitState('Capturing')) then
+    --[[MexBuildPath only blocks if engineer is actively building/moving/reclaiming (not when idle between jobs or done)
+    local bMexPathActivelyWorking = false
+    if oEngineer[M28Engineer.refiAssignedAction] == M28Engineer.refActionMexBuildPath then
+        if oEngineer:IsUnitState('Building') or oEngineer:IsUnitState('Moving') or oEngineer:IsUnitState('Reclaiming') then
+            bMexPathActivelyWorking = true
+        end
+    end]]
+    if oEngineer:GetFractionComplete() == 1 and not(oEngineer:IsUnitState('Attached')) and not(oEngineer[M28Engineer.refiAssignedAction] == M28Engineer.refActionSpecialShieldDefence) and not(oEngineer[M28Engineer.refiAssignedAction] == M28Engineer.refActionManageGameEnderTemplate) and not(oEngineer[M28Engineer.refiAssignedAction] == M28Engineer.refActionReclaimPath) --[[and not(bMexPathActivelyWorking)]] and not(oEngineer:IsUnitState('Capturing')) then
         --Spare engineers - always treat as available even if in the middle of something
         if oEngineer[M28Engineer.refbHasSpareAction] then
             if bDebugMessages == true then LOG(sFunctionRef..': Engineer given spare action so marking as available') end
