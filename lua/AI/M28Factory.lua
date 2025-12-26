@@ -593,18 +593,36 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
             if M28Utilities.bQuietModActive and sBPIDToBuild and iFactoryTechLevel <= 2 and aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] then
                 if not(iCurEngineers) then iCurEngineers = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer) end
                 local iCurCombat = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandCombat)
-                --Early game (first 5 minutes): limit engineers to 1:2 ratio with combat units, max 15 engineers
-                --(5-10 minutes): limit engineers to 1:1.5 ratio with combat units, max 20 engineers
+                --Engineer limits based on game size (total players) and time
+                --Scale based on total players: fewer engineers per AI needed in larger games
                 local iGameTime = GetGameTimeSeconds()
+                local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
+                local iEnemyCount = table.getn(tTeamData[M28Team.subreftoEnemyBrains] or {})
+                local iFriendlyCount = table.getn(tTeamData[M28Team.subreftoFriendlyHumanAndAIBrains] or {})
+                local iTotalPlayers = iEnemyCount + iFriendlyCount
+
+                --Base limits scaled by total players
+                --2 players (1v1): 15/20/30
+                --4 players (2v2): 15/20/30
+                --6 players (3v3): 10/15/20
+                --8+ players (4v4+): 10/15/15
+                local iBaseEarlyMax, iBaseMidMax, iBaseLateMax = 15, 20, 30
+
+                if iTotalPlayers >= 8 then
+                    iBaseEarlyMax, iBaseMidMax, iBaseLateMax = 10, 15, 15
+                elseif iTotalPlayers >= 6 then
+                    iBaseEarlyMax, iBaseMidMax, iBaseLateMax = 10, 15, 20
+                end
+
                 local iMaxEngineers, iEngiToCombatRatio
                 if iGameTime <= 300 then
-                    iMaxEngineers = 15
+                    iMaxEngineers = iBaseEarlyMax
                     iEngiToCombatRatio = 0.5 --1 engi per 2 combat
                 elseif iGameTime <= 600 then
-                    iMaxEngineers = 20
+                    iMaxEngineers = iBaseMidMax
                     iEngiToCombatRatio = 0.67 --1 engi per 1.5 combat
                 else
-                    iMaxEngineers = 30
+                    iMaxEngineers = iBaseLateMax
                     iEngiToCombatRatio = 1 --1:1 ratio
                 end
                 if iCurEngineers >= iMaxEngineers or (iCurCombat > 0 and iCurEngineers > iCurCombat * iEngiToCombatRatio) then
