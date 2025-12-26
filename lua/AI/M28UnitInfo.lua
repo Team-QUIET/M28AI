@@ -426,16 +426,16 @@ function GenerateRandomThreatFactor()
     Generates a random threat factor with the following weighted distribution:
     - 70% chance: value between 0.5 and 1.0 (normal/slightly aggressive play)
     - 20% chance: value between 0.1 and 0.5 (very aggressive play)
-    - 10% chance: value between 1.0 and 5.0 (cautious/defensive play - rare)
+    - 10% chance: value between 1.0 and 2.0 (cautious/defensive play - rare)
 
     Note: Lower values = AI underestimates enemy threat = more aggressive
           Higher values = AI overestimates enemy threat = more cautious
 
-    Returns: number between 0.1 and 5.0
+    Returns: number between 0.1 and 2.0
     ]]
     local iRoll = math.random(1, 100)
     local iThreatFactorResult
-    
+
     if iRoll <= 70 then
         local iSubRoll = math.random()
         iThreatFactorResult = 0.5 + (iSubRoll * iSubRoll) * 0.5
@@ -443,9 +443,9 @@ function GenerateRandomThreatFactor()
         iThreatFactorResult = 0.1 + math.random() * 0.4
     else
         local iSubRoll = math.random()
-        iThreatFactorResult = 1.0 + math.sqrt(iSubRoll) * 4.0
+        iThreatFactorResult = 1.0 + math.sqrt(iSubRoll) * 1.0
     end
-    
+
     iThreatFactorResult = math.floor(iThreatFactorResult * 100 + 0.5) / 100
     return iThreatFactorResult
 end
