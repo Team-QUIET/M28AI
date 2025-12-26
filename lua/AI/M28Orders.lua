@@ -244,6 +244,55 @@ function UpdateRecordedOrders(oUnit)
     end--]]
 end
 
+
+--Category of units that benefit from attack-move (initialized on first use)
+local tCategoryAttackMoveUnits = false --MML, Sniper Bots, T3 Mobile Artillery
+
+function ShouldUseAttackMove(oUnit)
+    --Returns true if this unit type benefits from attack-move orders
+    if not(tCategoryAttackMoveUnits) then
+        tCategoryAttackMoveUnits = M28UnitInfo.refCategoryMML + M28UnitInfo.refCategorySniperBot + M28UnitInfo.refCategoryT3MobileArtillery
+    end
+    return EntityCategoryContains(tCategoryAttackMoveUnits, oUnit.UnitId)
+end
+
+function GetSpreadPositionForUnit(oUnit, tTargetPosition, iSpreadRadius)
+    --Returns a position spread around tTargetPosition to prevent unit clumping
+    --Uses unit's entity ID to generate a consistent unique offset per unit
+    --iSpreadRadius: how far to spread units from center (default 4)
+    if not(iSpreadRadius) then iSpreadRadius = 4 end
+    if not(oUnit) or not(tTargetPosition) then return tTargetPosition end
+
+    --Use unit's entity ID to generate a unique but consistent offset
+    if not(oUnit.EntityId) then oUnit.EntityId = oUnit:GetEntityId() end
+    local iEntityId = tonumber(oUnit.EntityId) or 0
+    if iEntityId == 0 then return tTargetPosition end
+
+    --Generate angle using golden ratio for good distribution
+    --Each unit gets a different angle based on its ID
+    local iAngle = math.mod(iEntityId * 137.508, 360) --Golden angle in degrees
+    local iRadians = iAngle * math.pi / 180
+
+    --Vary radius slightly based on ID to create spiral pattern instead of ring
+    local iRadiusFactor = 0.5 + math.mod(iEntityId * 0.618, 1.0) --0.5 to 1.5 range
+    local iFinalRadius = iSpreadRadius * iRadiusFactor
+
+    local iOffsetX = math.cos(iRadians) * iFinalRadius
+    local iOffsetZ = math.sin(iRadians) * iFinalRadius
+    return {tTargetPosition[1] + iOffsetX, tTargetPosition[2], tTargetPosition[3] + iOffsetZ}
+end
+
+function IssueSmartMove(oUnit, tOrderPosition, iDistanceToReissueOrder, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder)
+    --Uses attack-move for MML/Sniper/T3Arti, regular move for others
+    --Spreads positions using unit ID for consistent unique offsets per unit
+    local tFinalPosition = GetSpreadPositionForUnit(oUnit, tOrderPosition)
+    if ShouldUseAttackMove(oUnit) then
+        IssueTrackedAttackMove(oUnit, tFinalPosition, iDistanceToReissueOrder, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder)
+    else
+        IssueTrackedMove(oUnit, tFinalPosition, iDistanceToReissueOrder, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder)
+    end
+end
+
 function IssueTrackedMove(oUnit, tOrderPosition, iDistanceToReissueOrder, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder)
     if bDontConsiderCombinedArmy or oUnit.M28Active then
         UpdateRecordedOrders(oUnit)

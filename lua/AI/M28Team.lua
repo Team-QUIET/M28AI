@@ -6389,6 +6389,60 @@ function GetMusteringZoneMidpoint(iTeam, iPlateau)
     return nil
 end
 
+function GetMusteringSpreadPosition(iTeam, iPlateau, oUnit)
+    --Returns a spread position for a mustering unit to prevent clumping
+    --Units are placed in concentric rings around the zone midpoint
+    local tMusterData = GetMusteringData(iTeam, iPlateau)
+    if not(tMusterData) then return nil end
+
+    local tMidpoint = GetMusteringZoneMidpoint(iTeam, iPlateau)
+    if not(tMidpoint) then return nil end
+
+    --Find unit's index in the mustering table
+    local iUnitIndex = 1
+    for iIdx, oMusterUnit in tMusterData[subreftMusteringUnits] do
+        if oMusterUnit == oUnit then
+            iUnitIndex = iIdx
+            break
+        end
+    end
+
+    --First unit goes to center
+    if iUnitIndex == 1 then
+        return {tMidpoint[1], tMidpoint[2], tMidpoint[3]}
+    end
+
+    --Calculate ring and position within ring
+    --Ring 1: indices 2-7 (6 units), Ring 2: 8-19 (12 units), Ring 3: 20-37 (18 units)
+    local iRingSpacing = 12 --Distance between rings (spread units out nicely)
+    local iCurrentIndex = iUnitIndex - 1 --Adjust for center unit
+    local iUnitsInPrevRings = 0
+    local iRingNumber = 1
+
+    while true do
+        local iUnitsInThisRing = 6 * iRingNumber
+        if iCurrentIndex <= iUnitsInPrevRings + iUnitsInThisRing then
+            --Unit is in this ring
+            local iPositionInRing = iCurrentIndex - iUnitsInPrevRings
+            local iAngle = 2 * math.pi * (iPositionInRing - 1) / iUnitsInThisRing
+            local iRadius = iRingNumber * iRingSpacing
+
+            local iOffsetX = iRadius * math.cos(iAngle)
+            local iOffsetZ = iRadius * math.sin(iAngle)
+
+            return {tMidpoint[1] + iOffsetX, tMidpoint[2], tMidpoint[3] + iOffsetZ}
+        end
+        iUnitsInPrevRings = iUnitsInPrevRings + iUnitsInThisRing
+        iRingNumber = iRingNumber + 1
+
+        --Safety: cap at ring 20 (enough for 1260+ units)
+        if iRingNumber > 20 then break end
+    end
+
+    --Fallback to midpoint
+    return {tMidpoint[1], tMidpoint[2], tMidpoint[3]}
+end
+
 function ConsiderDelayedMexDetection(oMex)
     WaitSeconds(30) --Competent human will be able to infer a mex is built within this timeframe typically
     if M28UnitInfo.IsUnitValid(oMex) then
