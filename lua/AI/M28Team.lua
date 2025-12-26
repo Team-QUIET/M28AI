@@ -6097,6 +6097,7 @@ end
 function FindSafeMusteringZone(iTeam, iPlateau, iTargetLZ)
     --Find a safe zone to gather units before attacking the target zone
     --Ideal zone is 3-5 zones behind the frontline, on the path toward target
+    --Zone must also have no enemies in adjacent zones
     local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'FindSafeMusteringZone'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -6108,7 +6109,7 @@ function FindSafeMusteringZone(iTeam, iPlateau, iTargetLZ)
     --Find a zone with lower mod distance (closer to our base) that isn't contested
     local iBestMusterZone = nil
     local iBestModDist = 1.0
-    local iIdealModDist = math.max(0.1, iTargetModDist - 0.25) --Aim for zone 25% closer to our base
+    local iIdealModDist = math.max(0.05, iTargetModDist - 0.35)
 
     if bDebugMessages == true then LOG(sFunctionRef..': Looking for mustering zone for target LZ '..iTargetLZ..' with modDist='..iTargetModDist..', idealModDist='..iIdealModDist) end
 
@@ -6118,13 +6119,34 @@ function FindSafeMusteringZone(iTeam, iPlateau, iTargetLZ)
 
         --Zone must be:
         -- 1. Closer to our base than target (lower modDist)
-        -- 2. Not have dangerous enemies
-        -- 3. On same island as target
+        -- 2. Not have dangerous enemies in THIS zone
+        -- 3. Not have enemies in ADJACENT zones
+        -- 4. On same island as target
         local bZoneSafe = not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ])
         local bSameIsland = (tLZData[M28Map.subrefLZIslandRef] == tTargetLZData[M28Map.subrefLZIslandRef])
-        local bCloserToBase = iZoneModDist < iTargetModDist - 0.1
+        local bCloserToBase = iZoneModDist < iTargetModDist - 0.15
 
-        if bZoneSafe and bSameIsland and bCloserToBase then
+        --Check adjacent zones for enemies
+        local bAdjacentZonesSafe = true
+        if bZoneSafe and tLZData[M28Map.subrefLZAdjacentLandZones] then
+            for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
+                local tAdjLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ]
+                if tAdjLZData then
+                    local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][iTeam]
+                    if tAdjLZTeamData then
+                        --Adjacent zone is unsafe if it has dangerous enemies or significant enemy threat
+                        local iAdjEnemyThreat = tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+                        if tAdjLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or iAdjEnemyThreat > 50 then
+                            bAdjacentZonesSafe = false
+                            if bDebugMessages == true then LOG(sFunctionRef..': Zone '..iLandZone..' has unsafe adjacent zone '..iAdjLZ..' with threat='..iAdjEnemyThreat) end
+                            break
+                        end
+                    end
+                end
+            end
+        end
+
+        if bZoneSafe and bAdjacentZonesSafe and bSameIsland and bCloserToBase then
             --Prefer zones close to ideal distance
             local iDistFromIdeal = math.abs(iZoneModDist - iIdealModDist)
             if not(iBestMusterZone) or iDistFromIdeal < math.abs(iBestModDist - iIdealModDist) then
@@ -6133,7 +6155,7 @@ function FindSafeMusteringZone(iTeam, iPlateau, iTargetLZ)
                 if iTravelDist and iTravelDist < 10000 then
                     iBestMusterZone = iLandZone
                     iBestModDist = iZoneModDist
-                    if bDebugMessages == true then LOG(sFunctionRef..': Found candidate mustering zone '..iLandZone..' with modDist='..iZoneModDist) end
+                    if bDebugMessages == true then LOG(sFunctionRef..': Found candidate mustering zone '..iLandZone..' with modDist='..iZoneModDist..' (adjacent zones safe)') end
                 end
             end
         end
@@ -6184,8 +6206,79 @@ function InitializeMustering(iTeam, iPlateau, iTargetLZ, iEnemyThreat)
         LOG('ArmyMustering: [P'..iPlateau..'] INIT mustering at LZ'..iMusteringZone..' to attack LZ'..iTargetLZ..', EnemyThreat='..iEnemyThreat..', Time='..GetGameTimeSeconds())
     end
 
+    --Trigger cascading mustering to adjacent zones
+    ForkThread(PropagateMusteringToAdjacentZones, iTeam, iPlateau, iTargetLZ, iEnemyThreat, 3)
+
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     return true
+end
+
+function PropagateMusteringToAdjacentZones(iTeam, iPlateau, iOriginLZ, iEnemyThreat, iDepth)
+    --Propagates mustering awareness to adjacent zones up to iDepth levels deep
+    --This creates coordinated retreats where adjacent zones also join the muster
+    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'PropagateMusteringToAdjacentZones'
+
+    if iDepth <= 0 then return end
+    if not(M28Map.tAllPlateaus[iPlateau]) then return end
+
+    local tOriginLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iOriginLZ]
+    if not(tOriginLZData) or not(tOriginLZData[M28Map.subrefLZAdjacentLandZones]) then return end
+
+    local tCheckedZones = {[iOriginLZ] = true}
+    local tZonesToCheck = {}
+
+    --First level: adjacent to origin
+    for _, iAdjLZ in tOriginLZData[M28Map.subrefLZAdjacentLandZones] do
+        if not(tCheckedZones[iAdjLZ]) then
+            tCheckedZones[iAdjLZ] = true
+            table.insert(tZonesToCheck, {iLZ = iAdjLZ, iLevel = 1})
+        end
+    end
+
+    --Process zones at each level
+    for _, tZoneInfo in tZonesToCheck do
+        local iAdjLZ = tZoneInfo.iLZ
+        local iLevel = tZoneInfo.iLevel
+
+        local tAdjLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ]
+        if tAdjLZData then
+            local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][iTeam]
+            if tAdjLZTeamData then
+                --Check if this zone has friendly units that should join mustering
+                local tFriendlyUnits = tAdjLZTeamData[M28Map.subrefLZTAllFriendlyCombat]
+                local iZoneEnemyThreat = tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+
+                --Zone should join mustering if:
+                -- 1. Has friendly combat units
+                -- 2. Not already the mustering zone
+                -- 3. Enemy threat in adjacent zones (propagated threat)
+                local iMusteringZone = GetMusteringZone(iTeam, iPlateau)
+                if M28Utilities.IsTableEmpty(tFriendlyUnits) == false and iAdjLZ ~= iMusteringZone then
+                    --Calculate propagated threat (diminishes with distance)
+                    local iPropagatedThreat = iEnemyThreat * (0.7 ^ iLevel) + iZoneEnemyThreat
+
+                    if bDebugMessages == true then
+                        LOG(sFunctionRef..': Propagating muster awareness to LZ'..iAdjLZ..' at level '..iLevel..', PropagatedThreat='..iPropagatedThreat..', FriendlyUnits='..table.getn(tFriendlyUnits))
+                    end
+
+                    --Flag this zone for mustering participation
+                    tAdjLZTeamData[M28Map.subrefbShouldJoinMustering] = true
+                    tAdjLZTeamData[M28Map.subrefiPropagatedMusterThreat] = iPropagatedThreat
+                end
+
+                --Add next level zones if we haven't reached max depth
+                if iLevel < iDepth and tAdjLZData[M28Map.subrefLZAdjacentLandZones] then
+                    for _, iNextAdjLZ in tAdjLZData[M28Map.subrefLZAdjacentLandZones] do
+                        if not(tCheckedZones[iNextAdjLZ]) then
+                            tCheckedZones[iNextAdjLZ] = true
+                            table.insert(tZonesToCheck, {iLZ = iNextAdjLZ, iLevel = iLevel + 1})
+                        end
+                    end
+                end
+            end
+        end
+    end
 end
 
 function AddUnitToMustering(iTeam, iPlateau, oUnit)
@@ -6252,45 +6345,72 @@ function ShouldCommitMusteredArmy(iTeam, iPlateau)
 
     --Get current enemy threat in target zone (may have changed)
     local iTargetLZ = tMusterData[subrefiMusteringTargetLZ]
-    local tTargetLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iTargetLZ][M28Map.subrefLZTeamData][iTeam]
+    local tTargetLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iTargetLZ]
+    local tTargetLZTeamData = tTargetLZData[M28Map.subrefLZTeamData][iTeam]
     local iCurrentEnemyThreat = tTargetLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
-    iEnemyThreat = math.max(iEnemyThreat, iCurrentEnemyThreat)
 
-    --Calculate required threat ratio based on tech level
+    --Also consider enemy threat in adjacent zones (they might reinforce)
+    local iAdjacentEnemyThreat = 0
+    if tTargetLZData[M28Map.subrefLZAdjacentLandZones] then
+        for _, iAdjLZ in tTargetLZData[M28Map.subrefLZAdjacentLandZones] do
+            local tAdjLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ]
+            if tAdjLZData then
+                local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][iTeam]
+                if tAdjLZTeamData then
+                    iAdjacentEnemyThreat = iAdjacentEnemyThreat + (tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) * 0.5
+                end
+            end
+        end
+    end
+
+    --Use max of recorded threat and current threat + adjacent threats
+    iEnemyThreat = math.max(iEnemyThreat, iCurrentEnemyThreat + iAdjacentEnemyThreat)
+
+    --Calculate required threat ratio based on tech level (more conservative than before)
     local iHighestTech = tTeamData[iTeam][subrefiHighestFriendlyLandFactoryTech] or 1
-    local iThreatRatioRequired = 1.3
+    local iThreatRatioRequired = 1.5
     if iHighestTech >= 3 then
-        iThreatRatioRequired = 1.5
+        iThreatRatioRequired = 1.8
     elseif iHighestTech >= 2 then
-        iThreatRatioRequired = 1.4
+        iThreatRatioRequired = 1.6
     end
 
     --Minimum unit count based on tech
-    local iMinUnitCount = 4
-    if iHighestTech >= 3 then iMinUnitCount = 2
-    elseif iHighestTech >= 2 then iMinUnitCount = 3 end
+    local iMinUnitCount = 5
+    if iHighestTech >= 3 then iMinUnitCount = 3
+    elseif iHighestTech >= 2 then iMinUnitCount = 4 end
+
+    --Minimum mustering time to let more units gather
+    local iMinMusteringTime = 15
 
     local iUnitCount = table.getn(tMusterData[subreftMusteringUnits])
 
     local bShouldCommit = false
     local sReason = ''
 
-    --Only commit based on threat advantage or enemy retreat 
-    --Commit conditions:
-    -- 1. Have enough threat ratio AND minimum units
-    if iMusteredThreat >= iEnemyThreat * iThreatRatioRequired and iUnitCount >= iMinUnitCount then
+    --Breakout conditions for transitioning from mustering (Scenario 2) to attacking (Scenario 1)
+    --Commit conditions (in order of priority):
+
+    -- 1. Have enough threat ratio AND minimum units AND minimum mustering time
+    if iMusteredThreat >= iEnemyThreat * iThreatRatioRequired and iUnitCount >= iMinUnitCount and iTimeMusteringSeconds >= iMinMusteringTime then
         bShouldCommit = true
         sReason = 'threat threshold reached'
-    -- 2. Enemy threat dropped significantly (they retreated or died)
-    elseif iCurrentEnemyThreat < iEnemyThreat * 0.3 and iUnitCount >= 2 then
+
+    -- 2. Current enemy threat dropped to less than half of original, and we have decent force
+    elseif iCurrentEnemyThreat < iEnemyThreat * 0.5 and iMusteredThreat >= iCurrentEnemyThreat * 1.3 and iUnitCount >= 3 then
         bShouldCommit = true
-        sReason = 'enemy retreated'
+        sReason = 'enemy weakened'
+
+    -- 3. We have massive threat advantage (2.5x+), can attack even with fewer units
+    elseif iMusteredThreat >= iEnemyThreat * 2.5 and iUnitCount >= 2 then
+        bShouldCommit = true
+        sReason = 'overwhelming force'
     end
 
-    if bDebugMessages == true then LOG(sFunctionRef..': MusteredThreat='..iMusteredThreat..', EnemyThreat='..iEnemyThreat..', Ratio='..iThreatRatioRequired..', Units='..iUnitCount..', Time='..iTimeMusteringSeconds..', ShouldCommit='..tostring(bShouldCommit)..' ('..sReason..')') end
+    if bDebugMessages == true then LOG(sFunctionRef..': MusteredThreat='..iMusteredThreat..', EnemyThreat='..iEnemyThreat..' (current='..iCurrentEnemyThreat..', adj='..iAdjacentEnemyThreat..')'..' Ratio='..iThreatRatioRequired..', Units='..iUnitCount..', Time='..iTimeMusteringSeconds..', ShouldCommit='..tostring(bShouldCommit)..' ('..sReason..')') end
 
-    if bDebugMessages == true then
-        LOG('ArmyMustering: [P'..iPlateau..'] COMMIT! Reason='..sReason..', MusteredThreat='..math.floor(iMusteredThreat)..', EnemyThreat='..math.floor(iEnemyThreat)..', Units='..iUnitCount..', Time='..GetGameTimeSeconds())
+    if bShouldCommit and bDebugMessages == true then
+        LOG('ArmyMustering: [P'..iPlateau..'] COMMIT! Reason='..sReason..', MusteredThreat='..math.floor(iMusteredThreat)..', EnemyThreat='..math.floor(iEnemyThreat)..' (current='..math.floor(iCurrentEnemyThreat)..')'..' Units='..iUnitCount..', Time='..GetGameTimeSeconds())
     end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -6414,7 +6534,7 @@ function GetMusteringSpreadPosition(iTeam, iPlateau, oUnit)
 
     --Calculate ring and position within ring
     --Ring 1: indices 2-7 (6 units), Ring 2: 8-19 (12 units), Ring 3: 20-37 (18 units)
-    local iRingSpacing = 12 --Distance between rings (spread units out nicely)
+    local iRingSpacing = 16 --Distance between rings
     local iCurrentIndex = iUnitIndex - 1 --Adjust for center unit
     local iUnitsInPrevRings = 0
     local iRingNumber = 1

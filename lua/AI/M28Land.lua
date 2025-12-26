@@ -6984,6 +6984,87 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
 
                     if bDebugMessages == true then LOG(sFunctionRef..': Scenario 1 - will cycle through available combat units, is tSkirmisherDFEnemies empty='..tostring(M28Utilities.IsTableEmpty(tSkirmisherDFEnemies))..'; oNearestEnemyToFriendlyBase='..(oNearestEnemyToFriendlyBase.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oNearestEnemyToFriendlyBase) or 'nil')..'; bAreInScenario1 after potential update while in Scenario1='..tostring(bAreInScenario1)) end
+
+                    --Additional Escape Conditions to exit Scenario 1 early
+                    local iCurTime = GetGameTimeSeconds()
+                    local iEngagementStartTime = tLZTeamData[M28Map.refiScenario1EngagementStartTime] or 0
+                    local sBreakoutReason = nil
+
+                    --Initialize engagement tracking if this is a new Scenario 1 engagement
+                    if iEngagementStartTime == 0 or iCurTime - iEngagementStartTime > 60 then
+                        tLZTeamData[M28Map.refiScenario1EngagementStartTime] = iCurTime
+                        tLZTeamData[M28Map.refiScenario1InitialFriendlyThreat] = iAvailableCombatUnitThreat
+                        tLZTeamData[M28Map.refiScenario1InitialEnemyThreat] = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+                        tLZTeamData[M28Map.refiScenario1InitialAdjacentEnemyThreat] = GetEnemyCombatThreatInAdjacentZones()
+                        tLZTeamData[M28Map.refiScenario1LastEnemyClosestDist] = iClosestDist
+                        iEngagementStartTime = iCurTime
+                    end
+
+                    local iInitialFriendlyThreat = tLZTeamData[M28Map.refiScenario1InitialFriendlyThreat] or iAvailableCombatUnitThreat
+                    local iInitialEnemyThreat = tLZTeamData[M28Map.refiScenario1InitialEnemyThreat] or 0
+                    local iInitialAdjEnemyThreat = tLZTeamData[M28Map.refiScenario1InitialAdjacentEnemyThreat] or 0
+                    local iLastEnemyDist = tLZTeamData[M28Map.refiScenario1LastEnemyClosestDist] or iClosestDist
+                    local iEngagementDuration = iCurTime - iEngagementStartTime
+                    local iCurrentAdjEnemyThreat = GetEnemyCombatThreatInAdjacentZones()
+                    local iCurrentEnemyThreat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+
+                    --Adjacent zone enemy threat has increased significantly since engagement started
+                    if bAreInScenario1 and iCurrentAdjEnemyThreat > iInitialAdjEnemyThreat * 1.5 + 200 then
+                        local iReinforcementThreat = iCurrentAdjEnemyThreat - iInitialAdjEnemyThreat
+                        if iReinforcementThreat > iAvailableCombatUnitThreat * 0.3 then
+                            bAreInScenario1 = false
+                            sBreakoutReason = 'enemy reinforcements detected ('..math.floor(iReinforcementThreat)..' threat arriving)'
+                        end
+                    end
+
+                    --Our threat has decreased faster than enemy threat (we're losing the trade)
+                    if bAreInScenario1 and iEngagementDuration >= 10 and iInitialFriendlyThreat > 100 then
+                        local iFriendlyThreatLoss = iInitialFriendlyThreat - iAvailableCombatUnitThreat
+                        local iEnemyThreatLoss = iInitialEnemyThreat - iCurrentEnemyThreat
+                        --If we've lost more than 20% of our initial threat and enemy has lost less than us
+                        if iFriendlyThreatLoss > iInitialFriendlyThreat * 0.2 and iFriendlyThreatLoss > iEnemyThreatLoss * 1.5 then
+                            bAreInScenario1 = false
+                            sBreakoutReason = 'unexpected losses (lost '..math.floor(iFriendlyThreatLoss)..' vs enemy '..math.floor(iEnemyThreatLoss)..')'
+                        end
+                    end
+
+                    --After 30 seconds, if enemy threat hasn't decreased by at least 15%, disengage
+                    if bAreInScenario1 and iEngagementDuration >= 30 and iInitialEnemyThreat > 100 then
+                        local iEnemyThreatReduction = (iInitialEnemyThreat - iCurrentEnemyThreat) / iInitialEnemyThreat
+                        if iEnemyThreatReduction < 0.15 then
+                            --Allow continued engagement if we have overwhelming advantage
+                            if iAvailableCombatUnitThreat < iCurrentEnemyThreat * 2 then
+                                bAreInScenario1 = false
+                                sBreakoutReason = 'stalemate ('..math.floor(iEngagementDuration)..'s, only '..math.floor(iEnemyThreatReduction * 100)..'% enemy reduction)'
+                            end
+                        end
+                    end
+
+                    --Track if enemy closest distance is decreasing over time
+                    if bAreInScenario1 and iClosestDist < iLastEnemyDist - 10 then
+                        --Enemy has closed 10+ units since last check - they're faster or we're cornered
+                        if iClosestDist < iFriendlyBestMobileDFRange * 0.8 then
+                            --Enemy is getting into our effective range, kiting is failing
+                            bAreInScenario1 = false
+                            sBreakoutReason = 'enemy closing distance (now '..math.floor(iClosestDist)..' vs our range '..iFriendlyBestMobileDFRange..')'
+                        end
+                    end
+                    tLZTeamData[M28Map.refiScenario1LastEnemyClosestDist] = iClosestDist
+
+                    --Enemy air support detected threatening our kiting units
+                    if bAreInScenario1 and (tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) > iAvailableCombatUnitThreat * 0.25 then
+                        --Significant enemy air threatens our ability to kite effectively
+                        bAreInScenario1 = false
+                        sBreakoutReason = 'enemy air support ('..math.floor(tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0)..' air threat)'
+                    end
+
+                    --Log breakout decision
+                    if sBreakoutReason then
+                        if bDebugMessages == true then LOG(sFunctionRef..': SCENARIO 1 BREAKOUT - '..sBreakoutReason..'; transitioning to Scenario 2 retreat, P'..iPlateau..'Z'..iLandZone) end
+                        --Clear engagement tracking for fresh start next time
+                        tLZTeamData[M28Map.refiScenario1EngagementStartTime] = nil
+                    end
+
                     bGivenCombatUnitsOrders = true
                     local bFiringAtNegligibleThreatInLRExperimentalRange = false --used for megalith and fatboy so won't attack-move towards enemy
                     if bAreInScenario1 then --Recheck as we might have changed to false if on checking adjacent zones an enemy outranges us
@@ -9590,7 +9671,6 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             if tConsolidationPoint then
                                 tRallyPoint = {tConsolidationPoint[1], tConsolidationPoint[2], tConsolidationPoint[3]}
                                 sRetreatMessage = 'ConsArmy'
-                                LOG('MUSTER_CONSOLIDATE: [P'..iPlateau..'-LZ'..iLandZone..'] Consolidating with attacking zone LZ'..iConsolidationZone..' (their threat='..iBestAdjacentThreat..') instead of retreating')
                             end
                         end
 
@@ -14298,11 +14378,11 @@ end
 function ConsiderMusteringForRetreat(oUnit, iTeam, iPlateau, iLandZone, iEnemyThreat)
     --When a unit is retreating, check if it should join a mustering effort instead
     --Returns a spread position within the mustering zone to prevent clumping
+    --Also supports cascading mustering from adjacent zones
     local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'ConsiderMusteringForRetreat'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    --Muster whenever we're retreating - the decision to retreat was already based on enemy threat >= our threat
     --Check if there's already active mustering for this plateau
     if M28Team.IsMusteringActive(iTeam, iPlateau) then
         local iMusteringTargetLZ = M28Team.GetMusteringTargetZone(iTeam, iPlateau)
@@ -14317,7 +14397,21 @@ function ConsiderMusteringForRetreat(oUnit, iTeam, iPlateau, iLandZone, iEnemyTh
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         return tMusteringPosition
     else
-        --No active mustering, consider starting one
+        --No active mustering from this zone, but check if cascading muster is flagged
+        local tLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone]
+        local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
+
+        if tLZTeamData[M28Map.subrefbShouldJoinMustering] then
+            --This zone was flagged by cascading propagation - use propagated threat if higher
+            local iPropagatedThreat = tLZTeamData[M28Map.subrefiPropagatedMusterThreat] or 0
+            iEnemyThreat = math.max(iEnemyThreat, iPropagatedThreat)
+            if bDebugMessages == true then LOG(sFunctionRef..': Zone '..iLandZone..' joining cascading muster with propagated threat='..iPropagatedThreat) end
+            --Clear the flag after processing
+            tLZTeamData[M28Map.subrefbShouldJoinMustering] = nil
+            tLZTeamData[M28Map.subrefiPropagatedMusterThreat] = nil
+        end
+
+        --Consider starting new mustering
         if M28Team.InitializeMustering(iTeam, iPlateau, iLandZone, iEnemyThreat) then
             M28Team.AddUnitToMustering(iTeam, iPlateau, oUnit)
             local tMusteringPosition = M28Team.GetMusteringSpreadPosition(iTeam, iPlateau, oUnit)

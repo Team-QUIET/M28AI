@@ -259,8 +259,8 @@ end
 function GetSpreadPositionForUnit(oUnit, tTargetPosition, iSpreadRadius)
     --Returns a position spread around tTargetPosition to prevent unit clumping
     --Uses unit's entity ID to generate a consistent unique offset per unit
-    --iSpreadRadius: how far to spread units from center (default 4)
-    if not(iSpreadRadius) then iSpreadRadius = 4 end
+    --iSpreadRadius: how far to spread units from center
+    if not(iSpreadRadius) then iSpreadRadius = 12 end
     if not(oUnit) or not(tTargetPosition) then return tTargetPosition end
 
     --Use unit's entity ID to generate a unique but consistent offset
@@ -270,12 +270,17 @@ function GetSpreadPositionForUnit(oUnit, tTargetPosition, iSpreadRadius)
 
     --Generate angle using golden ratio for good distribution
     --Each unit gets a different angle based on its ID
-    local iAngle = math.mod(iEntityId * 137.508, 360) --Golden angle in degrees
+    local iAngle = math.mod(iEntityId * 137.508 + math.mod(iEntityId, 7) * 51.4, 360)
     local iRadians = iAngle * math.pi / 180
 
-    --Vary radius slightly based on ID to create spiral pattern instead of ring
-    local iRadiusFactor = 0.5 + math.mod(iEntityId * 0.618, 1.0) --0.5 to 1.5 range
-    local iFinalRadius = iSpreadRadius * iRadiusFactor
+    --Create wider spiral pattern with multiple rings
+    --Ring selection based on entity ID creates concentric circles of units
+    local iRing = math.mod(iEntityId, 5) + 1
+    local iRadiusFactor = 0.3 + (iRing * 0.35)
+
+    --Add small random-ish offset based on ID to prevent perfect alignment
+    local iJitter = math.mod(iEntityId * 0.314159, 0.3)
+    local iFinalRadius = iSpreadRadius * (iRadiusFactor + iJitter)
 
     local iOffsetX = math.cos(iRadians) * iFinalRadius
     local iOffsetZ = math.sin(iRadians) * iFinalRadius
