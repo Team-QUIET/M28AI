@@ -4003,18 +4003,14 @@ function ConsiderImmediateUpgradeOfFactory(oFactory)
                     UpgradeUnit(oFactory, true)
                 end
             elseif EntityCategoryContains(M28UnitInfo.refCategoryLandHQ, oFactory.UnitId) then
-                iCategoryWanted = M28UnitInfo.refCategoryLandHQ
-                if iTechLevel == 1 then
-                    iCategoryWanted = iCategoryWanted * categories.TECH3 + iCategoryWanted * categories.TECH2
-                else iCategoryWanted = iCategoryWanted * categories.TECH3
+                if aiBrain[refiOurHighestLandFactoryTech] > math.min(3, iTechLevel) then
+                    if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade land factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
+                    UpgradeUnit(oFactory, true)
                 end
-
-                if iCategoryWanted then
-                    local tLZOrWZData, tLZOrWZTeamData = M28Map.GetLandOrWaterZoneData(oFactory:GetPosition(), true, aiBrain.M28Team)
-                    if M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZOrWZTeamData, iCategoryWanted) > 0 then
-                        if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade land factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
-                        UpgradeUnit(oFactory, true)
-                    end
+            elseif EntityCategoryContains(M28UnitInfo.refCategoryNavalHQ, oFactory.UnitId) then
+                if aiBrain[refiOurHighestNavalFactoryTech] > math.min(3, iTechLevel) then
+                    if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade naval factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
+                    UpgradeUnit(oFactory, true)
                 end
             end
         end

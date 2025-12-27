@@ -3597,6 +3597,31 @@ function CheckIfNeedMoreEngineersOrSnipeUnitsBeforeUpgrading(oFactory)
             local tLZOrWZData, tLZOrWZTeamData = M28Map.GetLandOrWaterZoneData(oFactory:GetPosition(), true, iTeam)
 
             local iBuildCountAdjust = 0
+
+            --If we have a higher tech HQ, upgrade support factories faster
+            local iOurHQTech = 1
+            if EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oFactory.UnitId) then
+                iOurHQTech = aiBrain[M28Economy.refiOurHighestLandFactoryTech] or 1
+            elseif EntityCategoryContains(M28UnitInfo.refCategoryAirFactory, oFactory.UnitId) then
+                iOurHQTech = aiBrain[M28Economy.refiOurHighestAirFactoryTech] or 1
+            elseif EntityCategoryContains(M28UnitInfo.refCategoryNavalFactory, oFactory.UnitId) then
+                iOurHQTech = aiBrain[M28Economy.refiOurHighestNavalFactoryTech] or 1
+            end
+
+            --If we have higher tech HQ than this factory, accelerate upgrade
+            if iOurHQTech > iFactoryTechLevel then
+                local iTechDiff = iOurHQTech - iFactoryTechLevel
+                iBuildCountAdjust = iBuildCountAdjust - (iTechDiff * 12) --T2 HQ with T1 fac: -12, T3 HQ with T1 fac: -24
+                if bDebugMessages == true then LOG(sFunctionRef..': Have higher tech HQ ('..iOurHQTech..'), accelerating upgrade by '..(-iTechDiff * 12)) end
+            end
+
+            --If enemy has equal or higher tech, and we have HQ to upgrade to, accelerate
+            local iEnemyMaxTech = math.max(M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] or 1, M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] or 1, M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyNavyTech] or 1)
+            if iEnemyMaxTech >= iFactoryTechLevel and iOurHQTech > iFactoryTechLevel then
+                iBuildCountAdjust = iBuildCountAdjust - 8 --Need to catch up to enemy tech
+                if bDebugMessages == true then LOG(sFunctionRef..': Enemy has T'..iEnemyMaxTech..', we have HQ to upgrade, accelerating by -8') end
+            end
+
             if iFactoryTechLevel == 2 then
 
                 --Want to build more units at a T2 factory if we outtech the enemy, unless dealing with air fac in a safe location
@@ -3606,7 +3631,7 @@ function CheckIfNeedMoreEngineersOrSnipeUnitsBeforeUpgrading(oFactory)
                     if M28Utilities.GetDistanceBetweenPositions(tLZOrWZTeamData[M28Map.reftClosestEnemyBase], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase]) <= 550 and NavUtils.GetTerrainLabel(tLZOrWZTeamData[M28Map.reftClosestEnemyBase]) == NavUtils.GetTerrainLabel(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase]) then
                         if not(tLZOrWZTeamData[M28Map.refbBaseInSafePosition]) or (M28Map.iMapSize <= 512 and not(EntityCategoryContains(M28UnitInfo.refCategoryAirFactory, oFactory.UnitId))) then
                             if bDebugMessages == true then LOG(sFunctionRef..': Increasing units want to build by 4') end
-                            iBuildCountAdjust = 4
+                            iBuildCountAdjust = iBuildCountAdjust + 4
                         end
                     end
                 end
