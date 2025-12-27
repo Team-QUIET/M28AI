@@ -6580,7 +6580,7 @@ function GetEngineerToReclaimNearbyArea(oEngineer, iPriorityOverride, tLZOrWZTea
                                 if bDebugMessages == true then LOG(sFunctionRef..': ACU was trying to get high value reclaim if there was any, since there isnt ACU should just proceed to other orders') end
                             else
                                 M28Utilities.ErrorHandler('Couldnt find anything to reclaim but we have refreshed the zone in the last second, mass value post refresh was less than pre refresh, see log for more info', true)
-                                LOG(sFunctionRef..': Post warning message: iPlateauOrPond='..iPlateauOrPond..'; iLandOrWaterZone='..iLandOrWaterZone..'; iMinIndividualValueOverride='..(iMinIndividualValueOverride or 'nil')..'; subrefHighestIndividualReclaim='..(tLZOrWZData[M28Map.subrefHighestIndividualReclaim] or 'nil'))
+                                --LOG(sFunctionRef..': Post warning message: iPlateauOrPond='..iPlateauOrPond..'; iLandOrWaterZone='..iLandOrWaterZone..'; iMinIndividualValueOverride='..(iMinIndividualValueOverride or 'nil')..'; subrefHighestIndividualReclaim='..(tLZOrWZData[M28Map.subrefHighestIndividualReclaim] or 'nil'))
                             end
                         end
                     end

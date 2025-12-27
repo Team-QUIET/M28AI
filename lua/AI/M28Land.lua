@@ -14400,7 +14400,7 @@ function ConsiderMusteringForRetreat(oUnit, iTeam, iPlateau, iLandZone, iEnemyTh
     --When a unit is retreating, check if it should join a mustering effort instead
     --Returns a spread position within the mustering zone to prevent clumping
     --Also supports cascading mustering from adjacent zones
-    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'ConsiderMusteringForRetreat'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
@@ -14449,7 +14449,7 @@ end
 function CheckAndCommitMusteredArmy(iTeam, iPlateau)
     --Check if mustered army is ready to commit and execute the attack
     --Returns true if army was committed
-    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'CheckAndCommitMusteredArmy'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 

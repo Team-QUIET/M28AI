@@ -6098,7 +6098,7 @@ function FindSafeMusteringZone(iTeam, iPlateau, iTargetLZ)
     --Find a safe zone to gather units before attacking the target zone
     --Ideal zone is 3-5 zones behind the frontline, on the path toward target
     --Zone must also have no enemies in adjacent zones
-    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'FindSafeMusteringZone'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
@@ -6177,7 +6177,7 @@ end
 
 function InitializeMustering(iTeam, iPlateau, iTargetLZ, iEnemyThreat)
     --Start mustering units for an attack on the target zone
-    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'InitializeMustering'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
@@ -6216,7 +6216,7 @@ end
 function PropagateMusteringToAdjacentZones(iTeam, iPlateau, iOriginLZ, iEnemyThreat, iDepth)
     --Propagates mustering awareness to adjacent zones up to iDepth levels deep
     --This creates coordinated retreats where adjacent zones also join the muster
-    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'PropagateMusteringToAdjacentZones'
 
     if iDepth <= 0 then return end
@@ -6283,7 +6283,7 @@ end
 
 function AddUnitToMustering(iTeam, iPlateau, oUnit)
     --Add a unit to the mustering army
-    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'AddUnitToMustering'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
@@ -6329,7 +6329,7 @@ end
 
 function ShouldCommitMusteredArmy(iTeam, iPlateau)
     --Check if we have enough units mustered to attack
-    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'ShouldCommitMusteredArmy'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
@@ -6419,7 +6419,7 @@ end
 
 function CommitMusteredArmy(iTeam, iPlateau)
     --Commit all mustered units to attack the target zone
-    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'CommitMusteredArmy'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
@@ -6468,7 +6468,7 @@ end
 
 function UpdateMusteringTarget(iTeam, iPlateau, iNewTargetLZ, iNewEnemyThreat)
     --Update the target zone if the threat situation has changed
-    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'UpdateMusteringTarget'
 
     local tMusterData = GetMusteringData(iTeam, iPlateau)
