@@ -1876,6 +1876,8 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     function ConsiderUpgrading()
         --If this is a support factory or T1 factory then only consider upgrading if we have spare idle factories in this LZ, subject to how many factories we have
         local bConsiderUpgrading = true
+        local bHaveHigherTechHQ = aiBrain[M28Economy.refiOurHighestLandFactoryTech] > iFactoryTechLevel
+
         if iFactoryTechLevel == 1 or not(EntityCategoryContains(M28UnitInfo.refCategoryLandHQ, oFactory.UnitId)) or M28Utilities.bLoudModActive or not(tLZTeamData[M28Map.subrefLZbCoreBase]) then
             if not(M28Conditions.CheckIfNeedMoreEngineersOrSnipeUnitsBeforeUpgrading(oFactory)) then
                 local iUpgradingLandFactories = 0
@@ -1891,12 +1893,12 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                             end
                         end
                     end
-                    if bDebugMessages == true then LOG(sFunctionRef..': iUpgradingLandFactories='..iUpgradingLandFactories..'; iAvailableLandFactories='..iAvailableLandFactories..'; iFactoryTechLevel='..iFactoryTechLevel..'; iOurHighestLandFactoryTech='..aiBrain[M28Economy.refiOurHighestLandFactoryTech]) end
+                    if bDebugMessages == true then LOG(sFunctionRef..': iUpgradingLandFactories='..iUpgradingLandFactories..'; iAvailableLandFactories='..iAvailableLandFactories..'; iFactoryTechLevel='..iFactoryTechLevel..'; iOurHighestLandFactoryTech='..aiBrain[M28Economy.refiOurHighestLandFactoryTech]..'; bHaveHigherTechHQ='..tostring(bHaveHigherTechHQ)) end
                     if iUpgradingLandFactories > 0 then
                         if tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] and iFactoryTechLevel < aiBrain[M28Economy.refiOurHighestLandFactoryTech] then
                             bConsiderUpgrading = false
                             if bDebugMessages == true then LOG(sFunctionRef..': Dont want to upgrade as there are nearby enemies') end
-                        elseif iAvailableLandFactories <= 3 and iUpgradingLandFactories + 1 >= iAvailableLandFactories then
+                        elseif iAvailableLandFactories <= 3 and iUpgradingLandFactories + 1 >= iAvailableLandFactories and not(bHaveHigherTechHQ and iAvailableLandFactories >= 1) then
                             bConsiderUpgrading = false
                             if bDebugMessages == true then LOG(sFunctionRef..': Dont want to upgrade as dont have many available land factories remaining') end
                         end
