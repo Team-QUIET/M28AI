@@ -642,8 +642,19 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                             bCancelDodge = false
                             if bDebugMessages == true then LOG(sFunctionRef..': oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; Weapon damage='..oWeaponBP.Damage..'; Target health='..oTarget:GetHealth()) end
 
+                            --Disable most land unit dodging - only dodge truly high-alpha damage
+                            --Land units should push, not dance around trying to dodge T1 arty shots
+                            --Keep dodging for: ACUs, experimentals, navy, and very high damage (bombers/strats)
+                            local bIsLandCombatUnit = EntityCategoryContains(categories.LAND * categories.MOBILE - categories.COMMAND - categories.EXPERIMENTAL - categories.ENGINEER, oTarget.UnitId)
+                            local bIsHighAlphaDamage = oWeaponBP.Damage >= 400
+                            local bIsFromAirUnit = EntityCategoryContains(categories.AIR, oUnit.UnitId)
+                            if bIsLandCombatUnit and not(bIsHighAlphaDamage) and not(bIsFromAirUnit) then
+                                bCancelDodge = true
+                                if bDebugMessages == true then LOG(sFunctionRef..': Skipping dodge for land combat unit against non-high-alpha land fire. Damage='..oWeaponBP.Damage..'; Unit='..oTarget.UnitId) end
+                            end
+
                             --Skip dodging low-damage shots when we have overwhelming force superiority (2x+ threat)
-                            if oWeaponBP.Damage <= 100 and not(EntityCategoryContains(categories.COMMAND, oTarget.UnitId)) then
+                            if not(bCancelDodge) and oWeaponBP.Damage <= 100 and not(EntityCategoryContains(categories.COMMAND, oTarget.UnitId)) then
                                 local iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oTarget:GetPosition(), true, oTarget)
                                 if iLandZone and iLandZone > 0 then
                                     local tLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][oTarget:GetAIBrain().M28Team]
