@@ -443,9 +443,10 @@ function GameSettingWarningsChecksAndInitialChatMessages(aiBrain)
         if not(ScenarioInfo.Options.CmM28CampPers == 2) then table.insert(tsNonStandardSettings, 'Campaign is using custom personality '..ScenarioInfo.Options.CmM28CampPers..' (1=Easy, 2=Adaptive') end
     end
     if tonumber(ScenarioInfo.Options.M28TimeBetweenOrders) > 1 then table.insert(tsNonStandardSettings, 'Time between orders='..tonumber(ScenarioInfo.Options.M28TimeBetweenOrders)) end
-    M28UnitInfo.InitializeRandomThreatFactor()
-    if M28UnitInfo.bCustomThreatFactor then
-        table.insert(tsNonStandardSettings, 'M28 threat factor: '..M28UnitInfo.iThreatFactor..' (RNG or lobby override)')
+    if not(tonumber(ScenarioInfo.Options.M28Aggression or '1.0') == 1) then
+        M28UnitInfo.iThreatFactor = tonumber(ScenarioInfo.Options.M28Aggression or '1.0')
+        M28UnitInfo.bCustomThreatFactor = true
+        table.insert(tsNonStandardSettings, 'M28 is using a custom aggression factor of '..M28UnitInfo.iThreatFactor)
     end
     if ScenarioInfo.Options.M28CPUPerformance == 1 then table.insert(tsNonStandardSettings, 'CPU performance mode active') end
     if ScenarioInfo.Options.M28PrioritiseBPs == 2 then table.insert(tsNonStandardSettings, 'Unit prioritisation disabled') end
@@ -545,8 +546,10 @@ function M28BrainCreated(aiBrain)
         end
         ForkThread(GlobalOverseer)
         ForkThread(SetM28ActiveFlag)
-        -- RNG Threat Factor: Initialize here (will be skipped if already initialized in GameSettingWarningsChecksAndInitialChatMessages)
-        M28UnitInfo.InitializeRandomThreatFactor()
+        if not(tonumber(ScenarioInfo.Options.M28Aggression or '1.0') == 1) then
+            M28UnitInfo.iThreatFactor = tonumber(ScenarioInfo.Options.M28Aggression or '1.0')
+            M28UnitInfo.bCustomThreatFactor = true
+        end
     end
     LOG('Calling overseer manager via a fork')
     ForkThread(OverseerManager, aiBrain)
