@@ -80,9 +80,125 @@ refiRepairProgressWhenLastChecked = 'M28EngRePr' --If engi assisting GE template
 --Reclaim path tracking
 reftAssignedReclaimPath = 'M28EngReclaimPath' --Table of reclaim objects assigned to this engineer for path reclaiming
 refbHasReclaimPath = 'M28EngHasReclaimPath' --True if engineer has an active reclaim path assignment
-iMaxReclaimPathEngineers = 9 --Maximum number of engineers that can be doing reclaim path at once per team
+iTotalMapReclaimCache = 0 --Cached total reclaim across all zones
+iLastReclaimCacheUpdate = 0 --Game time when cache was last updated
+iReclaimCacheUpdateInterval = 10 --Update cache every 10 seconds
+iMaxReclaimPathEngineers = 9 --Base value
 tTeamReclaimPathEngineers = {} --[iTeam] = table of engineers with reclaim path; initialized in team setup
-tTeamAssignedReclaim = {} --[iTeam] = table of reclaim objects already assigned; key is reclaim object, value is engineer
+tTeamAssignedReclaim = {} --[iTeam] = table of reclaim objects already assigned; key is reclaim object, value is count of engineers
+
+function GetMaxEngineersForReclaim(oReclaim)
+    --Returns max number of engineers that can share this reclaim based on its mass value
+    --High-value reclaim (big wrecks, experimentals) can be shared by multiple engineers
+    local iMassValue = oReclaim.MaxMassReclaim or 0
+    if iMassValue >= 1000 then return 4 end
+    if iMassValue >= 500 then return 3 end
+    if iMassValue >= 250 then return 2 end
+    return 1
+end
+
+function GetReclaimEngineerCount(iTeam, oReclaim)
+    --Returns current number of engineers assigned to this reclaim
+    if not tTeamAssignedReclaim[iTeam] then return 0 end
+    return tTeamAssignedReclaim[iTeam][oReclaim] or 0
+end
+
+function AddEngineerToReclaim(iTeam, oReclaim)
+    --Increment the engineer count for this reclaim
+    if not tTeamAssignedReclaim[iTeam] then tTeamAssignedReclaim[iTeam] = {} end
+    tTeamAssignedReclaim[iTeam][oReclaim] = (tTeamAssignedReclaim[iTeam][oReclaim] or 0) + 1
+end
+
+function RemoveEngineerFromReclaim(iTeam, oReclaim)
+    --Decrement the engineer count for this reclaim
+    if not tTeamAssignedReclaim[iTeam] then return end
+    local iCount = tTeamAssignedReclaim[iTeam][oReclaim] or 0
+    if iCount <= 1 then
+        tTeamAssignedReclaim[iTeam][oReclaim] = nil
+    else
+        tTeamAssignedReclaim[iTeam][oReclaim] = iCount - 1
+    end
+end
+
+function UpdateTotalMapReclaimCache()
+    --Sum reclaim from all land zones and water zones
+    local iTotalReclaim = 0
+
+    --Sum land zone reclaim
+    if M28Map.tAllPlateaus then
+        for iPlateau, tPlateauData in M28Map.tAllPlateaus do
+            if tPlateauData[M28Map.subrefPlateauLandZones] then
+                for iLandZone, tLZData in tPlateauData[M28Map.subrefPlateauLandZones] do
+                    iTotalReclaim = iTotalReclaim + (tLZData[M28Map.subrefTotalMassReclaim] or 0)
+                end
+            end
+        end
+    end
+
+    --Sum water zone reclaim
+    if M28Map.tPondDetails then
+        for iPond, tPondData in M28Map.tPondDetails do
+            if tPondData[M28Map.subrefPondWaterZones] then
+                for iWZ, tWZData in tPondData[M28Map.subrefPondWaterZones] do
+                    iTotalReclaim = iTotalReclaim + (tWZData[M28Map.subrefTotalMassReclaim] or 0)
+                end
+            end
+        end
+    end
+
+    iTotalMapReclaimCache = iTotalReclaim
+    iLastReclaimCacheUpdate = GetGameTimeSeconds()
+    --LOG('Total reclaim cache updated to '..iTotalReclaim.. ' at time='..GetGameTimeSeconds())
+    return iTotalReclaim
+end
+
+function GetTotalMapReclaim()
+    --Return cached value if recent, otherwise update
+    local iGameTime = GetGameTimeSeconds()
+    if iGameTime - iLastReclaimCacheUpdate >= iReclaimCacheUpdateInterval then
+        UpdateTotalMapReclaimCache()
+    end
+    return iTotalMapReclaimCache
+end
+
+function GetDynamicReclaimScaling()
+    --Scale based on actual reclaim mass on the map
+    local iTotalReclaim = GetTotalMapReclaim()
+    local iMaxEngineers, iMaxReclaimPerEngi, iReclaimValuePerEngi
+
+    --Scaling thresholds based on reclaim mass:
+    --< 1000 mass
+    --1000-5000
+    --5000-15000
+    --15000+
+
+    if iTotalReclaim < 1000 then
+        iMaxEngineers = 2
+        iMaxReclaimPerEngi = 3
+        iReclaimValuePerEngi = 400
+    elseif iTotalReclaim < 5000 then
+        iMaxEngineers = 5
+        iMaxReclaimPerEngi = 8
+        iReclaimValuePerEngi = 300
+    elseif iTotalReclaim < 15000 then
+        iMaxEngineers = 10
+        iMaxReclaimPerEngi = 15
+        iReclaimValuePerEngi = 200
+    elseif iTotalReclaim < 30000 then
+        iMaxEngineers = 20
+        iMaxReclaimPerEngi = 30
+        iReclaimValuePerEngi = 150
+    elseif iTotalReclaim < 50000 then
+        iMaxEngineers = 40
+        iMaxReclaimPerEngi = 50
+        iReclaimValuePerEngi = 100
+    else --50000+
+        iMaxEngineers = 100
+        iMaxReclaimPerEngi = 100
+        iReclaimValuePerEngi = 50
+    end
+    return iMaxEngineers, iMaxReclaimPerEngi, iReclaimValuePerEngi
+end
 
 --Mex build path tracking
 reftAssignedMexBuildPath = 'M28EngMexBuildPath' --Table of mex locations assigned to this engineer for path building
@@ -6315,13 +6431,15 @@ function GetEngineerToReclaimNearbyArea(oEngineer, iPriorityOverride, tLZOrWZTea
 
         local iMinReclaimIndividualValue = (iMinIndividualValueOverride or M28Map.iLowestMassThreshold)
 
+        --Get dynamic reclaim scaling for engineer congestion threshold
+        local _, _, iDynamicReclaimValuePerEngi = GetDynamicReclaimScaling()
 
         if bWantEnergyNotMass then
             sTotalReclaimValueRef = M28Map.subrefLZTotalEnergyReclaim
-            iReclaimValuePerEngi = 300
+            iReclaimValuePerEngi = iDynamicReclaimValuePerEngi * 1.5
         else
             sTotalReclaimValueRef = M28Map.subrefTotalMassReclaim
-            iReclaimValuePerEngi = 200
+            iReclaimValuePerEngi = iDynamicReclaimValuePerEngi
         end
 
         local oEngBP = oEngineer:GetBlueprint()
@@ -6607,13 +6725,9 @@ end
 function ClearReclaimPathTracking(oEngineer, iTeam)
     --Clear tracking for an engineer that was doing reclaim path
     if oEngineer[reftAssignedReclaimPath] then
-        --Clear the reclaim assignments from team table
-        if tTeamAssignedReclaim[iTeam] then
-            for _, oReclaim in oEngineer[reftAssignedReclaimPath] do
-                if tTeamAssignedReclaim[iTeam][oReclaim] == oEngineer then
-                    tTeamAssignedReclaim[iTeam][oReclaim] = nil
-                end
-            end
+        --Decrement engineer count for each reclaim in the path
+        for _, oReclaim in oEngineer[reftAssignedReclaimPath] do
+            RemoveEngineerFromReclaim(iTeam, oReclaim)
         end
         oEngineer[reftAssignedReclaimPath] = nil
     end
@@ -6685,10 +6799,13 @@ function QueueReclaimPath(oEngineer, iPriorityOverride, tLZOrWZTeamData, iPlatea
     if not(tTeamReclaimPathEngineers[iTeam]) then tTeamReclaimPathEngineers[iTeam] = {} end
     if not(tTeamAssignedReclaim[iTeam]) then tTeamAssignedReclaim[iTeam] = {} end
 
+    --Get dynamic reclaim scaling based on global reclaim
+    local iDynamicMaxEngineers, iDynamicMaxReclaimPerEngi, _ = GetDynamicReclaimScaling()
+
     --Check if we already have max engineers doing reclaim path
     local iCurrentPathEngineers = GetReclaimPathEngineerCount(iTeam)
-    if iCurrentPathEngineers >= iMaxReclaimPathEngineers then
-        if bDebugMessages == true then LOG(sFunctionRef..': Already have '..iCurrentPathEngineers..' engineers doing reclaim path, max='..iMaxReclaimPathEngineers) end
+    if iCurrentPathEngineers >= iDynamicMaxEngineers then
+        if bDebugMessages == true then LOG(sFunctionRef..': Already have '..iCurrentPathEngineers..' engineers doing reclaim path, dynamic max='..iDynamicMaxEngineers) end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         return false
     end
@@ -6718,8 +6835,9 @@ function QueueReclaimPath(oEngineer, iPriorityOverride, tLZOrWZTeamData, iPlatea
                 end
             end
         end
-        --Scale: 10 base, +5 for every 500 mass, cap at 30
-        iMaxReclaimCount = math.min(30, 10 + math.floor(iTotalZoneReclaim / 500) * 5)
+        --Scale based on zone reclaim AND global reclaim
+        local iZoneBasedMax = 10 + math.floor(iTotalZoneReclaim / 500) * 5
+        iMaxReclaimCount = math.min(iDynamicMaxReclaimPerEngi, iZoneBasedMax)
     end
 
     if bDebugMessages == true then LOG(sFunctionRef..': Start of code, oEngineer='..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..'; iMaxReclaimCount='..iMaxReclaimCount..'; Total mass in zone='..tLZOrWZData[M28Map.subrefTotalMassReclaim]..'; Current path engineers='..iCurrentPathEngineers) end
@@ -6746,28 +6864,24 @@ function QueueReclaimPath(oEngineer, iPriorityOverride, tLZOrWZTeamData, iPlatea
         return false
     end
 
-    --Filter reclaim to valid targets not already assigned
+    --Filter reclaim to valid targets
     local tValidReclaim = {}
     local iEngiPlateau = NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, tEngiPos)
     for _, oReclaim in tAllReclaim do
         if oReclaim.CachePosition and not(oReclaim:BeenDestroyed()) then
-            --Check if already assigned to another engineer
-            if not(tTeamAssignedReclaim[iTeam][oReclaim]) then
-                --Filter by reclaim type: energy (trees) vs mass (rocks)
-                local iMassValue = oReclaim.MaxMassReclaim or 0
-                local iEnergyValue = oReclaim.MaxEnergyReclaim or 0
-                local bIsEnergyReclaim = iEnergyValue > iMassValue
+            --Check if we can add another engineer to this reclaim
+            local iCurrentEngineers = GetReclaimEngineerCount(iTeam, oReclaim)
+            local iMaxEngineers = GetMaxEngineersForReclaim(oReclaim)
 
-                --Only include if it matches what we want (energy or mass)
-                if (bWantEnergyNotMass and bIsEnergyReclaim) or (not(bWantEnergyNotMass) and not(bIsEnergyReclaim)) then
-                    --Check we can path to it
-                    local iReclaimPlateau = NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, oReclaim.CachePosition)
-                    if iReclaimPlateau == iEngiPlateau then
-                        table.insert(tValidReclaim, oReclaim)
-                    end
+            if iCurrentEngineers < iMaxEngineers then
+                --Include both mass and energy reclaim (rocks and trees)
+                --Check we can path to it
+                local iReclaimPlateau = NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, oReclaim.CachePosition)
+                if iReclaimPlateau == iEngiPlateau then
+                    table.insert(tValidReclaim, oReclaim)
                 end
             elseif bDebugMessages == true then
-                LOG(sFunctionRef..': Skipping reclaim already assigned to another engineer')
+                LOG(sFunctionRef..': Reclaim at max engineers ('..iCurrentEngineers..'/'..iMaxEngineers..')')
             end
         end
     end
@@ -6835,7 +6949,7 @@ function QueueReclaimPath(oEngineer, iPriorityOverride, tLZOrWZTeamData, iPlatea
     --Mark all sorted reclaim as assigned to this engineer
     oEngineer[reftAssignedReclaimPath] = {}
     for _, oReclaim in ipairs(tSortedReclaim) do
-        tTeamAssignedReclaim[iTeam][oReclaim] = oEngineer
+        AddEngineerToReclaim(iTeam, oReclaim)
         table.insert(oEngineer[reftAssignedReclaimPath], oReclaim)
     end
 
@@ -11489,7 +11603,7 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                         end
 
                         if bUseReclaimPath then
-                            bGivenOrder = QueueReclaimPath(tEngineersOfTechWanted[iEngiCount], iCurPriority, tLZOrWZTeamData, iPlateauOrPond, iLandOrWaterZone, bWantEnergyNotMass, vOptionalVariable[2], bIsWaterZone, 10)
+                            bGivenOrder = QueueReclaimPath(tEngineersOfTechWanted[iEngiCount], iCurPriority, tLZOrWZTeamData, iPlateauOrPond, iLandOrWaterZone, bWantEnergyNotMass, vOptionalVariable[2], bIsWaterZone, nil)
                             if bDebugMessages == true then LOG(sFunctionRef..': Used QueueReclaimPath for '..(bWantEnergyNotMass and 'energy' or 'mass')..', bGivenOrder='..tostring(bGivenOrder)) end
                         end
 
