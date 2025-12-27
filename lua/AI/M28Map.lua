@@ -46,6 +46,8 @@ iMaxLandSegmentX = 1
 iMaxLandSegmentZ = 1
 
 iMapWaterHeight = 0 --Surface height of water on the map
+iMapWaterRatio = 0 --Percentage of map covered by water (0-1 scale, e.g., 0.1 = 10%)
+bIsLowWaterMap = false --True if map has less than 10% water coverage
 
 --Resource information
 tMassPoints = {} --[x] is an integer count, returns the location of a mass point; stores all mexes on the map
@@ -5366,6 +5368,25 @@ local function GetMapWaterHeight()
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+local function CalculateMapWaterRatio()
+    --Updates iMapWaterRatio with the percentage of map covered by water (0-1 scale)
+    --Also sets bIsLowWaterMap if water coverage is below 10%
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
+    local sFunctionRef = 'CalculateMapWaterRatio'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local brain = GetArmyBrain(1)
+    if brain and brain.GetMapWaterRatio then
+        iMapWaterRatio = brain:GetMapWaterRatio()
+    end
+
+    --Set low water map flag (less than 10% water coverage)
+    bIsLowWaterMap = (iMapWaterRatio < 0.10)
+
+    if bDebugMessages == true then LOG(sFunctionRef..': iMapWaterRatio='..iMapWaterRatio..'; bIsLowWaterMap='..tostring(bIsLowWaterMap)) end
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+end
+
 function GetReclaimablesResourceValue(tReclaimables, bAlsoReturnLargestReclaimPosition, iIgnoreReclaimIfNotMoreThanThis, bAlsoReturnAmountOfHighestIndividualReclaim, bEnergyNotMass)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'GetReclaimablesResourceValue'
@@ -8077,6 +8098,7 @@ function SetupMap()
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     GetMapWaterHeight()
+    CalculateMapWaterRatio()
 
     --Create table that stores details for each pathing group (e.g. land, amphibious) each mex in that group for easy reference later
     RecordMexForPathingGroup()

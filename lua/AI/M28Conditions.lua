@@ -2398,6 +2398,34 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
             end
         end
 
+        --Low water map check: On maps with <10% water and no enemy navy, prioritize land factories
+        local bEnemyHasNavy = (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyNavyTech] or 0) > 0
+        local bWeHaveNavy = (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyNavalFactoryTech] or 0) > 0
+        local bNavyPersonality = aiBrain[M28Overseer.refbPrioritiseNavy]
+
+        if iLandFactoriesHave >= 1 and not(bEnemyHasNavy) and not(bNavyPersonality) then
+            local bApplyLandPriority = false
+            local iMinLandFactoriesBeforeAir = 2
+
+            --Very low water map (<10%) - strongly prioritize land
+            if M28Map.bIsLowWaterMap then
+                bApplyLandPriority = true
+                if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 2 then
+                    iMinLandFactoriesBeforeAir = 3
+                end
+            --Moderate water map (10-20%) with no navy on either side - still prioritize land
+            elseif M28Map.iMapWaterRatio < 0.20 and not(bWeHaveNavy) then
+                bApplyLandPriority = true
+                iMinLandFactoriesBeforeAir = 2
+            end
+
+            if bApplyLandPriority and iLandFactoriesHave < iMinLandFactoriesBeforeAir and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] >= 1 then
+                if bDebugMessages == true then LOG(sFunctionRef..': Low/moderate water map with no enemy navy - prioritizing land factories. LandFacs='..iLandFactoriesHave..'; MinRequired='..iMinLandFactoriesBeforeAir..'; WaterRatio='..M28Map.iMapWaterRatio..'; bIsLowWaterMap='..tostring(M28Map.bIsLowWaterMap)) end
+                M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                return false
+            end
+        end
+
         --Air personality - get air; land personality - get land if have air
         if aiBrain[M28Overseer.refbPrioritiseAir] and iLandFactoriesHave > 0 and aiBrain[M28Economy.refiOurHighestLandFactoryTech] > 0 then
             if bDebugMessages == true then LOG(sFunctionRef..': Assigned brain is air, so want to get air fac') end
