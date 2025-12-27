@@ -6246,7 +6246,7 @@ function PropagateMusteringToAdjacentZones(iTeam, iPlateau, iOriginLZ, iEnemyThr
             local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][iTeam]
             if tAdjLZTeamData then
                 --Check if this zone has friendly units that should join mustering
-                local tFriendlyUnits = tAdjLZTeamData[M28Map.subrefLZTAllFriendlyCombat]
+                local tFriendlyUnits = tAdjLZTeamData[M28Map.subrefLZTAlliedCombatUnits]
                 local iZoneEnemyThreat = tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
 
                 --Zone should join mustering if:
