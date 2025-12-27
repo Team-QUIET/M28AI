@@ -6368,12 +6368,7 @@ function ShouldCommitMusteredArmy(iTeam, iPlateau)
 
     --Calculate required threat ratio based on tech level (more conservative than before)
     local iHighestTech = tTeamData[iTeam][subrefiHighestFriendlyLandFactoryTech] or 1
-    local iThreatRatioRequired = 1.5
-    if iHighestTech >= 3 then
-        iThreatRatioRequired = 1.8
-    elseif iHighestTech >= 2 then
-        iThreatRatioRequired = 1.6
-    end
+    local iThreatRatioRequired = 1.1
 
     --Minimum unit count based on tech
     local iMinUnitCount = 5
