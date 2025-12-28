@@ -113,6 +113,9 @@ tTeamData = {} --[x] is the aiBrain.M28Team number - stores certain team-wide in
     subrefiHighestFriendlyLandFactoryTech = 'M28TeamHighestFriendlyGround' --Returns the Highest M28Brain's highest tech of this type, i.e. if an M28 brain has a T1 and T2 land factory, and another has a T3 land factory, then this would return 3.
     subrefiHighestFriendlyAirFactoryTech = 'M28TeamHighestFriendlyAir' --Returns the Highest M28Brain's highest tech of this type, i.e. if an M28 brain has a T1 and T2 air factory, and another has a T3 air factory, then this would return 3.
     subrefiHighestFriendlyNavalFactoryTech = 'M28TeamHighestFriendlyNaval'
+    --Time tracking for when team first acquired higher tech land factories
+    refiTimeFirstT2LandFactory = 'M28TeamTimeFirstT2Land' --Gametimeseconds when team first got T2 land factory HQ
+    refiTimeFirstT3LandFactory = 'M28TeamTimeFirstT3Land' --Gametimeseconds when team first got T3 land factory HQ
     --subrefiHighestEnemyMexTech = 'M28TeamHighestEnemyMex' --I.e. 1, 2 or 3
     subrefiTotalFactoryCountByType = 'M28TeamFactoryByType' --[x] is the factory type, returns the number that our team has; factory type per M28Factory.refiFactoryType..., e.g. M28Factory.refiFactoryTypeLand
     refbBuiltLotsOfT3Combat = 'M28TeamBuiltLotsOfT3Combat' --true once we have reached a certain lifetime count of T3 combat units (used e.g. to decide if we want to build an experimental)
@@ -2759,6 +2762,17 @@ function UpdateTeamHighestAndLowestFactories(iM28Team)
         if bDebugMessages == true then LOG(sFunctionRef..': Considering brain '..oBrain.Nickname..'; tTeamData[iM28Team][subrefiLowestFriendlyLandFactoryTech]='..tTeamData[iM28Team][subrefiLowestFriendlyLandFactoryTech]..'; oBrain[M28Economy.refiOurHighestLandFactoryTech]='..oBrain[M28Economy.refiOurHighestLandFactoryTech]) end
     end
     tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech] = math.min(3, math.max(1, tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech], tTeamData[iM28Team][subrefiHighestFriendlyAirFactoryTech], (tTeamData[iM28Team][subrefiHighestFriendlyNavalFactoryTech] or 0)))
+
+    --Track time when team first reaches T2/T3 land factory tech
+    if tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] >= 2 and not(tTeamData[iM28Team][refiTimeFirstT2LandFactory]) then
+        tTeamData[iM28Team][refiTimeFirstT2LandFactory] = GetGameTimeSeconds()
+        if bDebugMessages == true then LOG(sFunctionRef..': First T2 land factory acquired at time='..tTeamData[iM28Team][refiTimeFirstT2LandFactory]) end
+    end
+    if tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] >= 3 and not(tTeamData[iM28Team][refiTimeFirstT3LandFactory]) then
+        tTeamData[iM28Team][refiTimeFirstT3LandFactory] = GetGameTimeSeconds()
+        if bDebugMessages == true then LOG(sFunctionRef..': First T3 land factory acquired at time='..tTeamData[iM28Team][refiTimeFirstT3LandFactory]) end
+    end
+
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 

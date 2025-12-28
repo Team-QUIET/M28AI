@@ -1345,6 +1345,36 @@ function ConsiderFactoryEnhancement(oFactory, tLZOrWZTeamData)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+function GetLandFactoryThrottleDelay(iFactoryTechLevel)
+    --Returns the delay in seconds before lower-tech factories should stop building combat units
+    --after the team has acquired higher-tech factories
+    --iFactoryTechLevel: 1 = delay after getting T2, 2 = delay after getting T3
+    local iMapSize = math.max(ScenarioInfo.size[1], ScenarioInfo.size[2])
+
+    if iFactoryTechLevel == 1 then
+        if iMapSize <= 256 then
+            return 90
+        elseif iMapSize <= 512 then
+            return 75
+        elseif iMapSize <= 1024 then
+            return 60
+        else
+            return 45
+        end
+    elseif iFactoryTechLevel == 2 then
+        if iMapSize <= 256 then
+            return 75
+        elseif iMapSize <= 512 then
+            return 60
+        elseif iMapSize <= 1024 then
+            return 45
+        else
+            return 30
+        end
+    end
+    return 60 --default fallback
+end
+
 function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     local sFunctionRef = 'GetBlueprintToBuildForLandFactory'
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
@@ -1391,6 +1421,112 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     --Dont build anything if last unit cap was at -1 and we killed a unit in last minute
     if aiBrain[M28Overseer.refiTimeOfLastUnitCapDeath] and GetGameTimeSeconds() - aiBrain[M28Overseer.refiTimeOfLastUnitCapDeath] <= 60 and M28Team.tTeamData[iTeam][M28Team.refiLowestUnitCapAdjustmentLevel] < 0 then
         if bDebugMessages == true then LOG(sFunctionRef..': Not building from land fac due to recent unit cap ctrlk') end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return nil
+    end
+
+    --Stop lower-tech factories from building combat units after having higher tech for a while
+    --This saves mass to allow upgrading remaining factories to higher tech
+    local bThrottleLowerTechProduction = false
+    local iThrottleDelayT1 = GetLandFactoryThrottleDelay(1)
+    local iThrottleDelayT2 = GetLandFactoryThrottleDelay(2)
+
+    --After having T2 for X seconds, stop T1 combat production
+    if iFactoryTechLevel == 1 and M28Team.tTeamData[iTeam][M28Team.refiTimeFirstT2LandFactory] then
+        local iTimeWithT2 = GetGameTimeSeconds() - M28Team.tTeamData[iTeam][M28Team.refiTimeFirstT2LandFactory]
+        if iTimeWithT2 >= iThrottleDelayT1 then
+            --Check for exception conditions before throttling
+            local bHasExceptionCondition = false
+            --Overflowing mass (>70% stored and positive net)
+            if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.7 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) then
+                bHasExceptionCondition = true
+                if bDebugMessages == true then LOG(sFunctionRef..': T1 throttle exception - overflowing mass') end
+            end
+            --Dangerous enemies in this zone (need volume)
+            if tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] then
+                bHasExceptionCondition = true
+                if bDebugMessages == true then LOG(sFunctionRef..': T1 throttle exception - dangerous enemies in zone') end
+            end
+            --Very early game
+            if GetGameTimeSeconds() < 300 then
+                bHasExceptionCondition = true
+                if bDebugMessages == true then LOG(sFunctionRef..': T1 throttle exception - early game') end
+            end
+
+            if not(bHasExceptionCondition) then
+                bThrottleLowerTechProduction = true
+                if bDebugMessages == true then LOG(sFunctionRef..': T1 land factory throttled - have had T2 for '..iTimeWithT2..'s (threshold='..iThrottleDelayT1..'s)') end
+            end
+        end
+    end
+
+    --After having T3 for X seconds, stop T2 combat production
+    if iFactoryTechLevel == 2 and M28Team.tTeamData[iTeam][M28Team.refiTimeFirstT3LandFactory] then
+        local iTimeWithT3 = GetGameTimeSeconds() - M28Team.tTeamData[iTeam][M28Team.refiTimeFirstT3LandFactory]
+        if iTimeWithT3 >= iThrottleDelayT2 then
+            --Check for exception conditions before throttling
+            local bHasExceptionCondition = false
+            --Overflowing mass (>70% stored and positive net)
+            if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.7 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) then
+                bHasExceptionCondition = true
+                if bDebugMessages == true then LOG(sFunctionRef..': T2 throttle exception - overflowing mass') end
+            end
+            --Dangerous enemies in this zone (need volume)
+            if tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] then
+                bHasExceptionCondition = true
+                if bDebugMessages == true then LOG(sFunctionRef..': T2 throttle exception - dangerous enemies in zone') end
+            end
+
+            if not(bHasExceptionCondition) then
+                bThrottleLowerTechProduction = true
+                if bDebugMessages == true then LOG(sFunctionRef..': T2 land factory throttled - have had T3 for '..iTimeWithT3..'s (threshold='..iThrottleDelayT2..'s)') end
+            end
+        end
+    end
+
+    --If throttled, only allow engineers, scouts, or upgrading - skip all combat unit production
+    if bThrottleLowerTechProduction then
+        --For T1 factories, allow engineers and scouts only
+        if iFactoryTechLevel == 1 then
+            --Try to build engineer if zone wants BP
+            if tLZTeamData[M28Map.subrefTbWantBP] then
+                local sBPIDToBuild = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryEngineer, oFactory)
+                if sBPIDToBuild then
+                    if bDebugMessages == true then LOG(sFunctionRef..': T1 factory throttled but building engineer') end
+                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                    return sBPIDToBuild
+                end
+            end
+            --Try to build scout if zone wants scout
+            if tLZTeamData[M28Map.refbWantLandScout] and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision]) then
+                local sBPIDToBuild = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryLandScout, oFactory)
+                if sBPIDToBuild then
+                    if bDebugMessages == true then LOG(sFunctionRef..': T1 factory throttled but building scout') end
+                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                    return sBPIDToBuild
+                end
+            end
+        end
+        --For T2 factories, allow engineers only
+        if iFactoryTechLevel == 2 then
+            if tLZTeamData[M28Map.subrefTbWantBP] then
+                local sBPIDToBuild = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryEngineer, oFactory)
+                if sBPIDToBuild then
+                    if bDebugMessages == true then LOG(sFunctionRef..': T2 factory throttled but building engineer') end
+                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                    return sBPIDToBuild
+                end
+            end
+        end
+        --Try to upgrade the factory if possible
+        local sBPIDToBuild = M28UnitInfo.GetUnitUpgradeBlueprint(oFactory, true)
+        if sBPIDToBuild then
+            if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled, upgrading to '..sBPIDToBuild) end
+            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+            return sBPIDToBuild
+        end
+        --If can't upgrade and don't want engineers/scouts, just return nil (don't build anything)
+        if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled, cannot upgrade, returning nil') end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         return nil
     end
