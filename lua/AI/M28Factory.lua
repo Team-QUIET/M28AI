@@ -288,6 +288,89 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
     local sFunctionRef = 'AdjustBlueprintForOverrides'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
+    local iTeam = aiBrain.M28Team
+    local iCurTime = GetGameTimeSeconds()
+
+    if M28Team.tTeamData[iTeam][M28Team.refbEcoStagnant] and M28Team.tTeamData[iTeam][M28Team.refiTimeEcoStagnantSince] then
+        local iTimeStagnant = iCurTime - M28Team.tTeamData[iTeam][M28Team.refiTimeEcoStagnantSince]
+        local iFactoryType = M28UnitInfo.GetFactoryType(oFactory)
+        local bIsLandOrNaval = (iFactoryType == refiFactoryTypeLand or iFactoryType == refiFactoryTypeNaval)
+
+        if bDebugMessages == true then
+            LOG(sFunctionRef..': ECO STAGNANT CHECK - TimeStagnant='..string.format('%.0f', iTimeStagnant)..'s | GrowthRate='..
+                string.format('%.2f', M28Team.tTeamData[iTeam][M28Team.refiEcoGrowthRate] or 0)..' mass/min | FactoryType='..iFactoryType..
+                ' | Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory))
+        end
+
+        --Only apply to land and naval factories (not air - air is too important for map control)
+        if bIsLandOrNaval then
+            --CTRL+K one factory if stagnant for 120+ seconds (2 minutes), with 60s cooldown between kills
+            local iTimeSinceLastCtrlK = iCurTime - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastStagnantCtrlK] or -1000)
+            if iTimeStagnant >= 120 and iTimeSinceLastCtrlK >= 60 then
+                --Only ctrl+K lower tech factories, and only if we have at least 2 of that factory type
+                if iFactoryTechLevel < M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] then
+                    local iSearchCategory
+                    if iFactoryType == refiFactoryTypeLand then
+                        iSearchCategory = M28UnitInfo.refCategoryLandFactory
+                    else
+                        iSearchCategory = M28UnitInfo.refCategoryNavalFactory
+                    end
+                    local tFactoriesOfType = aiBrain:GetListOfUnits(iSearchCategory, false, true)
+                    local iFactoryCount = 0
+                    if M28Utilities.IsTableEmpty(tFactoriesOfType) == false then
+                        for _, oFac in tFactoriesOfType do
+                            if oFac:GetFractionComplete() == 1 then iFactoryCount = iFactoryCount + 1 end
+                        end
+                    end
+
+                    if iFactoryCount >= 2 then --Only ctrl+K if we have at least 2 factories
+                        if bDebugMessages == true then
+                            LOG(sFunctionRef..': ECO STAGNANT CTRL+K - Destroying factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..
+                                ' (Tech'..iFactoryTechLevel..') | FactoryCount='..iFactoryCount..' | TimeStagnant='..string.format('%.0f', iTimeStagnant)..'s')
+                        end
+                        M28Team.tTeamData[iTeam][M28Team.refiTimeLastStagnantCtrlK] = iCurTime
+                        M28Orders.IssueTrackedKillUnit(oFactory)
+                        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                        return nil
+                    end
+                end
+            end
+
+            --PAUSE PRODUCTION on one factory at a time when stagnant for 60+ seconds
+            local iTimeSinceLastPause = iCurTime - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastStagnantPause] or -1000)
+            local oCurrentlyPausedFactory = M28Team.tTeamData[iTeam][M28Team.refoLastStagnantPausedFactory]
+
+            if iTimeStagnant >= 60 then
+                --Check if we're the currently paused factory, or if no factory is currently paused
+                local bWeArePausedFactory = (oCurrentlyPausedFactory and M28UnitInfo.IsUnitValid(oCurrentlyPausedFactory) and oCurrentlyPausedFactory == oFactory)
+                local bNoPausedFactory = (not(oCurrentlyPausedFactory) or not(M28UnitInfo.IsUnitValid(oCurrentlyPausedFactory)))
+
+                if bWeArePausedFactory or (bNoPausedFactory and iTimeSinceLastPause >= 5) then
+                    --Don't pause if we're trying to build an engineer (eco expansion is good)
+                    if not(EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBPIDToBuild)) then
+                        if bDebugMessages == true then
+                            LOG(sFunctionRef..': ECO STAGNANT PAUSE - Factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..
+                                ' paused | TimeStagnant='..string.format('%.0f', iTimeStagnant)..'s | BP was '..(sBPIDToBuild or 'nil'))
+                        end
+                        M28Team.tTeamData[iTeam][M28Team.refiTimeLastStagnantPause] = iCurTime
+                        M28Team.tTeamData[iTeam][M28Team.refoLastStagnantPausedFactory] = oFactory
+                        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                        return nil
+                    end
+                end
+            else
+                --Economy recovered - clear the paused factory reference
+                if oCurrentlyPausedFactory and oCurrentlyPausedFactory == oFactory then
+                    M28Team.tTeamData[iTeam][M28Team.refoLastStagnantPausedFactory] = nil
+                end
+            end
+        end
+    else
+        --Economy not stagnant - clear any paused factory reference
+        if M28Team.tTeamData[iTeam][M28Team.refoLastStagnantPausedFactory] then
+            M28Team.tTeamData[iTeam][M28Team.refoLastStagnantPausedFactory] = nil
+        end
+    end
 
     local iCurEngineers
     --Building engineers in combined army mode

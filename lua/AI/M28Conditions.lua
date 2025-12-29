@@ -1050,6 +1050,21 @@ function TeamHasLowMass(iTeam)
     return bHaveLowMass
 end
 
+function IsEconomyStagnant(iTeam)
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
+    local sFunctionRef = 'IsEconomyStagnant'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+    --Returns true if economy hasn't grown meaningfully for a while
+    --Also returns time stagnant and growth rate for debugging
+    local bStagnant = M28Team.tTeamData[iTeam][M28Team.refbEcoStagnant] or false
+    local iTimeStagnant = 0
+    if bStagnant and M28Team.tTeamData[iTeam][M28Team.refiTimeEcoStagnantSince] then
+        iTimeStagnant = GetGameTimeSeconds() - M28Team.tTeamData[iTeam][M28Team.refiTimeEcoStagnantSince]
+    end
+    local iGrowthRate = M28Team.tTeamData[iTeam][M28Team.refiEcoGrowthRate] or 0
+    return bStagnant, iTimeStagnant, iGrowthRate
+end
+
 function HaveLowPower(iTeam)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'HaveLowPower'
@@ -3997,8 +4012,22 @@ function GetCurrentM28UnitsOfCategoryInTeam(iCategory, iTeam)
 end
 
 function WantMoreEngineersToAssistMexUpgradeAsPriority(tLZOrWZTeamData, iTeam)
-    if tLZOrWZTeamData[M28Map.subrefTbWantBP] and (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) >= 2 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and not(tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) and not(tLZOrWZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ]) and M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftLZEnemyAirUnits]) then
-        local iEngineersWantedInZone = 7 + 3 * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]
+    local bEcoStagnant = M28Team.tTeamData[iTeam][M28Team.refbEcoStagnant] or false
+    local iStagnantEngiBoost = 0
+    if bEcoStagnant and M28Team.tTeamData[iTeam][M28Team.refiTimeEcoStagnantSince] then
+        local iTimeStagnant = GetGameTimeSeconds() - M28Team.tTeamData[iTeam][M28Team.refiTimeEcoStagnantSince]
+        if iTimeStagnant >= 120 then
+            iStagnantEngiBoost = 6
+        elseif iTimeStagnant >= 60 then
+            iStagnantEngiBoost = 3
+        end
+    end
+
+    local iMinMexUpgrades = 2
+    if bEcoStagnant then iMinMexUpgrades = 1 end
+
+    if tLZOrWZTeamData[M28Map.subrefTbWantBP] and (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) >= iMinMexUpgrades and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and not(tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) and not(tLZOrWZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ]) and M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftLZEnemyAirUnits]) then
+        local iEngineersWantedInZone = 7 + 3 * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] + iStagnantEngiBoost
         local tEngineersInZone
         if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then tEngineersInZone = EntityCategoryFilterDown(M28UnitInfo.refCategoryEngineer, tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) end
         local iEngineersInZone = 0

@@ -92,6 +92,18 @@ tTeamData = {} --[x] is the aiBrain.M28Team number - stores certain team-wide in
     refbBuiltParagon = 'M28TeamBltPa' --true if an M28 brain on the team has a paragon (and not LOUD where paragon just gives bonus resources)
     refiTimeLastIssuedACUEnhancementOrder = 'M28TeamTimLstAU' --Gametimeseconds that we last started an ACU upgrade (used to try and avoid getting multiple upgrades within 2s of each other)
 
+    --Economy growth tracking
+    reftMassIncomeHistory = 'M28TeamMassHist' --Table of {[1]={time=X, income=Y}, [2]=...} storing last N snapshots
+    refiTimeLastEcoSnapshot = 'M28TeamEcoSnapTm' --Gametimeseconds when we last took an economy snapshot
+    refiEcoGrowthRate = 'M28TeamEcoGrowth' --Calculated growth rate (mass income change per minute)
+    refbEcoStagnant = 'M28TeamEcoStag' --True if economy hasn't grown meaningfully in the tracking period
+    refiTimeEcoStagnantSince = 'M28TeamEcoStagTm' --Gametimeseconds when economy became stagnant (nil if growing)
+    refiEcoSnapshotInterval = 30 --How often to take snapshots (seconds) - not stored per team, just a constant
+    refiEcoSnapshotCount = 6 --How many snapshots to keep (covers 3 minutes with 30s intervals)
+    refiTimeLastStagnantCtrlK = 'M28TeamStagCtrlKTm' --Gametimeseconds when we last ctrl+K'd a factory due to stagnant economy
+    refiTimeLastStagnantPause = 'M28TeamStagPauseTm' --Gametimeseconds when we last paused a factory due to stagnant economy
+    refoLastStagnantPausedFactory = 'M28TeamStagPauseFac' --Reference to the factory currently paused due to stagnant economy
+
     subreftTeamUpgradingHQs = 'M28TeamUpgradingHQs'
     subreftTeamUpgradingMexes = 'M28TeamUpgradingMexes'
     subreftTeamUpgradingACUs = 'M28TeamUpgradingACUs'
@@ -701,6 +713,15 @@ function CreateNewTeam(aiBrain)
     tTeamData[iTotalTeamCount][subrefiTeamForwardFactoryCount] = 0
     tTeamData[iTotalTeamCount][refiTimeLastForwardFactoryBuilt] = -120 --Set to negative to allow building immediately
     tTeamData[iTotalTeamCount][refiTimeLastLandFactoryUpgradeStarted] = -60 --Set to negative to allow upgrading immediately
+    --Economy growth tracking initialization
+    tTeamData[iTotalTeamCount][reftMassIncomeHistory] = {} --Will store snapshots as {[1]={time=X, income=Y}, ...}
+    tTeamData[iTotalTeamCount][refiTimeLastEcoSnapshot] = 0
+    tTeamData[iTotalTeamCount][refiEcoGrowthRate] = 0 --Mass income change per minute
+    tTeamData[iTotalTeamCount][refbEcoStagnant] = false
+    tTeamData[iTotalTeamCount][refiTimeEcoStagnantSince] = nil
+    tTeamData[iTotalTeamCount][refiTimeLastStagnantCtrlK] = -1000 --Allow immediate ctrl+K if needed
+    tTeamData[iTotalTeamCount][refiTimeLastStagnantPause] = -1000 --Allow immediate pause if needed
+    tTeamData[iTotalTeamCount][refoLastStagnantPausedFactory] = nil
     tTeamData[iTotalTeamCount][subrefiAlliedDFThreat] = 0
     tTeamData[iTotalTeamCount][subrefiAlliedIndirectThreat] = 0
     tTeamData[iTotalTeamCount][subrefiAlliedGroundAAThreat] = 0
@@ -3200,6 +3221,20 @@ function ConsiderPriorityMexUpgrades(iM28Team)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ConsiderPriorityMexUpgrades'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local bEcoStagnant = tTeamData[iM28Team][refbEcoStagnant] or false
+    local iStagnantMexBoost = 0
+    if bEcoStagnant and tTeamData[iM28Team][refiTimeEcoStagnantSince] then
+        local iTimeStagnant = GetGameTimeSeconds() - tTeamData[iM28Team][refiTimeEcoStagnantSince]
+        --After 60s stagnant, start boosting mex upgrades; after 120s, boost significantly
+        if iTimeStagnant >= 120 then
+            iStagnantMexBoost = 3
+        elseif iTimeStagnant >= 60 then
+            iStagnantMexBoost = 1.5
+        end
+        if bDebugMessages == true then LOG(sFunctionRef..': ECO STAGNANT - TimeStagnant='..string.format('%.0f', iTimeStagnant)..'s | iStagnantMexBoost='..iStagnantMexBoost) end
+    end
+
     if bDebugMessages == true then LOG(sFunctionRef..': Time='..GetGameTimeSeconds()..'; Is table of upgrading mexes empty='..tostring(M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]))..'; tTeamData[iM28Team][subrefiTeamMassStored]='..tTeamData[iM28Team][subrefiTeamMassStored]..'; tTeamData[iM28Team][subrefiTeamNetMass]='..tTeamData[iM28Team][subrefiTeamNetMass]..'; tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle]='..tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle]..'; or M28Overseer.bNoRushActive='..tostring(M28Overseer.bNoRushActive or false)) end
     local iExistingT1MexUpgrades = 0
     local iExistingT2MexUpgrades = 0
@@ -3273,6 +3308,11 @@ function ConsiderPriorityMexUpgrades(iM28Team)
             end
             --Adjust maount wanted for any build power modifier
             iWantedUpgradingMexValue = iWantedUpgradingMexValue / tTeamData[iM28Team][refiHighestBrainBuildMultiplier]
+
+            if iStagnantMexBoost > 0 then
+                iWantedUpgradingMexValue = iWantedUpgradingMexValue + iStagnantMexBoost
+                if bDebugMessages == true then LOG(sFunctionRef..': Applied stagnant eco boost, iWantedUpgradingMexValue now='..iWantedUpgradingMexValue) end
+            end
         end
 
         local bWantMassForProduction = false
@@ -4082,12 +4122,63 @@ function TeamEconomyRefresh(iM28Team)
         tTeamData[iM28Team][subreftiPrevTeamNetMass][1] = tTeamData[iM28Team][subrefiTeamNetMass]
         if bDebugMessages == true then LOG(sFunctionRef..': Time='..GetGameTimeSeconds()..'; Prev team net mass after update='..repru(tTeamData[iM28Team][subreftiPrevTeamNetMass])..'; team net mass='..tTeamData[iM28Team][subrefiTeamNetMass]..'; Team new gross mass='..tTeamData[iM28Team][subrefiTeamGrossMass]..'; tTeamData[iM28Team][subrefiTeamAverageMassPercentStored]='..tTeamData[iM28Team][subrefiTeamAverageMassPercentStored]) end
 
+        local iCurTime = GetGameTimeSeconds()
+        local iTimeSinceLastSnapshot = iCurTime - (tTeamData[iM28Team][refiTimeLastEcoSnapshot] or 0)
+        if iTimeSinceLastSnapshot >= refiEcoSnapshotInterval then
+            --Take a new economy snapshot
+            local tHistory = tTeamData[iM28Team][reftMassIncomeHistory]
+            local iCurrentGrossMass = tTeamData[iM28Team][subrefiTeamGrossMass]
+
+            --Shift old entries and add new one at position 1
+            for i = refiEcoSnapshotCount, 2, -1 do
+                tHistory[i] = tHistory[i-1]
+            end
+            tHistory[1] = {time = iCurTime, income = iCurrentGrossMass}
+            tTeamData[iM28Team][refiTimeLastEcoSnapshot] = iCurTime
+
+            --Calculate growth rate (mass income change per minute)
+            local iOldestSnapshot = nil
+            local iOldestIndex = 0
+            for i = refiEcoSnapshotCount, 1, -1 do
+                if tHistory[i] and tHistory[i].time then
+                    iOldestSnapshot = tHistory[i]
+                    iOldestIndex = i
+                    break
+                end
+            end
+
+            if iOldestSnapshot and iOldestSnapshot.time < iCurTime - 30 then
+                local iTimeDiff = (iCurTime - iOldestSnapshot.time) / 60 --Convert to minutes
+                local iIncomeDiff = iCurrentGrossMass - iOldestSnapshot.income
+                tTeamData[iM28Team][refiEcoGrowthRate] = iIncomeDiff / iTimeDiff --Mass/minute growth
+
+                --Determine if economy is stagnant (growth < 0.5 mass/minute after 3 minutes)
+                local iMinGrowthRate = 0.5 --Minimum expected growth rate (mass income per minute)
+                if iCurTime >= 180 then --Only track stagnation after 3 minutes
+                    if tTeamData[iM28Team][refiEcoGrowthRate] < iMinGrowthRate then
+                        if not(tTeamData[iM28Team][refbEcoStagnant]) then
+                            tTeamData[iM28Team][refbEcoStagnant] = true
+                            tTeamData[iM28Team][refiTimeEcoStagnantSince] = iCurTime
+                        end
+                    else
+                        tTeamData[iM28Team][refbEcoStagnant] = false
+                        tTeamData[iM28Team][refiTimeEcoStagnantSince] = nil
+                    end
+                end
+
+                if true then
+                    LOG(sFunctionRef..': ECO GROWTH TRACKING - CurrentGross='..string.format('%.1f', iCurrentGrossMass)..
+                        ' | OldestGross='..string.format('%.1f', iOldestSnapshot.income)..' ('..string.format('%.0f', iCurTime - iOldestSnapshot.time)..'s ago)'..
+                        ' | GrowthRate='..string.format('%.2f', tTeamData[iM28Team][refiEcoGrowthRate])..' mass/min'..
+                        ' | Stagnant='..tostring(tTeamData[iM28Team][refbEcoStagnant])..
+                        ' | StagnantFor='..string.format('%.0f', iCurTime - (tTeamData[iM28Team][refiTimeEcoStagnantSince] or iCurTime))..'s')
+                end
+            end
+        end
+
         ForkThread(ConsiderGettingUpgrades, iM28Team)
 
         ForkThread(M28Economy.ManageEnergyStalls, iM28Team)
-
-        --(Probably going to rename this to ManageEconomicCurve when we expand this to ctrl k'ing even more stuff)
-        ForkThread(M28Economy.ConsiderNavalFactorySelfDestructForDominance, iM28Team)
 
         if tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] >= 0.9 then
             if bDebugMessages == true then LOG(sFunctionRef..': Are overflowing mass so will try and manage by clearing engineers with reclaim orders') end
