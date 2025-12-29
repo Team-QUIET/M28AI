@@ -2581,10 +2581,47 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileLandStealth) then return sBPIDToBuild end
     end
 
+    --Counter enemy T3 mobile artillery with our own T3 mobile artillery (high priority)
+    iCurrentConditionToTry = iCurrentConditionToTry + 1
+    if iFactoryTechLevel >= 3 then
+        --Count enemy T3 mobile artillery across all enemy brains
+        local iEnemyT3MobileArtiCount = 0
+        if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains]) == false then
+            for iBrain, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains] do
+                iEnemyT3MobileArtiCount = iEnemyT3MobileArtiCount + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryT3MobileArtillery)
+            end
+        end
+        if bDebugMessages == true then LOG(sFunctionRef..': Enemy T3 mobile arti count='..iEnemyT3MobileArtiCount) end
+        if iEnemyT3MobileArtiCount >= 2 then
+            --Enemy has T3 mobile arti - ramp up our own production significantly
+            local iOurT3MobileArtiCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryT3MobileArtillery)
+            local iT3MobileArtiUnderConstruction = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryT3MobileArtillery, false)
+            local iT3MobileArtiWanted = math.max(iEnemyT3MobileArtiCount, math.floor(iEnemyT3MobileArtiCount * 1.5))
+            if bDebugMessages == true then LOG(sFunctionRef..': Our T3 mobile arti='..iOurT3MobileArtiCount..'; Under construction='..iT3MobileArtiUnderConstruction..'; Wanted='..iT3MobileArtiWanted) end
+            if iOurT3MobileArtiCount + iT3MobileArtiUnderConstruction < iT3MobileArtiWanted then
+                if ConsiderBuildingCategory(M28UnitInfo.refCategoryT3MobileArtillery) then return sBPIDToBuild end
+            end
+        end
+    end
+
     --Want to prioritise sniperbots to deal with enemy land experimental (when enemy lacks fatboy/megalith) or ACU; exception in QUIET though as land experimentals can be faster
     iCurrentConditionToTry = iCurrentConditionToTry + 1
     if (M28Utilities.bLoudModActive or EntityCategoryContains(categories.AEON + categories.SERAPHIM, oFactory.UnitId)) and (iFactoryTechLevel == 3 or tLZTeamData[M28Map.subrefLZbCoreBase]) then
-        if M28Conditions.PrioritiseSniperBots(tLZData, iTeam, tLZTeamData, iPlateau, iLandZone, true) and (not(bHaveLowMass) or not(aiBrain[M28Overseer.refbPrioritiseAir]) and not(aiBrain[M28Overseer.refbPrioritiseNavy])) then
+        --Don't build sniperbots if enemy has 3+ T3 mobile artillery (they hard counter sniperbots)
+        local bEnemyHasT3MobileArtiCounter = false
+        if iFactoryTechLevel >= 3 then
+            local iEnemyT3MobileArtiCount = 0
+            if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains]) == false then
+                for iBrain, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains] do
+                    iEnemyT3MobileArtiCount = iEnemyT3MobileArtiCount + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryT3MobileArtillery)
+                end
+            end
+            if iEnemyT3MobileArtiCount >= 2 then
+                bEnemyHasT3MobileArtiCounter = true
+                if bDebugMessages == true then LOG(sFunctionRef..': Enemy has 3+ T3 mobile arti, skipping sniperbots') end
+            end
+        end
+        if not(bEnemyHasT3MobileArtiCounter) and M28Conditions.PrioritiseSniperBots(tLZData, iTeam, tLZTeamData, iPlateau, iLandZone, true) and (not(bHaveLowMass) or not(aiBrain[M28Overseer.refbPrioritiseAir]) and not(aiBrain[M28Overseer.refbPrioritiseNavy])) then
             if bDebugMessages == true then LOG(sFunctionRef..': Want to either build sniperbots, or upgrade to t3 so we can build them, unless enemy has lots of nearby t1 spam such that we want to get a small number of DF units') end
             if iFactoryTechLevel < 3 then
                 if ConsiderUpgrading() then  return sBPIDToBuild end
@@ -4439,18 +4476,18 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                 iFriendlyIFThreatWanted = iFriendlyIFThreatWanted * iThreatFactor
                 iFriendlyAAThreatWanted = iFriendlyAAThreatWanted * iThreatFactor
             end
-            --If no enemies in an adjacent land zone and this factory ahs built at least 25 units, then disable this test, as otherwise we run the risk of units traveling far away meaning we keep buliding inappropriate units
-            if M28Conditions.GetFactoryLifetimeCount(oFactory, nil, true) >= 25 and not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ]) then
+            --If no enemies in an adjacent land zone and this factory has built many units, reduce threat wanted but don't zero out completely
+            if M28Conditions.GetFactoryLifetimeCount(oFactory, nil, true) >= 40 and not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ]) then
                 if bHaveLowMass or GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadNothingToBuildForLandFactory] or -100) <= 10 then
-                    if M28Conditions.GetFactoryLifetimeCount(oFactory, nil, true) <= 50 then
+                    if M28Conditions.GetFactoryLifetimeCount(oFactory, nil, true) <= 80 then
                         --Consider lifetime counts for each unit type specifically
-                        if M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryLandCombat * categories.DIRECTFIRE, true) >= 15 then iFriendlyDFThreatWanted = 0 end
-                        if M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMAA, true) >= 12 then iFriendlyAAThreatWanted = 0 end
-                        if M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryIndirect, true) >= 12 then iFriendlyIFThreatWanted = 0 end
+                        if M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryLandCombat * categories.DIRECTFIRE, true) >= 25 then iFriendlyDFThreatWanted = iFriendlyDFThreatWanted * 0.5 end
+                        if M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMAA, true) >= 20 then iFriendlyAAThreatWanted = iFriendlyAAThreatWanted * 0.5 end
+                        if M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryIndirect, true) >= 20 then iFriendlyIFThreatWanted = iFriendlyIFThreatWanted * 0.5 end
                     else
-                        iFriendlyDFThreatWanted = 0
-                        iFriendlyIFThreatWanted = 0
-                        iFriendlyAAThreatWanted = 0
+                        iFriendlyDFThreatWanted = iFriendlyDFThreatWanted * 0.25
+                        iFriendlyIFThreatWanted = iFriendlyIFThreatWanted * 0.25
+                        iFriendlyAAThreatWanted = iFriendlyAAThreatWanted * 0.25
                     end
                 end
             end
@@ -5139,7 +5176,7 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait, bConsiderDes
                             if bConsiderDestroyingForMass and M28Team.tTeamData[oFactory:GetAIBrain().M28Team][M28Team.subrefiHighestFriendlyFactoryTech] >= 2 and not(oFactory[refbPrimaryFactoryForIslandOrPond]) then
                                 local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
                                 if (not(M28Utilities.bFAFActive) or iFactoryTechLevel == 1 or not(EntityCategoryContains(M28UnitInfo.refCategoryLandHQ, oFactory.UnitId))) and M28Conditions.HaveLowMass(aiBrain) then
-                                    if iFactoryType == refiFactoryTypeLand and (iFactoryTechLevel < oBrain[M28Economy.refiOurHighestLandFactoryTech] or (iFactoryTechLevel >= 3 and oFactory[refiTotalBuildCount] >= 5 and M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZOrWZTeamData, M28UnitInfo.refCategoryLandFactory * categories.TECH3) > math.max(3, math.min(6, aiBrain[M28Economy.refiGrossMassBaseIncome] * 0.1)) and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryMobileLand * categories.TECH3) >= 20)) then
+                                    if iFactoryType == refiFactoryTypeLand and (iFactoryTechLevel < oBrain[M28Economy.refiOurHighestLandFactoryTech] or (iFactoryTechLevel >= 2 and oFactory[refiTotalBuildCount] >= 5 and M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZOrWZTeamData, M28UnitInfo.refCategoryLandFactory * categories.TECH3) > math.max(2, math.min(5, aiBrain[M28Economy.refiGrossMassBaseIncome] * 0.1)) and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryMobileLand * categories.TECH3) >= 15)) then
                                         local iExistingFactoriesOfHigherTech = 0
                                         local iSearchCategory
                                         if iFactoryTechLevel == 1 then iSearchCategory = M28UnitInfo.refCategoryLandFactory - categories.TECH1
@@ -5167,8 +5204,8 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait, bConsiderDes
                                         end
 
                                     elseif iFactoryType == refiFactoryTypeAir then
-                                        --Consider ctrlking t1 air facs if we have t3 air
-                                        if iFactoryTechLevel == 1 and oBrain[M28Economy.refiOurHighestAirFactoryTech] >= 3 then
+                                        --Consider ctrlking t1/t2 air facs if we have t3 air
+                                        if iFactoryTechLevel <= 2 and oBrain[M28Economy.refiOurHighestAirFactoryTech] >= 3 then
                                             local tExistingT3Factories = EntityCategoryFilterDown(M28UnitInfo.refCategoryAirFactory * categories.TECH3, tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
                                             if bDebugMessages == true then
                                                 LOG(sFunctionRef .. ': Is table of existing T3 air factories empty=' .. tostring(M28Utilities.IsTableEmpty(tExistingT3Factories)) .. ' Brain cur T3 factories=' .. oBrain:GetCurrentUnits(M28UnitInfo.refCategoryAirFactory * categories.TECH3))
@@ -5190,7 +5227,7 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait, bConsiderDes
                             ForkThread(DecideAndBuildUnitForFactory, aiBrain, oFactory, false)
                         else
                             sBPToBuild = nil
-                            if iExistingT3Factories <= 3 then
+                            if iExistingT3Factories <= 2 then
                                 sBPToBuild, bEnhancement = DetermineWhatToBuild(aiBrain, oFactory)
                             end
                             if bDebugMessages == true then
