@@ -2519,7 +2519,7 @@ function DoesACUWantToRun(iPlateau, iLandZone, tLZData, tLZTeamData, oACU)
             end
             if bDebugMessages == true then LOG(sFunctionRef..': iACUThreat='..(iACUThreat or 'nil')..'; LZ enemy combat total='..(tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 'nil')..'; bOneEnemyACUInSameLZ='..tostring(bAgainstEnemyACUAndMightWin or false)..'; tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal]='..(tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 'nil')..'; tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal]='..(tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 'nil')..'; iDistToFriendlyBase='..iDistToFriendlyBase..'; tLZTeamData[M28Map.refiModDistancePercent]='..tLZTeamData[M28Map.refiModDistancePercent]) end
             --Only run due to low ACU threat if there are actual threating enemy in the zone to run from
-            if (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) >= 350 and (iACUThreat <= 500 or (iACUThreat <= 600 and (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) >= 80)) and (not(bAgainstEnemyACUAndMightWin) or (oACU[refbUseACUAggressively] and (iACUThreat + (tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0) + 250 < (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)))) then
+            if (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) >= 350 and (iACUThreat <= 550 or (iACUThreat <= 650 and (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) >= 80)) and (not(bAgainstEnemyACUAndMightWin) or (oACU[refbUseACUAggressively] and (iACUThreat + (tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0) + 250 < (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)))) then
                 if bDebugMessages == true then LOG(sFunctionRef..': ACU has low threat and enemies present so want to run') end
                 bWantToRun = true
             else
@@ -2533,7 +2533,7 @@ function DoesACUWantToRun(iPlateau, iLandZone, tLZData, tLZTeamData, oACU)
                     local iPercentMod = 1
                     if oACU[refbUseACUAggressively] then iPercentMod = 0.5 end
                     if bDebugMessages == true then LOG(sFunctionRef..': iHealthPercent='..iHealthPercent) end
-                    if (iHealthPercent <= 0.6 * iPercentMod or (iHealthPercent <= 0.75 * iPercentMod and (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) >= 80)) and (not(bAgainstEnemyACUAndMightWin) or iHealthPercent <= 0.5 * iPercentMod) then
+                    if (iHealthPercent <= 0.65 * iPercentMod or (iHealthPercent <= 0.80 * iPercentMod and (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) >= 80)) and (not(bAgainstEnemyACUAndMightWin) or iHealthPercent <= 0.55 * iPercentMod) then
                         if bDebugMessages == true then LOG(sFunctionRef..': ACU is injured so want to run') end
                         bWantToRun = true
                     else
@@ -2566,9 +2566,8 @@ function DoesACUWantToRun(iPlateau, iLandZone, tLZData, tLZTeamData, oACU)
                             end
                             if not(bWantToRun) then
                                 --Run if non-full share or last ACU, are past 15m in-game, mod dist is >=0.4, and we are far from base
-                                --QUIET: Upgrades count double for aggression (QUIET upgrades are more powerful)
                                 local iEffectiveUpgradeCount = oACU[refiUpgradeCount] or 0
-                                if M28Utilities.bQuietModActive then iEffectiveUpgradeCount = iEffectiveUpgradeCount * 2 end
+                                if M28Utilities.bQuietModActive then iEffectiveUpgradeCount = iEffectiveUpgradeCount * 1.25 end
                                 if bDebugMessages == true then LOG(sFunctionRef..': Considering if want to run when in assassination, moddist%='..(tLZTeamData[M28Map.refiModDistancePercent] or 'nil')..'; Upgrade count='..(oACU[refiUpgradeCount] or 'nil')..'; iEffectiveUpgradeCount='..iEffectiveUpgradeCount..'; oACU='..(oACU.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oACU) or 'nil')..' owned by '..oACU:GetAIBrain().Nickname..'; iPercentageToFriendlyBase='..(iPercentageToFriendlyBase or 'nil')..'; iDistToFriendlyBase='..(iDistToFriendlyBase or 'nil')..'; M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]='..(M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] or 'nil')..'; M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech]='..(M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] or 'nil')..'; M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech]='..(M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] or 'nil')..'; Assassination='..tostring(M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar] or false)..'; Brain gross mass='..(oACU:GetAIBrain()[M28Economy.refiGrossMassBaseIncome] or 'nil')) end
                                 if tLZTeamData[M28Map.refiModDistancePercent] >= 0.35 + 0.04*iEffectiveUpgradeCount and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.toActiveSnipeTargets]) and iPercentageToFriendlyBase >= 0.35 and iDistToFriendlyBase >= (200 + 75 * iEffectiveUpgradeCount) and (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 3 or M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] >= 3 or M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3 or (GetGameTimeSeconds() >= 900 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] > 1)) and (not(M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar]) or oACU:GetAIBrain()[M28Economy.refiGrossMassBaseIncome] >= 25)
                                         --Exception - if enemy isnt at t3 land yet, and we have a mobile shield assigned to guncom ACU with full health
@@ -2695,6 +2694,35 @@ function DoesACUWantToRun(iPlateau, iLandZone, tLZData, tLZTeamData, oACU)
                                                     end
                                                 end
                                             end
+                                            --Consider threat from zones 2-4 layers deep with diminishing weighting
+                                            local tiLayerThreatScaling = {[2] = 0.6, [3] = 0.35, [4] = 0.15}
+                                            local tiPreviousLayerZones = {}
+                                            -- Populate layer 1 zones (the direct adjacent ones already processed above)
+                                            for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
+                                                tiPreviousLayerZones[iAdjLZ] = true
+                                            end
+                                            -- Iterate through layers 2-4
+                                            for iLayer = 2, 4 do
+                                                local tiCurrentLayerZones = {}
+                                                for iPrevLZ, _ in tiPreviousLayerZones do
+                                                    local tPrevLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iPrevLZ]
+                                                    if M28Utilities.IsTableEmpty(tPrevLZData[M28Map.subrefLZAdjacentLandZones]) == false then
+                                                        for _, iNextLZ in tPrevLZData[M28Map.subrefLZAdjacentLandZones] do
+                                                            if not(tbZonesConsidered[iNextLZ]) and not(iNextLZ == iLandZone) then
+                                                                tbZonesConsidered[iNextLZ] = true
+                                                                tiCurrentLayerZones[iNextLZ] = true
+                                                                local tNextLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iNextLZ][M28Map.subrefLZTeamData][iTeam]
+                                                                local iScaledThreat = (tNextLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) * tiLayerThreatScaling[iLayer]
+                                                                iEnemyNearbyThreat = iEnemyNearbyThreat + iScaledThreat
+                                                                if bDebugMessages == true then LOG(sFunctionRef..': Layer '..iLayer..' zone '..iNextLZ..' adding scaled threat='..iScaledThreat) end
+                                                            end
+                                                        end
+                                                    end
+                                                end
+                                                tiPreviousLayerZones = tiCurrentLayerZones
+                                                if next(tiPreviousLayerZones) == nil then break end -- No more zones to explore
+                                            end
+
                                             if toDetailedCheckMobileDFUnits then
                                                 if bDebugMessages == true then LOG(sFunctionRef..': Threat of enemy mobile DF units from detailed check='..M28UnitInfo.GetCombatThreatRating(toDetailedCheckMobileDFUnits, true)..'; Threat when excluding ACUs='..M28UnitInfo.GetCombatThreatRating(EntityCategoryFilterDown(categories.ALLUNITS - categories.COMMAND, toDetailedCheckMobileDFUnits),true)..'; will add to iEnemyMobileNearbyDFThreat before this='..iEnemyMobileNearbyDFThreat) end
                                                 iEnemyMobileNearbyDFThreat = iEnemyMobileNearbyDFThreat + M28UnitInfo.GetCombatThreatRating(toDetailedCheckMobileDFUnits, true)
@@ -7435,9 +7463,8 @@ function DoWeStillWantToBeAggressiveWithACU(oACU)
         else
             --If we are going all-in on T1 spam then want to be aggressive with ACU if it has a gun
             local tLZOrWZData, tLZOrWZTeamData = M28Map.GetLandOrWaterZoneData(oACU:GetPosition(), true, oACU:GetAIBrain().M28Team)
-            --QUIET: Upgrades count double for aggression decisions (QUIET upgrades are more powerful)
             local iEffectiveUpgradeCount = oACU[refiUpgradeCount] or 0
-            if M28Utilities.bQuietModActive then iEffectiveUpgradeCount = iEffectiveUpgradeCount * 2 end
+            if M28Utilities.bQuietModActive then iEffectiveUpgradeCount = iEffectiveUpgradeCount * 1.25 end
             if iEffectiveUpgradeCount > 0 and M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam) and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.7 and GetGameTimeSeconds() <= 1000 and tLZOrWZTeamData[M28Map.refiModDistancePercent] < 0.6 then
                 --Will remain aggressive
             --QUIET: Stay aggressive with 1+ upgrade regardless of other conditions (upgraded ACU is very strong)
