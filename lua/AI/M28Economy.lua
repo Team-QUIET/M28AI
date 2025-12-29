@@ -3358,11 +3358,10 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
                 --if M28Utilities.bLoudModActive or M28Map.iMapSize > 1024 then iTimeToWait = 5 * 60
 
                 if M28Utilities.bLoudModActive or M28Utilities.bQuietModActive then
-                    if iMexesOnMap <= 20 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] then --e.g. average of 10 mexes per player assuming even teams, or 60 mexes in a 3v3
-                        --assumed early aggression will be rewarded more as either lots of mexes to fight over; also with lots of mexes the e upkeep cost in LOUD becomes more of an issue (so dont want to upgrade quite as soon)
-                        iTimeToWait = 2 * 60 --In LOUD players often start a mex upgrade around 3m30
+                    if iMexesOnMap <= 20 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] then
+                        iTimeToWait = 60
                     else
-                        iTimeToWait = 3.5 * 60
+                        iTimeToWait = 100
                     end
                 else
                     if M28Map.iMapSize > 1000 then
@@ -3392,9 +3391,9 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
             end
             if M28Utilities.bLoudModActive or M28Utilities.bQuietModActive then
                 if iMexesOnMap > 20 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] then
-                    iTimeToWait = iTimeToWait - 40
+                    iTimeToWait = iTimeToWait - 90
                 else
-                    iTimeToWait = iTimeToWait - 20
+                    iTimeToWait = iTimeToWait - 60
                 end
             end
         elseif bT3MexCanBeUpgraded and M28Utilities.bQuietModActive and iMexTechLevel == 3 then
@@ -3408,9 +3407,9 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
             end
             if M28Utilities.bLoudModActive or M28Utilities.bQuietModActive then
                 if iMexesOnMap > 20 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] then
-                    iTimeToWait = iTimeToWait - 40
+                    iTimeToWait = iTimeToWait - 90
                 else
-                    iTimeToWait = iTimeToWait - 20
+                    iTimeToWait = iTimeToWait - 60
                 end
             end
         elseif bT3MexCanBeUpgraded and M28Utilities.bLoudModActive and iMexTechLevel == 3 then
@@ -3455,7 +3454,7 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
         if not(M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam]) then
             --Only do this if there are 3+ mexes in the zone, or it's a plateau
             if bDebugMessages == true then LOG(sFunctionRef..': Considering whether we want to upgrade mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..'; safe to upgrade='..tostring(M28Conditions.SafeToUpgradeUnit(oMex))..'; iMexTechLevel='..iMexTechLevel..'; Team has low mass='..tostring(M28Conditions.TeamHasLowMass(iTeam))..'; Time='..GetGameTimeSeconds()) end
-            if M28Conditions.SafeToUpgradeUnit(oMex) and not(M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refbPrioritiseProduction]) then
+            if M28Conditions.SafeToUpgradeUnit(oMex) and (not(M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refbPrioritiseProduction]) or ((tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) == 0 and aiBrain[refiGrossMassBaseIncome] >= 2)) then
                 local bUpgradeDueToHowLongHadMex = false
                 if not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) == 0 then
                     local iTimeThreshold
@@ -3499,7 +3498,7 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
                     end
 
                     if bDebugMessages == true then LOG(sFunctionRef..': Time since constructed='..(GetGameTimeSeconds() - (oMex[M28UnitInfo.refiTimeMexConstructed] or oMex[M28UnitInfo.refiTimeCreated]))..'; M28Team.tTeamData[iTeam][M28Team.refiUpgradedMexCount]='..M28Team.tTeamData[iTeam][M28Team.refiUpgradedMexCount]..'; iMexesOfHigherTech='..iMexesOfHigherTech..'; iUpgradingMexCount='..iUpgradingMexCount) end
-                    if GetGameTimeSeconds() - (oMex[M28UnitInfo.refiTimeMexConstructed] or oMex[M28UnitInfo.refiTimeCreated]) >= iTimeThreshold and iUpgradingMexCount < M28Team.tTeamData[iTeam][M28Team.refiUpgradedMexCount] * 0.3 then
+                    if GetGameTimeSeconds() - (oMex[M28UnitInfo.refiTimeMexConstructed] or oMex[M28UnitInfo.refiTimeCreated]) >= iTimeThreshold and iUpgradingMexCount < M28Team.tTeamData[iTeam][M28Team.refiUpgradedMexCount] * 0.45 then
                         --Also check adjacent zones not also upgrading
                         bUpgradeDueToHowLongHadMex = true
                         local iMexesChecked = (tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0) --WZ uses same ref
