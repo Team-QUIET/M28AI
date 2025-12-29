@@ -6591,7 +6591,7 @@ function GetEngineerToReclaimNearbyArea(oEngineer, iPriorityOverride, tLZOrWZTea
                             end
                         end
                     end
-                    end --Close else block for ReclaimPath check
+                    end
                     if M28Utilities.bCPUPerformanceMode and oNearestReclaim then break end
                 end
                 if bDebugMessages == true then LOG(sFunctionRef..': Finished cycling through reclaim, is oNearestReclaim nil='..tostring(oNearestReclaim == nil)..'; bCheckTerrain='..tostring(bCheckTerrain or false)) end
@@ -6899,8 +6899,16 @@ function QueueReclaimPath(oEngineer, iPriorityOverride, tLZOrWZTeamData, iPlatea
 
     if bDebugMessages == true then LOG(sFunctionRef..': Found '..table.getn(tValidReclaim)..' valid reclaim targets') end
 
-    --Sort by distance from engineer (nearest-neighbor greedy algorithm)
-    --Only grab rocks that are close together - stop if next rock is too far
+    local bLowMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.3
+    local bLowEnergy = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.5
+    local iMassMultiplier = 1
+    local iEnergyMultiplier = 0.01
+    if bLowEnergy and not(bLowMass) then
+        iEnergyMultiplier = 0.05
+    elseif bLowMass then
+        iMassMultiplier = 2
+    end
+
     local tSortedReclaim = {}
     local tRemainingReclaim = {}
     local iRemainingCount = 0
@@ -6911,35 +6919,36 @@ function QueueReclaimPath(oEngineer, iPriorityOverride, tLZOrWZTeamData, iPlatea
 
     local tCurrentPos = {tEngiPos[1], tEngiPos[2], tEngiPos[3]}
     local iSortedCount = 0
-    --Max distance between consecutive rocks - keeps reclaim localized to a cluster
     local iMaxDistBetweenRocks = 80
 
     while iRemainingCount > 0 and iSortedCount < iMaxReclaimCount do
-        local iNearestIdx = nil
-        local iNearestDist = 999999
+        local iBestIdx = nil
+        local iBestScore = -999999
 
         for i = 1, iRemainingCount do
-            local iDist = M28Utilities.GetDistanceBetweenPositions(tCurrentPos, tRemainingReclaim[i].CachePosition)
-            if iDist < iNearestDist then
-                iNearestDist = iDist
-                iNearestIdx = i
+            local oReclaim = tRemainingReclaim[i]
+            local iDist = math.max(1, M28Utilities.GetDistanceBetweenPositions(tCurrentPos, oReclaim.CachePosition))
+            local iReclaimValue = (oReclaim.MaxMassReclaim or 0) * iMassMultiplier + (oReclaim.MaxEnergyReclaim or 0) * iEnergyMultiplier
+            local iScore = iReclaimValue / iDist
+            if iScore > iBestScore then
+                iBestScore = iScore
+                iBestIdx = i
             end
         end
 
-        if not(iNearestIdx) then break end
+        if not(iBestIdx) then break end
 
-        --First rock has no distance limit - just find the nearest one
-        --Subsequent rocks must be within iMaxDistBetweenRocks of the previous rock
-        if iSortedCount > 0 and iNearestDist > iMaxDistBetweenRocks then
-            if bDebugMessages == true then LOG(sFunctionRef..': Nearest rock is '..iNearestDist..' away, max allowed='..iMaxDistBetweenRocks..', stopping path') end
+        local oBest = tRemainingReclaim[iBestIdx]
+        local iDistToBest = M28Utilities.GetDistanceBetweenPositions(tCurrentPos, oBest.CachePosition)
+        if iSortedCount > 0 and iDistToBest > iMaxDistBetweenRocks then
+            if bDebugMessages == true then LOG(sFunctionRef..': Best rock is '..iDistToBest..' away, max allowed='..iMaxDistBetweenRocks..', stopping path') end
             break
         end
 
-        local oNearest = tRemainingReclaim[iNearestIdx]
-        table.insert(tSortedReclaim, oNearest)
+        table.insert(tSortedReclaim, oBest)
         iSortedCount = iSortedCount + 1
-        tCurrentPos = oNearest.CachePosition
-        table.remove(tRemainingReclaim, iNearestIdx)
+        tCurrentPos = oBest.CachePosition
+        table.remove(tRemainingReclaim, iBestIdx)
         iRemainingCount = iRemainingCount - 1
     end
 
