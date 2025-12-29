@@ -1123,19 +1123,17 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
                             local iCurSkirmishersOfTech = oFactory:GetAIBrain():GetCurrentUnits(M28UnitInfo.refCategorySkirmisher * iTechCategory)
                             local iCurDFOfTech = oFactory:GetAIBrain():GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand * iTechCategory)
 
-                            -- Only consider skirmishers if we have a good direct-fire base (at least 2:1 ratio)
-                            if iCurDFOfTech >= iCurSkirmishersOfTech * 2 and iCurDFOfTech >= 6 then
-                                -- We have a solid direct-fire core, can consider skirmishers
+                            if iCurDFOfTech >= iCurSkirmishersOfTech * 8 and iCurDFOfTech >= 15 and iCurSkirmishersOfTech < 12 then
                                 iBaseCategoryWanted = M28UnitInfo.refCategorySkirmisher * iTechCategory
                                 if bDebugMessages == true then LOG(sFunctionRef..': Have solid DF core (DF='..iCurDFOfTech..', Skirmishers='..iCurSkirmishersOfTech..'), can build skirmishers') end
                             else
-                                -- Keep building direct-fire units
                                 if bDebugMessages == true then LOG(sFunctionRef..': Need more DF units before skirmishers (DF='..iCurDFOfTech..', Skirmishers='..iCurSkirmishersOfTech..')') end
                             end
                         else
                             -- No nearby enemies, can build some skirmishers if we have enough direct-fire units
                             local iCurDFOfTech = oFactory:GetAIBrain():GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand * iTechCategory)
-                            if iCurDFOfTech >= 4 then
+                            local iCurSkirmishersOfTech = oFactory:GetAIBrain():GetCurrentUnits(M28UnitInfo.refCategorySkirmisher * iTechCategory)
+                            if iCurDFOfTech >= 20 and iCurSkirmishersOfTech < 12 then
                                 iBaseCategoryWanted = M28UnitInfo.refCategorySkirmisher * iTechCategory
                                 if bDebugMessages == true then LOG(sFunctionRef..': No nearby enemies and have enough DF units, can build skirmishers') end
                             end
@@ -1353,23 +1351,23 @@ function GetLandFactoryThrottleDelay(iFactoryTechLevel)
 
     if iFactoryTechLevel == 1 then
         if iMapSize <= 256 then
-            return 90
+            return 240
         elseif iMapSize <= 512 then
-            return 75
+            return 180
         elseif iMapSize <= 1024 then
-            return 60
+            return 120
         else
-            return 45
+            return 100
         end
     elseif iFactoryTechLevel == 2 then
         if iMapSize <= 256 then
-            return 75
+            return 180
         elseif iMapSize <= 512 then
-            return 60
+            return 140
         elseif iMapSize <= 1024 then
-            return 45
+            return 100
         else
-            return 30
+            return 80
         end
     end
     return 60 --default fallback
@@ -1435,24 +1433,19 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     if iFactoryTechLevel == 1 and M28Team.tTeamData[iTeam][M28Team.refiTimeFirstT2LandFactory] then
         local iTimeWithT2 = GetGameTimeSeconds() - M28Team.tTeamData[iTeam][M28Team.refiTimeFirstT2LandFactory]
         if iTimeWithT2 >= iThrottleDelayT1 then
-            --Check for exception conditions before throttling
             local bHasExceptionCondition = false
-            --Overflowing mass (>70% stored and positive net)
             if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.7 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) then
                 bHasExceptionCondition = true
                 if bDebugMessages == true then LOG(sFunctionRef..': T1 throttle exception - overflowing mass') end
             end
-            --Dangerous enemies in this zone (need volume)
             if tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] then
                 bHasExceptionCondition = true
                 if bDebugMessages == true then LOG(sFunctionRef..': T1 throttle exception - dangerous enemies in zone') end
             end
-            --Very early game
             if GetGameTimeSeconds() < 300 then
                 bHasExceptionCondition = true
                 if bDebugMessages == true then LOG(sFunctionRef..': T1 throttle exception - early game') end
             end
-
             if not(bHasExceptionCondition) then
                 bThrottleLowerTechProduction = true
                 if bDebugMessages == true then LOG(sFunctionRef..': T1 land factory throttled - have had T2 for '..iTimeWithT2..'s (threshold='..iThrottleDelayT1..'s)') end
@@ -1460,23 +1453,19 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         end
     end
 
-    --After having T3 for X seconds, stop T2 combat production
+    --After having T3 for X seconds
     if iFactoryTechLevel == 2 and M28Team.tTeamData[iTeam][M28Team.refiTimeFirstT3LandFactory] then
         local iTimeWithT3 = GetGameTimeSeconds() - M28Team.tTeamData[iTeam][M28Team.refiTimeFirstT3LandFactory]
         if iTimeWithT3 >= iThrottleDelayT2 then
-            --Check for exception conditions before throttling
             local bHasExceptionCondition = false
-            --Overflowing mass (>70% stored and positive net)
             if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.7 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) then
                 bHasExceptionCondition = true
                 if bDebugMessages == true then LOG(sFunctionRef..': T2 throttle exception - overflowing mass') end
             end
-            --Dangerous enemies in this zone (need volume)
             if tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] then
                 bHasExceptionCondition = true
                 if bDebugMessages == true then LOG(sFunctionRef..': T2 throttle exception - dangerous enemies in zone') end
             end
-
             if not(bHasExceptionCondition) then
                 bThrottleLowerTechProduction = true
                 if bDebugMessages == true then LOG(sFunctionRef..': T2 land factory throttled - have had T3 for '..iTimeWithT3..'s (threshold='..iThrottleDelayT2..'s)') end
@@ -1484,11 +1473,9 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         end
     end
 
-    --If throttled, only allow engineers, scouts, or upgrading - skip all combat unit production
+    --If throttled, only allow engineers, scouts, or upgrading
     if bThrottleLowerTechProduction then
-        --For T1 factories, allow engineers and scouts only
         if iFactoryTechLevel == 1 then
-            --Try to build engineer if zone wants BP
             if tLZTeamData[M28Map.subrefTbWantBP] then
                 local sBPIDToBuild = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryEngineer, oFactory)
                 if sBPIDToBuild then
@@ -1497,7 +1484,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                     return sBPIDToBuild
                 end
             end
-            --Try to build scout if zone wants scout
             if tLZTeamData[M28Map.refbWantLandScout] and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision]) then
                 local sBPIDToBuild = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryLandScout, oFactory)
                 if sBPIDToBuild then
@@ -1507,7 +1493,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                 end
             end
         end
-        --For T2 factories, allow engineers only
         if iFactoryTechLevel == 2 then
             if tLZTeamData[M28Map.subrefTbWantBP] then
                 local sBPIDToBuild = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryEngineer, oFactory)
@@ -1518,12 +1503,27 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                 end
             end
         end
-        --Try to upgrade the factory if possible
-        local sBPIDToBuild = M28UnitInfo.GetUnitUpgradeBlueprint(oFactory, true)
-        if sBPIDToBuild then
-            if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled, upgrading to '..sBPIDToBuild) end
-            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-            return sBPIDToBuild
+
+        --Try to upgrade the factory if possible (only if economy is good)
+        local bGoodEconomyForUpgrade = false
+        local iGrossMassIncome = aiBrain[M28Economy.refiGrossMassBaseIncome] or 0
+        local bStallingEnergy = M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]
+        local iMinMassForUpgrade = 2
+        if iFactoryTechLevel == 2 then iMinMassForUpgrade = 5 end
+
+        if iGrossMassIncome >= iMinMassForUpgrade and not(bStallingEnergy) then
+            bGoodEconomyForUpgrade = true
+        end
+
+        if bGoodEconomyForUpgrade then
+            local sBPIDToBuild = M28UnitInfo.GetUnitUpgradeBlueprint(oFactory, true)
+            if sBPIDToBuild then
+                if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled, good economy (MassIncome='..iGrossMassIncome..', StallingEnergy='..tostring(bStallingEnergy)..'), upgrading to '..sBPIDToBuild) end
+                M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                return sBPIDToBuild
+            end
+        else
+            if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled but economy not good enough for upgrade (MassIncome='..iGrossMassIncome..', MinRequired='..iMinMassForUpgrade..', StallingEnergy='..tostring(bStallingEnergy)..')') end
         end
         --If can't upgrade and don't want engineers/scouts, just return nil (don't build anything)
         if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled, cannot upgrade, returning nil') end
@@ -1865,11 +1865,13 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         LOG(sFunctionRef .. ': Skirmisher check: iSkirmisherCount=' .. iSkirmisherCount .. '; iDirectFireCount=' .. iDirectFireCount .. '; iEnemyGroundThreat=' .. iEnemyGroundThreat)
     end
 
-    if iSkirmisherCount > 0 and iDirectFireCount >= 0 then
+    local iMaxSkirmishers = 15
+    if iSkirmisherCount >= iMaxSkirmishers then
+        bDontConsiderBuildingSkirmishers = true
+        if bDebugMessages == true then LOG(sFunctionRef..': Hit skirmisher hard cap ('..iSkirmisherCount..'/'..iMaxSkirmishers..'), will prioritize direct-fire units') end
+    elseif iSkirmisherCount > 0 and iDirectFireCount >= 0 then
         local iSkirmisherToDirectFireRatio = iSkirmisherCount / math.max(1, iDirectFireCount)
-        -- Desired ratio: 1 skirmisher per 3 direct-fire units (0.33 ratio)
-        -- This ensures we have a solid direct-fire core before building skirmishers
-        local iDesiredSkirmisherToDirectFireRatio = 0.33
+        local iDesiredSkirmisherToDirectFireRatio = 0.12
 
         -- Detect "deathball" scenario - large concentrated enemy ground force
         local iEnemyMobileDFThreat = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] or 0
@@ -1877,15 +1879,15 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 
         -- If enemy has large ground concentration (deathball), reduce skirmisher ratio even more
         if iEnemyMobileDFThreat >= 2000 or iEnemyGroundConcentration >= 1500 then
-            iDesiredSkirmisherToDirectFireRatio = 0.2 -- 1 skirmisher per 5 direct-fire units
-            if bDebugMessages == true then LOG(sFunctionRef..': Enemy deathball detected (MobileDFThreat='..iEnemyMobileDFThreat..', GroundConcentration='..iEnemyGroundConcentration..'), reducing skirmisher ratio to 0.2') end
+            iDesiredSkirmisherToDirectFireRatio = 0.08 -- 1 skirmisher per 12 direct-fire units
+            if bDebugMessages == true then LOG(sFunctionRef..': Enemy deathball detected (MobileDFThreat='..iEnemyMobileDFThreat..', GroundConcentration='..iEnemyGroundConcentration..'), reducing skirmisher ratio to 0.08') end
         elseif iEnemyMobileDFThreat >= 1000 or iEnemyGroundConcentration >= 800 then
-            iDesiredSkirmisherToDirectFireRatio = 0.25 -- 1 skirmisher per 4 direct-fire units
-            if bDebugMessages == true then LOG(sFunctionRef..': Significant enemy ground force detected, reducing skirmisher ratio to 0.25') end
+            iDesiredSkirmisherToDirectFireRatio = 0.10 -- 1 skirmisher per 10 direct-fire units
+            if bDebugMessages == true then LOG(sFunctionRef..': Significant enemy ground force detected, reducing skirmisher ratio to 0.10') end
         end
 
         -- If we have too many skirmishers relative to direct-fire units, stop building skirmishers
-        if iSkirmisherToDirectFireRatio >= iDesiredSkirmisherToDirectFireRatio and iEnemyGroundThreat > 100 then
+        if iSkirmisherToDirectFireRatio >= iDesiredSkirmisherToDirectFireRatio then
             bDontConsiderBuildingSkirmishers = true
             if bDebugMessages == true then LOG(sFunctionRef..': Skirmisher ratio too high ('..string.format("%.2f", iSkirmisherToDirectFireRatio)..'), will prioritize direct-fire units. Skirmishers='..iSkirmisherCount..'; DirectFire='..iDirectFireCount..'; Desired ratio='..iDesiredSkirmisherToDirectFireRatio) end
         end
@@ -3502,11 +3504,10 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             end
             if iCurIsland == iEnemyIsland and (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] <= 8000 or M28Conditions.TeamHasAirControl(iTeam)) and math.min(8 - M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount], aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel))) > math.max(1, aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMobileLand * categories.DIRECTFIRE * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel))) then
                 if bCanPathToEnemyWithLand then
-                    if iFactoryTechLevel == 2 and not(aiBrain.M28Easy) and (oFactory[refiTotalBuildCount] <= 5 or aiBrain:GetCurrentUnits(iSkirmisherCategory) < 25) and ConsiderBuildingCategory(iSkirmisherCategory) then
+                    if iFactoryTechLevel == 2 and not(aiBrain.M28Easy) and (oFactory[refiTotalBuildCount] <= 3 or aiBrain:GetCurrentUnits(iSkirmisherCategory) < 12) and ConsiderBuildingCategory(iSkirmisherCategory) then
                         if bDebugMessages == true then LOG(sFunctionRef..': Will try building skirmisher as T2 fac on same island as enemy base') end
                         return sBPIDToBuild
-                        --Initial T3 tanks - want tanks instead of sniperbots if enemy has lower health units/isnt at T3
-                    elseif iFactoryTechLevel == 3 and not(aiBrain.M28Easy) and oFactory[refiTotalBuildCount] >= 5 and (oFactory[refiTotalBuildCount] >= 10 or (M28Team.tTeamData[iTeam][M28Team.refiEnemyHighestMobileLandHealth] >= 2400 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 3)) and (oFactory[refiTotalBuildCount] <= 8 or aiBrain:GetCurrentUnits(iSkirmisherCategory) < 25) and ConsiderBuildingCategory(iSkirmisherCategory) then
+                    elseif iFactoryTechLevel == 3 and not(aiBrain.M28Easy) and oFactory[refiTotalBuildCount] >= 5 and (oFactory[refiTotalBuildCount] >= 10 or (M28Team.tTeamData[iTeam][M28Team.refiEnemyHighestMobileLandHealth] >= 2400 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 3)) and (oFactory[refiTotalBuildCount] <= 6 or aiBrain:GetCurrentUnits(iSkirmisherCategory) < 12) and ConsiderBuildingCategory(iSkirmisherCategory) then
                         if bDebugMessages == true then LOG(sFunctionRef..': Will try building skirmisher as T3 fac') end
                         return sBPIDToBuild
                     elseif ConsiderBuildingCategory(M28UnitInfo.refCategoryLandCombat * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)) then
@@ -5561,10 +5562,6 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
     iCurrentConditionToTry = iCurrentConditionToTry + 1
     if aiBrain[M28Overseer.refbCloseToUnitCap] and iFactoryTechLevel >= 3 and not(bHaveLowMass) and not(bHaveLowPower) and M28Team.tTeamData[aiBrain.M28Team][M28Team.refiLowestUnitCapAdjustmentLevel] <= -1 and aiBrain[M28Overseer.refiExpectedRemainingCap] < 20 then
         if bDebugMessages == true then LOG(sFunctionRef..': Close to unit cap with high mass stored so wont build anything from air fac') end
-        if bDebugMessages == true then
-            LOG('M28AirProduction: DECISION: No build due to unit cap; ExpectedRemainingCap='..(aiBrain[M28Overseer.refiExpectedRemainingCap] or 0)..'; CapAdjustmentLevel='..(M28Team.tTeamData[aiBrain.M28Team][M28Team.refiLowestUnitCapAdjustmentLevel] or 0))
-            LOG('M28AirProduction: ========== END AIR FACTORY DECISION (UNIT CAP) ==========')
-        end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         return nil
     end
@@ -6426,7 +6423,48 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
 
             --Determine the AirAA category to produce
             local iAirAASearchCategory
-            if iFactoryTechLevel == 3 then
+            local bPreferLowerTierInties = false
+            local iPreferredTech = iFactoryTechLevel --Default to factory tech level
+
+            local iEnemyAirAAThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 0
+
+            if iFactoryTechLevel == 2 then
+                local iT1IntyLifetimeBuildCount = M28Conditions.GetAirSubteamLifetimeBuildCount(iAirSubteam, M28UnitInfo.refCategoryAirAA * categories.TECH1)
+                local iT2AirFacCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryAirFactory * categories.TECH2)
+                local iT1IntyThreshold = math.max(4, 4 * iT2AirFacCount)
+                if iEnemyAirAAThreat >= 500 then
+                    iT1IntyThreshold = iT1IntyThreshold + math.floor(iEnemyAirAAThreat / 250)
+                end
+
+                if iT1IntyLifetimeBuildCount < iT1IntyThreshold then
+                    bPreferLowerTierInties = true
+                    iPreferredTech = 1
+                    if bDebugMessages == true then LOG(sFunctionRef..': T1_INTY - T2 fac preferring T1 interceptors (T1IntyBuilt='..iT1IntyLifetimeBuildCount..', Threshold='..iT1IntyThreshold..', T2Facs='..iT2AirFacCount..', EnemyAirAA='..iEnemyAirAAThreat..')') end
+                end
+            elseif iFactoryTechLevel == 3 then
+                local iT2FighterLifetimeBuildCount = M28Conditions.GetAirSubteamLifetimeBuildCount(iAirSubteam, M28UnitInfo.refCategoryAirAA * categories.TECH2)
+                local iT3AirFacCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryAirFactory * categories.TECH3)
+                local iT2FighterThreshold = math.max(3, 3 * iT3AirFacCount)
+                if iEnemyAirAAThreat >= 1000 then
+                    iT2FighterThreshold = iT2FighterThreshold + math.floor(iEnemyAirAAThreat / 500)
+                end
+
+                if iT2FighterLifetimeBuildCount < iT2FighterThreshold then
+                    bPreferLowerTierInties = true
+                    iPreferredTech = 2
+                    if bDebugMessages == true then LOG(sFunctionRef..': T2_FIGHTER - T3 fac preferring T2 fighters (T2FighterBuilt='..iT2FighterLifetimeBuildCount..', Threshold='..iT2FighterThreshold..', T3Facs='..iT3AirFacCount..', EnemyAirAA='..iEnemyAirAAThreat..')') end
+                end
+            end
+
+            if bPreferLowerTierInties then
+                if iPreferredTech == 1 then
+                    iAirAASearchCategory = M28UnitInfo.refCategoryAirAA * categories.TECH1
+                    if bDebugMessages == true then LOG(sFunctionRef..': Using T1 interceptor category') end
+                else
+                    iAirAASearchCategory = M28UnitInfo.refCategoryAirAA * categories.TECH2
+                    if bDebugMessages == true then LOG(sFunctionRef..': Using T2 fighter category') end
+                end
+            elseif iFactoryTechLevel == 3 then
                 iAirAASearchCategory = M28UnitInfo.refCategoryAirAA
                 if bDebugMessages == true then LOG(sFunctionRef..': Will get any airaa unit for airaa category') end
             elseif iFactoryTechLevel < 3 and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbOnlyGetASFs]) then
