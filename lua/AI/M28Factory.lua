@@ -1506,24 +1506,67 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 
         --Try to upgrade the factory if possible (only if economy is good)
         local bGoodEconomyForUpgrade = false
-        local iGrossMassIncome = aiBrain[M28Economy.refiGrossMassBaseIncome] or 0
-        local bStallingEnergy = M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]
-        local iMinMassForUpgrade = 2
-        if iFactoryTechLevel == 2 then iMinMassForUpgrade = 5 end
+        local sUpgradeBlockReason = nil
 
-        if iGrossMassIncome >= iMinMassForUpgrade and not(bStallingEnergy) then
+        --Gather all economic data
+        local iGrossMassIncome = aiBrain[M28Economy.refiGrossMassBaseIncome] or 0
+        local iNetMassIncome = aiBrain[M28Economy.refiNetMassBaseIncome] or 0
+        local iMassStoredPercent = aiBrain:GetEconomyStoredRatio('MASS')
+        local iMassStored = aiBrain:GetEconomyStored('MASS')
+        local iEnergyStoredPercent = aiBrain:GetEconomyStoredRatio('ENERGY')
+        local bStallingEnergy = M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]
+        local bStallingMass = M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]
+        local iTimeSinceLastUpgrade = GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastLandFactoryUpgradeStarted] or -60)
+        local iActiveFactoryUpgrades = 0
+        if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs]) == false then
+            for iUpgrade, oUpgrade in M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs] do
+                if M28UnitInfo.IsUnitValid(oUpgrade) and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oUpgrade.UnitId) then
+                    iActiveFactoryUpgrades = iActiveFactoryUpgrades + 1
+                end
+            end
+        end
+
+        --Set thresholds based on tech level
+        local iMinGrossMassForUpgrade = 8
+        local iMinNetMassForUpgrade = 0
+        local iMinMassStoredPercent = 0.08
+        local iMinMassStored = 300
+        local iUpgradeCooldown = 60
+        local iMaxConcurrentUpgrades = 1
+
+        if iFactoryTechLevel == 2 then
+            iMinGrossMassForUpgrade = 14
+            iMinNetMassForUpgrade = 0
+            iMinMassStoredPercent = 0.12
+            iMinMassStored = 150
+            iUpgradeCooldown = 30
+            iMaxConcurrentUpgrades = 1
+        end
+
+        --Check each condition and determine if economy is good enough
+        local bPassGrossMass = iGrossMassIncome >= iMinGrossMassForUpgrade
+        local bPassNetMass = iNetMassIncome >= iMinNetMassForUpgrade
+        local bPassMassStorage = iMassStoredPercent >= iMinMassStoredPercent or iMassStored >= iMinMassStored
+        local bPassEnergy = not(bStallingEnergy) and iEnergyStoredPercent >= 0.15
+        local bPassCooldown = iTimeSinceLastUpgrade >= iUpgradeCooldown
+        local bPassConcurrent = iActiveFactoryUpgrades < iMaxConcurrentUpgrades
+        local bPassNotStallingMass = not(bStallingMass) or iMassStoredPercent >= 0.25
+
+        --All conditions must pass
+        if bPassGrossMass and bPassNetMass and bPassMassStorage and bPassEnergy and bPassCooldown and bPassConcurrent and bPassNotStallingMass then
             bGoodEconomyForUpgrade = true
         end
 
         if bGoodEconomyForUpgrade then
             local sBPIDToBuild = M28UnitInfo.GetUnitUpgradeBlueprint(oFactory, true)
             if sBPIDToBuild then
-                if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled, good economy (MassIncome='..iGrossMassIncome..', StallingEnergy='..tostring(bStallingEnergy)..'), upgrading to '..sBPIDToBuild) end
+                M28Team.tTeamData[iTeam][M28Team.refiTimeLastLandFactoryUpgradeStarted] = GetGameTimeSeconds()
+                if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled, ECONOMY PASSED - upgrading to '..sBPIDToBuild) end
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                 return sBPIDToBuild
             end
         else
-            if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled but economy not good enough for upgrade (MassIncome='..iGrossMassIncome..', MinRequired='..iMinMassForUpgrade..', StallingEnergy='..tostring(bStallingEnergy)..')') end
+            if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled, ECONOMY BLOCKED: '..tostring(sUpgradeBlockReason)) end
         end
         --If can't upgrade and don't want engineers/scouts, just return nil (don't build anything)
         if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled, cannot upgrade, returning nil') end
@@ -2871,7 +2914,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             if tLZTeamData[M28Map.refbEnemiesInNearbyPlateau] and (tLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal] or 0) < 200 * iFactoryTechLevel * iFactoryTechLevel and iFactoryTechLevel >= aiBrain[M28Economy.refiOurHighestLandFactoryTech] and M28Conditions.GetNumberOfUnitsCurrentlyBeingBuiltOfCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryIndirect * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)) == 0 then
                 if ConsiderBuildingCategory(M28UnitInfo.refCategoryIndirect) then return sBPIDToBuild end
                 --Also prioritise if T3 and enemy has ravagers or lots of sniperbots nearby
-            elseif (tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 0) > 0 and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefoNearbyEnemyLongRangeDFThreats]) == false and (M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryPD, tLZTeamData[M28Map.subrefoNearbyEnemyLongRangeDFThreats])) == false or (tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] >= 2000 and M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategorySniperBot, tLZTeamData[M28Map.subrefoNearbyEnemyLongRangeDFThreats])) == false)) then
+            elseif (tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 0) > 0 and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefoNearbyEnemyLongRangeDFThreats]) == false and (M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryPD, tLZTeamData[M28Map.subrefoNearbyEnemyLongRangeDFThreats])) == false or (tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] >= 1000 and M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategorySniperBot, tLZTeamData[M28Map.subrefoNearbyEnemyLongRangeDFThreats])) == false)) then
                 if bDebugMessages == true then LOG(sFunctionRef..': Enemy has ravagers or lots of sniperbots, want to build mobile arti unless we have already built a lot, T3 indirect under construction in zone='..M28Conditions.GetNumberOfUnitsCurrentlyBeingBuiltOfCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryIndirect * categories.TECH3)..'; Factory mobile indirect count='..M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryIndirect * categories.TECH3)..'; Factory total build count='..oFactory[refiTotalBuildCount]..'; iFactoryTechLevel='..iFactoryTechLevel) end
                 if oFactory[refiTotalBuildCount] < 10 or M28Conditions.GetNumberOfUnitsCurrentlyBeingBuiltOfCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryIndirect * categories.TECH3) == 0 or M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryIndirect * categories.TECH3) < oFactory[refiTotalBuildCount] * 0.35 then
                     if iFactoryTechLevel >= 3 then

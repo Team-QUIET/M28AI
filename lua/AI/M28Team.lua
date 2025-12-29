@@ -116,6 +116,7 @@ tTeamData = {} --[x] is the aiBrain.M28Team number - stores certain team-wide in
     --Time tracking for when team first acquired higher tech land factories
     refiTimeFirstT2LandFactory = 'M28TeamTimeFirstT2Land' --Gametimeseconds when team first got T2 land factory HQ
     refiTimeFirstT3LandFactory = 'M28TeamTimeFirstT3Land' --Gametimeseconds when team first got T3 land factory HQ
+    refiTimeLastLandFactoryUpgradeStarted = 'M28TeamLastLandFacUpgStart' --Gametimeseconds when we last started a land factory upgrade (cooldown tracking)
     --subrefiHighestEnemyMexTech = 'M28TeamHighestEnemyMex' --I.e. 1, 2 or 3
     subrefiTotalFactoryCountByType = 'M28TeamFactoryByType' --[x] is the factory type, returns the number that our team has; factory type per M28Factory.refiFactoryType..., e.g. M28Factory.refiFactoryTypeLand
     refbBuiltLotsOfT3Combat = 'M28TeamBuiltLotsOfT3Combat' --true once we have reached a certain lifetime count of T3 combat units (used e.g. to decide if we want to build an experimental)
@@ -699,6 +700,7 @@ function CreateNewTeam(aiBrain)
     tTeamData[iTotalTeamCount][subrefiTotalFactoryCountByType] = {[M28Factory.refiFactoryTypeLand] = 0, [M28Factory.refiFactoryTypeAir] = 0, [M28Factory.refiFactoryTypeNaval] = 0, [M28Factory.refiFactoryTypeOther] = 0}
     tTeamData[iTotalTeamCount][subrefiTeamForwardFactoryCount] = 0
     tTeamData[iTotalTeamCount][refiTimeLastForwardFactoryBuilt] = -120 --Set to negative to allow building immediately
+    tTeamData[iTotalTeamCount][refiTimeLastLandFactoryUpgradeStarted] = -60 --Set to negative to allow upgrading immediately
     tTeamData[iTotalTeamCount][subrefiAlliedDFThreat] = 0
     tTeamData[iTotalTeamCount][subrefiAlliedIndirectThreat] = 0
     tTeamData[iTotalTeamCount][subrefiAlliedGroundAAThreat] = 0
