@@ -7654,7 +7654,10 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                         end
                                                         if bStillAttack then
                                                             if bDebugMessages == true then LOG(sFunctionRef..': Normally would do kiting retreat, but in this case will do manual attack as enemy on cusp of our range and not moving closer to us') end
-                                                            M28Orders.IssueSmartMove(oUnit, oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]:GetPosition(), false, 'KMnA'..iLandZone, false)
+                                                            local oClosestEnemyForAttack = oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]
+                                                            if M28UnitInfo.IsUnitValid(oClosestEnemyForAttack) then
+                                                                M28Orders.IssueSmartMove(oUnit, oClosestEnemyForAttack:GetPosition(), false, 'KMnA'..iLandZone, false)
+                                                            end
                                                         elseif bNearestEnemyNeedsManualAttack then
                                                             if EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oUnit.UnitId) then
                                                                 if M28Utilities.GetDistanceBetweenPositions(tAmphibiousRallyPoint, oUnit:GetPosition()) <= 10 then
