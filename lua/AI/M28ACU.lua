@@ -7491,27 +7491,17 @@ function DoWeStillWantToBeAggressiveWithACU(oACU)
                 bStillBeAggressive = true --redundancy
             else
                 --If significant time elapsed then remove this flag
-                --QUIET: Extended time before removing aggression (1200 vs 900), and with 1+ upgrade stay aggressive even longer (1800)
-                --QUIET: Scale time threshold with upgrades - 1200s base, +450s per effective upgrade
                 local iTimeThreshold = M28Utilities.bQuietModActive and (1200 + iEffectiveUpgradeCount * 450) or 900
                 if GetGameTimeSeconds() >= iTimeThreshold then
                     bStillBeAggressive = false
                 else
                     local iThresholdFactor = 1 + ((M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1) - 1) * 0.25
-                    --QUIET: Upgrades increase the threshold factor (more upgrades = harder to lose aggression)
                     if M28Utilities.bQuietModActive then iThresholdFactor = iThresholdFactor + iEffectiveUpgradeCount * 0.5 end
                     if tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim] > 350 then iThresholdFactor = iThresholdFactor + 0.4 end
                     if M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.3 then bStillBeAggressive = false
-                    elseif aiBrain[M28Economy.refiGrossMassBaseIncome] >= 5 * iThresholdFactor or (aiBrain[M28Economy.refiOurHighestFactoryTechLevel] >= 2 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryEngineer + M28UnitInfo.refCategoryAllAir + M28UnitInfo.refCategoryLandCombat - categories.TECH1) >= 4) then
-                        bStillBeAggressive = false
-                    --QUIET: With upgrades, don't care about map distance (push far with upgraded ACU)
-                    elseif M28Map.iMapSize > 512 and tLZOrWZTeamData[M28Map.refiModDistancePercent] >= 0.4 and not(M28Utilities.bQuietModActive and iEffectiveUpgradeCount > 0) then
-                        bStillBeAggressive = false
                     elseif not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]) then
                         bStillBeAggressive = false
                     elseif M28Team.tTeamData[iTeam][M28Team.refbEnemyHasUpgradedACU] and iEffectiveUpgradeCount == 0 then
-                        bStillBeAggressive = false
-                    elseif M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat) >= 50 * iThresholdFactor then
                         bStillBeAggressive = false
                     elseif M28Map.bIsCampaignMap then
                         bStillBeAggressive = false
