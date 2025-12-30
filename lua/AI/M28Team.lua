@@ -6254,15 +6254,43 @@ function FindSafeMusteringZone(iTeam, iPlateau, iTargetLZ)
         end
 
         if bZoneSafe and bAdjacentZonesSafe and bSameIsland and bCloserToBase then
-            --Prefer zones close to ideal distance
+            --Calculate zone score - prefer zones with our mexes (expansion zones)
             local iDistFromIdeal = math.abs(iZoneModDist - iIdealModDist)
-            if not(iBestMusterZone) or iDistFromIdeal < math.abs(iBestModDist - iIdealModDist) then
+            local iZoneScore = iDistFromIdeal
+
+            --Check if this zone has our mexes - give preference to expansion zones
+            local tMexCountByTech = tLZTeamData[M28Map.subrefMexCountByTech]
+            local iOurMexCount = 0
+            if tMexCountByTech then
+                iOurMexCount = (tMexCountByTech[1] or 0) + (tMexCountByTech[2] or 0) + (tMexCountByTech[3] or 0)
+            end
+            --Reduce score (better) for zones with our mexes - each mex reduces score by 0.05
+            if iOurMexCount > 0 then
+                iZoneScore = iZoneScore - (iOurMexCount * 0.05)
+                if bDebugMessages == true then LOG(sFunctionRef..': Zone '..iLandZone..' has '..iOurMexCount..' of our mexes, adjusting score from '..iDistFromIdeal..' to '..iZoneScore) end
+            end
+
+            --Compare using score (lower is better)
+            local iBestScore = iBestMusterZone and math.abs(iBestModDist - iIdealModDist) or 999
+            if iBestMusterZone then
+                --Recalculate best zone's score with mex bonus
+                local tBestLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iBestMusterZone]
+                local tBestLZTeamData = tBestLZData[M28Map.subrefLZTeamData][iTeam]
+                local tBestMexCount = tBestLZTeamData[M28Map.subrefMexCountByTech]
+                local iBestMexCount = 0
+                if tBestMexCount then
+                    iBestMexCount = (tBestMexCount[1] or 0) + (tBestMexCount[2] or 0) + (tBestMexCount[3] or 0)
+                end
+                iBestScore = math.abs(iBestModDist - iIdealModDist) - (iBestMexCount * 0.05)
+            end
+
+            if not(iBestMusterZone) or iZoneScore < iBestScore then
                 --Check we can path to target from this zone
                 local iTravelDist = M28Map.GetTravelDistanceBetweenLandZones(iPlateau, iLandZone, iTargetLZ)
                 if iTravelDist and iTravelDist < 10000 then
                     iBestMusterZone = iLandZone
                     iBestModDist = iZoneModDist
-                    if bDebugMessages == true then LOG(sFunctionRef..': Found candidate mustering zone '..iLandZone..' with modDist='..iZoneModDist..' (adjacent zones safe)') end
+                    if bDebugMessages == true then LOG(sFunctionRef..': Found candidate mustering zone '..iLandZone..' with modDist='..iZoneModDist..', score='..iZoneScore..', mexes='..iOurMexCount..' (adjacent zones safe)') end
                 end
             end
         end
@@ -6476,6 +6504,14 @@ function ShouldCommitMusteredArmy(iTeam, iPlateau)
     --Calculate required threat ratio based on tech level (more conservative than before)
     local iHighestTech = tTeamData[iTeam][subrefiHighestFriendlyLandFactoryTech] or 1
     local iThreatRatioRequired = 1.1
+
+    --Use lower threshold when defending expansion zones with our mexes
+    local tMexCountByTech = tTargetLZTeamData[M28Map.subrefMexCountByTech]
+    if tMexCountByTech and (tMexCountByTech[1] + tMexCountByTech[2] + tMexCountByTech[3]) > 0 then
+        --We have mexes in this zone, lower the threshold to defend them more aggressively
+        iThreatRatioRequired = 0.95
+        if bDebugMessages == true then LOG(sFunctionRef..': Target zone LZ'..iTargetLZ..' has our mexes ('..tMexCountByTech[1]..'/'..tMexCountByTech[2]..'/'..tMexCountByTech[3]..'), using lower threat ratio='..iThreatRatioRequired) end
+    end
 
     --Minimum unit count based on tech
     local iMinUnitCount = 5

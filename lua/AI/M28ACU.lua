@@ -4488,6 +4488,23 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
                     end
                 end
 
+                --Aggressive mid-map push bonus - force ACU to contest 50% of map in early game
+                --When using ACU aggressively and ACU is on our side of map, give massive bonus to mid-map zones
+                if oACU[refbUseACUAggressively] and tLZTeamData[M28Map.refiModDistancePercent] < 0.4 then
+                    --ACU hasn't reached mid-map yet, prioritize zones that push toward 40-50% modDist
+                    if tAdjLZTeamData[M28Map.refiModDistancePercent] >= 0.35 and tAdjLZTeamData[M28Map.refiModDistancePercent] <= 0.55 then
+                        --Mid-map zone - give huge bonus to force ACU forward
+                        local iMidMapBonus = 800
+                        iCurValue = iCurValue + iMidMapBonus
+                        if bDebugMessages == true then LOG(sFunctionRef..': mid-map push bonus='..iMidMapBonus..'; zone modDist='..tAdjLZTeamData[M28Map.refiModDistancePercent]..'; new iCurValue='..iCurValue) end
+                    elseif tAdjLZTeamData[M28Map.refiModDistancePercent] > tLZTeamData[M28Map.refiModDistancePercent] + 0.05 and tAdjLZTeamData[M28Map.refiModDistancePercent] <= 0.55 then
+                        --Zone is further toward enemy than current - give bonus proportional to how close to mid it gets
+                        local iProgressBonus = 400 * (tAdjLZTeamData[M28Map.refiModDistancePercent] - tLZTeamData[M28Map.refiModDistancePercent])
+                        iCurValue = iCurValue + iProgressBonus
+                        if bDebugMessages == true then LOG(sFunctionRef..': forward progress bonus='..iProgressBonus..'; moving from modDist='..tLZTeamData[M28Map.refiModDistancePercent]..' to='..tAdjLZTeamData[M28Map.refiModDistancePercent]..'; new iCurValue='..iCurValue) end
+                    end
+                end
+
                 if iCurValue > 0 then
                     --Reduce value of core base if no enemies in it
                     if tAdjLZTeamData[M28Map.subrefLZbCoreBase] and not(tAdjLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) then iCurValue = iCurValue * 0.25 end
