@@ -1578,10 +1578,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     else
         if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled, ECONOMY BLOCKED: '..tostring(sUpgradeBlockReason)) end
     end
-    --If can't upgrade and don't want engineers/scouts, just return nil (don't build anything)
-    if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled, cannot upgrade, returning nil') end
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-    return nil
 
     local iLandFactoriesInLZ = 0
     local bHaveHighestLZTech = true
