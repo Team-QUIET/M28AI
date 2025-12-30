@@ -3851,9 +3851,13 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                                 --Exclude experimental PD
                                 iCategoryWanted = iCategoryWanted - M28UnitInfo.refCategoryPD
                                 --Paragon for LOUD/QUIET (where late-game goes on for longer and RAS SACUs arent as good)
+                                --Relax paragon requirements when economy is stagnant in late game
                             elseif not(M28Utilities.bFAFActive) and not(bDontConsiderGameEnderInMostCases) and not(tLZOrWZTeamData[M28Map.refoNearbyExperimentalResourceGen]) and tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] >= tLZOrWZData[M28Map.subrefLZOrWZMexCount] and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 1250 and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] >= 5 and ((M28UnitInfo.tbFactionHasParagon[M28UnitInfo.refFactionUEF] and tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionUEF]) or (M28UnitInfo.tbFactionHasParagon[M28UnitInfo.refFactionSeraphim] and tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionSeraphim]) or (M28UnitInfo.tbFactionHasParagon[M28UnitInfo.refFactionAeon] and tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionAeon]) or (M28UnitInfo.tbFactionHasParagon[M28UnitInfo.refFactionCybran] and tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionCybran])) and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] >= 3 + 4 * M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategoryParagon) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] < 0.9 and (M28Team.tTeamData[iTeam][M28Team.refiLowestUnitCapAdjustmentLevel] or 0) >= -1 then
                                 iCategoryWanted = M28UnitInfo.refCategoryParagon
                                 if bDebugMessages == true then LOG(sFunctionRef..': Want to try and get a resource generator') end
+                            elseif not(M28Utilities.bFAFActive) and not(bDontConsiderGameEnderInMostCases) and not(tLZOrWZTeamData[M28Map.refoNearbyExperimentalResourceGen]) and M28Team.tTeamData[iTeam][M28Team.refbEcoStagnant] and M28Team.tTeamData[iTeam][M28Team.refiTimeEcoStagnantSince] and (GetGameTimeSeconds() - M28Team.tTeamData[iTeam][M28Team.refiTimeEcoStagnantSince] >= 120) and GetGameTimeSeconds() >= 1800 and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 800 and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] >= 2 and ((M28UnitInfo.tbFactionHasParagon[M28UnitInfo.refFactionUEF] and tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionUEF]) or (M28UnitInfo.tbFactionHasParagon[M28UnitInfo.refFactionSeraphim] and tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionSeraphim]) or (M28UnitInfo.tbFactionHasParagon[M28UnitInfo.refFactionAeon] and tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionAeon]) or (M28UnitInfo.tbFactionHasParagon[M28UnitInfo.refFactionCybran] and tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionCybran])) and M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategoryParagon) == 0 then
+                                iCategoryWanted = M28UnitInfo.refCategoryParagon
+                                if bDebugMessages == true then LOG(sFunctionRef..': STAGNANT ECONOMY - Prioritizing Paragon to break economic deadlock, TimeStagnant='..string.format('%.0f', GetGameTimeSeconds() - M28Team.tTeamData[iTeam][M28Team.refiTimeEcoStagnantSince])..'s') end
 
                                 --FACTION SPECIFIC LOGIC
                                 --UEF EXPERIMENTAL CHOICE
@@ -23470,6 +23474,19 @@ function ConsiderBuildingMassFabOrGateway(iTeam, iZone, tLZTeamData, HaveActionT
             end
             if iMaxMassFabsWanted > 0 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 16 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 1.8 * M28Conditions.GetEnemyTeamActualMassIncome(iTeam) then
                 iMaxMassFabsWanted = math.min(iMaxMassFabsWanted, M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] + 1)
+            end
+            --Boost mass fab building when economy is stagnant in late game
+            if M28Team.tTeamData[iTeam][M28Team.refbEcoStagnant] and M28Team.tTeamData[iTeam][M28Team.refiTimeEcoStagnantSince] then
+                local iTimeStagnant = GetGameTimeSeconds() - M28Team.tTeamData[iTeam][M28Team.refiTimeEcoStagnantSince]
+                if iTimeStagnant >= 60 then
+                    --After 60s stagnant: +2 mass fabs wanted
+                    iMaxMassFabsWanted = iMaxMassFabsWanted + 2
+                    if iTimeStagnant >= 120 then
+                        --After 120s stagnant: +4 mass fabs wanted (total)
+                        iMaxMassFabsWanted = iMaxMassFabsWanted + 2
+                    end
+                    if bDebugMessages == true then LOG(sFunctionRef..': STAGNANT ECONOMY - Boosting mass fab count, TimeStagnant='..string.format('%.0f', iTimeStagnant)..'s, iMaxMassFabsWanted='..iMaxMassFabsWanted) end
+                end
             end
             if bDebugMessages == true then LOG(sFunctionRef..': iExistingT3MassFabs='..iExistingT3MassFabs..'; iMaxMassFabsWanted='..iMaxMassFabsWanted..'; iUnderConstructionT3MassFabs='..iUnderConstructionT3MassFabs) end
             local iBPWanted = 0
