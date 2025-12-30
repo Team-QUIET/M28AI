@@ -4227,6 +4227,23 @@ function CheckEnemyACUStatus(iTeam)
         end
     end
 end
+
+--Get highest upgrade count among all enemy ACUs
+function GetHighestEnemyACUUpgradeCount(iTeam)
+    local iMaxUpgrades = 0
+    if M28Utilities.IsTableEmpty(tTeamData[iTeam][reftEnemyACUs]) == false then
+        for iACU, oACU in tTeamData[iTeam][reftEnemyACUs] do
+            if M28UnitInfo.IsUnitValid(oACU) then
+                local iUpgrades = oACU[M28ACU.refiUpgradeCount] or 0
+                if iUpgrades > iMaxUpgrades then
+                    iMaxUpgrades = iUpgrades
+                end
+            end
+        end
+    end
+    return iMaxUpgrades
+end
+
 function CheckForUnitsWithDisabledWeapons(iTeam)
     if M28Utilities.IsTableEmpty(tTeamData[iTeam][reftoUnitsWithDisabledWeapons]) == false then
         local iRecordedUnits = table.getn(tTeamData[iTeam][reftoUnitsWithDisabledWeapons])

@@ -3277,6 +3277,8 @@ function DoesACUWantToReturnToCoreBase(iPlateauOrZero, iLandOrWaterZone, tLZOrWZ
                     or (tLZOrWZTeamData[M28Map.refiModDistancePercent] >= 0.25 and (M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar] or M28Utilities.GetDistanceBetweenPositions(tLZOrWZData[M28Map.subrefMidpoint], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase]) >= 150 + 50 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]))) --1f
             --Exception to dangerous for ACUs - we have 2+ M28 on team, fullshare, have an ACU threat of at least 3.5k (e.g. Sera ACU with 3 upgrades is 3.9k), mod dist is <0.7, and this ACU is closer to enemy base than any other ACU (i.e. have 1 ACU that will be more aggressive)
             and not(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]) and not(M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar]) and GetGameTimeSeconds() <= 1200 and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.95 and oACU[refiUpgradeCount] >= 2 and (M28UnitInfo.GetCombatThreatRating({ oACU}, false) or 0) >= 3500 and M28Utilities.GetDistanceBetweenPositions(tLZOrWZData[M28Map.subrefMidpoint], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase]) <= 250 and M28Conditions.IsFurthestACUToFriendlyBase(oACU, tLZOrWZTeamData, iTeam)))
+            --Exception for upgrade advantage - ACU with upgrades >= enemy should continue pushing, not retreat
+            and not((oACU[refiUpgradeCount] or 0) >= 1 and (oACU[refiUpgradeCount] or 0) >= M28Team.GetHighestEnemyACUUpgradeCount(iTeam) and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.7 and tLZOrWZTeamData[M28Map.refiModDistancePercent] <= 0.55 and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]) and (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0) <= 800 and (not(tLZOrWZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) or (tLZOrWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) <= math.max(2000, M28UnitInfo.GetCombatThreatRating({ oACU }, false) * 1.5)))
             --Rows 2+ - air snipe related conditions (note the log row references treat the above and the first one below as part of the same row)
             or M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.4 or (tLZOrWZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) >= math.max(400, math.min(tLZOrWZTeamData[M28Map.subrefLZThreatAllyMAA], 1500)) or
             --Is enemy planning a potential air snipe and we are exposed?
@@ -3290,52 +3292,33 @@ function DoesACUWantToReturnToCoreBase(iPlateauOrZero, iLandOrWaterZone, tLZOrWZ
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         return true
     else
-        --Run if enemy has an ACU with upgrades or is upgrading and we have no upgrades
+        --Flag priority upgrade if enemy has upgraded ACU and we don't - upgrade in place instead of running home
         if not(tLZOrWZTeamData[M28Map.subrefLZbCoreBase]) and M28Team.tTeamData[iTeam][M28Team.refbEnemyHasUpgradedACU] and (oACU[refiUpgradeCount] or 0) == 0 then
-            if bDebugMessages == true then LOG(sFunctionRef..': Enemy ACU has upgrade and we dont so return to base unless are in a core expansion or have enemy units we want to try and kill and enemy ACU is far away, tLZOrWZTeamData[M28Map.subrefLZCoreExpansion]='..tostring(tLZOrWZTeamData[M28Map.subrefLZCoreExpansion] or false)..'; Enemies in adj zone='..tostring(tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ])..'; tLZOrWZTeamData[M28Map.refiModDistancePercent]='..tLZOrWZTeamData[M28Map.refiModDistancePercent]..'; Dist to nearest friendly base='..M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])..'; ACU health %='..M28UnitInfo.GetUnitHealthPercent(oACU)) end
-            if (tLZOrWZTeamData[M28Map.subrefLZCoreExpansion] or (tLZOrWZTeamData[M28Map.refiModDistancePercent] <= 0.35 and GetGameTimeSeconds() <= 600 and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.8 and (tLZOrWZTeamData[M28Map.refiModDistancePercent] <= 0.2 or M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZOrWZTeamData[M28Map.reftClosestFriendlyBase]) <= 125))) and tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] and GetGameTimeSeconds() <= 840 then
-                local iClosestEnemyACU = 10000
-                local iCurDist
-                if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyACUs]) == false then
-                    for iEnemyACU, oEnemyACU in M28Team.tTeamData[iTeam][M28Team.reftEnemyACUs] do
-                        if (oEnemyACU[M28UnitInfo.refiDFRange] or 0) > (oACU[M28UnitInfo.refiDFRange] or 0) then
-                            iCurDist = M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), oEnemyACU:GetPosition())
-                            if iCurDist < iClosestEnemyACU and (not(oEnemyACU:IsUnitState('Upgrading')) or iCurDist <= (oEnemyACU[M28UnitInfo.refiDFRange] or 0) + 40) then iClosestEnemyACU = iCurDist end
+            oACU[refbWantsPriorityUpgrade] = true
+            if bDebugMessages == true then LOG(sFunctionRef..': Enemy ACU has upgrade and we dont - flagging priority upgrade. tLZOrWZTeamData[M28Map.subrefLZCoreExpansion]='..tostring(tLZOrWZTeamData[M28Map.subrefLZCoreExpansion] or false)..'; Enemies in adj zone='..tostring(tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ])..'; tLZOrWZTeamData[M28Map.refiModDistancePercent]='..tLZOrWZTeamData[M28Map.refiModDistancePercent]..'; Dist to nearest friendly base='..M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])..'; ACU health %='..M28UnitInfo.GetUnitHealthPercent(oACU)) end
+            --Only run if enemy upgraded ACU is very close and actually threatening us
+            local iClosestUpgradedEnemyACU = 10000
+            local iCurDist
+            if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyACUs]) == false then
+                for iEnemyACU, oEnemyACU in M28Team.tTeamData[iTeam][M28Team.reftEnemyACUs] do
+                    if (oEnemyACU[M28UnitInfo.refiDFRange] or 0) > (oACU[M28UnitInfo.refiDFRange] or 0) then
+                        iCurDist = M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), oEnemyACU:GetPosition())
+                        --Only count as threat if NOT upgrading (or if upgrading and very close)
+                        if iCurDist < iClosestUpgradedEnemyACU and (not(oEnemyACU:IsUnitState('Upgrading')) or iCurDist <= (oEnemyACU[M28UnitInfo.refiDFRange] or 0) + 25) then
+                            iClosestUpgradedEnemyACU = iCurDist
                         end
                     end
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': iClosestEnemyACU with better range than us='..iClosestEnemyACU) end
-                if iClosestEnemyACU <= 175 then
-                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-                    return true
-                else
-                    --If not a core expansion, then check there is actually an enemy unit nearby (such that we are liekly going to be attacking)
-                    if tLZOrWZTeamData[M28Map.subrefLZCoreExpansion] then
-                        --Do nothing
-                        if bDebugMessages == true then LOG(sFunctionRef..': Etiher core xpansion or closest DF unit is within 50 of us so we dont want to run as it may be better to attack instead') end
-                    else
-                        local oNearestUnit
-                        if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]) == false then
-                            oNearestUnit = M28Utilities.GetNearestUnit(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies], oACU:GetPosition())
-                            if M28UnitInfo.IsUnitValid(oNearestUnit) then
-                                if M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), oNearestUnit:GetPosition()) <= 50 then
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Closest enmy unit is within 50 so dont want to run as it may be better to attack') end
-                                else
-                                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-                                    return true
-                                end
-                            else
-                                M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-                                return true
-                            end
-                        else
-                            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-                            return true
-                        end
-                    end
-
-                end
-            else
+            end
+            if bDebugMessages == true then LOG(sFunctionRef..': iClosestUpgradedEnemyACU='..iClosestUpgradedEnemyACU..'; SafeToUpgrade='..tostring(M28Conditions.SafeToUpgradeUnit(oACU))) end
+            --Run only if enemy upgraded ACU is close enough to threaten us (within 100 range)
+            --or if we're very far from base and exposed
+            if iClosestUpgradedEnemyACU <= 100 then
+                if bDebugMessages == true then LOG(sFunctionRef..': Enemy upgraded ACU within 100 range, must run') end
+                M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                return true
+            elseif tLZOrWZTeamData[M28Map.refiModDistancePercent] >= 0.65 and M28UnitInfo.GetUnitHealthPercent(oACU) < 0.7 then
+                if bDebugMessages == true then LOG(sFunctionRef..': Far from base with low health, running to upgrade safely') end
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                 return true
             end
@@ -4471,38 +4454,55 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
                 end
 
                 --General value % adjustments (e.g. for core base, travel dist, and dist towards enemy base)
-                --Add forward momentum bonus for zones closer to enemy (before T2 exists)
-                --This prevents ACU from going to backline zones for reclaim when it should be contesting map
                 local iHighestEnemyGroundTech = M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] or 1
                 if iHighestEnemyGroundTech <= 1 then
                     if tAdjLZTeamData[M28Map.refiModDistancePercent] > 0.15 and tAdjLZTeamData[M28Map.refiModDistancePercent] <= 0.5 then
-                        --Zone is on our side of map but moving toward enemy - give significant bonus
                         local iForwardBonus = 300 * tAdjLZTeamData[M28Map.refiModDistancePercent]
                         iCurValue = iCurValue + iForwardBonus
                         if bDebugMessages == true then LOG(sFunctionRef..': Early game forward momentum bonus='..iForwardBonus..'; new iCurValue='..iCurValue) end
                     elseif tAdjLZTeamData[M28Map.refiModDistancePercent] <= 0.15 and not(tAdjLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) then
-                        --Zone is very close to our base (backline) - reduce value to discourage passive play
-                        --Only reduce if there's no enemies threatening it
                         iCurValue = iCurValue * 0.3
                         if bDebugMessages == true then LOG(sFunctionRef..': Early game backline zone penalty, reduced iCurValue to='..iCurValue) end
                     end
                 end
 
                 --Aggressive mid-map push bonus - force ACU to contest 50% of map in early game
-                --When using ACU aggressively and ACU is on our side of map, give massive bonus to mid-map zones
                 if oACU[refbUseACUAggressively] and tLZTeamData[M28Map.refiModDistancePercent] < 0.4 then
-                    --ACU hasn't reached mid-map yet, prioritize zones that push toward 40-50% modDist
                     if tAdjLZTeamData[M28Map.refiModDistancePercent] >= 0.35 and tAdjLZTeamData[M28Map.refiModDistancePercent] <= 0.55 then
-                        --Mid-map zone - give huge bonus to force ACU forward
                         local iMidMapBonus = 800
                         iCurValue = iCurValue + iMidMapBonus
                         if bDebugMessages == true then LOG(sFunctionRef..': mid-map push bonus='..iMidMapBonus..'; zone modDist='..tAdjLZTeamData[M28Map.refiModDistancePercent]..'; new iCurValue='..iCurValue) end
                     elseif tAdjLZTeamData[M28Map.refiModDistancePercent] > tLZTeamData[M28Map.refiModDistancePercent] + 0.05 and tAdjLZTeamData[M28Map.refiModDistancePercent] <= 0.55 then
-                        --Zone is further toward enemy than current - give bonus proportional to how close to mid it gets
                         local iProgressBonus = 400 * (tAdjLZTeamData[M28Map.refiModDistancePercent] - tLZTeamData[M28Map.refiModDistancePercent])
                         iCurValue = iCurValue + iProgressBonus
                         if bDebugMessages == true then LOG(sFunctionRef..': forward progress bonus='..iProgressBonus..'; moving from modDist='..tLZTeamData[M28Map.refiModDistancePercent]..' to='..tAdjLZTeamData[M28Map.refiModDistancePercent]..'; new iCurValue='..iCurValue) end
                     end
+                end
+
+                --Directional push bonus - reward zones that are actually closer to enemy base position
+                local iDistFromCurZoneToEnemy = M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], tLZTeamData[M28Map.reftClosestEnemyBase])
+                local iDistFromAdjZoneToEnemy = M28Utilities.GetDistanceBetweenPositions(tAdjLZData[M28Map.subrefMidpoint], tAdjLZTeamData[M28Map.reftClosestEnemyBase])
+                if iDistFromAdjZoneToEnemy < iDistFromCurZoneToEnemy then
+                    local iDistReduction = iDistFromCurZoneToEnemy - iDistFromAdjZoneToEnemy
+                    local iDirectionalBonus = math.min(400, iDistReduction * 3)
+                    if iHighestEnemyGroundTech <= 2 then
+                        iDirectionalBonus = iDirectionalBonus * 3
+                    end
+                    iCurValue = iCurValue + iDirectionalBonus
+                    if bDebugMessages == true then LOG(sFunctionRef..': Directional push bonus='..iDirectionalBonus..'; zone is '..iDistReduction..' closer to enemy base; new iCurValue='..iCurValue) end
+                end
+
+                --Upgrade advantage push momentum - when ACU has upgrade advantage or equal, maintain push toward enemy
+                local iOurUpgrades = oACU[refiUpgradeCount] or 0
+                local iEnemyMaxUpgrades = M28Team.GetHighestEnemyACUUpgradeCount(iTeam)
+                local bHasUpgradeAdvantage = iOurUpgrades >= 1 and iOurUpgrades >= iEnemyMaxUpgrades
+                if bHasUpgradeAdvantage and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.9 and iDistFromAdjZoneToEnemy < iDistFromCurZoneToEnemy then
+                    local iMomentumBonus = 200
+                    if tLZTeamData[M28Map.refiModDistancePercent] < 0.45 then
+                        iMomentumBonus = 350
+                    end
+                    iCurValue = iCurValue + iMomentumBonus
+                    if bDebugMessages == true then LOG(sFunctionRef..': Upgrade advantage momentum bonus='..iMomentumBonus..'; we have '..iOurUpgrades..' upgrades vs enemy '..iEnemyMaxUpgrades..'; new iCurValue='..iCurValue) end
                 end
 
                 if iCurValue > 0 then
