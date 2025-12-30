@@ -1506,156 +1506,82 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         return nil
     end
 
-    --Stop lower-tech factories from building combat units after having higher tech for a while
-    --This saves mass to allow upgrading remaining factories to higher tech
-    local bThrottleLowerTechProduction = false
-    local iThrottleDelayT1 = GetLandFactoryThrottleDelay(1)
-    local iThrottleDelayT2 = GetLandFactoryThrottleDelay(2)
+    --Try to upgrade the factory if possible (only if economy is good)
+    local bGoodEconomyForUpgrade = false
+    local sUpgradeBlockReason = nil
 
-    --After having T2 for X seconds, stop T1 combat production
-    if iFactoryTechLevel == 1 and M28Team.tTeamData[iTeam][M28Team.refiTimeFirstT2LandFactory] then
-        local iTimeWithT2 = GetGameTimeSeconds() - M28Team.tTeamData[iTeam][M28Team.refiTimeFirstT2LandFactory]
-        if iTimeWithT2 >= iThrottleDelayT1 then
-            local bHasExceptionCondition = false
-            if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.7 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) then
-                bHasExceptionCondition = true
-                if bDebugMessages == true then LOG(sFunctionRef..': T1 throttle exception - overflowing mass') end
-            end
-            if tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] then
-                bHasExceptionCondition = true
-                if bDebugMessages == true then LOG(sFunctionRef..': T1 throttle exception - dangerous enemies in zone') end
-            end
-            if GetGameTimeSeconds() < 300 then
-                bHasExceptionCondition = true
-                if bDebugMessages == true then LOG(sFunctionRef..': T1 throttle exception - early game') end
-            end
-            if not(bHasExceptionCondition) then
-                bThrottleLowerTechProduction = true
-                if bDebugMessages == true then LOG(sFunctionRef..': T1 land factory throttled - have had T2 for '..iTimeWithT2..'s (threshold='..iThrottleDelayT1..'s)') end
+    --Gather all economic data
+    local iGrossMassIncome = aiBrain[M28Economy.refiGrossMassBaseIncome] or 0
+    local iNetMassIncome = aiBrain[M28Economy.refiNetMassBaseIncome] or 0
+    local iMassStoredPercent = aiBrain:GetEconomyStoredRatio('MASS')
+    local iMassStored = aiBrain:GetEconomyStored('MASS')
+    local iEnergyStoredPercent = aiBrain:GetEconomyStoredRatio('ENERGY')
+    local bStallingEnergy = M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]
+    local bStallingMass = M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]
+    local iTimeSinceLastUpgrade = GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastLandFactoryUpgradeStarted] or -60)
+    local iActiveFactoryUpgrades = 0
+    if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs]) == false then
+        for iUpgrade, oUpgrade in M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs] do
+            if M28UnitInfo.IsUnitValid(oUpgrade) and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oUpgrade.UnitId) then
+                iActiveFactoryUpgrades = iActiveFactoryUpgrades + 1
             end
         end
     end
 
-    --After having T3 for X seconds
-    if iFactoryTechLevel == 2 and M28Team.tTeamData[iTeam][M28Team.refiTimeFirstT3LandFactory] then
-        local iTimeWithT3 = GetGameTimeSeconds() - M28Team.tTeamData[iTeam][M28Team.refiTimeFirstT3LandFactory]
-        if iTimeWithT3 >= iThrottleDelayT2 then
-            local bHasExceptionCondition = false
-            if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.7 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) then
-                bHasExceptionCondition = true
-                if bDebugMessages == true then LOG(sFunctionRef..': T2 throttle exception - overflowing mass') end
-            end
-            if tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] then
-                bHasExceptionCondition = true
-                if bDebugMessages == true then LOG(sFunctionRef..': T2 throttle exception - dangerous enemies in zone') end
-            end
-            if not(bHasExceptionCondition) then
-                bThrottleLowerTechProduction = true
-                if bDebugMessages == true then LOG(sFunctionRef..': T2 land factory throttled - have had T3 for '..iTimeWithT3..'s (threshold='..iThrottleDelayT2..'s)') end
-            end
-        end
+    --Set thresholds based on tech level
+    local iMinGrossMassForUpgrade = 8
+    local iMinNetMassForUpgrade = 0
+    local iMinMassStoredPercent = 0.08
+    local iMinMassStored = 300
+    local iUpgradeCooldown = 60
+    local iMaxConcurrentUpgrades = 1
+
+    if iFactoryTechLevel == 2 then
+        iMinGrossMassForUpgrade = 14
+        iMinNetMassForUpgrade = 0
+        iMinMassStoredPercent = 0.12
+        iMinMassStored = 150
+        iUpgradeCooldown = 30
+        iMaxConcurrentUpgrades = 1
     end
 
-    --If throttled, only allow engineers, scouts, or upgrading
-    if bThrottleLowerTechProduction then
-        if iFactoryTechLevel == 1 then
-            if tLZTeamData[M28Map.subrefTbWantBP] then
-                local sBPIDToBuild = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryEngineer, oFactory)
-                if sBPIDToBuild then
-                    if bDebugMessages == true then LOG(sFunctionRef..': T1 factory throttled but building engineer') end
-                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-                    return sBPIDToBuild
-                end
-            end
-            if tLZTeamData[M28Map.refbWantLandScout] and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision]) then
-                local sBPIDToBuild = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryLandScout, oFactory)
-                if sBPIDToBuild then
-                    if bDebugMessages == true then LOG(sFunctionRef..': T1 factory throttled but building scout') end
-                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-                    return sBPIDToBuild
-                end
-            end
-        end
-        if iFactoryTechLevel == 2 then
-            if tLZTeamData[M28Map.subrefTbWantBP] then
-                local sBPIDToBuild = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryEngineer, oFactory)
-                if sBPIDToBuild then
-                    if bDebugMessages == true then LOG(sFunctionRef..': T2 factory throttled but building engineer') end
-                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-                    return sBPIDToBuild
-                end
-            end
-        end
+    --Check each condition and determine if economy is good enough
+    local bPassGrossMass = iGrossMassIncome >= iMinGrossMassForUpgrade
+    local bPassNetMass = iNetMassIncome >= iMinNetMassForUpgrade
+    local bPassMassStorage = iMassStoredPercent >= iMinMassStoredPercent or iMassStored >= iMinMassStored
+    local bPassEnergy = not(bStallingEnergy) and iEnergyStoredPercent >= 0.15
+    local bPassCooldown = iTimeSinceLastUpgrade >= iUpgradeCooldown
+    local bPassConcurrent = iActiveFactoryUpgrades < iMaxConcurrentUpgrades
+    local bPassNotStallingMass = not(bStallingMass) or iMassStoredPercent >= 0.25
 
-        --Try to upgrade the factory if possible (only if economy is good)
-        local bGoodEconomyForUpgrade = false
-        local sUpgradeBlockReason = nil
-
-        --Gather all economic data
-        local iGrossMassIncome = aiBrain[M28Economy.refiGrossMassBaseIncome] or 0
-        local iNetMassIncome = aiBrain[M28Economy.refiNetMassBaseIncome] or 0
-        local iMassStoredPercent = aiBrain:GetEconomyStoredRatio('MASS')
-        local iMassStored = aiBrain:GetEconomyStored('MASS')
-        local iEnergyStoredPercent = aiBrain:GetEconomyStoredRatio('ENERGY')
-        local bStallingEnergy = M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]
-        local bStallingMass = M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]
-        local iTimeSinceLastUpgrade = GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastLandFactoryUpgradeStarted] or -60)
-        local iActiveFactoryUpgrades = 0
-        if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs]) == false then
-            for iUpgrade, oUpgrade in M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs] do
-                if M28UnitInfo.IsUnitValid(oUpgrade) and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oUpgrade.UnitId) then
-                    iActiveFactoryUpgrades = iActiveFactoryUpgrades + 1
-                end
-            end
-        end
-
-        --Set thresholds based on tech level
-        local iMinGrossMassForUpgrade = 8
-        local iMinNetMassForUpgrade = 0
-        local iMinMassStoredPercent = 0.08
-        local iMinMassStored = 300
-        local iUpgradeCooldown = 60
-        local iMaxConcurrentUpgrades = 1
-
-        if iFactoryTechLevel == 2 then
-            iMinGrossMassForUpgrade = 14
-            iMinNetMassForUpgrade = 0
-            iMinMassStoredPercent = 0.12
-            iMinMassStored = 150
-            iUpgradeCooldown = 30
-            iMaxConcurrentUpgrades = 1
-        end
-
-        --Check each condition and determine if economy is good enough
-        local bPassGrossMass = iGrossMassIncome >= iMinGrossMassForUpgrade
-        local bPassNetMass = iNetMassIncome >= iMinNetMassForUpgrade
-        local bPassMassStorage = iMassStoredPercent >= iMinMassStoredPercent or iMassStored >= iMinMassStored
-        local bPassEnergy = not(bStallingEnergy) and iEnergyStoredPercent >= 0.15
-        local bPassCooldown = iTimeSinceLastUpgrade >= iUpgradeCooldown
-        local bPassConcurrent = iActiveFactoryUpgrades < iMaxConcurrentUpgrades
-        local bPassNotStallingMass = not(bStallingMass) or iMassStoredPercent >= 0.25
-
-        --All conditions must pass
-        if bPassGrossMass and bPassNetMass and bPassMassStorage and bPassEnergy and bPassCooldown and bPassConcurrent and bPassNotStallingMass then
-            bGoodEconomyForUpgrade = true
-        end
-
-        if bGoodEconomyForUpgrade then
-            local sBPIDToBuild = M28UnitInfo.GetUnitUpgradeBlueprint(oFactory, true)
-            if sBPIDToBuild then
-                M28Team.tTeamData[iTeam][M28Team.refiTimeLastLandFactoryUpgradeStarted] = GetGameTimeSeconds()
-                if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled, ECONOMY PASSED - upgrading to '..sBPIDToBuild) end
-                M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-                return sBPIDToBuild
-            end
-        else
-            if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled, ECONOMY BLOCKED: '..tostring(sUpgradeBlockReason)) end
-        end
-        --If can't upgrade and don't want engineers/scouts, just return nil (don't build anything)
-        if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled, cannot upgrade, returning nil') end
-        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-        return nil
+    --For land factory upgrades (not HQ), only proceed if we already have the next-tier HQ (so we can quickly upgrade support factories)
+    local bPassHQRequirement = true
+    if iFactoryTechLevel == 1 then
+        bPassHQRequirement = M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 2
+    elseif iFactoryTechLevel == 2 then
+        bPassHQRequirement = M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 3
     end
+
+    --All conditions must pass
+    if bPassGrossMass and bPassNetMass and bPassMassStorage and bPassEnergy and bPassCooldown and bPassConcurrent and bPassNotStallingMass and bPassHQRequirement then
+        bGoodEconomyForUpgrade = true
+    end
+
+    if bGoodEconomyForUpgrade then
+        local sBPIDToBuild = M28UnitInfo.GetUnitUpgradeBlueprint(oFactory, true)
+        if sBPIDToBuild then
+            M28Team.tTeamData[iTeam][M28Team.refiTimeLastLandFactoryUpgradeStarted] = GetGameTimeSeconds()
+            if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled, ECONOMY PASSED - upgrading to '..sBPIDToBuild) end
+            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+            return sBPIDToBuild
+        end
+    else
+        if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled, ECONOMY BLOCKED: '..tostring(sUpgradeBlockReason)) end
+    end
+    --If can't upgrade and don't want engineers/scouts, just return nil (don't build anything)
+    if bDebugMessages == true then LOG(sFunctionRef..': Lower-tech factory throttled, cannot upgrade, returning nil') end
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return nil
 
     local iLandFactoriesInLZ = 0
     local bHaveHighestLZTech = true
