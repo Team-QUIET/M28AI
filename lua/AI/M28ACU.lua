@@ -2576,8 +2576,14 @@ function DoesACUWantToRun(iPlateau, iLandZone, tLZData, tLZTeamData, oACU)
                             --Check for upgrade advantage - ACU with more upgrades than enemy should be more aggressive
                             local iUpgradeAdvantage = (oACU[refiUpgradeCount] or 0) - M28Team.GetHighestEnemyACUUpgradeCount(iTeam)
                             local bHasUpgradeAdvantage = iUpgradeAdvantage >= 1 and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.75
-                            local bHasArmySupport = iNearbyAllyThreat >= 1000 and (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) < iNearbyAllyThreat * 0.95
-                            if bDebugMessages == true then LOG(sFunctionRef..': Checking dangerous for ACUs. bHasArmySupport='..tostring(bHasArmySupport)..'; iNearbyAllyThreat='..iNearbyAllyThreat..'; EnemyCombatTotal='..(tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)..'; bHasUpgradeAdvantage='..tostring(bHasUpgradeAdvantage)..'; refbDangerousForACUs='..tostring(M28Team.tTeamData[iTeam][M28Team.refbDangerousForACUs] or false)) end
+                            local iEnemyCombatTotal = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+                            local iCombinedAllyThreatWithACU = iNearbyAllyThreat + iACUThreat
+                            local bHasArmySupport = iNearbyAllyThreat >= 800 and (
+                                iEnemyCombatTotal < iNearbyAllyThreat * 0.95 or  -- Already winning
+                                (iCombinedAllyThreatWithACU > iEnemyCombatTotal * 0.7 and iNearbyAllyThreat >= 1500) or
+                                (iCombinedAllyThreatWithACU > iEnemyCombatTotal * 0.85 and iHealthPercent >= 0.85)
+                            )
+                            if bDebugMessages == true then LOG(sFunctionRef..': Checking dangerous for ACUs. bHasArmySupport='..tostring(bHasArmySupport)..'; iNearbyAllyThreat='..iNearbyAllyThreat..'; iACUThreat='..iACUThreat..'; iCombinedAllyThreatWithACU='..iCombinedAllyThreatWithACU..'; EnemyCombatTotal='..iEnemyCombatTotal..'; bHasUpgradeAdvantage='..tostring(bHasUpgradeAdvantage)..'; refbDangerousForACUs='..tostring(M28Team.tTeamData[iTeam][M28Team.refbDangerousForACUs] or false)) end
                             if M28Team.tTeamData[iTeam][M28Team.refbDangerousForACUs] and (GetGameTimeSeconds() > 1260 or not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) or (iACUThreat < 3500 and (iACUThreat < 1700 or oACU[refiUpgradeCount] < 3 or M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar] or M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0 or iHealthPercent < 0.9 or M28UnitInfo.GetUnitMaxHealthIncludingShield(oACU) < 20000 or (oACU.MyShield.GetHealth and (iHealthPercent < 0.98 or M28UnitInfo.GetUnitHealthAndShieldPercent(oACU) <= 0.95)))))
                                     and not(bHasUpgradeAdvantage and tLZTeamData[M28Map.refiModDistancePercent] < 0.65)
                                     and not(bHasArmySupport) then
@@ -4481,6 +4487,29 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
                 if tAdjLZData[M28Map.subrefTotalSignificantMassReclaim] >= 150 then
                     iCurValue = iCurValue + tAdjLZData[M28Map.subrefTotalSignificantMassReclaim] / 5
                     if bDebugMessages == true then LOG(sFunctionRef..': Reclaim value added='..(tAdjLZData[M28Map.subrefTotalSignificantMassReclaim] / 5)..'; iCurValue='..iCurValue) end
+                end
+
+                --Value zones where friendly army is in active combat (ACU-Army synergy)
+                local iAllyMobileThreat = tAdjLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0
+                local iEnemyCombatThreat = tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+                local iACUCombatThreat = oACU[M28UnitInfo.refiDFMassThreatOverride] or M28UnitInfo.GetCombatThreatRating({oACU}, false) or 500
+                if iAllyMobileThreat >= 500 then
+                    --Bonus for zones with significant friendly army
+                    local iArmySynergyBonus = 0
+                    if iEnemyCombatThreat >= 300 then
+                        --Army is fighting enemies - ACU joining creates decisive advantage
+                        iArmySynergyBonus = 400 + math.min(iAllyMobileThreat * 0.25, 600)
+                        --Extra bonus if ACU joining would tip the balance
+                        if iAllyMobileThreat + iACUCombatThreat > iEnemyCombatThreat * 0.9 and iAllyMobileThreat < iEnemyCombatThreat * 1.2 then
+                            iArmySynergyBonus = iArmySynergyBonus + 300
+                        end
+                    elseif tAdjLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] then
+                        iArmySynergyBonus = 150 + math.min(iAllyMobileThreat * 0.1, 200)
+                    end
+                    if iArmySynergyBonus > 0 then
+                        iCurValue = iCurValue + iArmySynergyBonus
+                        if bDebugMessages == true then LOG(sFunctionRef..': Army synergy bonus='..iArmySynergyBonus..'; iAllyMobileThreat='..iAllyMobileThreat..'; iEnemyCombatThreat='..iEnemyCombatThreat..'; new iCurValue='..iCurValue) end
+                    end
                 end
 
                 --Encourage ACU to advance toward enemy, especially early game
