@@ -5543,16 +5543,49 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
             --Muster instead of attacking when enemy threat >= our threat (unless defending core base)
             --This prevents feeding units piecemeal into a stronger enemy army
             local bShouldMusterNotAttack = false
-            local iNearbyEnemyThreatForMuster = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
-            --Include adjacent zone threats with distance-based decay
+            --Calculate effective enemy threat for muster decision
+            --Key insight: indirect fire units (snipers, artillery) can't hold ground - they retreat when pushed
+            --So if enemy lacks DF capability, their indirect fire threat should be heavily discounted
+            local iEnemyDFThreat = tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0
+            local iEnemyIFThreat = tLZTeamData[M28Map.subrefLZThreatEnemyMobileIndirectTotal] or 0
+            local iEnemyPDThreat = tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0
+
+            --If enemy DF is minimal compared to IF, discount the IF threat significantly
+            --Snipers and artillery can't stop a push - they have to run
+            local iIFMultiplier = 1.0
+            if iEnemyDFThreat < iEnemyIFThreat * 0.5 then
+                --Enemy has less than half as much DF as IF - their IF units are vulnerable
+                iIFMultiplier = 0.3 --IF only counts 30% because they have to retreat
+            elseif iEnemyDFThreat < iEnemyIFThreat then
+                --Enemy has some DF but less than IF - partial discount
+                iIFMultiplier = 0.6
+            end
+
+            local iNearbyEnemyThreatForMuster = iEnemyDFThreat + (iEnemyIFThreat * iIFMultiplier) + iEnemyPDThreat
+
+            --Include adjacent zone threats with distance-based decay and same IF discounting logic
             --Enemy armies far from our zone midpoint contribute less to the threat calculation
             if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
                 local tOurMidpoint = tLZData[M28Map.subrefMidpoint]
                 for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
                     local tAdjLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ]
                     local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][iTeam]
-                    local iAdjEnemyThreat = tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
-                    if iAdjEnemyThreat > 0 then
+
+                    local iAdjDFThreat = tAdjLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0
+                    local iAdjIFThreat = tAdjLZTeamData[M28Map.subrefLZThreatEnemyMobileIndirectTotal] or 0
+                    local iAdjPDThreat = tAdjLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0
+
+                    --Apply same IF discount logic per zone
+                    local iAdjIFMult = 1.0
+                    if iAdjDFThreat < iAdjIFThreat * 0.5 then
+                        iAdjIFMult = 0.3
+                    elseif iAdjDFThreat < iAdjIFThreat then
+                        iAdjIFMult = 0.6
+                    end
+
+                    local iAdjEffectiveThreat = iAdjDFThreat + (iAdjIFThreat * iAdjIFMult) + iAdjPDThreat
+
+                    if iAdjEffectiveThreat > 0 then
                         local tEnemyPosition
                         if M28Utilities.IsTableEmpty(tAdjLZTeamData[M28Map.subrefTEnemyUnits]) == false then
                             tEnemyPosition = M28Utilities.GetAverageOfUnitPositions(tAdjLZTeamData[M28Map.subrefTEnemyUnits])
@@ -5571,8 +5604,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                 iDistanceDecayFactor = 0.3
                             end
                         end
-                        iNearbyEnemyThreatForMuster = iNearbyEnemyThreatForMuster + iAdjEnemyThreat * iDistanceDecayFactor
-                        if bDebugMessages == true then LOG(sFunctionRef..': Adjacent zone '..iAdjLZ..' enemy threat='..iAdjEnemyThreat..', distance='..math.floor(iDistToOurZone)..', decay='..string.format('%.2f', iDistanceDecayFactor)..', effective='..math.floor(iAdjEnemyThreat * iDistanceDecayFactor)) end
+                        iNearbyEnemyThreatForMuster = iNearbyEnemyThreatForMuster + iAdjEffectiveThreat * iDistanceDecayFactor
+                        if bDebugMessages == true then LOG(sFunctionRef..': Adjacent zone '..iAdjLZ..' enemy threat='..iAdjEffectiveThreat..', distance='..math.floor(iDistToOurZone)..', decay='..string.format('%.2f', iDistanceDecayFactor)..', effective='..math.floor(iAdjEffectiveThreat * iDistanceDecayFactor)) end
                     end
                 end
             end
@@ -5602,7 +5635,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
             --Apply the dynamic threshold
             if iNearbyEnemyThreatForMuster * iMusterMultiplier >= iAvailableCombatUnitThreat and not(tLZTeamData[M28Map.subrefLZbCoreBase]) then
                 bShouldMusterNotAttack = true
-                if bDebugMessages == true then LOG(sFunctionRef..': Muster check - bShouldMusterNotAttack=true, iNearbyEnemyThreatForMuster='..iNearbyEnemyThreatForMuster..', iAvailableCombatUnitThreat='..iAvailableCombatUnitThreat..', iMusterMultiplier='..string.format('%.2f', iMusterMultiplier)..' (modDist='..iModDistPercent..', indirectRatio='..string.format('%.2f', (iIndirectThreat / math.max(1, iAvailableCombatUnitThreat)))..', zoneVal='..iZoneValue..')') end
+                if bDebugMessages == true then LOG(sFunctionRef..': Muster check - bShouldMusterNotAttack=true, iNearbyEnemyThreatForMuster='..iNearbyEnemyThreatForMuster..' (DF='..iEnemyDFThreat..', IF='..iEnemyIFThreat..'*'..iIFMultiplier..', PD='..iEnemyPDThreat..'), iAvailableCombatUnitThreat='..iAvailableCombatUnitThreat..', iMusterMultiplier='..string.format('%.2f', iMusterMultiplier)..' (modDist='..iModDistPercent..', indirectRatio='..string.format('%.2f', (iIndirectThreat / math.max(1, iAvailableCombatUnitThreat)))..', zoneVal='..iZoneValue..')') end
             end
 
             local tEnemyEngineers = {} --So can avoid getting in reclaim range, and consider targeting as a priority
