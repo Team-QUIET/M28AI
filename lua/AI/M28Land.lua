@@ -5544,19 +5544,65 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
             --This prevents feeding units piecemeal into a stronger enemy army
             local bShouldMusterNotAttack = false
             local iNearbyEnemyThreatForMuster = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
-            --Include adjacent zone threats for a more accurate picture
+            --Include adjacent zone threats with distance-based decay
+            --Enemy armies far from our zone midpoint contribute less to the threat calculation
             if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
+                local tOurMidpoint = tLZData[M28Map.subrefMidpoint]
                 for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
-                    local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
-                    iNearbyEnemyThreatForMuster = iNearbyEnemyThreatForMuster + (tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)
+                    local tAdjLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ]
+                    local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][iTeam]
+                    local iAdjEnemyThreat = tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+                    if iAdjEnemyThreat > 0 then
+                        local tEnemyPosition
+                        if M28Utilities.IsTableEmpty(tAdjLZTeamData[M28Map.subrefTEnemyUnits]) == false then
+                            tEnemyPosition = M28Utilities.GetAverageOfUnitPositions(tAdjLZTeamData[M28Map.subrefTEnemyUnits])
+                        else
+                            tEnemyPosition = tAdjLZData[M28Map.subrefMidpoint]
+                        end
+                        local iDistToOurZone = M28Utilities.GetDistanceBetweenPositions(tEnemyPosition, tOurMidpoint)
+                        --Within 80 units: full threat (1.0)
+                        --80-375 units: linear decay from 1.0 to 0.3
+                        --375+ units: 0.3x (distant armies still matter but less urgently)
+                        local iDistanceDecayFactor = 1.0
+                        if iDistToOurZone > 80 then
+                            if iDistToOurZone < 375 then
+                                iDistanceDecayFactor = 1.0 - (iDistToOurZone - 80) * 0.7 / 295
+                            else
+                                iDistanceDecayFactor = 0.3
+                            end
+                        end
+                        iNearbyEnemyThreatForMuster = iNearbyEnemyThreatForMuster + iAdjEnemyThreat * iDistanceDecayFactor
+                        if bDebugMessages == true then LOG(sFunctionRef..': Adjacent zone '..iAdjLZ..' enemy threat='..iAdjEnemyThreat..', distance='..math.floor(iDistToOurZone)..', decay='..string.format('%.2f', iDistanceDecayFactor)..', effective='..math.floor(iAdjEnemyThreat * iDistanceDecayFactor)) end
+                    end
                 end
             end
 
-            --If we don't have at least 20% more threat than enemy and we're not defending a core base, muster instead of attacking
-            --This ensures we only attack when we have a meaningful advantage
-            if iNearbyEnemyThreatForMuster * 1.2 >= iAvailableCombatUnitThreat and not(tLZTeamData[M28Map.subrefLZbCoreBase]) then
+            --Muster threshold based on context
+            --Base: need 20% advantage to attack (enemy * 1.2 >= us means muster)
+            --But be more aggressive (fight at parity or slight disadvantage) when we have advantages:
+            local iMusterMultiplier = 1.2
+            --Closer to our base = faster reinforcements
+            --If we're in our territory (mod dist < 50%), be more willing to fight
+            local iModDistPercent = tLZTeamData[M28Map.refiModDistancePercent] or 50
+            if iModDistPercent < 30 then
+                iMusterMultiplier = iMusterMultiplier - 0.15
+            elseif iModDistPercent < 50 then
+                iMusterMultiplier = iMusterMultiplier - 0.10
+            end
+            --Defending valuable territory (mexes/structures)
+            local iZoneValue = tLZTeamData[M28Map.subrefLZSValue] or 0
+            if iZoneValue >= 2000 then
+                iMusterMultiplier = iMusterMultiplier - 0.10
+            elseif iZoneValue >= 500 then
+                iMusterMultiplier = iMusterMultiplier - 0.05
+            end
+            --Clamp multiplier to reasonable range (1.0 = fight at equal strength, 1.2 = need 20% advantage)
+            iMusterMultiplier = math.max(1.0, math.min(1.2, iMusterMultiplier))
+
+            --Apply the dynamic threshold
+            if iNearbyEnemyThreatForMuster * iMusterMultiplier >= iAvailableCombatUnitThreat and not(tLZTeamData[M28Map.subrefLZbCoreBase]) then
                 bShouldMusterNotAttack = true
-                if bDebugMessages == true then LOG(sFunctionRef..': Muster check - bShouldMusterNotAttack=true, iNearbyEnemyThreatForMuster='..iNearbyEnemyThreatForMuster..', iAvailableCombatUnitThreat='..iAvailableCombatUnitThreat..', need 20% advantage to attack') end
+                if bDebugMessages == true then LOG(sFunctionRef..': Muster check - bShouldMusterNotAttack=true, iNearbyEnemyThreatForMuster='..iNearbyEnemyThreatForMuster..', iAvailableCombatUnitThreat='..iAvailableCombatUnitThreat..', iMusterMultiplier='..string.format('%.2f', iMusterMultiplier)..' (modDist='..iModDistPercent..', indirectRatio='..string.format('%.2f', (iIndirectThreat / math.max(1, iAvailableCombatUnitThreat)))..', zoneVal='..iZoneValue..')') end
             end
 
             local tEnemyEngineers = {} --So can avoid getting in reclaim range, and consider targeting as a priority
