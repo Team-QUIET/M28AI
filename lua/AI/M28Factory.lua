@@ -1206,7 +1206,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
                             local iCurSkirmishersOfTech = oFactory:GetAIBrain():GetCurrentUnits(M28UnitInfo.refCategorySkirmisher * iTechCategory)
                             local iCurDFOfTech = oFactory:GetAIBrain():GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand * iTechCategory)
 
-                            if iCurDFOfTech >= iCurSkirmishersOfTech * 8 and iCurDFOfTech >= 15 and iCurSkirmishersOfTech < 12 then
+                            if iCurDFOfTech >= iCurSkirmishersOfTech * 8 and iCurDFOfTech >= 25 and iCurSkirmishersOfTech < 10 then
                                 iBaseCategoryWanted = M28UnitInfo.refCategorySkirmisher * iTechCategory
                                 if bDebugMessages == true then LOG(sFunctionRef..': Have solid DF core (DF='..iCurDFOfTech..', Skirmishers='..iCurSkirmishersOfTech..'), can build skirmishers') end
                             else
@@ -1216,7 +1216,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
                             -- No nearby enemies, can build some skirmishers if we have enough direct-fire units
                             local iCurDFOfTech = oFactory:GetAIBrain():GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand * iTechCategory)
                             local iCurSkirmishersOfTech = oFactory:GetAIBrain():GetCurrentUnits(M28UnitInfo.refCategorySkirmisher * iTechCategory)
-                            if iCurDFOfTech >= 20 and iCurSkirmishersOfTech < 12 then
+                            if iCurDFOfTech >= 30 and iCurSkirmishersOfTech < 10 then
                                 iBaseCategoryWanted = M28UnitInfo.refCategorySkirmisher * iTechCategory
                                 if bDebugMessages == true then LOG(sFunctionRef..': No nearby enemies and have enough DF units, can build skirmishers') end
                             end
@@ -1227,7 +1227,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
 
                     if (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and iFactoryTechLevel >= 2 and categories.ual0204 and EntityCategoryContains(categories.AEON, oFactory.UnitId) then
                         local iAltCategoryWanted
-                        if iFactoryTechLevel == 2 and iBaseCategoryWanted == M28UnitInfo.refCategorySkirmisher * iTechCategory then
+                        if iFactoryTechLevel == 2 and iBaseCategoryWanted == M28UnitInfo.refCategorySkirmisher * iTechCategory and M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategorySniperBot * iTechCategory) >= 10 then
                             iAltCategoryWanted = M28UnitInfo.refCategorySniperBot * iTechCategory
                             if GetBlueprintThatCanBuildOfCategory(oFactory:GetAIBrain(), iAltCategoryWanted, oFactory) then iBaseCategoryWanted = iAltCategoryWanted end
                         elseif not(M28Utilities.bQuietModActive) and iFactoryTechLevel == 3 and (oFactory[refiTotalBuildCount] <= 10 or math.random(1,3) == 1) then
@@ -1913,13 +1913,13 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         LOG(sFunctionRef .. ': Skirmisher check: iSkirmisherCount=' .. iSkirmisherCount .. '; iDirectFireCount=' .. iDirectFireCount .. '; iEnemyGroundThreat=' .. iEnemyGroundThreat)
     end
 
-    local iMaxSkirmishers = 15
+    local iMaxSkirmishers = 12
     if iSkirmisherCount >= iMaxSkirmishers then
         bDontConsiderBuildingSkirmishers = true
         if bDebugMessages == true then LOG(sFunctionRef..': Hit skirmisher hard cap ('..iSkirmisherCount..'/'..iMaxSkirmishers..'), will prioritize direct-fire units') end
     elseif iSkirmisherCount > 0 and iDirectFireCount >= 0 then
         local iSkirmisherToDirectFireRatio = iSkirmisherCount / math.max(1, iDirectFireCount)
-        local iDesiredSkirmisherToDirectFireRatio = 0.12
+        local iDesiredSkirmisherToDirectFireRatio = 0.10
 
         -- Detect "deathball" scenario - large concentrated enemy ground force
         local iEnemyMobileDFThreat = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] or 0
@@ -1927,11 +1927,11 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 
         -- If enemy has large ground concentration (deathball), reduce skirmisher ratio even more
         if iEnemyMobileDFThreat >= 2000 or iEnemyGroundConcentration >= 1500 then
-            iDesiredSkirmisherToDirectFireRatio = 0.08 -- 1 skirmisher per 12 direct-fire units
-            if bDebugMessages == true then LOG(sFunctionRef..': Enemy deathball detected (MobileDFThreat='..iEnemyMobileDFThreat..', GroundConcentration='..iEnemyGroundConcentration..'), reducing skirmisher ratio to 0.08') end
+            iDesiredSkirmisherToDirectFireRatio = 0.06 -- 1 skirmisher per 16 direct-fire units
+            if bDebugMessages == true then LOG(sFunctionRef..': Enemy deathball detected (MobileDFThreat='..iEnemyMobileDFThreat..', GroundConcentration='..iEnemyGroundConcentration..'), reducing skirmisher ratio to 0.06') end
         elseif iEnemyMobileDFThreat >= 1000 or iEnemyGroundConcentration >= 800 then
-            iDesiredSkirmisherToDirectFireRatio = 0.10 -- 1 skirmisher per 10 direct-fire units
-            if bDebugMessages == true then LOG(sFunctionRef..': Significant enemy ground force detected, reducing skirmisher ratio to 0.10') end
+            iDesiredSkirmisherToDirectFireRatio = 0.08 -- 1 skirmisher per 12 direct-fire units
+            if bDebugMessages == true then LOG(sFunctionRef..': Significant enemy ground force detected, reducing skirmisher ratio to 0.08') end
         end
 
         -- If we have too many skirmishers relative to direct-fire units, stop building skirmishers
