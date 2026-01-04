@@ -4176,6 +4176,51 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
             LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] AIR_AA_STATUS - OurAAThreat='..M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat]..', EnemyAAThreat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]..', AirControl='..sAirControl..', FarBehind='..sFarBehind..', ControlFactor='..(math.floor(iAirControlFactor*100)/100)..', BehindFactor='..(math.floor(iFarBehindFactor*100)/100)..', Available='..iAvailableCount..', Refueling='..iRefuelCount..', InCombat='..iInCombatCount..', Unavailable='..iUnavailableCount..', Time='..iCurTime)
         end
     end
+    
+    local sRefIsMustering = 'bIsMustering'
+    local sRefMusterStartTime = 'iMusterStartTime'
+    --Initialize if nil
+    if M28Team.tAirSubteamData[iAirSubteam][sRefIsMustering] == nil then M28Team.tAirSubteamData[iAirSubteam][sRefIsMustering] = false end
+
+    --Check trigger to START mustering
+    --If we don't have air control, and enemy has significant threat, and we aren't already mustering
+    if not(M28Team.tAirSubteamData[iAirSubteam][sRefIsMustering]) then
+        local iCountAvailable = 0
+        if not(M28Utilities.IsTableEmpty(tAvailableAirAA)) then iCountAvailable = table.getn(tAvailableAirAA) end
+
+        if not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]) 
+           and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] > 1200 
+           and M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] > 400 
+           and iCountAvailable > 0 then
+            M28Team.tAirSubteamData[iAirSubteam][sRefIsMustering] = true
+            M28Team.tAirSubteamData[iAirSubteam][sRefMusterStartTime] = GetGameTimeSeconds()
+            if bDebugMessages == true then LOG(sFunctionRef..': Starting Air Muster due to lack of control. EnemyThreat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]..' OurThreat='..M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat]) end
+        end
+    end
+
+    --Check trigger to END mustering (Release)
+    if M28Team.tAirSubteamData[iAirSubteam][sRefIsMustering] then
+        local bRelease = false
+        local iMusterDuration = GetGameTimeSeconds() - (M28Team.tAirSubteamData[iAirSubteam][sRefMusterStartTime] or 0)
+        local iWeHave = M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat]
+        local iTheyHave = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]
+
+        --Condition 1: Ratio > 1.2
+        if iWeHave > iTheyHave * 1.2 then bRelease = true end
+        if bRelease then
+            M28Team.tAirSubteamData[iAirSubteam][sRefIsMustering] = false
+            if bDebugMessages == true then LOG(sFunctionRef..': Releasing Air Muster! Duration='..iMusterDuration) end
+        else
+            if not(M28Utilities.IsTableEmpty(tAvailableAirAA)) then
+                local tDest = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint]
+                for _, oUnit in tAvailableAirAA do
+                    M28Orders.IssueTrackedMove(oUnit, tDest, 5, false, 'AirMuster')
+                end
+                tAvailableAirAA = {} --Prevent reassignment
+                if bDebugMessages == true then LOG(sFunctionRef..': Mustering... Holding units at support point.') end
+            end
+        end
+    end
 
     --Update orders for any in combat airaa units, and track the assigned damage to them
     local tExistingThreatAssignedByUnitRef = {}
