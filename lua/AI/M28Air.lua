@@ -7736,6 +7736,63 @@ function ManageGunships(iTeam, iAirSubteam)
         end
     end
 
+    -- FORCE GROUPING LOGIC
+    local iAvailableGunshipThreat = M28UnitInfo.GetAirThreatLevel(tAvailableGunships, false, false, false, true, false, false)
+    local iT3GunshipCount = 0
+    if not(M28Utilities.IsTableEmpty(tAvailableGunships)) then
+        local catT3 = categories.TECH3
+        for _, oUnit in tAvailableGunships do
+             if oUnit.GetUnitId and EntityCategoryContains(catT3, oUnit.GetUnitId(oUnit)) then
+                iT3GunshipCount = iT3GunshipCount + 1
+             end
+        end
+    end
+
+    -- Baseline: 6,000 for T3 waves (~4-5 T3s at 1500 mass), 800 for T2 waves (~4-5 T2s at 200 mass)
+    local iBaselineThreat = 800
+    if iT3GunshipCount >= 3 then iBaselineThreat = 6000 end
+
+    -- Scaling: Air AA (Global) + Max Ground AA (Local Peak)
+    -- We measure the highest Ground AA concentration in any single zone to prevent suicide against fortified areas.
+    local iEnemyAirAA = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 0
+    local iPeakEnemyGroundAA = 0
+    
+    if M28Map.tAllPlateaus then
+        for iPlateau, tPlateauData in pairs(M28Map.tAllPlateaus) do
+            if tPlateauData[M28Map.subrefPlateauLandZones] then
+                for iLZ, tLZData in pairs(tPlateauData[M28Map.subrefPlateauLandZones]) do
+                    if tLZData[M28Map.subrefLZTeamData] and tLZData[M28Map.subrefLZTeamData][iTeam] then
+                        local iZoneAA = tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefiThreatEnemyGroundAA] or 0
+                        if iZoneAA > iPeakEnemyGroundAA then
+                            iPeakEnemyGroundAA = iZoneAA
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    local iMinWaveThreat = math.max(iBaselineThreat, iEnemyAirAA + iPeakEnemyGroundAA)
+
+    -- Bypass grouping if we have Snipe Targets (Assassination priority)
+    if not M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.toActiveSnipeTargets]) then
+        iMinWaveThreat = 0
+    end
+
+    if iAvailableGunshipThreat < iMinWaveThreat then
+        if bDebugMessages == true then LOG(sFunctionRef..': Insufficient Gunship Threat for Wave ('..iAvailableGunshipThreat..' < '..iMinWaveThreat..'). Regrouping at rally point.') end
+        
+        local tRallyPoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+        if not(M28Utilities.IsTableEmpty(tAvailableGunships)) then
+            for _, oUnit in tAvailableGunships do
+                M28Orders.IssueTrackedMove(oUnit, tRallyPoint, 20, false, 'WaveRegroup', false)
+            end
+        end
+        SendUnitsForRefueling(tGunshipsForRefueling, iTeam, iAirSubteam)
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return
+    end
+
     local tViaFromRallyPoint --if we use this and via from front gunship we will avoid significant groundAA (where these are specified)
     local tViaFromFrontGunshipPoint
     local iDistToMoveToAltPoint = 150
