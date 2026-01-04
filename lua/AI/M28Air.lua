@@ -4205,8 +4205,45 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
         local iWeHave = M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat]
         local iTheyHave = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]
 
-        --Condition 1: Ratio > 1.2
-        if iWeHave > iTheyHave * 1.2 then bRelease = true end
+        --Determine "Closest Enemy Air Threat" to adjust aggression
+        --If enemies are near our base (low ModDistance), we must release sooner
+        local iMinEnemyDist = 1.0
+        local refiEnemyAirAA = M28Team.refiEnemyAirAAThreat --Keys
+        local refiModDist = M28Map.refiModDistancePercent
+        local subrefPlateauLandZones = M28Map.subrefPlateauLandZones
+        local subrefLZTeamData = M28Map.subrefLZTeamData
+        
+        --Scan All Plateaus and Land Zones
+        for iPlateau, tPlateauData in M28Map.tAllPlateaus do
+            if tPlateauData[subrefPlateauLandZones] then
+                for iLZ, tLZData in tPlateauData[subrefPlateauLandZones] do
+                    if tLZData[subrefLZTeamData] and tLZData[subrefLZTeamData][iTeam] then
+                        local tTeamLZ = tLZData[subrefLZTeamData][iTeam]
+                        if (tTeamLZ[refiEnemyAirAA] or 0) > 200 then
+                            local iDist = tTeamLZ[refiModDist] or 1.0
+                            if iDist < iMinEnemyDist then iMinEnemyDist = iDist end
+                            if iMinEnemyDist < 0.2 then break end 
+                        end
+                    end
+                end
+            end
+            if iMinEnemyDist < 0.2 then break end
+        end
+        --Scan Water Zones (If needed, but LZ covers most critical pathing. Keeping it simple for speed unless water map heavy)
+        --TODO: Add water zone scan if naval maps prove problematic
+
+        --Calculate Dynamic Threshold
+        --Base Ratio: 1.2
+        --Min Ratio (Defense): 1.0
+        local iTargetRatio = 1.2
+        if iMinEnemyDist < 0.5 then
+            iTargetRatio = 1.0 + (iMinEnemyDist * 1.0) --Simplified: at 0.1->1.0, at 0.5->1.2.
+            if iTargetRatio < 1.0 then iTargetRatio = 1.0 end
+            if iTargetRatio > 1.2 then iTargetRatio = 1.2 end
+            if bDebugMessages then LOG(sFunctionRef..': Air Muster Proximity Alert! MinDist='..iMinEnemyDist..' NewRatio='..iTargetRatio) end
+        end
+
+        if iWeHave > iTheyHave * iTargetRatio then bRelease = true end
         if bRelease then
             M28Team.tAirSubteamData[iAirSubteam][sRefIsMustering] = false
             if bDebugMessages == true then LOG(sFunctionRef..': Releasing Air Muster! Duration='..iMusterDuration) end
