@@ -388,48 +388,21 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
         if not(ScenarioInfo.Options.M28PrioritiseBPs == 2) then
             if M28Utilities.bQuietModActive then
                 local iTeam = aiBrain.M28Team
-                -- Special cases -- for QUIET we want lighter units produced before heavier .5 or even more expensive t3/t2/t1
-                -- In the future we should also check if our economy is good enough to switch over to HeavyLandT3 to counter Human HeavyLandT3
-                -- We should also check if we have a large number of factories to switch over to HeavyLandT3 to counter Human HeavyLandT3
-                if sBPIDToBuild == 'url0107' then --CybranLightT1DF
-                    if (M28Team.tTeamData[iTeam][M28Team.refbEnemyHasHeavyLandT1] and oFactory[refiTotalBuildCount] >= 10) or (aiBrain[M28Economy.refiOurHighestLandFactoryTech] >= 2 and oFactory[refiTotalBuildCount] >= 10) or (oFactory[refiTotalBuildCount] >= 5 and M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * categories.url0107) >= 30 then
-                        if oFactory:CanBuild('brmt1exm1') then
-                            aiBrain[reftBlueprintPriorityOverride]['url0107'] = nil
-                            aiBrain[reftBlueprintPriorityOverride]['brmt1exm1'] = 1
-                            sBPIDToBuild = 'brmt1exm1'
-                            if bDebugMessages == true then LOG(sFunctionRef..': want to build proton instead of mantis') end
-                        end
+                -- T1.5 units have good range but poor HP/mass ratio, so limit to 1:10 ratio vs regular T1
+                local tT15UnitIDs = {'brmt1exm1', 'brot1exm1', 'brpt1exm1', 'uel0108'}
+                if EntityCategoryContains(M28UnitInfo.refCategoryT15Units, sBPIDToBuild) then
+                    local iT15Count = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryT15Units)
+                    local iT1DFCount = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMobileDFLand * categories.TECH1 - M28UnitInfo.refCategoryT15Units)
+                    -- Block T1.5 if building another would exceed 1:10 ratio (need 10 T1 DF per T1.5)
+                    if (iT15Count + 1) * 10 > iT1DFCount then
+                        if bDebugMessages == true then LOG(sFunctionRef..': T1.5 ratio would be exceeded, blocking '..sBPIDToBuild..'; iT15Count='..iT15Count..'; iT1DFCount='..iT1DFCount) end
+                        for _, sUnitID in tT15UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = nil end
+                        sBPIDToBuild = nil
+                    else
+                        for _, sUnitID in tT15UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = 1 end
                     end
-                elseif sBPIDToBuild == 'uel0201' then --UEFLightT1DF
-                    if (M28Team.tTeamData[iTeam][M28Team.refbEnemyHasHeavyLandT1] and oFactory[refiTotalBuildCount] >= 10) or (aiBrain[M28Economy.refiOurHighestLandFactoryTech] >= 2 and oFactory[refiTotalBuildCount] >= 10) or (oFactory[refiTotalBuildCount] >= 5 and M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * categories.uel0201) >= 30 then
-                        if oFactory:CanBuild('uel0108') then
-                            aiBrain[reftBlueprintPriorityOverride]['uel0201'] = nil
-                            aiBrain[reftBlueprintPriorityOverride]['uel0108'] = 1
-                            sBPIDToBuild = 'uel0108'
-                            if bDebugMessages == true then LOG(sFunctionRef..': want to build crusher instead of striker') end
-                        end
-                    end
-                elseif (sBPIDToBuild == 'ual0201' or sBPIDToBuild == 'ual0108' or sBPIDToBuild == 'brot1bt') then --AeonLightT1DF
-                    if (M28Team.tTeamData[iTeam][M28Team.refbEnemyHasHeavyLandT1] and oFactory[refiTotalBuildCount] >= 10) or (aiBrain[M28Economy.refiOurHighestLandFactoryTech] >= 2 and oFactory[refiTotalBuildCount] >= 10) or (oFactory[refiTotalBuildCount] >= 5 and M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * (categories.ual0201 + categories.ual0108 + categories.brot1bt)) >= 30 then
-                        if oFactory:CanBuild('brot1exm1') then
-                            aiBrain[reftBlueprintPriorityOverride]['ual0201'] = nil
-                            aiBrain[reftBlueprintPriorityOverride]['ual0108'] = nil
-                            aiBrain[reftBlueprintPriorityOverride]['brot1bt'] = nil
-                            aiBrain[reftBlueprintPriorityOverride]['brot1exm1'] = 1
-                            sBPIDToBuild = 'brot1exm1'
-                            if bDebugMessages == true then LOG(sFunctionRef..': want to build bugbear instead of aurora') end
-                        end
-                    end
-                elseif sBPIDToBuild == 'xsl0201' then --SeraphimLightT1DF
-                    if (M28Team.tTeamData[iTeam][M28Team.refbEnemyHasHeavyLandT1] and oFactory[refiTotalBuildCount] >= 10) or (aiBrain[M28Economy.refiOurHighestLandFactoryTech] >= 2 and oFactory[refiTotalBuildCount] >= 10) or (oFactory[refiTotalBuildCount] >= 5 and M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * categories.xsl0201) >= 30 then
-                        if oFactory:CanBuild('brpt1exm1') then
-                            aiBrain[reftBlueprintPriorityOverride]['xsl0201'] = nil
-                            aiBrain[reftBlueprintPriorityOverride]['brpt1exm1'] = 1
-                            sBPIDToBuild = 'brpt1exm1'
-                            if bDebugMessages == true then LOG(sFunctionRef..': want to build othazyne instead of thaam') end
-                        end
-                    end
-                elseif sBPIDToBuild == 'url0202' or sBPIDToBuild == 'brmt2ht' then --CybranLightT2DF
+                end
+                if sBPIDToBuild == 'url0202' or sBPIDToBuild == 'brmt2ht' then --CybranLightT2DF
                     if (M28Team.tTeamData[iTeam][M28Team.refbEnemyHasHeavyLandT2] and oFactory[refiTotalBuildCount] >= 10) or aiBrain[M28Economy.refiOurHighestLandFactoryTech] >= 3 or (oFactory[refiTotalBuildCount] >= 5 and M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * (categories.url0202 + categories.brmt2ht)) >= 20 then
                         if oFactory:CanBuild('brmt2medm') then
                             aiBrain[reftBlueprintPriorityOverride]['url0202'] = nil
@@ -5463,11 +5436,11 @@ function SetPriorityPreferredUnitsByCategory(aiBrain)
             -- aiBrain[reftBlueprintPriorityOverride]['sal0311'] = 1
             -- aiBrain[reftBlueprintPriorityOverride]['brot3hm'] = 1
 
-            --T1 skirmisher bots
-            -- aiBrain[reftBlueprintPriorityOverride]['brot1exm1'] = 1
-            -- aiBrain[reftBlueprintPriorityOverride]['brmt1exm1'] = 1
-            -- aiBrain[reftBlueprintPriorityOverride]['uel0108'] = 1
-            -- aiBrain[reftBlueprintPriorityOverride]['brpt1exm1'] = 1
+            --T1.5 bots
+            aiBrain[reftBlueprintPriorityOverride]['brot1exm1'] = 1
+            aiBrain[reftBlueprintPriorityOverride]['brmt1exm1'] = 1
+            aiBrain[reftBlueprintPriorityOverride]['uel0108'] = 1
+            aiBrain[reftBlueprintPriorityOverride]['brpt1exm1'] = 1
 
             aiBrain[reftBlueprintPriorityOverride]['ual0204'] = 1 --Aeon T2 sniperbot
             aiBrain[reftBlueprintPriorityOverride]['ssl0403'] = -1000 --experimental reconstruction bot

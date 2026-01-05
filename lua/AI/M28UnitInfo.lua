@@ -300,10 +300,7 @@ else
         refCategoryLightAttackBot = refCategoryLightAttackBot - categories.brpt1exm1
     end
 end
-if categories.brot1exm1 then refCategoryIndirect = refCategoryIndirect + categories.brot1exm1 end --has indirect fire attack as well
---if categories.brmt1exm1 then refCategoryIndirect = refCategoryIndirect + categories.brmt1exm1 end --doesnt have indirect attack
---if categories.uel0108 then refCategoryIndirect = refCategoryIndirect + categories.uel0108 end --doesnt have indirect attack
---if categories.brpt1exm1 then refCategoryIndirect = refCategoryIndirect + categories.brpt1exm1 end --doesnt have indirect attack
+refCategoryT15Units = categories.brmt1exm1 + categories.brot1exm1 + categories.brpt1exm1 + categories.uel0108
 
 refCategoryMobileDFLand = categories.LAND * categories.MOBILE * categories.DIRECTFIRE - categories.SCOUT - refCategoryMAA - categories.UNSELECTABLE - categories.UNTARGETABLE --NOTE: Need to specify slowest (so dont pick LAB)
 refCategoryLandScout = categories.LAND * categories.MOBILE * categories.SCOUT
