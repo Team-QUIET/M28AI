@@ -304,6 +304,7 @@ iLandZoneSegmentSize = 5 --Gets updated by the SetupLandZones - the size of one 
             subrefbLZWantsSupport = 'LZWantsSupport' --true if want DF or indirect units for the LZ
             subrefbLZWantsDFSupport = 'LZWantsDFSupport' --true if want DF units for the LZ
             subrefbLZWantsIndirectSupport = 'LZWantsIndirectSupport' --true if want indirect units for the LZ
+            subrefbLZBaselinePressure = 'LZBaselinePressure' --true if zone marked for baseline offensive pressure (bypasses negligible-enemy filter)
             subrefiTimeOfMMLFiringNearTMDOrShield = 'LZTimMMLFNrTMD' --Gametimeseconds that had MML firing in the zone who were near TMD
             subrefiTimeFriendlyTMDHitEnemyMissile = 'LZTimTMDVsEn' --GetGameTimeSeconds that had TMD intercept enemy missile
 

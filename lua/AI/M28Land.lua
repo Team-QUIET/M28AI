@@ -68,6 +68,117 @@ function UpdateIfLandZoneWantsSupport(tLZTeamData, iPlateau, iLandZone, iTeam, b
     M28Team.tTeamData[iTeam][M28Team.subrefiLandZonesWantingSupportByPlateau][iPlateau][iLandZone] = tLZTeamData[M28Map.subrefbLZWantsSupport]
 end
 
+function ShouldHaveBaselineZonePressure(tLZData, tLZTeamData, iPlateau, iLandZone, iTeam)
+    -- Baseline pressure ensures the FURTHEST FORWARD undefended zones get units
+    -- This creates offensive pressure by pulling units toward enemy, not spreading defensively
+    -- Only marks zones that are the "leading edge" of our presence on a lane
+    
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'ShouldHaveBaselineZonePressure'
+    
+    -- Skip if pacifist area or no value in zone
+    if tLZData[M28Map.subrefbPacifistArea] then return false end
+    if (tLZTeamData[M28Map.subrefLZTValue] or 0) < 100 then return false end
+    
+    -- Only consider after early game (first 3 minutes)
+    if GetGameTimeSeconds() < 180 then return false end
+    
+    -- Get mod distance - higher values = closer to enemy base
+    local iModDist = tLZTeamData[M28Map.refiModDistancePercent] or 0
+    
+    -- Zone must be in the forward half of the map (pushing toward enemy)
+    -- ModDist >= 0.4 means zone is at least 40% toward enemy base
+    if iModDist < 0.4 or iModDist > 0.85 then return false end
+    
+    -- Check if we already have any DF units here - if yes, don't need more baseline pressure
+    local iCurrentDFThreat = tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0
+    if iCurrentDFThreat > 0 then return false end
+    
+    -- This zone has NO friendly units - check if it's on a valid lane
+    -- and if it's the FURTHEST FORWARD undefended zone on that lane
+    local bHasAdjZoneCloserToEnemy = false
+    local bHasAdjZoneCloserToEnemyWithUnits = false
+    local bHasAdjZoneCloserToUs = false
+    local bHasAdjZoneCloserToUsWithUnits = false
+    
+    if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
+        for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
+            local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
+            local iAdjModDist = tAdjLZTeamData[M28Map.refiModDistancePercent] or 0
+            local iAdjDFThreat = tAdjLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0
+            
+            if iAdjModDist > iModDist + 0.03 then
+                bHasAdjZoneCloserToEnemy = true
+                if iAdjDFThreat > 0 then
+                    bHasAdjZoneCloserToEnemyWithUnits = true
+                end
+            elseif iAdjModDist < iModDist - 0.03 then
+                bHasAdjZoneCloserToUs = true
+                if iAdjDFThreat > 0 then
+                    bHasAdjZoneCloserToUsWithUnits = true
+                end
+            end
+        end
+    end
+    
+    -- Zone is a valid lane if it connects toward both enemy and friendly territory
+    local bIsValidLane = bHasAdjZoneCloserToEnemy and bHasAdjZoneCloserToUs
+    
+    if not(bIsValidLane) then 
+        -- Also consider expansion zones
+        if tLZTeamData[M28Map.subrefLZCoreExpansion] == true then
+            bIsValidLane = true
+        else
+            return false
+        end
+    end
+    
+    -- Request units if this is the LEADING EDGE of a push
+    -- OR if this is an ANCHOR ZONE - an empty lane we should contest
+    local bIsLeadingEdge = bHasAdjZoneCloserToUsWithUnits and not(bHasAdjZoneCloserToEnemyWithUnits)
+    
+    -- For completely uncontested lanes where we have NO presence
+    -- Mark zones that have mexes (claimed or unclaimed) and are in the mid-map contestable range
+    local bIsAnchorZone = false
+    if not(bIsLeadingEdge) and not(bHasAdjZoneCloserToUsWithUnits) then
+        -- No friendly units behind us - check if this zone has mexes worth contesting
+        local iTotalMexCount = tLZData[M28Map.subrefLZOrWZMexCount] or 0
+        
+        -- Zone is an anchor point if:
+        -- 1. It has mexes (worth expanding to / contesting from enemy)
+        -- 2. It's in the contestable range (40-65% toward enemy - not too far forward)
+        -- 3. No enemies are ahead of us with units (would be suicidal to push alone)
+        if iTotalMexCount > 0 and iModDist >= 0.4 and iModDist <= 0.65 and not(bHasAdjZoneCloserToEnemyWithUnits) then
+            bIsAnchorZone = true
+        end
+    end
+    
+    local bShouldRequestUnits = bIsLeadingEdge or bIsAnchorZone
+    
+    if bDebugMessages == true then
+        LOG(sFunctionRef..': Zone P'..iPlateau..'Z'..iLandZone..
+            ' ModDist='..iModDist..
+            ' bIsValidLane='..tostring(bIsValidLane)..
+            ' bIsLeadingEdge='..tostring(bIsLeadingEdge)..
+            ' bIsAnchorZone='..tostring(bIsAnchorZone)..
+            ' bHasAdjZoneCloserToUsWithUnits='..tostring(bHasAdjZoneCloserToUsWithUnits)..
+            ' bHasAdjZoneCloserToEnemyWithUnits='..tostring(bHasAdjZoneCloserToEnemyWithUnits))
+    end
+    
+    -- Visual debug for both leading edge and anchor zones
+    -- if bShouldRequestUnits then
+    --     local tMidpoint = tLZData[M28Map.subrefMidpoint]
+    --     if tMidpoint then
+    --         if bIsAnchorZone then
+    --             M28Utilities.DrawCircleAtTarget(tMidpoint, 4, 50, 15) -- Gold for anchor zones
+    --         else
+    --             M28Utilities.DrawCircleAtTarget(tMidpoint, 6, 50, 15) -- Cyan for leading edge
+    --         end
+    --     end
+    -- end
+    return bShouldRequestUnits
+end
+
 
 function GetUnitPlateauAndLandZoneOverride(oUnit)
     --Return true if have changed something
@@ -10859,8 +10970,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             local tOtherLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iOtherLZ]
                             if (bDontCheckPlayableArea or M28Conditions.IsLocationInPlayableArea(tOtherLZData[M28Map.subrefMidpoint])) then
                                 if iIslandWanted == tOtherLZData[M28Map.subrefLZIslandRef] then --If in dif island then want to leave for the amphibious logic later
-                                    --Check not negligible value
-                                    if (tOtherLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefThreatEnemyStructureTotalMass] or 0) + (tOtherLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefTThreatEnemyCombatTotal] or 0) >= iMinEnemyValueToAttack then
+                                    --Check not negligible value - but bypass for baseline pressure zones
+                                    if (tOtherLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefThreatEnemyStructureTotalMass] or 0) + (tOtherLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefTThreatEnemyCombatTotal] or 0) >= iMinEnemyValueToAttack or tOtherLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefbLZBaselinePressure] then
                                         if not(iDFLZToSupport) and tOtherLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefbLZWantsDFSupport] then
                                             --Redundancy - if we cant path using land units then treat distance as 10k + straight line distance, so we prioritise locations that are land pathable (although ideally wouldnt have any such zones anyway?)
                                             iCurDist = (M28Map.GetTravelDistanceBetweenLandZones(iPlateau, iLandZone, iOtherLZ) or 10000) --M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iOtherLZ][M28Map.subrefMidpoint])
@@ -12382,6 +12493,14 @@ function ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
 
                 --Early game - flag that we want support if we have engineers and unclaimed mexes
                 UpdateDFSupportForEarlyGameEngineers()
+                
+                -- Maintain coverage on frontline lanes even without active enemies
+                local bBaselinePressure = ShouldHaveBaselineZonePressure(tLZData, tLZTeamData, iPlateau, iLandZone, iTeam)
+                tLZTeamData[M28Map.subrefbLZBaselinePressure] = bBaselinePressure
+                if not(bWantDFSupport) and not(bWantIndirectSupport) and bBaselinePressure then
+                    bWantDFSupport = true
+                    if bDebugMessages == true then LOG(sFunctionRef..': Flagging baseline zone pressure for P'..iPlateau..'Z'..iLandZone) end
+                end
             end
             UpdateIfLandZoneWantsSupport(tLZTeamData, iPlateau, iLandZone, iTeam, bWantDFSupport, bWantIndirectSupport)
             if bDebugMessages == true then LOG(sFunctionRef..': Will update if this land zone wants some DF support='..tostring(bWantDFSupport)..'; bWantIndirectSupport='..tostring(bWantIndirectSupport)) end
@@ -12396,6 +12515,14 @@ function ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
                 if bDebugMessages == true then LOG(sFunctionRef..': bWantIndirectSupport after checking if nearby structure we can reach with indirect='..tostring(bWantIndirectSupport)) end
             end
             UpdateDFSupportForEarlyGameEngineers()
+            
+            -- Baseline zone pressure: Maintain coverage on frontline lanes even without active enemies
+            local bBaselinePressure = ShouldHaveBaselineZonePressure(tLZData, tLZTeamData, iPlateau, iLandZone, iTeam)
+            tLZTeamData[M28Map.subrefbLZBaselinePressure] = bBaselinePressure
+            if not(bWantDFSupport) and not(bWantIndirectSupport) and bBaselinePressure then
+                bWantDFSupport = true
+                if bDebugMessages == true then LOG(sFunctionRef..': Flagging baseline zone pressure for P'..iPlateau..'Z'..iLandZone..' (no enemies path)') end
+            end
             UpdateIfLandZoneWantsSupport(tLZTeamData, iPlateau, iLandZone, iTeam, bWantDFSupport, bWantIndirectSupport)
         end
     end
