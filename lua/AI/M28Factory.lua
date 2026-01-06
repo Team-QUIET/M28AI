@@ -5624,6 +5624,30 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
         return nil
     end
 
+    -- High priority when under air attack and severely lacking AirAA
+    iCurrentConditionToTry = iCurrentConditionToTry + 1
+    local iOurAirAA = M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] or 0
+    local iEnemyAirAA = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 0
+    local iEnemyAirToGround = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0
+    local bZoneUnderAirAttack = (tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) > 0 or (tLZTeamData[M28Map.refiEnemyAirAAThreat] or 0) > 200
+    
+    if bDebugMessages == true then LOG(sFunctionRef..': Emergency fighter check - iOurAirAA='..iOurAirAA..'; iEnemyAirAA='..iEnemyAirAA..'; iEnemyAirToGround='..iEnemyAirToGround..'; bZoneUnderAirAttack='..tostring(bZoneUnderAirAttack)..'; bHaveLowPower='..tostring(bHaveLowPower)) end
+    
+    if not(bHaveLowPower) and iEnemyAirToGround >= 500 and iOurAirAA < iEnemyAirAA * 0.9 and (bZoneUnderAirAttack or tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) then
+        sProductionDecisionReason = 'Emergency fighter production - under air attack with AirAA deficit'
+        if bDebugMessages == true then LOG(sFunctionRef..': Severe air deficit, prioritizing AirAA over other units') end
+        if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirAA) then return sBPIDToBuild end
+    end
+
+    -- Ratio-based fighter production when air disparity is growing too large
+    -- Even if not under immediate attack, prevent enemy from gaining overwhelming air superiority
+    iCurrentConditionToTry = iCurrentConditionToTry + 1
+    if not(bHaveLowPower) and not(bHaveLowMass) and iEnemyAirAA >= 500 and iOurAirAA < iEnemyAirAA * 1.1 and iEnemyAirToGround >= 300 then
+        sProductionDecisionReason = 'Proactive fighter production - preventing air disparity'
+        if bDebugMessages == true then LOG(sFunctionRef..': Proactive fighter production to prevent air disparity from growing. Ratio='..string.format('%.2f', iOurAirAA / math.max(1, iEnemyAirAA))) end
+        if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirAA) then return sBPIDToBuild end
+    end
+
     iCurrentConditionToTry = iCurrentConditionToTry + 1
     --Special priority flag to build engineer
     if oFactory[refbWantNextUnitToBeEngineer] then
