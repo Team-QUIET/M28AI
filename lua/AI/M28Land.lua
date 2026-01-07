@@ -4513,7 +4513,7 @@ end
 
 function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, tAvailableCombatUnits, iFriendlyBestMobileDFRange, iFriendlyBestMobileIndirectRange, bWantIndirectReinforcements, tUnavailableUnitsInThisLZ, bDelayOrdersForHover, bHaveCombatUnitsFromAdjZone)
     --Handles logic for main combat units (direct and indirect fire mobile units) that are noted as available to the land zone
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'ManageCombatUnitsInLandZone'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
@@ -5807,11 +5807,21 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         end
                         if bDebugMessages == true then LOG(sFunctionRef..': oClosestCombatUnitToEnemyACU='..(oClosestCombatUnitToEnemyACU.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oClosestCombatUnitToEnemyACU) or 'nil')) end
                         if oClosestCombatUnitToEnemyACU then
-                            local tFriendlyCombatNearACU = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryLandCombat, oClosestCombatUnitToEnemyACU:GetPosition(), 40, 'Ally')
+                            local tFriendlyCombatNearACU = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryLandCombat, oClosestCombatUnitToEnemyACU:GetPosition(), 80, 'Ally')
                             local iFriendlyFrontlineCombatThreat = M28UnitInfo.GetCombatThreatRating(tFriendlyCombatNearACU, true)
+                            --Also consider zone's total ally DF threat + available threat + adjacent zones if frontline count seems low
+                            local iZoneTotalAllyThreat = (tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0) + iAvailableCombatUnitThreat
+                            --Add adjacent zone ally DF threat
+                            if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
+                                for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
+                                    local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
+                                    iZoneTotalAllyThreat = iZoneTotalAllyThreat + (tAdjLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0)
+                                end
+                            end
+                            if iZoneTotalAllyThreat > iFriendlyFrontlineCombatThreat then iFriendlyFrontlineCombatThreat = math.max(iFriendlyFrontlineCombatThreat, iZoneTotalAllyThreat * 0.7) end
                             if iFriendlyFrontlineCombatThreat >= iMobileDFWanted then
                                 --Check if enemy has significant force
-                                if iFriendlyFrontlineCombatThreat >= 15000 then bConsiderAttackingACU = true
+                                if iFriendlyFrontlineCombatThreat >= 10000 then bConsiderAttackingACU = true
                                 else
                                     local tEnemiesNearACU = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryLandCombat, oClosestACUToMidpoint:GetPosition(), 35, 'Enemy')
                                     local iThreatOfEnemies = M28UnitInfo.GetCombatThreatRating(tEnemiesNearACU)
@@ -8772,7 +8782,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     if bDebugMessages == true then LOG(sFunctionRef..': Have enough threat to attack, and non earby enemy firebase, so will attack with everything') end
                                 end
                                 --Extra check if enemy has ACU, to avoid feeding it mass if we only have a slight combat advantage
-                                if bAttackWithEverything and not(bConsiderAttackingACU) and M28Utilities.IsTableEmpty(toEnemyACUsNearZone) == false and iOurDFAndT1ArtiCombatThreat < math.max(iEnemyCombatThreat * 2, iEnemyCombatThreat + 600) and iFirebaseThreatAdjust == 0 then
+                                if bAttackWithEverything and not(bConsiderAttackingACU) and M28Utilities.IsTableEmpty(toEnemyACUsNearZone) == false and iOurDFAndT1ArtiCombatThreat < math.max(iEnemyCombatThreat * 1.3, iEnemyCombatThreat + 300) and iFirebaseThreatAdjust == 0 then
                                     if bDebugMessages == true then LOG(sFunctionRef..': enemy has ACU so want to be more cautious, is the closest enemy an ACU='..tostring(EntityCategoryContains(categories.COMMAND, oNearestEnemyToFriendlyBase.UnitId))) end
                                     if EntityCategoryContains(categories.COMMAND, oNearestEnemyToFriendlyBase.UnitId) then
                                         if M28UnitInfo.GetUnitHealthPercent(oNearestEnemyToFriendlyBase) >= 0.3 and ((oNearestEnemyToFriendlyBase[M28ACU.refiUpgradeCount] or 0) >= 2 or M28UnitInfo.GetUnitHealthPercent(oNearestEnemyToFriendlyBase) >= 0.5) then
@@ -9692,16 +9702,24 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                             if EntityCategoryContains(categories.COMMAND, oNearestEnemyToFriendlyBase.UnitId) then
                                                                 M28Orders.IssueTrackedMove(oUnit, oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], 6, false, 'MvACU'..iLandZone)
                                                             else
-                                                                local oTargetToManuallyAttack, bMoveNotManualAttack = GetManualAttackTargetIfWantManualAttack(oUnit)
-                                                                if oTargetToManuallyAttack and not(oTargetToManuallyAttack == oNearestEnemyToFriendlyBase) then
-                                                                    if bMoveNotManualAttack then M28Orders.IssueTrackedMove(oUnit, oTargetToManuallyAttack:GetPosition(), 2, false, 'Sc2bManM', false)
-                                                                    else
-                                                                        DoManualAttack(oUnit, oTargetToManuallyAttack, 'Sc2bManA')
-                                                                    end
+                                                                --bConsiderAttackingACU is true but nearest enemy isn't ACU - target the ACU directly instead of walking around it
+                                                                local oClosestACUToUnit = M28Utilities.GetNearestUnit(toEnemyACUsNearZone, oUnit:GetPosition())
+                                                                if oClosestACUToUnit and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestACUToUnit:GetPosition()) < M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oNearestEnemyToFriendlyBase:GetPosition()) + 50 then
+                                                                    --ACU is close enough - attack it directly instead of going around
+                                                                    if bDebugMessages == true then LOG(sFunctionRef..': Redirecting to ACU instead of '..oNearestEnemyToFriendlyBase.UnitId..'; ACU dist='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestACUToUnit:GetPosition())) end
+                                                                    M28Orders.IssueSmartMove(oUnit, oClosestACUToUnit[M28UnitInfo.reftLastKnownPositionByTeam][iTeam] or oClosestACUToUnit:GetPosition(), 6, false, 'MvACU'..iLandZone)
                                                                 else
-                                                                    if bDebugMessages == true then LOG(sFunctionRef..': Will move to the nearest enemy, oNearestEnemyToFriendlyBase='..oNearestEnemyToFriendlyBase.UnitId..M28UnitInfo.GetUnitLifetimeCount(oNearestEnemyToFriendlyBase)..'; Dist to us='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam])) end
-                                                                    if not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                                                                        M28Orders.IssueSmartMove(oUnit, oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], 6, false, 'AWE'..iLandZone)
+                                                                    local oTargetToManuallyAttack, bMoveNotManualAttack = GetManualAttackTargetIfWantManualAttack(oUnit)
+                                                                    if oTargetToManuallyAttack and not(oTargetToManuallyAttack == oNearestEnemyToFriendlyBase) then
+                                                                        if bMoveNotManualAttack then M28Orders.IssueTrackedMove(oUnit, oTargetToManuallyAttack:GetPosition(), 2, false, 'Sc2bManM', false)
+                                                                        else
+                                                                            DoManualAttack(oUnit, oTargetToManuallyAttack, 'Sc2bManA')
+                                                                        end
+                                                                    else
+                                                                        if bDebugMessages == true then LOG(sFunctionRef..': Will move to the nearest enemy, oNearestEnemyToFriendlyBase='..oNearestEnemyToFriendlyBase.UnitId..M28UnitInfo.GetUnitLifetimeCount(oNearestEnemyToFriendlyBase)..'; Dist to us='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam])) end
+                                                                        if not(IgnoreOrderDueToStuckUnit(oUnit)) then
+                                                                            M28Orders.IssueSmartMove(oUnit, oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], 6, false, 'AWE'..iLandZone)
+                                                                        end
                                                                     end
                                                                 end
                                                             end
@@ -9717,7 +9735,17 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                         else
                                                             if bDebugMessages == true then LOG(sFunctionRef..': Will attackmove to the nearest enemy, oNearestEnemyToFriendlyBase='..oNearestEnemyToFriendlyBase.UnitId..M28UnitInfo.GetUnitLifetimeCount(oNearestEnemyToFriendlyBase)..'; Dist to us='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam])) end
                                                             if not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                                                                M28Orders.IssueSmartMove(oUnit, oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], 6, false, 'AWE'..iLandZone)
+                                                                --Check if we should redirect to ACU instead of going around it
+                                                                if bConsiderAttackingACU and M28Utilities.IsTableEmpty(toEnemyACUsNearZone) == false and not(EntityCategoryContains(categories.COMMAND, oNearestEnemyToFriendlyBase.UnitId)) then
+                                                                    local oClosestACUToUnit = M28Utilities.GetNearestUnit(toEnemyACUsNearZone, oUnit:GetPosition())
+                                                                    if oClosestACUToUnit and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestACUToUnit:GetPosition()) < M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oNearestEnemyToFriendlyBase:GetPosition()) + 50 then
+                                                                        M28Orders.IssueSmartMove(oUnit, oClosestACUToUnit[M28UnitInfo.reftLastKnownPositionByTeam][iTeam] or oClosestACUToUnit:GetPosition(), 6, false, 'MvACU'..iLandZone)
+                                                                    else
+                                                                        M28Orders.IssueSmartMove(oUnit, oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], 6, false, 'AWE'..iLandZone)
+                                                                    end
+                                                                else
+                                                                    M28Orders.IssueSmartMove(oUnit, oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], 6, false, 'AWE'..iLandZone)
+                                                                end
                                                             end
                                                         end
                                                     end

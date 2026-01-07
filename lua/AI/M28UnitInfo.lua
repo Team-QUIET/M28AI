@@ -20,8 +20,8 @@ tbBuildOnLandLayerCaps = {['Land'] = true, ['Air'] = true, ['9'] = true, ['3'] =
 tbBuildOnWaterLayerCaps = {['Water'] = true, ['9'] = true, ['3'] = true, ['11'] = true, ['12'] = true}
 
 bDontConsiderCombinedArmy = true --shares same desc as M28Orders (for easier referencing)
-iBaseACUThreat = 1000 --i.e. approx 20 tanks
-iBaseACUExpectedHealth = 11000 --Used so we can adjust iBaseACUThreat to allow for mods that give high health to ACUs (up to double threat)
+iBaseACUThreat = 400 --i.e. approx 8 tanks
+iBaseACUExpectedHealth = 11000 --Used so we can adjust iBaseACUThreat to allow for mods that give high health to ACUs (up to 1.5x threat)
 
 --Factions
 refFactionUEF = 1
@@ -594,6 +594,7 @@ function GetUpgradeCombatWeighting(sEnhancementRef)
             --UEF:
             AdvancedEngineering = iMinor, --T2
             DamageStabilization = iMajor, --Nano
+            DamageStablization = iMajor, --Nano
             HeavyAntiMatterCannon = iMajor,
             LeftPod = iNone, --Engi
             ResourceAllocation = iNone, --RAS
@@ -601,6 +602,7 @@ function GetUpgradeCombatWeighting(sEnhancementRef)
             Shield = iMajor, --Shield
             ShieldGeneratorField = iMajor, --Shield aoe
             T3Engineering = iMinor, --T3
+            T4Engineering = iMinor, --T4
             TacticalMissile = iNone, --TML
             TacticalNukeMissile = iNone, --Billy
             Teleporter = iNone, --Teleport
@@ -616,6 +618,7 @@ function GetUpgradeCombatWeighting(sEnhancementRef)
             --Shield = iMajor, --Shield
             ShieldHeavy = iMajor, --Shield lev2
             --T3Engineering = iMinor, --T3
+            --T4Engineering = iMinor, --T4
             --Teleporter = iNone, --Teleport
 
             --Cybran:
@@ -625,7 +628,7 @@ function GetUpgradeCombatWeighting(sEnhancementRef)
             MicrowaveLaserGenerator = iDeadly, --Laser
             NaniteTorpedoTube = iMinor, --Torpedo
             --ResourceAllocation = iNone, --RAS
-            StealthGenerator = iMajor, --Stealth
+            StealthGenerator = iMinor, --Stealth
             --T3Engineering = iMinor, --T3
             --Teleporter = iNone, --Teleport
 
@@ -642,6 +645,64 @@ function GetUpgradeCombatWeighting(sEnhancementRef)
             ResourceAllocationAdvanced = iNone, --RAS lev 2
             --T3Engineering = iMinor, --T3
             --Teleporter = iNone, --Teleport
+
+            --BlackOps ACUs:
+            --Engineering variants
+            EXImprovedEngineering = iMinor, --T2
+            EXAdvancedEngineering = iMinor, --T3
+            EXExperimentalEngineering = iMinor, --T4
+            EXCombatEngineering = iMinor, --T2 Combat
+            EXAssaultEngineering = iMinor, --T3 Combat
+            EXApocalypticEngineering = iMinor, --T4 Combat
+
+            --Faction-specific gun boosters
+            EXDisruptorrBooster = iMajor, --Aeon gun boost
+            EXZephyrBooster = iMajor, --UEF gun boost
+            EXRipperBooster = iMajor, --Cybran gun boost
+            EXChronotronBooster = iMajor, --Sera gun boost
+
+            --Torpedoes (all factions)
+            EXTorpedoLauncher = iMinor, --Torpedo T2
+            EXTorpedoRapidLoader = iMinor, --Torpedo T3
+            EXTorpedoClusterLauncher = iMajor, --Torpedo T4
+
+            --Aeon weapons
+            EXArtilleryMiasma = iMinor, --Artillery T2
+            EXAdvancedShells = iMajor, --Artillery T3
+            EXImprovedReloader = iMajor, --Artillery T4
+            EXBeamPhason = iDeadly, --Phason beam
+            EXMaelstromQuantum = iMinor, --Damage aura
+            EXMaelstromFieldExpander = iMinor, --Maelstrom T2
+            EXMaelstromQuantumInstability = iMinor, --Maelstrom T3
+            EXShieldBubble = iMajor, --Shield T2
+
+            --UEF weapons
+            EXAntiMatterCannon = iMajor, --Gun T2
+            EXImprovedContainmentBottle = iMajor, --Gun T3
+            EXGattlingEnergyCannon = iDeadly, --Gatling T2
+            EXImprovedCoolingSystem = iDeadly, --Gatling/laser T3
+            EXEnergyShellHardener = iDeadly, --Gatling T4
+            EXPowerBooster = iDeadly, --Gun/EMP T4
+
+            --Cybran weapons
+            EXMasor = iDeadly, --Microwave laser T2
+            EXAdvancedEmitterArray = iDeadly, --Death ray T4
+            EXEMPArray = iDeadly, --EMP T2
+            EXImprovedCapacitors = iDeadly, --EMP T3
+
+            --Sera weapons
+            EXStormCannon = iMajor, --Storm cannon T2
+            EXStormCannonII = iMajor, --Storm cannon T3
+            EXStormCannonIII = iDeadly, --Storm cannon T4
+            EXRapidCannon = iDeadly, --Plasma gatling T2
+            EXRapidCannonII = iDeadly, --Plasma gatling T3
+            EXRapidCannonIII = iDeadly, --Plasma gatling T4
+
+            --Common BlackOps upgrades
+            EXIntelEnhancementT2 = iNone, --Intel
+            EXIntelEnhancementT3 = iNone, --Intel
+            EXIntelRhianneDevice = iNone, --Intel
+            EXPersonalTeleporter = iNone, --Teleport
     }
     return (tEnhancementsCombatMod[sEnhancementRef] or iUnknown)
 end
@@ -659,7 +720,7 @@ function UpdateUnitCombatMassRatingForUpgrades(oUnit)
         local iTotalMassValue = iBaseACUThreat --Approx 20 tanks
         local iBaseMaxHealth = oUnit:GetBlueprint().Defense.Health
         if iBaseMaxHealth > iBaseACUExpectedHealth then
-            iTotalMassValue = iTotalMassValue * math.min(2, iBaseMaxHealth / iBaseACUExpectedHealth)
+            iTotalMassValue = iTotalMassValue * math.min(1.5, iBaseMaxHealth / iBaseACUExpectedHealth)
         end
         if bDebugMessages == true then LOG(sFunctionRef..': tPossibleUpgrades size='..table.getn(tPossibleUpgrades)) end
         if tPossibleUpgrades then
@@ -753,7 +814,7 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                 if iMassCost < iBaseACUThreat then iMassCost = iBaseACUThreat
                 else
                     --Adjust mass cost if it is too high
-                    iMassCost = math.max(iBaseACUThreat, math.min(iMassCost, iBaseACUThreat * math.min(2, oBP.Defense.Health / iBaseACUExpectedHealth)))
+                    iMassCost = math.max(iBaseACUThreat, math.min(iMassCost, iBaseACUThreat * math.min(1.5, oBP.Defense.Health / iBaseACUExpectedHealth)))
                     if bDebugMessages == true then LOG(sFunctionRef..': Considered limiting ACU threat/mass cost (i.e. ignoring blueprint notional mass cost), iMassCost post adjustment='..iMassCost) end
                 end
             end
@@ -986,7 +1047,7 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                             if iMassCost < iBaseACUThreat then iMassCost = iBaseACUThreat
                             else
                                 --Adjust mass cost if it is too high
-                                iMassCost = math.max(iBaseACUThreat, math.min(iMassCost, iBaseACUThreat * math.min(2, oBP.Defense.Health / iBaseACUExpectedHealth)))
+                                iMassCost = math.max(iBaseACUThreat, math.min(iMassCost, iBaseACUThreat * math.min(1.5, oBP.Defense.Health / iBaseACUExpectedHealth)))
                                 if bDebugMessages == true then LOG(sFunctionRef..': Considered limiting ACU threat/mass cost (i.e. ignoring blueprint notional mass cost), iMassCost post adjustment='..iMassCost) end
                             end
                         end
