@@ -900,7 +900,7 @@ function RecordGroundThreatForLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iL
                 iEnemyStructureThreat = iEnemyStructureThreat + iThreat
             end
         end
-        tLZTeamData[M28Map.subrefLZIndirectThreatWanted] = iEnemyStructureThreat * 2 + tLZTeamData[M28Map.subrefLZThreatEnemyStructureIndirect] * 2
+        tLZTeamData[M28Map.subrefLZIndirectThreatWanted] = iEnemyStructureThreat * 2 + tLZTeamData[M28Map.subrefLZThreatEnemyStructureIndirect] * 2 + (tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 0) * 1.5 + (tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeIFThreat] or 0) * 1.5
         tLZTeamData[M28Map.subrefLZDFThreatWanted] = math.max(200, tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] * 2)
     else
         tLZTeamData[M28Map.subrefLZDFThreatWanted] = 0
