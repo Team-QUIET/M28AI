@@ -5910,6 +5910,21 @@ function ManageBombers(iTeam, iAirSubteam)
 
 
     local tAvailableBombers, tBombersForRefueling, tUnavailableUnits, tSpecialLogicAvailableBombers = GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, M28UnitInfo.refCategoryBomber - categories.EXPERIMENTAL)
+    
+    -- Prevent target switching
+    if not M28Utilities.IsTableEmpty(tAvailableBombers) then
+        for i = table.getn(tAvailableBombers), 1, -1 do
+            local oBomber = tAvailableBombers[i]
+            local oTarget = oBomber.oLockedTarget
+            if M28UnitInfo.IsUnitValid(oTarget) and not oTarget.Dead then
+                -- Target is still valid, force commit
+                AssignTorpOrBomberTargets({oBomber}, {oTarget}, iAirSubteam, false, false, true)
+                table.remove(tAvailableBombers, i)
+            else
+                oBomber.oLockedTarget = nil
+            end
+        end
+    end
     local iOurBomberThreat = 0
     local tEnemyTargets = {}
     local bHaveT3Bombers = false
@@ -7463,6 +7478,7 @@ function AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam
                             end
                         end
                         AddAssignedAttacker(oEnemyUnit, oClosestUnit) --Must do this after sending the order or else will be cleared
+                        oClosestUnit.oLockedTarget = oEnemyUnit --Lock target for persistence
                         
                         if bDebugMessages == true then
                             local sOrderType = 'Attack'
