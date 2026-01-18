@@ -3628,6 +3628,70 @@ function FindAlternativeApproachToWaterZone(iTeam, iTargetWaterZone, iStartPlate
     return nil, nil
 end
 
+function FindAlternativeApproachToLandZone(iTeam, iTargetPlateau, iTargetLandZone, iStartPlateauOrZero, iStartLandOrWaterZone, iAAThreatThreshold, iAirAAThreatThreshold, iAirSubteam)
+    --Finds an alternative approach position to a land zone when the direct path is blocked by AA
+    --Returns: tAlternativePosition (or nil if no safe approach found), iSafeAngle (angle of the safe approach)
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'FindAlternativeApproachToLandZone'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    --Get target zone midpoint
+    local tTargetLZData = M28Map.tAllPlateaus[iTargetPlateau][M28Map.subrefPlateauLandZones][iTargetLandZone]
+    local tTargetMidpoint = tTargetLZData[M28Map.subrefMidpoint]
+
+    --Get start zone midpoint for calculating blocked angle
+    local tStartMidpoint
+    if iStartPlateauOrZero == 0 then
+        tStartMidpoint = M28Map.tPondDetails[M28Map.tiPondByWaterZone[iStartLandOrWaterZone]][M28Map.subrefPondWaterZones][iStartLandOrWaterZone][M28Map.subrefMidpoint]
+    else
+        tStartMidpoint = M28Map.tAllPlateaus[iStartPlateauOrZero][M28Map.subrefPlateauLandZones][iStartLandOrWaterZone][M28Map.subrefMidpoint]
+    end
+
+    --Calculate the blocked angle (from target to start - this is the direction the AA threat is in)
+    local iBlockedAngle = M28Utilities.GetAngleFromAToB(tTargetMidpoint, tStartMidpoint)
+    if bDebugMessages == true then LOG(sFunctionRef..': iTargetPlateau='..iTargetPlateau..'; iTargetLandZone='..iTargetLandZone..'; iBlockedAngle='..iBlockedAngle) end
+
+    --Distance to check alternative approaches from (should be far enough to be outside adjacent zones)
+    local iApproachDistance = 250
+
+    --Try alternative angles: offset from blocked angle by various amounts
+    local tiAngleOffsets = {90, -90, 135, -135, 60, -60, 45, -45, 180}
+
+    for _, iOffset in tiAngleOffsets do
+        local iTestAngle = math.mod(iBlockedAngle + iOffset, 360)
+        --Calculate test position at this angle from the target
+        local tTestPosition = M28Utilities.MoveInDirection(tTargetMidpoint, iTestAngle, iApproachDistance, true, false, false)
+
+        --Get the plateau/zone for this test position
+        local iTestPlateau, iTestZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tTestPosition)
+
+        if bDebugMessages == true then LOG(sFunctionRef..': Testing angle offset='..iOffset..'; iTestAngle='..iTestAngle..'; tTestPosition='..repru(tTestPosition)..'; iTestPlateau='..(iTestPlateau or 'nil')..'; iTestZone='..(iTestZone or 'nil')) end
+
+        --Only proceed if we got a valid zone
+        if iTestPlateau ~= nil and iTestZone ~= nil then
+            --Check if the path from this test position to the target is clear
+            --Use detailed check with the test position as the start midpoint
+            local bPathBlocked = DoesEnemyHaveAAThreatAlongPath(iTeam, iTestPlateau, iTestZone, iTargetPlateau, iTargetLandZone, false, iAAThreatThreshold, iAirAAThreatThreshold, false, iAirSubteam, true, false, tTestPosition, false, nil, true, false, true)
+
+            if bDebugMessages == true then LOG(sFunctionRef..': Path blocked from test position='..tostring(bPathBlocked)) end
+
+            if not(bPathBlocked) then
+                --Found a safe approach!
+                if bDebugMessages == true then
+                    LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] BOMBER_LZ_ALT_ROUTE_FOUND - Plateau='..iTargetPlateau..', LZ='..iTargetLandZone..', AngleOffset='..iOffset..', SafeAngle='..iTestAngle)
+                end
+                M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                return tTestPosition, iTestAngle
+            end
+        end
+    end
+
+    --No safe approach found
+    if bDebugMessages == true then LOG(sFunctionRef..': No safe alternative approach found for Plateau='..iTargetPlateau..', LZ='..iTargetLandZone) end
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return nil, nil
+end
+
 function DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, iEndPlateauOrZero, iEndLandOrWaterZone, bIgnoreAirAAThreat, iGroundAAThreatThreshold, iAirAAThreatThreshold, bUsingTorpBombers, iAirSubteam, bDoDetailedCheckForAA, bReturnGroundAAThreatInstead, tOptionalStartMidpointAdjustForDetailedCheck, bReturnGroundAAUnitsAlongsideAAThreat, tOptionalEndMidpointAdjustForDetailedCheck, bOptionalIgnoreOppositeDirectionZones, bIncludeEnemyGroundAAInAirAAThreat, bAssumeWontTargetInterimAAForDetailedCheck)
     --Returns true if enemy has AA threat along the path from start to end (or in an adjacent land/water zone that is close enough to the path)
 
@@ -6330,6 +6394,19 @@ function ManageBombers(iTeam, iAirSubteam)
                                 if bDebugMessages == true then LOG(sFunctionRef..': Considering priority enemy target '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' in P'..iCurPlateauOrZero..'Z'..iCurZone..'; Too much AA in this zone='..tostring(tbZoneByPlateauHasTooMuchAA[iCurPlateauOrZero][iCurZone])..'; iMaxEnemyGroundAAThreat='..iMaxEnemyGroundAAThreat..'; iAAPriorityThresholdFactor='..iAAPriorityThresholdFactor) end
                                 if not(tbZoneByPlateauHasTooMuchAA[iCurPlateauOrZero][iCurZone]) then
                                     table.insert(toPriorityEnemiesToTarget, oUnit)
+                                elseif iCurPlateauOrZero > 0 then
+                                    --Direct path blocked - try alternative approach for land zones
+                                    local tLZData = M28Map.tAllPlateaus[iCurPlateauOrZero][M28Map.subrefPlateauLandZones][iCurZone]
+                                    local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
+                                    --Only try alternative routes if the target zone itself has low AA (worth approaching from different angle)
+                                    if (tLZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) < iMaxEnemyGroundAAThreat * 0.5 then
+                                        local tAltPosition, iSafeAngle = FindAlternativeApproachToLandZone(iTeam, iCurPlateauOrZero, iCurZone, iStartPlateauToUse, iStartZoneToUse, iMaxEnemyGroundAAThreat * iAAPriorityThresholdFactor, nil, iAirSubteam)
+                                        if tAltPosition then
+                                            if bDebugMessages == true then LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] BOMBER_LZ_ALT_ROUTE - P='..iCurPlateauOrZero..', LZ='..iCurZone..', SafeAngle='..math.floor(iSafeAngle)..', Unit='..oUnit.UnitId) end
+                                            --Found alternative route - assign target with waypoint
+                                            AssignTorpOrBomberTargets(tAvailableBombers, { oUnit }, iAirSubteam, false, true, nil, nil, tAltPosition)
+                                        end
+                                    end
                                 end
                             end
                         end
@@ -6356,6 +6433,16 @@ function ManageBombers(iTeam, iAirSubteam)
                                             end
                                             if not(tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero][iAdjLZ]) then
                                                 AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, false, true)
+                                            else
+                                                --Direct path blocked - try alternative approach for adjacent land zone
+                                                local tAdjLZData = M28Map.tAllPlateaus[iRallyPlateauOrZero][M28Map.subrefPlateauLandZones][iAdjLZ]
+                                                if (tAdjLZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) < iMaxEnemyGroundAAThreat * 0.5 then
+                                                    local tAltPosition, iSafeAngle = FindAlternativeApproachToLandZone(iTeam, iRallyPlateauOrZero, iAdjLZ, iStartPlateauToUse, iStartZoneToUse, iMaxEnemyGroundAAThreat * iAAPriorityThresholdFactor, nil, iAirSubteam)
+                                                    if tAltPosition then
+                                                        if bDebugMessages == true then LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] BOMBER_LZ_ALT_ROUTE - AdjP='..iRallyPlateauOrZero..', AdjLZ='..iAdjLZ..', SafeAngle='..math.floor(iSafeAngle)) end
+                                                        AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, false, true, nil, nil, tAltPosition)
+                                                    end
+                                                end
                                             end
                                             tEnemyTargets = {}
                                             if M28Utilities.IsTableEmpty(tAvailableBombers) then break end
