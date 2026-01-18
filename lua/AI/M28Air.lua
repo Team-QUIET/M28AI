@@ -4212,8 +4212,6 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
     local sFunctionRef = 'ManageAirAAUnits'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-
-
     --Get available airAA units (owned by M28 brains in our subteam):
     local tAvailableAirAA, tAirForRefueling, tUnavailableUnits, tInCombatUnits = GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, M28UnitInfo.refCategoryAirAA)
     if bDebugMessages == true then LOG(sFunctionRef..': Near start of code, time='..GetGameTimeSeconds()..'; Is tAvailableAirAA empty='..tostring(M28Utilities.IsTableEmpty(tAvailableAirAA))..'; iAirSubteam='..iAirSubteam..'; M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint]='..repru(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint])) end
@@ -4248,7 +4246,7 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
         end
     end
 
-    local iAdjacentGroundAAMax = M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] * 0.15 --Even if we want to consider attacking adjacent zones, thsi is the max groundAA to permit
+    local iAdjacentGroundAAMax = math.min(1000, M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] * 0.15) --Even if we want to consider attacking adjacent zones, thsi is the max groundAA to permit
 
     --Update if we have air control and/or are far behind on air
     local iFarBehindFactor = 0.65
@@ -4358,7 +4356,7 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
         local iLowerPriorityEnemyAirAADefaultThreshold
         local iHigherPriorityEnemyAirAADefaultThreshold
         if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] then
-            iLowerPriorityEnemyAirAADefaultThreshold = math.max(40000, iAvailableAndInCombatAirAAThreat)
+            iLowerPriorityEnemyAirAADefaultThreshold = math.max(3500, iAvailableAndInCombatAirAAThreat)
             iHigherPriorityEnemyAirAADefaultThreshold = iLowerPriorityEnemyAirAADefaultThreshold
         else
             --Dont want to engage as we lack air control
@@ -5971,8 +5969,6 @@ function ManageBombers(iTeam, iAirSubteam)
     local sFunctionRef = 'ManageBombers'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-
-
     local tAvailableBombers, tBombersForRefueling, tUnavailableUnits, tSpecialLogicAvailableBombers = GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, M28UnitInfo.refCategoryBomber - categories.EXPERIMENTAL)
     
     -- Prevent target switching
@@ -6142,26 +6138,9 @@ function ManageBombers(iTeam, iAirSubteam)
     -- 4000 for T3 waves (~3-4 strats at 1200 mass), 500 for T1-T2 waves
     local iBomberBaselineThreat = 800
     if iT3BomberCount >= 2 then iBomberBaselineThreat = 4000 end
-
-    -- Scale threat threshold by enemy Air AA and peak Ground AA in any zone
     local iEnemyAirAA = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 0
-    local iPeakEnemyGroundAA = 0
-    if M28Map.tAllPlateaus then
-        for iPlateau, tPlateauData in pairs(M28Map.tAllPlateaus) do
-            if tPlateauData[M28Map.subrefPlateauLandZones] then
-                for iLZ, tLZData in pairs(tPlateauData[M28Map.subrefPlateauLandZones]) do
-                    if tLZData[M28Map.subrefLZTeamData] and tLZData[M28Map.subrefLZTeamData][iTeam] then
-                        local iZoneAA = tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefiThreatEnemyGroundAA] or 0
-                        if iZoneAA > iPeakEnemyGroundAA then
-                            iPeakEnemyGroundAA = iZoneAA
-                        end
-                    end
-                end
-            end
-        end
-    end
 
-    local iBomberMinWaveThreat = math.max(iBomberBaselineThreat, iEnemyAirAA * 0.3 + iPeakEnemyGroundAA * 0.5)
+    local iBomberMinWaveThreat = math.max(iBomberBaselineThreat, iEnemyAirAA * 0.3)
 
     -- Bypass grouping for snipe targets (assassination priority)
     local bHasSnipeTarget = not(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.toActiveSnipeTargets])) or not(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.toBomberSnipeTargets]))
@@ -6332,10 +6311,10 @@ function ManageBombers(iTeam, iAirSubteam)
                 tbZonesConsideredByPlateau[iRallyPlateauOrZero] = {}
                 local iMaxEnemyGroundAAThreat
                 if M28Team.tTeamData[iTeam][M28Team.refiTimeLastNearUnitCap] then
-                    iMaxEnemyGroundAAThreat = M28Team.tTeamData[iTeam][M28Team.subrefiOurT1ToT3BomberThreat] * 0.2
+                    iMaxEnemyGroundAAThreat = math.min(1500, M28Team.tTeamData[iTeam][M28Team.subrefiOurT1ToT3BomberThreat] * 0.2)
                     if bDebugMessages == true then LOG(sFunctionRef..': Base GroundAA threat - are near unit cap so increasing to 20% of our bomber threat, iMaxEnemyGroundAAThreat='..iMaxEnemyGroundAAThreat) end
                 else
-                    iMaxEnemyGroundAAThreat = M28Team.tTeamData[iTeam][M28Team.subrefiOurT1ToT3BomberThreat] * 0.15
+                    iMaxEnemyGroundAAThreat = math.min(1500, M28Team.tTeamData[iTeam][M28Team.subrefiOurT1ToT3BomberThreat] * 0.15)
                     if bDebugMessages == true then LOG(sFunctionRef..': Base GroundAA threat - iMaxEnemyGroundAAThreat='..iMaxEnemyGroundAAThreat) end
                 end
                 if bDebugMessages == true then LOG(sFunctionRef..': About to adjust bomber GroundAA threat for kills and losses, bomber losses='..(M28Team.tTeamData[iTeam][M28Team.refiBomberLosses] or 0)..'; Bomber kills='..(M28Team.tTeamData[iTeam][M28Team.refiBomberKills] or 0)) end
@@ -6356,15 +6335,15 @@ function ManageBombers(iTeam, iAirSubteam)
                 --If have strat bombers then have a higher minimum ground AA threshold
                 if bHaveT3Bombers then
                     if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] then
-                        iMaxEnemyGroundAAThreat = math.max(1200, iMaxEnemyGroundAAThreat + M28Team.tTeamData[iTeam][M28Team.subrefiOurT1ToT3BomberThreat] * 0.1) --T2 flak is 160, T3 MAA is 600
+                        iMaxEnemyGroundAAThreat = math.min(1500, math.max(1200, iMaxEnemyGroundAAThreat + M28Team.tTeamData[iTeam][M28Team.subrefiOurT1ToT3BomberThreat] * 0.1)) --T2 flak is 160, T3 MAA is 600
                     else
-                        iMaxEnemyGroundAAThreat = math.max(1000, iMaxEnemyGroundAAThreat + M28Team.tTeamData[iTeam][M28Team.subrefiOurT1ToT3BomberThreat] * 0.07) --T2 flak is 160, T3 MAA is 600
+                        iMaxEnemyGroundAAThreat = math.min(1500, math.max(1000, iMaxEnemyGroundAAThreat + M28Team.tTeamData[iTeam][M28Team.subrefiOurT1ToT3BomberThreat] * 0.07)) --T2 flak is 160, T3 MAA is 600
                     end
                     if bDebugMessages == true then LOG(sFunctionRef..': We have t3 bombers so increasing iMaxEnemyGroundAAThreat by 7-10% based onif have air control, iMaxEnemyGroundAAThreat='..iMaxEnemyGroundAAThreat) end
                 end
                 --If have large number of available bombers then increase
                 if iAvailableBombers >= 20 then
-                    iMaxEnemyGroundAAThreat = iMaxEnemyGroundAAThreat * (1.1 + math.min(0.6, 0.4 * iAvailableBombers / 50))
+                    iMaxEnemyGroundAAThreat = math.min(1500, iMaxEnemyGroundAAThreat * (1.1 + math.min(0.6, 0.4 * iAvailableBombers / 50)))
                     if bDebugMessages == true then LOG(sFunctionRef..': Lots of available bombers so increasing threat further, iAvailableBombers='..iAvailableBombers..'; iMaxEnemyGroundAAThreat post increase='..iMaxEnemyGroundAAThreat) end
                 end
 
@@ -7910,28 +7889,9 @@ function ManageGunships(iTeam, iAirSubteam)
     -- Baseline: 6,000 for T3 waves (~4-5 T3s at 1500 mass), 800 for T2 waves (~4-5 T2s at 200 mass)
     local iBaselineThreat = 800
     if iT3GunshipCount >= 3 then iBaselineThreat = 6000 end
-
-    -- Scaling: Air AA (Global) + Max Ground AA (Local Peak)
-    -- We measure the highest Ground AA concentration in any single zone to prevent suicide against fortified areas.
     local iEnemyAirAA = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 0
-    local iPeakEnemyGroundAA = 0
     
-    if M28Map.tAllPlateaus then
-        for iPlateau, tPlateauData in pairs(M28Map.tAllPlateaus) do
-            if tPlateauData[M28Map.subrefPlateauLandZones] then
-                for iLZ, tLZData in pairs(tPlateauData[M28Map.subrefPlateauLandZones]) do
-                    if tLZData[M28Map.subrefLZTeamData] and tLZData[M28Map.subrefLZTeamData][iTeam] then
-                        local iZoneAA = tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefiThreatEnemyGroundAA] or 0
-                        if iZoneAA > iPeakEnemyGroundAA then
-                            iPeakEnemyGroundAA = iZoneAA
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    local iMinWaveThreat = math.max(iBaselineThreat, iEnemyAirAA + iPeakEnemyGroundAA)
+    local iMinWaveThreat = math.max(iBaselineThreat, iEnemyAirAA)
 
     -- Bypass grouping if we have Snipe Targets (Assassination priority)
     if not M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.toActiveSnipeTargets]) then
