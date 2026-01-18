@@ -3196,8 +3196,12 @@ function ConsiderPriorityMexUpgrades(iM28Team)
     local iStagnantMexBoost = 0
     if bEcoStagnant and tTeamData[iM28Team][refiTimeEcoStagnantSince] then
         local iTimeStagnant = GetGameTimeSeconds() - tTeamData[iM28Team][refiTimeEcoStagnantSince]
-        --After 60s stagnant, start boosting mex upgrades; after 120s, boost significantly
-        if iTimeStagnant >= 120 then
+        --longer stagnation = more aggressive eco focus
+        if iTimeStagnant >= 300 then
+            iStagnantMexBoost = 6
+        elseif iTimeStagnant >= 180 then
+            iStagnantMexBoost = 4.5
+        elseif iTimeStagnant >= 120 then
             iStagnantMexBoost = 3
         elseif iTimeStagnant >= 60 then
             iStagnantMexBoost = 1.5
@@ -4122,8 +4126,15 @@ function TeamEconomyRefresh(iM28Team)
                 local iIncomeDiff = iCurrentGrossMass - iOldestSnapshot.income
                 tTeamData[iM28Team][refiEcoGrowthRate] = iIncomeDiff / iTimeDiff --Mass/minute growth
 
-                --Determine if economy is stagnant (growth < 0.5 mass/minute after 3 minutes)
-                local iMinGrowthRate = 0.5 --Minimum expected growth rate (mass income per minute)
+                --Determine if economy is stagnant
+                local iMinGrowthRate = 0.5 --Base minimum growth rate (mass income per minute)
+                if iCurTime >= 1800 then
+                    iMinGrowthRate = 1.25
+                elseif iCurTime >= 1200 then
+                    iMinGrowthRate = 1.0
+                elseif iCurTime >= 900 then
+                    iMinGrowthRate = 0.75
+                end
                 if iCurTime >= 180 then --Only track stagnation after 3 minutes
                     if tTeamData[iM28Team][refiEcoGrowthRate] < iMinGrowthRate then
                         if not(tTeamData[iM28Team][refbEcoStagnant]) then
@@ -4140,6 +4151,7 @@ function TeamEconomyRefresh(iM28Team)
                     LOG(sFunctionRef..': ECO GROWTH TRACKING - CurrentGross='..string.format('%.1f', iCurrentGrossMass)..
                         ' | OldestGross='..string.format('%.1f', iOldestSnapshot.income)..' ('..string.format('%.0f', iCurTime - iOldestSnapshot.time)..'s ago)'..
                         ' | GrowthRate='..string.format('%.2f', tTeamData[iM28Team][refiEcoGrowthRate])..' mass/min'..
+                        ' | MinThreshold='..string.format('%.2f', iMinGrowthRate)..
                         ' | Stagnant='..tostring(tTeamData[iM28Team][refbEcoStagnant])..
                         ' | StagnantFor='..string.format('%.0f', iCurTime - (tTeamData[iM28Team][refiTimeEcoStagnantSince] or iCurTime))..'s')
                 end
