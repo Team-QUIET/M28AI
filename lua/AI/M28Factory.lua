@@ -5427,7 +5427,7 @@ function SetPriorityPreferredUnitsByCategory(aiBrain)
             -- aiBrain[reftBlueprintPriorityOverride]['xel0307'] = 1
             --Cybran T3:
             aiBrain[reftBlueprintPriorityOverride]['brmt3bt'] = 1
-            -- aiBrain[reftBlueprintPriorityOverride]['brl0307'] = 1
+            aiBrain[reftBlueprintPriorityOverride]['brl0307'] = -1 -- overbuilt, clogging out badly needed T3 Mobile Artillery
             aiBrain[reftBlueprintPriorityOverride]['srl0311'] = -1 -- overbuilt, clogging out badly needed T3 Mobile Artillery
             aiBrain[reftBlueprintPriorityOverride]['srl0310'] = -1 -- overbuilt, clogging out badly needed T3 Mobile Artillery
             -- aiBrain[reftBlueprintPriorityOverride]['brmt3bm2'] = 1
