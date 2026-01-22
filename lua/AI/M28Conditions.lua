@@ -1704,7 +1704,6 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
         else
             tiGrossMassWantedPerFactoryByTech[1] = 0.6
         end
-    --QUIET mod: Skip factory reduction on 20km+ maps
     elseif M28Map.iMapSize >= 1000 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] < 3 and tLZTeamData[M28Map.subrefMexCountByTech][3] == 0 and tLZTeamData[M28Map.refiModDistancePercent] <= 0.2 and not(M28Utilities.bQuietModActive) then
         for iTech, iValue in tiGrossMassWantedPerFactoryByTech do
             if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.02) or aiBrain[M28Overseer.refbPrioritiseNavy] or aiBrain[M28Overseer.refbPrioritiseHighTech] then
@@ -1847,9 +1846,6 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
             if (iAverageCurAirAndLandFactories >= 10 or (iAverageCurAirAndLandFactories >= 2.5 and M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] >= 2 and iAverageCurAirAndLandFactories * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] >= 8)) and GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadNothingToBuildForAirFactory] or -100) <= 3 and GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadNothingToBuildForLandFactory] or -100) <= 3 and GetGameTimeSeconds() - (tLZTeamData[M28Map.subrefiTimeLandFacHadNothingToBuild] or -100) <= 3 then
                 --Dont want more factories unless we want an air fac, have T3 air, and arent mass stalling, and are building air units
                 if bDebugMessages == true then LOG(sFunctionRef..': Have high average number of factories so dont want more') end
-                --Stalling E and have factory in zone - dont want more factories early game
-            --[[elseif M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and iAverageCurAirAndLandFactories >= 1 and (iAverageCurAirAndLandFactories >= 2 or not(tLZTeamData[M28Map.subrefLZbCoreBase])) then
-                if bDebugMessages == true then LOG(sFunctionRef..': Stalling E so dont want more factories at the moment as already have at least one') end--]]
             else
                 --If core base then make sure we have an air fac
                 if tLZTeamData[M28Map.subrefLZbCoreBase] and bCanBuildAirFac and tLZTeamData[M28Map.subrefMexCountByTech][2] + tLZTeamData[M28Map.subrefMexCountByTech][3] > 2 and not(iAirFacsInZone) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
@@ -1915,7 +1911,6 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
                         and     (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.05
                         or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.01 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] == 1 and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) == false and table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) >= 3))
                         and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.4 or (iAverageCurAirAndLandFactories <= math.max(4 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount], M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] / tiGrossMassWantedPerFactoryByTech[M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]])) or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] == 1 and GetGameTimeSeconds() <= 600)))
-                        --QUIET mod: Allow factory construction with positive mass income >= 6 regardless of mass stored
                         or (M28Utilities.bQuietModActive and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 6) then
                     --If enemy has a firebase then dont want more factories if dont have lots of mass
                     if not(WantToEcoDueToEnemyFirebase(iTeam, tLZTeamData, iPlateau)) then
@@ -1927,17 +1922,13 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
                             bWantMoreFactories = true
                             if bDebugMessages == true then LOG(sFunctionRef..': Small map and we dont have all the factories we want for gross mass so want more') end
 
-                        --QUIET mod: Very soft low power check - only block if energy is completely depleted (0%) and 12+ factories
-                        elseif iAverageCurAirAndLandFactories >= (M28Utilities.bQuietModActive and 12 or 2) and not(bIgnoreMainEcoConditions) and iCurIsland == iEnemyIsland and ((M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeAir] or 0) > 0 and HaveLowPower(iTeam)) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.6 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= (M28Utilities.bQuietModActive and 0 or 0.5) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] < (M28Utilities.bQuietModActive and -5 or 1)) then
-                            --Dont want more factories
+                        --Very soft low power check - only block if energy is completely depleted (0%) and 6+ factories
+                        elseif iAverageCurAirAndLandFactories >= (M28Utilities.bQuietModActive and 6 or 2) and not(bIgnoreMainEcoConditions) and iCurIsland == iEnemyIsland and ((M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeAir] or 0) > 0 and HaveLowPower(iTeam)) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.6 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= (M28Utilities.bQuietModActive and 0 or 0.5) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] < (M28Utilities.bQuietModActive and -5 or 1)) then
                             if bDebugMessages == true then LOG(sFunctionRef..': Have low power so dont want more factories') end
-
-                            --Cap on no. of factories on larger maps
-                            --DISABLED: This cap was too aggressive and blocked factory production even with high mass income
-                            --TODO: Consider softer version, only apply cap if subrefiTeamGrossMass < 10 (low eco games)
-                        --[[elseif iAverageCurAirAndLandFactories >= 4 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] < 3 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] > 0 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] < 3 and M28Map.iMapSize > 256 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] < 8000 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= math.min(0.75, 0.25 + 0.05 * iAverageCurAirAndLandFactories) and (M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0 or M28Team.iPlayersAtGameStart >= 5 or iAverageCurAirAndLandFactories >= 10 or iAverageCurAirAndLandFactories * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] * 1.2 or (not(bIgnoreMainEcoConditions) and TeamHasLowMass(iTeam))) then
-                            --Dont want more factories
-                            if bDebugMessages == true then LOG(sFunctionRef..': Cap on number of factories for larger maps, M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount]='..M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount]..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; iAverageCurAirAndLandFactories='..iAverageCurAirAndLandFactories..'; subrefiHighestFriendlyFactoryTech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]..'; TeamHasLowMass='..tostring(TeamHasLowMass(iTeam))) end--]]
+                            --Cap on no. of factories on larger maps - Only apply in low eco games (gross mass < 10)
+                        elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] < 10 and iAverageCurAirAndLandFactories >= 6 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] > 0 and M28Map.iMapSize > 256 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] < 8000 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= math.min(0.75, 0.25 + 0.05 * iAverageCurAirAndLandFactories) and (M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 2 or M28Team.iPlayersAtGameStart >= 10 or iAverageCurAirAndLandFactories >= 12 or iAverageCurAirAndLandFactories * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] * 1.2 or (not(bIgnoreMainEcoConditions) and TeamHasLowMass(iTeam))) then
+                            --Dont want more factories (low eco game)
+                            if bDebugMessages == true then LOG(sFunctionRef..': Low eco cap on factories (grossMass<10), grossMass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; iAverageCurAirAndLandFactories='..iAverageCurAirAndLandFactories) end
                         elseif iAverageCurAirAndLandFactories < 2 and (iAverageCurAirAndLandFactories * 0.8 < M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 200) then
                             if bDebugMessages == true then LOG(sFunctionRef..': We have equiv of 3 mexes per player or 200 mass stored so want at least 2 factories') end
                             bWantMoreFactories = true
@@ -2103,41 +2094,6 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
         end
     end
     if bDebugMessages == true then LOG(sFunctionRef..': End of code, bWantMoreFactories='..tostring(bWantMoreFactories)) end
-
-    --Comprehensive factory decision logging with cooldown (every 30 seconds per team/zone)
-    if bDebugMessages == true then
-        local iCurTime = GetGameTimeSeconds()
-        local sLogKey = 'FactoryDecisionLog_'..iTeam..'_'..iPlateau..'_'..iLandZone
-        local iLastLogTime = M28Team.tTeamData[iTeam][sLogKey] or 0
-        if iCurTime - iLastLogTime >= 30 then
-            M28Team.tTeamData[iTeam][sLogKey] = iCurTime
-            local sDecision = bWantMoreFactories and 'WANT_MORE' or 'NO_MORE'
-            local iLandFacs = M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeLand] or 0
-            local iAirFacs = M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeAir] or 0
-            local iNavalFacs = M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeNaval] or 0
-            local sAirOrLand = 'N/A'
-            if bWantMoreFactories then
-                sAirOrLand = DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData) and 'AIR' or 'LAND'
-            end
-            LOG(sFunctionRef..': [Team'..iTeam..'_P'..iPlateau..'Z'..iLandZone..'] FACTORY_DECISION='..sDecision..
-                ', NextType='..sAirOrLand..
-                ', LandFacs='..iLandFacs..
-                ', AirFacs='..iAirFacs..
-                ', NavalFacs='..iNavalFacs..
-                ', AvgFacs='..math.floor((iAverageCurAirAndLandFactories or 0)*10)/10 ..
-                ', GrossMass='..math.floor((M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0)*10)/10 ..
-                ', MassStored%='..math.floor((M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0)*100) ..
-                ', StallingMass='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or false)..
-                ', StallingEnergy='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] or false)..
-                ', AirTech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech]..
-                ', LandTech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech]..
-                ', NavalTech='..(M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyNavalFactoryTech] or 0)..
-                ', AirControl='..tostring(TeamHasAirControl(iTeam))..
-                ', UnitCapIssue='..tostring(bDontWantDueToUnitCap)..
-                ', CoreBase='..tostring(tLZTeamData[M28Map.subrefLZbCoreBase] or false)..
-                ', Time='..iCurTime)
-        end
-    end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     return bWantMoreFactories
