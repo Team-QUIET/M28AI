@@ -7426,22 +7426,6 @@ function GetBlueprintToBuildForNavalFactory(aiBrain, oFactory)
         LOG(sFunctionRef .. ': Finished checking if we want to consider building shield/stealth boats, bConsiderBuildingShieldOrStealthBoats=' .. tostring(bConsiderBuildingShieldOrStealthBoats) .. '; Cur shield and stealth boats=' .. aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryShieldBoat + M28UnitInfo.refCategoryStealthBoat) .. '; bHaveLowPower=' .. tostring(bHaveLowPower) .. '; Cur T3 navy and destroyer+cruiser=' .. aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryNavalSurface * categories.TECH3 + M28UnitInfo.refCategoryDestroyer + M28UnitInfo.refCategoryCruiser)..'; Time since last had no shield targets='..GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiLastTimeNoShieldBoatTargetsByPond][iPond] or -100)..'; Time since last wanted no stealth in this poind='..GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiLastTimeNoStealthBoatTargetsByPond][iPond] or -100))
     end
 
-    --When team is far behind on air or have low mass, significantly reduce naval production
-    --to free up resources for air factory construction and air unit production or economic investment
-    local bThrottleNavalForAir = M28Conditions.TeamIsFarBehindOnAir(iTeam) or bHaveLowMass
-    if bThrottleNavalForAir then
-        --Skip production on most naval factories when behind on air (allow every 3rd factory to still produce for basic defense)
-        --This frees up resources that engineers and factories would have spent on naval production
-        if (oFactory[refiTotalBuildCount] or 0) >= 3 and math.mod((M28UnitInfo.GetUnitLifetimeCount(oFactory) or 0), 3) ~= 0 then
-            if bDebugMessages == true then
-                LOG(sFunctionRef..': [WZ'..iWaterZone..'] NAVAL_PROD_THROTTLED_FOR_AIR - Factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..' pausing production to prioritize air factories or economic investment. Time='..GetGameTimeSeconds())
-            end
-            tWZTeamData[M28Map.subrefiTimeNavalFacHadNothingToBuild] = GetGameTimeSeconds()
-            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-            return nil
-        end
-    end
-
     iCategoryToBuild = M28UnitInfo.refCategoryEngineer --Placeholder
     local sBPIDToBuild
     local iCurrentConditionToTry = 0
