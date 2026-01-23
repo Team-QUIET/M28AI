@@ -1449,7 +1449,8 @@ function DrawBuildableLocations(tLZOrWZData, iSize)
     end
 end
 
-function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAction, iCategoryToBuild, iMaxAreaToSearch, iCatToBuildBy, tAlternativePositionToLookFrom, bNotYetUsedLookForQueuedBuildings, oUnitToBuildBy, iOptionalCategoryForStructureToBuild, bBuildCheapestStructure, tLZData, tLZTeamData, bCalledFromGetBestLocation, sBlueprintOverride)
+function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAction, iCategoryToBuild, iMaxAreaToSearch, iCatToBuildBy, tAlternativePositionToLookFrom, bNotYetUsedLookForQueuedBuildings, oUnitToBuildBy, iOptionalCategoryForStructureToBuild, bBuildCheapestStructure, tLZData, tLZTeamData, bCalledFromGetBestLocation, sBlueprintOverride, bGetMostExpensive, iMinExpMassCost, iMaxExpMassCost)
+
     --Returns blueprint and location for oEngineer to build at and returns these or nil if no suitable locations can be found
     --iCatToBuildBy: Optional, specify if want to look for adjacency locations; Note to factor in 50% of the builder's size and 50% of the likely adjacency building size
     --iOptionalEngineerAction - ideally should populate this, will both help with debug and more importantly is used to track building sizes by action so can switch off parts of engineer logic when run out of build space
@@ -1475,17 +1476,12 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
         end
     end
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code for action (if specified) '..(iOptionalEngineerAction or 'nil')..', Engineer UC='..GetEngineerUniqueCount(oEngineer)..'; Engineer ID and LC='..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..'; Techlevel='..M28UnitInfo.GetUnitTechLevel(oEngineer)..'; tAlternativePositionToLookFrom='..repru(tAlternativePositionToLookFrom or {'nil'})..'; bBuildCheapestStructure='..tostring((bBuildCheapestStructure or false))..'; All blueprints that meet the category='..repru(EntityCategoryGetUnitList(iCategoryToBuild))..'; iMaxAreaToSearch='..(iMaxAreaToSearch or 'nil')..'; Time='..GetGameTimeSeconds()..'; Engineer brain='..oEngineer:GetAIBrain().Nickname..'; sBlueprintOverride='..(sBlueprintOverride or 'nil')) end
+    if bDebugMessages == true then LOG(sFunctionRef..': Start of code for action (if specified) '..(iOptionalEngineerAction or 'nil')..', Engineer UC='..GetEngineerUniqueCount(oEngineer)..'; Engineer ID and LC='..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..'; Techlevel='..M28UnitInfo.GetUnitTechLevel(oEngineer)..'; tAlternativePositionToLookFrom='..repru(tAlternativePositionToLookFrom or {'nil'})..'; bBuildCheapestStructure='..tostring((bBuildCheapestStructure or false))..'; All blueprints that meet the category='..repru(EntityCategoryGetUnitList(iCategoryToBuild))..'; iMaxAreaToSearch='..(iMaxAreaToSearch or 'nil')..'; Time='..GetGameTimeSeconds()..'; Engineer brain='..oEngineer:GetAIBrain().Nickname..'; sBlueprintOverride='..(sBlueprintOverride or 'nil')..'; bGetMostExpensive='..tostring(bGetMostExpensive or false)) end
     local bDontCheckForNoRush = not(M28Overseer.bNoRushActive)
-    local bGetMostExpensive
-    --[[if aiBrain[M28Overseer.refbCanBuildExperimentalShields] and not(bBuildCheapestStructure) and (iOptionalEngineerAction == refActionBuildShield or iOptionalEngineerAction == refActionBuildSecondShield) and M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamGrossEnergy] >= 400 and tLZTeamData[M28Map.subrefMexCountByTech][3] >= 3 then --some of these conditions are lower than the ones for saying to only build T3+ shields, so are more as a redundancy
-        --Build the most expensive shield available
-        bGetMostExpensive = true --dont actually want most expensive because they can be as much as a gameender; instead refer to refiExperimentalShieldCategory for the preferred category
-    end--]]
 
     --Get the blueprint to build
     --GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryCondition, oFactory, bGetSlowest, bGetFastest, bGetCheapest, iOptionalCategoryThatMustBeAbleToBuild, bIgnoreTechDifferences, iOptionalMaxSkirtSize, bGetMostExpensive)
-    local sBlueprintToBuild = sBlueprintOverride or M28Factory.GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryToBuild, oEngineer, false,          false,      bBuildCheapestStructure, iOptionalCategoryForStructureToBuild, nil,         nil,                   bGetMostExpensive)
+    local sBlueprintToBuild = sBlueprintOverride or M28Factory.GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryToBuild, oEngineer, false,          false,      bBuildCheapestStructure, iOptionalCategoryForStructureToBuild, nil,         nil,                   bGetMostExpensive, iMinExpMassCost, iMaxExpMassCost)
 
 
     if sBlueprintToBuild == nil then
@@ -1500,7 +1496,7 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
                 iCategoryToBuild = M28UnitInfo.refCategoryNavalFactory
             end
             --GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryCondition, oFactory, bGetSlowest, bGetFastest, bGetCheapest, iOptionalCategoryThatMustBeAbleToBuild, bIgnoreTechDifferences)
-            sBlueprintToBuild = M28Factory.GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryToBuild, oEngineer, false,          false, bBuildCheapestStructure, iOptionalCategoryForStructureToBuild)
+            sBlueprintToBuild = M28Factory.GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryToBuild, oEngineer, false,          false, bBuildCheapestStructure, iOptionalCategoryForStructureToBuild, nil, nil, bGetMostExpensive, iMinExpMassCost, iMaxExpMassCost)
         end
         if not(sBlueprintToBuild) then
             if (iOptionalEngineerAction == refActionBuildShield or iOptionalEngineerAction == refActionBuildSecondShield) and EntityCategoryContains(categories.TECH2, oEngineer.UnitId) then
@@ -1559,7 +1555,7 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
                     if aiBrain[M28Overseer.refbCloseToUnitCap] or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategorySpecialFactory) >= 1 then
                         iCategoryToBuild = iCategoryToBuild - categories.SERAPHIM * categories.FACTORY
                     end
-                    sBlueprintToBuild = M28Factory.GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryToBuild, oEngineer, false,        false,          nil,        nil)
+                    sBlueprintToBuild = M28Factory.GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryToBuild, oEngineer, false,        false,          nil,        nil, nil, nil, nil, iMinExpMassCost, iMaxExpMassCost)
 
                     --If we have ended up with a game ender then only proceed if we have sufficient eco
                     if EntityCategoryContains(M28UnitInfo.refCategoryGameEnder, sBlueprintToBuild) and M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamGrossMass] < 80 then
@@ -3276,7 +3272,7 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
     else iGameEnderTemplateCategories = M28UnitInfo.refCategoryGameEnder
     end
     local bGettingNonSeraphimAirExp = false
-    local bGettingNonUEFLandExp = false
+    local bGettingLandExp = false
     if not(tbEngineersOfFactionOrNilIfAlreadyAssigned) then
         if bDebugMessages == true then LOG(sFunctionRef..': Already have unit under construction so will return experimentallevel') end
         iCategoryWanted = M28UnitInfo.refCategoryExperimentalLevel - categories.NAVAL --Already have the unit under construction
@@ -3454,53 +3450,42 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                     if bDebugMessages == true then LOG(sFunctionRef..': will get more long ranged PD') end
                 end
             end
-            --T4 SAMs - if have less than enemy air to ground threat, and also less than between 30k-50k groundAA threat (depending on enemy air to ground threat), and are far behind on air, the nconsider building
-            if M28Building.bHaveAllFactionExperimentalSAM and not(iCategoryWanted) and not(tLZOrWZTeamData[M28Map.refbBaseInSafePosition]) and not(M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbHaveAirControl]) and
+            --EXPERIMENTAL PRIORITY ORDER: 1) Land exp, 2) Air exp, 3) Monkeylord, 4) T4 SAM
+            local bWantT4SAM = M28Building.bHaveAllFactionExperimentalSAM and not(tLZOrWZTeamData[M28Map.refbBaseInSafePosition]) and not(M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbHaveAirControl]) and
                     ((aiBrain[M28Overseer.refbPrioritiseDefence] and tLZOrWZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] < math.min(M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat], 80000)) and ( tLZOrWZTeamData[M28Map.subrefLZbCoreBase] or tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] >= math.max(3, tLZOrWZData[M28Map.subrefLZOrWZMexCount]))
-                            or (tLZOrWZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] < math.max(math.min(M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat], 30000), math.min(60000,M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] * 0.4)) and M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbFarBehindOnAir] and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 30000 and tLZOrWZTeamData[M28Map.subrefLZbCoreBase] and tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] >= math.max(3, tLZOrWZData[M28Map.subrefLZOrWZMexCount]))) then
-
-                iCategoryWanted = M28UnitInfo.refCategoryStructureAA * categories.EXPERIMENTAL
-                if bDebugMessages == true then LOG(sFunctionRef..': want T4 SAM') end
-            end
+                            or (tLZOrWZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] < math.max(math.min(M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat], 30000), math.min(60000,M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] * 0.4)) and M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbFarBehindOnAir] and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 30000 and tLZOrWZTeamData[M28Map.subrefLZbCoreBase] and tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] >= math.max(3, tLZOrWZData[M28Map.subrefLZOrWZMexCount])))
 
             if not(iCategoryWanted) then
 
                 local iTeamNukes = 0
                 if bDebugMessages == true then LOG(sFunctionRef..': iTeamLandExperimentals='..iTeamLandExperimentals..'; bCanPathByLand='..tostring(bCanPathByLand)..'; bCanPathAmphibiously='..tostring(bCanPathAmphibiously)..'; bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats='..tostring(bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats)..'; iEnemyClosestLandExperimentalOnSamePlateau='..iEnemyClosestLandExperimentalOnSamePlateau..'; Is table of enemy DF units empyt='..tostring(M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]))..'; bHaveAirControl='..tostring(bHaveAirControl)) end
                 if iTeamLandExperimentals <= 0 + (M28Team.tTeamData[iTeam][M28Team.refiFriendlyGameEnderCount] or 0) and ((bCanPathByLand and (bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats or M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategoryLandExperimental) < math.min(4, math.max(2, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] * 0.5)))) or bCanPathAmphibiously and (M28Team.tTeamData[iTeam][M28Team.refiFriendlyGameEnderCount] or 0) > 0 and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] <= 5 * (M28Team.tTeamData[iTeam][M28Team.refiFriendlyGameEnderCount] or 0) and M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategoryLandExperimental) <= 2 + (M28Team.tTeamData[iTeam][M28Team.refiFriendlyGameEnderCount] or 0) * 4) then
-                    local bOnlyHaveUEF = tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionUEF] and not(tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionSeraphim]) and not(tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionAeon]) and not(tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionCybran])
-                    if aiBrain[M28Overseer.refbPrioritiseAir] or ((M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0 or (M28Map.iMapSize >= 512 and (M28Team.iPlayersAtGameStart > 3 or M28Map.iMapSize > 512) and (M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.subrefiOurAirAAThreat] >= 8000 or (tLZOrWZTeamData[M28Map.refbBaseInSafePosition] and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 700) or (aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 1000 and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryAirFactory * categories.TECH3) >= 4)))) and not(bOnlyHaveUEF) and ((tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionSeraphim] and (M28Team.tTeamData[iTeam][M28Team.subrefiOurT1ToT3BomberThreat] or 0) + (M28Team.tTeamData[iTeam][M28Team.subrefiOurExpBomberThreat] or 0) <= 65000) or (not(tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionSeraphim]) and (M28Team.tTeamData[iTeam][M28Team.subrefiOurGunshipThreat] or 0) + (M28Team.tTeamData[iTeam][M28Team.subrefiOurT1ToT3BomberThreat] or 0) + M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.subrefiOurExpBomberThreat] <= 50000)) and (bHaveAirControl or ((tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionSeraphim] or M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0) and not(M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbFarBehindOnAir]) and (iEnemyClosestLandExperimentalOnSamePlateau >= 300 or M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] >= 2))) and not(aiBrain[M28Overseer.refbPrioritiseLand])) then
-                        if bDebugMessages == true then LOG(sFunctionRef..': Considering getting air exp first instead of land exp, M28Team.tTeamData[iTeam][M28Team.subrefiOurGunshipThreat]='..M28Team.tTeamData[iTeam][M28Team.subrefiOurGunshipThreat]..'; T1-T3 Bomber threat='..M28Team.tTeamData[iTeam][M28Team.subrefiOurT1ToT3BomberThreat]) end
-                        if bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats or M28Team.tTeamData[iTeam][M28Team.subrefiOurGunshipThreat] + M28Team.tTeamData[iTeam][M28Team.subrefiOurT1ToT3BomberThreat] + M28Team.tTeamData[iTeam][M28Team.subrefiOurExpBomberThreat] < 30000 then
+                    
+                    --Land experimental
+                    iCategoryWanted = M28UnitInfo.refCategoryLandExperimental - iGameEnderTemplateCategories - categories.TRANSPORTATION - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR
+                    bGettingLandExp = true --Flag to apply economy-based cost selection later
+                    if bDebugMessages == true then LOG(sFunctionRef..': Land experimental') end
+                    
+                    --Air experimental (if air personality)
+                    if aiBrain[M28Overseer.refbPrioritiseAir] and not(aiBrain[M28Overseer.refbPrioritiseLand]) then
+                        --Air personality - prioritize air experimental
+                        if (M28Team.tTeamData[iTeam][M28Team.subrefiOurGunshipThreat] or 0) + (M28Team.tTeamData[iTeam][M28Team.subrefiOurT1ToT3BomberThreat] or 0) + (M28Team.tTeamData[iTeam][M28Team.subrefiOurExpBomberThreat] or 0) <= 50000 then
                             if tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionSeraphim] and not(aiBrain.M28Easy) then
                                 iCategoryWanted = M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.TRANSPORTFOCUS - categories.STRUCTURE * categories.ANTIAIR
                             else
                                 iCategoryWanted = (M28UnitInfo.refCategoryBomber + M28UnitInfo.refCategoryGunship) * categories.EXPERIMENTAL - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.TRANSPORTFOCUS - categories.STRUCTURE * categories.ANTIAIR
                                 bGettingNonSeraphimAirExp = true
-                                --If have UEF and not other factions then include novax
-                                if bOnlyHaveUEF then
-                                    iCategoryWanted = iCategoryWanted + M28UnitInfo.refCategoryNovaxCentre
-                                end
                             end
+                            bGettingLandExp = false
+                            if bDebugMessages == true then LOG(sFunctionRef..': Air experimental (air personality)') end
                         end
-                    else
-                        iCategoryWanted = M28UnitInfo.refCategoryLandExperimental - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR
-                        if bDebugMessages == true then LOG(sFunctionRef..': We have no land experimentals but can reach the enemy base by land so will consider building one, Is Cybran engineers of faction available='..tostring(tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionCybran] or false)..'; Lifetime land experimental count='..M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategoryLandExperimental)) end
-                        if tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionCybran] then
-                            if M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategoryLandExperimental) < 2 and (M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] > 2 or M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] == 0) then
-                                iCategoryWanted = M28UnitInfo.refCategoryMonkeylord - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR
-                                iFactionRequired = M28UnitInfo.refFactionCybran
-                                if bDebugMessages == true then LOG(sFunctionRef..': Want to build a monkeylord') end
-                            else
-                                iCategoryWanted = M28UnitInfo.refCategoryLandExperimental - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR
-                                if categories.url0402 then
-                                    iCategoryWanted = iCategoryWanted - categories.url0402
-                                end
+                    end
 
-                                if bDebugMessages == true then LOG(sFunctionRef..': Want to build a megalith or other land experimental that isnt a monkeylord')
-                                end
-                            end
-                        end
+                    
+                    --T4 SAM (bottom priority - only if nothing else selected AND conditions met)
+                    if not(iCategoryWanted) and bWantT4SAM then
+                        iCategoryWanted = M28UnitInfo.refCategoryStructureAA * categories.EXPERIMENTAL
+                        if bDebugMessages == true then LOG(sFunctionRef..': T4 SAM') end
                     end
                 else
                     --Consider getting nukes
@@ -4046,7 +4031,7 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                                     iCategoryWanted = M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.TRANSPORTFOCUS - categories.STRUCTURE * categories.ANTIAIR
                                 elseif bPrioritiseLand and bCanPathAmphibiously then
                                     iCategoryWanted = M28UnitInfo.refCategoryLandExperimental - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR
-                                    bGettingNonUEFLandExp = true
+                                    bGettingLandExp = true
                                 elseif not(bCanPathByLand) or (not(bDontGetAhwassa) and (M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbHaveAirControl] or (not(M28Team.tTeamData[iTeam][M28Team.refbFarBehindOnAir]) and iTeamLandExperimentals >= math.max(1, iEnemyLandExperimentalCount)) or (not(bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats) or iTeamLandExperimentals > iEnemyLandExperimentalCount + 2))) then
                                     local iAhwassaLifetimeCount = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL)
                                     if bDontGetAhwassa or (not(bDontConsiderGameEnderInMostCases) and iAhwassaLifetimeCount > 0 and (iAhwassaCount >= 2 or iAhwassaLifetimeCount >= 3) and (iGameEnderCount * 3 + iCurT3ArtiCount < 3 * iAhwassaLifetimeCount) and (M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] >= 4 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 25 + 25 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) and
@@ -4114,7 +4099,7 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                                             if bDebugMessages == true then LOG(sFunctionRef..': Will get another exp bomber') end
                                         else
                                             iCategoryWanted = M28UnitInfo.refCategoryLandExperimental - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR
-                                            bGettingNonUEFLandExp = true
+                                            bGettingLandExp = true
                                             --If have Cybran then get megalith in preference to ythotha
                                             if tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionCybran] then
                                                 iFactionRequired = M28UnitInfo.refFactionCybran
@@ -4143,10 +4128,10 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                                 elseif bPrioritiseLand and bCanPathAmphibiously then
                                     if ScenarioInfo.Options.M28PrioritiseBPs == 2 then --dont want to prioritise certain units
                                         iCategoryWanted = M28UnitInfo.refCategoryLandExperimental - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR --megalith has better torps
-                                        bGettingNonUEFLandExp = true
+                                        bGettingLandExp = true
                                     else
                                         iCategoryWanted = M28UnitInfo.refCategoryMegalith - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR --megalith has better torps
-                                        bGettingNonUEFLandExp = true
+                                        bGettingLandExp = true
                                     end
                                     --Switch to t3 arti or scathis in some cases (e.g. cant reach enemy by hover; or have lots of land+air exp; or enemy has fatboy)
                                 elseif not(bCanPathAmphibiously) or
@@ -4190,22 +4175,22 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                                     elseif not(bCanPathByLand) then
                                         if ScenarioInfo.Options.M28PrioritiseBPs == 2 then --dont want to prioritise certain units
                                             iCategoryWanted = M28UnitInfo.refCategoryLandExperimental - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR --megalith has better torps
-                                            bGettingNonUEFLandExp = true
+                                            bGettingLandExp = true
                                         else
                                             iCategoryWanted = M28UnitInfo.refCategoryMegalith - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR --megalith has better torps
-                                            bGettingNonUEFLandExp = true
+                                            bGettingLandExp = true
                                         end
                                         if bDebugMessages == true then LOG(sFunctionRef..': Cybr will get mega') end
                                     else
                                         if iTeamLandExperimentals == 0 and M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategoryLandExperimental) < 2 then
                                             iCategoryWanted = M28UnitInfo.refCategoryMonkeylord - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR
-                                            bGettingNonUEFLandExp = true
+                                            bGettingLandExp = true
                                             if bDebugMessages == true then LOG(sFunctionRef..': Cybr will get monkey') end
                                         else
                                             --Get megalith
                                             iCategoryWanted = M28UnitInfo.refCategoryLandExperimental - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR --i.e. megalith (but slightly more helpful to mods doing it this way)
                                             if categories.url0402 then iCategoryWanted = iCategoryWanted - categories.url0402 end
-                                            bGettingNonUEFLandExp = true
+                                            bGettingLandExp = true
                                             if bDebugMessages == true then LOG(sFunctionRef..': Cybr will get non monkey land exp') end
                                         end
                                     end
@@ -4236,7 +4221,7 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                                     iCategoryWanted = (M28UnitInfo.refCategoryGunship + M28UnitInfo.refCategoryBomber) * categories.EXPERIMENTAL + M28UnitInfo.refCategoryCzar - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.TRANSPORTFOCUS - categories.STRUCTURE * categories.ANTIAIR
                                 elseif bPrioritiseLand and bCanPathAmphibiously then
                                     iCategoryWanted = M28UnitInfo.refCategoryLandExperimental - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR
-                                    bGettingNonUEFLandExp = true
+                                    bGettingLandExp = true
                                 elseif not(bDontGetAirExp) and bHaveLargeBuildAreaAvailable and ((iLifetimeGroundExpCount >= 4 and iLifetimeAirExpCount < iLifetimeGroundExpCount / 5 and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] >= 4) or (not(bCanPathByLand) and iEnemyLandExperimentalCount <= iTeamLandExperimentals + iUnderConstructionLandExp)) and (bHaveAirControl or (not(bFarBehindOnAir) and M28Team.tTeamData[iTeam][M28Team.iEnemyT3MAAActiveCount] <= 20) or M28Team.tTeamData[iTeam][M28Team.iEnemyT3MAAActiveCount] <= 8) then
                                     if bDebugMessages == true then LOG(sFunctionRef..': Have built lots of exp but havent tried many czars so will get some even if we lack air control') end
                                     bGettingNonSeraphimAirExp = true
@@ -4347,7 +4332,7 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                                         else
                                             --Dont reset faction requirement as GC is better than most other factions, except cybran
                                             iCategoryWanted = M28UnitInfo.refCategoryLandExperimental - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR
-                                            bGettingNonUEFLandExp = true
+                                            bGettingLandExp = true
                                             if bDebugMessages == true then LOG(sFunctionRef..': want more land experimentals') end
                                             if tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionCybran] then
                                                 iFactionRequired = M28UnitInfo.refFactionCybran
@@ -4364,7 +4349,7 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                                     iCategoryWanted = (M28UnitInfo.refCategoryGunship + M28UnitInfo.refCategoryBomber) * categories.EXPERIMENTAL + M28UnitInfo.refCategoryCzar - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.TRANSPORTFOCUS - categories.STRUCTURE * categories.ANTIAIR
                                 elseif bPrioritiseLand and bCanPathAmphibiously then
                                     iCategoryWanted = M28UnitInfo.refCategoryLandExperimental - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR
-                                    bGettingNonUEFLandExp = true
+                                    bGettingLandExp = true
                                     --Switch to t3 arti or scathis in some cases (e.g. cant reach enemy by hover; or have lots of land+air exp; or enemy has fatboy)
                                 elseif not(bCanPathAmphibiously) then
                                     iCategoryWanted = M28UnitInfo.refCategoryFixedT3Arti + M28UnitInfo.refCategoryExperimentalStructure
@@ -4386,7 +4371,7 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
 
                                     if iTeamLandExperimentals <= math.max(iEnemyLandExperimentalCount + 2 + iBaseAdjust, 3 + iBaseAdjust) then
                                         iCategoryWanted = M28UnitInfo.refCategoryLandExperimental - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR
-                                        bGettingNonUEFLandExp = true
+                                        bGettingLandExp = true
                                     else
                                         iCategoryWanted = M28UnitInfo.refCategoryFixedT3Arti + M28UnitInfo.refCategoryExperimentalStructure
                                         local iCurExperimentalsOfType = 0
@@ -4601,7 +4586,7 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
             end
         end
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': Finished main logic for choosing experimental, is iCategoryWanted nil='..tostring(iCategoryWanted == nil)..'; P'..iPlateauOrZero..'Z'..iLandOrWaterZone..'; bGettingNonSeraphimAirExp='..tostring(bGettingNonSeraphimAirExp)..'; bGettingNonUEFLandExp='..tostring(bGettingNonUEFLandExp)..'; Mass%='..M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamAverageMassPercentStored]..'; Exp constructed count='..M28Team.tTeamData[aiBrain.M28Team][M28Team.refiConstructedExperimentalCount]) end
+    if bDebugMessages == true then LOG(sFunctionRef..': Finished main logic for choosing experimental, is iCategoryWanted nil='..tostring(iCategoryWanted == nil)..'; P'..iPlateauOrZero..'Z'..iLandOrWaterZone..'; bGettingNonSeraphimAirExp='..tostring(bGettingNonSeraphimAirExp)..'; bGettingLandExp='..tostring(bGettingLandExp)..'; Mass%='..M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamAverageMassPercentStored]..'; Exp constructed count='..M28Team.tTeamData[aiBrain.M28Team][M28Team.refiConstructedExperimentalCount]) end
     if not(iCategoryWanted) and not(bDontWantExperimental) then iCategoryWanted = M28UnitInfo.refCategoryLandExperimental - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR end --redundancy
     if iCategoryWanted == refActionManageGameEnderTemplate and not(tLZOrWZTeamData[M28Map.refiLastGameEnderTemplateCategory]) then
         --Redundancy - wouldn't expect to get here
@@ -4645,25 +4630,8 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                     iCategoryWanted = nil
                 end
             end
-        elseif bGettingNonUEFLandExp then
-            --Do we have UEF on team?
-            local bHaveUEFOnTeam
-            local iTeam = aiBrain.M28Team
-            for iBrain, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains] do
-                if oBrain:GetFactionIndex() == M28UnitInfo.refFactionUEF and oBrain.M28LandSubteam == aiBrain.M28LandSubteam then
-                    bHaveUEFOnTeam = true
-                    if bDebugMessages == true then LOG(sFunctionRef..': We have UEF on our team so want to hold off on getting an experimental from this zone unless we have built similar number of fatboys to other EXPs') end
-                end
-            end
-            if bHaveUEFOnTeam and not(M28Overseer.bUnitRestrictionsArePresent) and categories.uel0401 and not(M28Map.bIsCampaignMap) then
-                local iFatboyLC = M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategoryFatboy)
-                local iAllLandExpLC = M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategoryLandExperimental)
-                if (M28Team.tTeamData[aiBrain.M28Team][M28Team.refiConstructedExperimentalCount] > 0 or iAllLandExpLC - iFatboyLC >= 1) and (iFatboyLC <= (iAllLandExpLC - iFatboyLC) or (aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryFatboy) == 0 and iFatboyLC <= 1 + (iAllLandExpLC - iFatboyLC) * 2)) then
-                    iCategoryWanted = nil
-                end
-                if bDebugMessages == true then LOG(sFunctionRef..': iFatboyLC='..iFatboyLC..'; iAllLandExpLC='..iAllLandExpLC..'; Is iCategoryWanted nil now='..tostring(iCategoryWanted == nil)) end
-            end
         end
+
     end
     --Flag if we need SACUs
     if iCategoryWanted and not(iCategoryWanted == refActionManageGameEnderTemplate) then
@@ -4745,8 +4713,36 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
         LOG('--------------------------------------------------')
     end
 
+    local iMinExpCost, iMaxExpCost
+    if bGettingLandExp then
+        local iTeam = aiBrain.M28Team
+        local iTeamGrossMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0
+        local iTeamMassStored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] or 0
+        local iTeamStoragePercent = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0
+        
+        --Economy score: weighted combo of gross income and storage health
+        local iEcoScore = iTeamGrossMass * (0.5 + iTeamStoragePercent * 0.5) + iTeamMassStored * 0.01
+    
+        if iEcoScore >= 70 then
+            iMinExpCost = 70000
+            iMaxExpCost = 999999
+        elseif iEcoScore >= 50 then
+            iMinExpCost = 40000
+            iMaxExpCost = 70000
+        elseif iEcoScore >= 30 then
+            iMinExpCost = 20000
+            iMaxExpCost = 40000
+        elseif iEcoScore >= 15 then
+            iMaxExpCost = 20000
+        end
+        --If < 15, assume default behavior (likely cheapest or any)
+        
+        if bDebugMessages == true then LOG(sFunctionRef..': Land exp cost preference - iTeamGrossMass='..iTeamGrossMass..'; iTeamMassStored='..iTeamMassStored..'; iTeamStoragePercent='..(iTeamStoragePercent or 'nil')..'; iEcoScore='..iEcoScore..'; iMinExpCost='..(iMinExpCost or 'nil')..'; iMaxExpCost='..(iMaxExpCost or 'nil')) end
+    end
+
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-    return iCategoryWanted, iFactionRequired
+    return iCategoryWanted, iFactionRequired, iMinExpCost, iMaxExpCost
+
 end
 
 function MonitorToReissueReclaimOrder(oEngineer, oNearestReclaimableEnemy, iDistanceToReissue, iTicksToCheck)
@@ -5471,6 +5467,8 @@ function GetCategoryToBuildOrAssistFromAction(iActionToAssign, iMinTechLevel, ai
 
     local iCategoryToBuild = tiActionCategory[iActionToAssign]
     local iOptionalFactionRequired --Used for certain categories where chocie of category depended on the faction available
+    local iMinExpMassCost, iMaxExpMassCost --Economy-based experimental cost preference
+
     if bDebugMessages == true then LOG(sFunctionRef..': Time of start='..GetGameTimeSeconds()..'; iActionToAssign='..iActionToAssign..'; iMinTechLevel='..iMinTechLevel..'; aiBrain='..aiBrain.Nickname..'; repru(tbEngineersOfFactionOrNilIfAlreadyAssigned)='..repru(tbEngineersOfFactionOrNilIfAlreadyAssigned)..'; Is tbActionsThatDontHaveCategory[iActionToAssign] nil='..tostring(tbActionsThatDontHaveCategory[iActionToAssign] == nil)..'; Is tiActionCategory[iActionToAssign] nil='..tostring(tiActionCategory[iActionToAssign] == nil)) end
     --Manual adjustments to default category
     if iActionToAssign == refActionBuildGameEnder then
@@ -5536,7 +5534,8 @@ function GetCategoryToBuildOrAssistFromAction(iActionToAssign, iMinTechLevel, ai
                 iCategoryToBuild = M28UnitInfo.refCategoryT2PlusPD
             end
         elseif iActionToAssign == refActionBuildExperimental or iActionToAssign == refActionBuildSecondExperimental then
-            iCategoryToBuild, iOptionalFactionRequired = DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFactionOrNilIfAlreadyAssigned, tLZOrWZData, tLZOrWZTeamData, iPlateauOrZero, iLandOrWaterZone)
+            iCategoryToBuild, iOptionalFactionRequired, iMinExpMassCost, iMaxExpMassCost = DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFactionOrNilIfAlreadyAssigned, tLZOrWZData, tLZOrWZTeamData, iPlateauOrZero, iLandOrWaterZone)
+
         elseif iActionToAssign == refActionBuildShield or iActionToAssign == refActionBuildSecondShield then
             --NOTE: Separately this gets changed to tech3 if need increased range
             if bDebugMessages == true then LOG(sFunctionRef..': Considering building shield, iMinTechLevel='..iMinTechLevel..'; M28Team.tTeamData[aiBrain.M28Team][M28Team.refiEnemyT3ArtiCount]='..M28Team.tTeamData[aiBrain.M28Team][M28Team.refiEnemyT3ArtiCount]..'; Novax count='..M28Team.tTeamData[aiBrain.M28Team][M28Team.refiEnemyNovaxCount]..'; Enemy air to ground='..M28Team.tTeamData[aiBrain.M28Team][M28Team.refiEnemyAirToGroundThreat]..'; SValue='..tLZOrWZTeamData[M28Map.subrefLZSValue]..'; Core base='..tostring(tLZOrWZTeamData[M28Map.subrefLZbCoreBase])..'; Cose to unit cap='..tostring(aiBrain[M28Overseer.refbCloseToUnitCap])..'; Unit cap adj level='..(M28Team.tTeamData[aiBrain.M28Team][M28Team.refiLowestUnitCapAdjustmentLevel] or 'nil')..'; iMinTechLevel='..iMinTechLevel..'; refiFixedShieldT2EngiFailureCount='..((tLZOrWZTeamData[M28Map.refiFixedShieldT2EngiFailureCount] or 'nil'))..'; Is table of nearby t2 arti empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subreftoAllNearbyEnemyT2ArtiUnits]))..'; aiBrain[M28Overseer.refbCloseToUnitCap]='..tostring(aiBrain[M28Overseer.refbCloseToUnitCap])) end
@@ -5596,7 +5595,8 @@ function GetCategoryToBuildOrAssistFromAction(iActionToAssign, iMinTechLevel, ai
         end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-    return iCategoryToBuild, iOptionalFactionRequired
+    return iCategoryToBuild, iOptionalFactionRequired, iMinExpMassCost, iMaxExpMassCost
+
 end
 
 function GetEngineersOfTechWanted(iMinTechLevelWanted, toAvailableEngineersByTech)
@@ -10973,7 +10973,8 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                 end
             end
 
-            local iCategoryWanted, iOptionalFactionRequired = GetCategoryToBuildOrAssistFromAction(iActionToAssign, iMinCategoryTechLevel, aiBrain, tbEngineersOfFaction, tLZOrWZData, tLZOrWZTeamData, iPlateauOrZero, iLandOrWaterZone)
+            local iCategoryWanted, iOptionalFactionRequired, iMinExpMassCost, iMaxExpMassCost = GetCategoryToBuildOrAssistFromAction(iActionToAssign, iMinCategoryTechLevel, aiBrain, tbEngineersOfFaction, tLZOrWZData, tLZOrWZTeamData, iPlateauOrZero, iLandOrWaterZone)
+
             --Land and air facs - optional variable can be used to specify max tech level to use
             if vOptionalVariable and iCategoryWanted and (iActionToAssign == refActionBuildAirFactory or iActionToAssign == refActionBuildLandFactory or iActionToAssign == refActionBuildSecondLandFactory or iActionToAssign == refActionBuildSecondLandFactory) and vOptionalVariable >= iMinCategoryTechLevel and (vOptionalVariable == 1 or vOptionalVariable == 2) then
                 iCategoryWanted = iCategoryWanted * M28UnitInfo.ConvertTechLevelToCategory(vOptionalVariable)
@@ -11326,8 +11327,7 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                                             iAdjacencyCategory = M28UnitInfo.refCategoryT3Power
                                         end
                                     end
-                                    --GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAction, iCategoryToBuild, iMaxAreaToSearch, iCatToBuildBy, tAlternativePositionToLookFrom, bNotYetUsedLookForQueuedBuildings, oUnitToBuildBy, iOptionalCategoryForStructureToBuild, bBuildCheapestStructure, tLZData, tLZTeamData, bCalledFromGetBestLocation, sBlueprintOverride)
-                                    sBlueprint, tBuildLocation = GetBlueprintAndLocationToBuild(aiBrain, oFirstEngineer, iActionToAssign, iCategoryWanted, iMaxSearchRange, iAdjacencyCategory, nil,                                false,                          nil,                nil,                                bGetCheapest, tLZOrWZData, tLZOrWZTeamData)
+                                    sBlueprint, tBuildLocation = GetBlueprintAndLocationToBuild(aiBrain, oFirstEngineer, iActionToAssign, iCategoryWanted, iMaxSearchRange, iAdjacencyCategory, nil,                                false,                          nil,                nil, bGetCheapest, tLZOrWZData, tLZOrWZTeamData, nil, nil, nil, iMinExpMassCost, iMaxExpMassCost)
                                 end
                                 if bDebugMessages == true then LOG(sFunctionRef..': Just got blueprint and location to build for oFirstEngineer='..oFirstEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFirstEngineer)..'; iActionTOAssign='..iActionToAssign..'; sBlueprint='..(sBlueprint or 'nil')..'; tBuildLocation='..repru(tBuildLocation)..'; Is tiActionAdjacentCategory[iActionToAssign] nil='..tostring(tiActionAdjacentCategory[iActionToAssign] == nil)) end
                                 if M28Utilities.IsTableEmpty(tBuildLocation) then
@@ -13356,7 +13356,7 @@ function AssignBuildExperimentalOrT3NavyAction(fnHaveActionToAssign, iPlateau, i
                 iBuildPowerWanted = 0
             end
         elseif tLZOrWZData[M28Map.subrefLZOrWZMexCount] > 0 and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] <= 1 and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]) then
-            if tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] < math.min(3, tLZOrWZData[M28Map.subrefLZOrWZMexCount]) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] <= 50 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.75 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] <= 25000 then
+            if tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] <= math.min(1, tLZOrWZData[M28Map.subrefLZOrWZMexCount]) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] <= 15 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.75 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] <= 25000 then
                 if bDebugMessages == true then LOG(sFunctionRef..': Dont want to get an experimental just yet, instead want to get more eco') end
                 iBuildPowerWanted = 0
             end
@@ -14608,10 +14608,10 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
 
     --Build quantum gateway if using a mod (e.g. LOUD) that requires SACUs to build experimentals, or if we have lots of T3 mexes with high resource mod
     iCurPriority = iCurPriority + 1
-    if (aiBrain[M28Economy.refiBrainResourceMultiplier] >= 1.5 and tLZTeamData[M28Map.subrefMexCountByTech][3] >= 4 and tLZTeamData[M28Map.subrefMexCountByTech][2] <= (tLZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) and tLZTeamData[M28Map.subrefMexCountByTech][1] == 0 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and not(aiBrain:GetArmyIndex() == M28UnitInfo.refFactionSeraphim)) or ((tLZTeamData[M28Map.subrefiTimeLastWantSACUForExp] or tLZTeamData[M28Map.subrefiTimeLastWantSACUForSMD]) and GetGameTimeSeconds() - math.max((tLZTeamData[M28Map.subrefiTimeLastWantSACUForExp] or 0), tLZTeamData[M28Map.subrefiTimeLastWantSACUForSMD] or 0) <= 30 and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false and (not(bHaveLowPower) or M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] >= 3 or (not(bHaveLowMass) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 and tLZTeamData[M28Map.subrefMexCountByTech][3] >= tLZData[M28Map.subrefLZOrWZMexCount]))) then
+    if (tLZTeamData[M28Map.subrefMexCountByTech][3] >= 2 and tLZTeamData[M28Map.subrefMexCountByTech][2] <= (tLZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) and tLZTeamData[M28Map.subrefMexCountByTech][1] == 0 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 5 * (aiBrain[M28Economy.refiBrainResourceMultiplier] or 1) * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and not(aiBrain:GetArmyIndex() == M28UnitInfo.refFactionSeraphim)) or ((tLZTeamData[M28Map.subrefiTimeLastWantSACUForExp] or tLZTeamData[M28Map.subrefiTimeLastWantSACUForSMD]) and GetGameTimeSeconds() - math.max((tLZTeamData[M28Map.subrefiTimeLastWantSACUForExp] or 0), tLZTeamData[M28Map.subrefiTimeLastWantSACUForSMD] or 0) <= 30 and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false and (not(bHaveLowPower) or M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] >= 3 or (not(bHaveLowMass) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 and tLZTeamData[M28Map.subrefMexCountByTech][3] >= tLZData[M28Map.subrefLZOrWZMexCount]))) then
         --Require at least 1 t3 pgen in the zone before starting on quantum gateway unless have very high gross energy
         if bDebugMessages == true then LOG(sFunctionRef..': Considering if we have enough gross E to warrant building a quantum gateway, or if we should get more power first, bWantMorePower='..tostring(bWantMorePower)..'; Gross energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; No. of t3 pgens constructed in zone='..M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryT3Power)) end
-        if not(bWantMorePower) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 500 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryT3Power) > 0 then
+        if not(bWantMorePower) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 100 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryT3Power) > 0 then
             --If have lots of mexes that coudl be upgraded to T3 then hold off if low on mass
             if (not(bHaveLowMass) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.05) or tLZTeamData[M28Map.subrefMexCountByTech][2] < 2 then
                 iBPWanted = 90

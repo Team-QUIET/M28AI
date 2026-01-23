@@ -72,7 +72,7 @@ function GetMostExpensiveBlueprintOfCategory(iCategoryCondition)
     return sMostExpensiveBlueprint
 end
 
-function GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryCondition, oFactory, bGetSlowest, bGetFastest, bGetCheapest, iOptionalCategoryThatMustBeAbleToBuild, bIgnoreTechDifferences, iOptionalMaxSkirtSize, bGetMostExpensive)
+function GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryCondition, oFactory, bGetSlowest, bGetFastest, bGetCheapest, iOptionalCategoryThatMustBeAbleToBuild, bIgnoreTechDifferences, iOptionalMaxSkirtSize, bGetMostExpensive, iMinMassCost, iMaxMassCost)
     --returns nil if cant find any blueprints that can build
     --NOTE: Can use import("/lua/game.lua").IsRestricted(sBlueprint, iArmyIndex) to see if we are able to build a particular blueprint; moved to M28UnitInfo.IsUnitRestricted for LOUD compatibility
     --NOTE: bGetSlowest is forced to be true for t1 land factories
@@ -129,7 +129,7 @@ function GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryCondition, oFactor
         local iArmyIndex = aiBrain:GetArmyIndex()
         for _, sBlueprint in tBlueprints do
             if bDebugMessages == true then LOG(sFunctionRef..': About to see if factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; can build blueprint '..(sBlueprint or 'nil')..'; CanBuild='..tostring(oFactory:CanBuild(sBlueprint))..'; iArmyIndex='..(iArmyIndex or 'nil')) end
-            if oFactory:CanBuild(sBlueprint) == true and not(M28UnitInfo.IsUnitRestricted(sBlueprint, iArmyIndex)) then
+            if oFactory:CanBuild(sBlueprint) == true and not(M28UnitInfo.IsUnitRestricted(sBlueprint, iArmyIndex)) and (not(iMinMassCost) or (tAllBlueprints[sBlueprint].Economy.BuildCostMass or 0) >= iMinMassCost) and (not(iMaxMassCost) or (tAllBlueprints[sBlueprint].Economy.BuildCostMass or 0) <= iMaxMassCost)  then
                 --Check we can build the desired category
                 if not(iOptionalCategoryThatMustBeAbleToBuild) then bCanBuildRequiredCategory = true
                 else
