@@ -2493,7 +2493,7 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
                                             if M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 22 and not(aiBrain[M28Overseer.refbPrioritiseNavy]) and not(aiBrain[M28Overseer.refbPrioritiseAir]) then
                                                 iLandFactoriesWantedBeforeAir = 2
                                             end
-                                            iAirFactoriesForEveryLandFactory = 5
+                                            iAirFactoriesForEveryLandFactory = 6
                                             if bDebugMessages == true then LOG(sFunctionRef..': We cant path to enemy by land so eant lots if air relative to land') end
                                         end
                                     else
@@ -2517,15 +2517,15 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
                                                 iAirFactoriesForEveryLandFactory = 1
                                             else
                                                 iLandFactoriesWantedBeforeAir = 1
-                                                iAirFactoriesForEveryLandFactory = 4
-                                                if M28Map.iMapSize >= 1000 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] >= 3 then iAirFactoriesForEveryLandFactory = 6 end
+                                                iAirFactoriesForEveryLandFactory = 2
+                                                if M28Map.iMapSize >= 1000 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] >= 3 then iAirFactoriesForEveryLandFactory = 3 end
                                             end
                                         elseif iEnemyBaseDist >= 350 then
                                             iLandFactoriesWantedBeforeAir = 2
                                             if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] <= 2 or M28Map.iMapSize < 512 then
                                                 iAirFactoriesForEveryLandFactory = 1
                                             else
-                                                iAirFactoriesForEveryLandFactory = 4
+                                                iAirFactoriesForEveryLandFactory = 2
                                             end
                                         else
                                             iLandFactoriesWantedBeforeAir = 5 - aiBrain[M28Economy.refiOurHighestAirFactoryTech]
@@ -2559,7 +2559,7 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
                                                 iAirFactoriesForEveryLandFactory = math.max(0.5, iAirFactoriesForEveryLandFactory)
                                             else
                                                 iLandFactoriesWantedBeforeAir = 1
-                                                iAirFactoriesForEveryLandFactory = math.min(math.max(iAirFactoriesForEveryLandFactory, 6), iAirFactoriesForEveryLandFactory * 1.5)
+                                                iAirFactoriesForEveryLandFactory = math.min(math.max(iAirFactoriesForEveryLandFactory, 3), iAirFactoriesForEveryLandFactory * 1.25)
                                             end
                                         end
                                         --Ensure minimum 1:1 air:land ratio, but NOT if we're far behind on air & we're naval personality
@@ -2655,7 +2655,7 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
                                             end
                                         end
                                     end
-                                    if iLandFactoriesHave >= 4 and M28Map.iMapSize >= 1000 and not(TeamHasAirControl(iTeam)) then iAirFactoriesForEveryLandFactory = iAirFactoriesForEveryLandFactory * 1.5 end
+                                    if iLandFactoriesHave >= 6 and M28Map.iMapSize >= 1000 and not(TeamHasAirControl(iTeam)) then iAirFactoriesForEveryLandFactory = iAirFactoriesForEveryLandFactory * 1.25 end
 
                                     --If we are far behind on air, prioritize air factory construction heavily
                                     local bTeamFarBehindOnAir = TeamIsFarBehindOnAir(iTeam)
