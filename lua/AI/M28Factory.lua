@@ -2613,11 +2613,11 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             end
         end
         if bDebugMessages == true then LOG(sFunctionRef..': Enemy T3 mobile arti count='..iEnemyT3MobileArtiCount) end
-        if iEnemyT3MobileArtiCount >= 2 then
+        if iEnemyT3MobileArtiCount >= 1 then
             --Enemy has T3 mobile arti - ramp up our own production significantly
             local iOurT3MobileArtiCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryT3MobileArtillery)
             local iT3MobileArtiUnderConstruction = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryT3MobileArtillery, false)
-            local iT3MobileArtiWanted = math.max(iEnemyT3MobileArtiCount, math.floor(iEnemyT3MobileArtiCount * 1.5))
+            local iT3MobileArtiWanted = math.max(iEnemyT3MobileArtiCount, math.floor(iEnemyT3MobileArtiCount))
             if bDebugMessages == true then LOG(sFunctionRef..': Our T3 mobile arti='..iOurT3MobileArtiCount..'; Under construction='..iT3MobileArtiUnderConstruction..'; Wanted='..iT3MobileArtiWanted) end
             if iOurT3MobileArtiCount + iT3MobileArtiUnderConstruction < iT3MobileArtiWanted then
                 if ConsiderBuildingCategory(M28UnitInfo.refCategoryT3MobileArtillery) then return sBPIDToBuild end
@@ -2637,9 +2637,9 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                     iEnemyT3MobileArtiCount = iEnemyT3MobileArtiCount + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryT3MobileArtillery)
                 end
             end
-            if iEnemyT3MobileArtiCount >= 2 then
+            if iEnemyT3MobileArtiCount >= 1 then
                 bEnemyHasT3MobileArtiCounter = true
-                if bDebugMessages == true then LOG(sFunctionRef..': Enemy has 3+ T3 mobile arti, skipping sniperbots') end
+                if bDebugMessages == true then LOG(sFunctionRef..': Enemy has 1+ T3 mobile arti, skipping sniperbots') end
             end
         end
         if not(bEnemyHasT3MobileArtiCounter) and M28Conditions.PrioritiseSniperBots(tLZData, iTeam, tLZTeamData, iPlateau, iLandZone, true) and (not(bHaveLowMass) or not(aiBrain[M28Overseer.refbPrioritiseAir]) and not(aiBrain[M28Overseer.refbPrioritiseNavy])) then
@@ -3273,8 +3273,8 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                                         iDirectThreatPerIndirectThreatWanted = iDirectThreatPerIndirectThreatWanted * 2
                                     end
 
-                                    if M28Utilities.bQuietModActive then --Az request for more mobile t3 arti in QUIET
-                                        iDirectThreatPerIndirectThreatWanted = iDirectThreatPerIndirectThreatWanted * 0.5
+                                    if M28Utilities.bQuietModActive then
+                                        iDirectThreatPerIndirectThreatWanted = iDirectThreatPerIndirectThreatWanted * 0.8
                                     end
                                     local iIndirectThreatWanted = math.max(100, math.min(10000, iDFTotalThreat) / iDirectThreatPerIndirectThreatWanted)
                                     if iDFTotalThreat > 10000 then
