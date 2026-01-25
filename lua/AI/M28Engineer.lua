@@ -344,7 +344,7 @@ tiActionCategory = {
     [refActionBuildAA] = M28UnitInfo.refCategoryStructureAA - categories.EXPERIMENTAL,
     --refActionBuildEmergencyPD - will use custom code as sometimes want T1 PD
     [refActionBuildSecondPD] = M28UnitInfo.refCategoryPD,
-    [refActionBuildEmergencyArti] = M28UnitInfo.refCategoryFixedT2Arti,
+    [refActionBuildEmergencyArti] = M28UnitInfo.refCategoryFixedT2Arti + M28UnitInfo.refCategoryFixedT3Arti,
     [refActionBuildQuantumGateway] = M28UnitInfo.refCategoryQuantumGateway,
     [refActionBuildQuantumOptics] = M28UnitInfo.refCategoryQuantumOptics,
     [refActionBuildSecondLandFactory] = M28UnitInfo.refCategoryLandFactory,
@@ -5503,7 +5503,7 @@ function GetCategoryToBuildOrAssistFromAction(iActionToAssign, iMinTechLevel, ai
                         --Just consider T2 PD, dont have good enough tech to try for t3 anyway
                     else
                         local iT2PD = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryPD * categories.TECH2)
-                        if ((M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and iT2PD <= 1 and (iT2PD == 0 or aiBrain[M28Economy.refiGrossMassBaseIncome] <= 7)) or (not(M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and (iT2PD <= 5 or aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryPD * categories.TECH3) >= iT2PD)) then
+                        if (iMinTechLevel < 3 or aiBrain[M28Economy.refiGrossMassBaseIncome] < 3) and (((M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and iT2PD <= 1 and (iT2PD == 0 or aiBrain[M28Economy.refiGrossMassBaseIncome] <= 7)) or (not(M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and (iT2PD <= 5 or aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryPD * categories.TECH3) >= iT2PD))) then
                             if bDebugMessages == true then LOG(sFunctionRef..': Dont have many t2 pd so will get more t2 pd (not T3)') end
                             iCategoryToBuild = M28UnitInfo.refCategoryPD - categories.TECH3 - categories.EXPERIMENTAL
                         else
