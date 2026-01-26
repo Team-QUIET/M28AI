@@ -6502,13 +6502,13 @@ function ShouldCommitMusteredArmy(iTeam, iPlateau)
 
     --Calculate required threat ratio based on tech level (more conservative than before)
     local iHighestTech = tTeamData[iTeam][subrefiHighestFriendlyLandFactoryTech] or 1
-    local iThreatRatioRequired = 1.1
+    local iThreatRatioRequired = 1.2
 
     --Use lower threshold when defending expansion zones with our mexes
     local tMexCountByTech = tTargetLZTeamData[M28Map.subrefMexCountByTech]
     if tMexCountByTech and (tMexCountByTech[1] + tMexCountByTech[2] + tMexCountByTech[3]) > 0 then
         --We have mexes in this zone, lower the threshold to defend them more aggressively
-        iThreatRatioRequired = 0.95
+        iThreatRatioRequired = 1.0
         if bDebugMessages == true then LOG(sFunctionRef..': Target zone LZ'..iTargetLZ..' has our mexes ('..tMexCountByTech[1]..'/'..tMexCountByTech[2]..'/'..tMexCountByTech[3]..'), using lower threat ratio='..iThreatRatioRequired) end
     end
 
@@ -6518,7 +6518,7 @@ function ShouldCommitMusteredArmy(iTeam, iPlateau)
     elseif iHighestTech >= 2 then iMinUnitCount = 4 end
 
     --Minimum mustering time to let more units gather
-    local iMinMusteringTime = 15
+    local iMinMusteringTime = 30
 
     local iUnitCount = table.getn(tMusterData[subreftMusteringUnits])
 
@@ -6581,7 +6581,7 @@ function CommitMusteredArmy(iTeam, iPlateau)
 
     --Issue move orders to all units
     for _, oUnit in toUnitsToCommit do
-        M28Orders.IssueTrackedMove(oUnit, tTargetMidpoint, 6, false, 'MustAtk'..iTargetLZ)
+        M28Orders.IssueSmartMove(oUnit, tTargetMidpoint, 6, false, 'MustAtk'..iTargetLZ)
     end
 
     --Clear mustering data
