@@ -4557,6 +4557,103 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
         end
     end
 
+    function GetGlobalRaidTargets(iTeamForRaid, iPlateauForRaid, iCurrentLZ, tCurrentLZData)
+        --Find raid-worthy zones across entire plateau, prioritizing closer zones
+        local tRaidTargets = {}
+        if M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateauForRaid]) then return tRaidTargets end
+        if M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateauForRaid][M28Map.subrefPlateauLandZones]) then return tRaidTargets end
+
+        local tCurrentMidpoint = tCurrentLZData[M28Map.subrefMidpoint]
+
+        for iLZ, tLZDataForRaid in M28Map.tAllPlateaus[iPlateauForRaid][M28Map.subrefPlateauLandZones] do
+            if iLZ ~= iCurrentLZ then
+                local tLZTeamDataForRaid = tLZDataForRaid[M28Map.subrefLZTeamData][iTeamForRaid]
+                if tLZTeamDataForRaid then
+                    local iEcoValue = tLZTeamDataForRaid[M28Map.subrefThreatEnemyStructureTotalMass] or 0
+                    local iCombatThreat = tLZTeamDataForRaid[M28Map.subrefTThreatEnemyCombatTotal] or 0
+
+                    --Raid-worthy: has eco, low defense
+                    if iEcoValue > 150 and iCombatThreat < 300 then
+                        local tTargetMidpoint = tLZDataForRaid[M28Map.subrefMidpoint]
+                        local iDistance = M28Utilities.GetDistanceBetweenPositions(tCurrentMidpoint, tTargetMidpoint)
+                        --Priority: eco value, penalize defense and distance heavily (closer is much better)
+                        local iPriority = iEcoValue - (iCombatThreat * 2) - (iDistance * 1.5)
+                        table.insert(tRaidTargets, {iLZ = iLZ, iPriority = iPriority, tLZData = tLZDataForRaid})
+                    end
+                end
+            end
+        end
+
+        --Sort by priority (highest first)
+        if table.getn(tRaidTargets) > 1 then
+            table.sort(tRaidTargets, function(a, b) return a.iPriority > b.iPriority end)
+        end
+
+        return tRaidTargets
+    end
+
+    function ReserveFlankRaiders(tUnitsForReserve, iTeamForRaid, iPlateauForRaid, iCurrentLZ, iThreatAvailable, tCurrentLZData)
+        --Returns: tRaiders (units to send to flanks), tRemainingUnits (for main combat), tFlankZones
+        local tRaiders = {}
+        local tNonRaiders = {}
+
+        --Skip if army too small
+        if iThreatAvailable < 1500 then
+            return {}, tUnitsForReserve, {}
+        end
+
+        --Find raid-worthy zones (prioritizes closer zones)
+        local tFlankZones = GetGlobalRaidTargets(iTeamForRaid, iPlateauForRaid, iCurrentLZ, tCurrentLZData)
+        if M28Utilities.IsTableEmpty(tFlankZones) then
+            return {}, tUnitsForReserve, {}
+        end
+
+        --Calculate max raiders (40% of army - aggressive raiding)
+        local iMaxRaiderMass = iThreatAvailable * 0.40
+
+        --Assign any units as raiders up to mass cap (no speed filtering per user request)
+        local iRaiderMass = 0
+        for iUnit, oUnit in tUnitsForReserve do
+            if iRaiderMass < iMaxRaiderMass and not EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId) then
+                iRaiderMass = iRaiderMass + (oUnit[M28UnitInfo.refiUnitMassCost] or 50)
+                table.insert(tRaiders, oUnit)
+            else
+                table.insert(tNonRaiders, oUnit)
+            end
+        end
+
+        return tRaiders, tNonRaiders, tFlankZones
+    end
+
+    function SendRaidersToFlanks(tRaidersToSend, tFlankZonesToRaid, iTeamForRaid, iPlateauForRaid, iSourceLZ)
+        if M28Utilities.IsTableEmpty(tRaidersToSend) or M28Utilities.IsTableEmpty(tFlankZonesToRaid) then
+            return
+        end
+
+        local iNumRaiders = table.getn(tRaidersToSend)
+        local iNumZones = math.min(table.getn(tFlankZonesToRaid), 3) --Max 3 flank zones
+        local iRaidersPerZone = math.max(1, math.floor(iNumRaiders / iNumZones))
+        local iRaiderIndex = 1
+
+        for iEntry, tTarget in tFlankZonesToRaid do
+            if iRaiderIndex > iNumRaiders then break end
+            if iEntry > 3 then break end
+
+            local tTargetPos = tTarget.tLZData[M28Map.subrefMidpoint]
+            for i = 1, iRaidersPerZone do
+                if iRaiderIndex <= iNumRaiders then
+                    local oRaider = tRaidersToSend[iRaiderIndex]
+                    --Mark unit as flank raider so combat logic respects their assignment
+                    oRaider[M28UnitInfo.refbFlankRaiderAssigned] = true
+                    oRaider[M28UnitInfo.reftFlankRaidTarget] = tTargetPos
+                    oRaider[M28UnitInfo.refiFlankRaidTargetLZ] = tTarget.iLZ
+                    M28Orders.IssueSmartMove(oRaider, tTargetPos, 5, false, 'FlankRaid'..iSourceLZ..'To'..tTarget.iLZ, false)
+                    iRaiderIndex = iRaiderIndex + 1
+                end
+            end
+        end
+    end
+
     local bWantReinforcements = false
     local bIgnoreEnemiesInThisZone = false
     local tbAdjacentZoneEnemiesToIgnoreByZone = {}
@@ -4602,7 +4699,16 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
     local iAvailableCombatUnitThreat = M28UnitInfo.GetMassCostOfUnits(tAvailableCombatUnits)
     iAvailableCombatUnitThreat = iAvailableCombatUnitThreat + math.min(iAvailableCombatUnitThreat, tLZTeamData[M28Map.subrefiAvailableMobileShieldThreat])
 
-
+    --Identify units for flanking - keep them in combat pool for micro, mark them for later
+    local tFlankRaiders, tFlankTargets
+    if iAvailableCombatUnitThreat >= 1500 and M28Utilities.IsTableEmpty(tAvailableCombatUnits) == false then
+        tFlankRaiders, _, tFlankTargets = ReserveFlankRaiders(tAvailableCombatUnits, iTeam, iPlateau, iLandZone, iAvailableCombatUnitThreat, tLZData)
+        if M28Utilities.IsTableEmpty(tFlankRaiders) == false then
+            --Mark raiders and assign targets - they stay in tAvailableCombatUnits for micro
+            SendRaidersToFlanks(tFlankRaiders, tFlankTargets, iTeam, iPlateau, iLandZone)
+            if bDebugMessages == true then LOG(sFunctionRef..': Marked '..table.getn(tFlankRaiders)..' raiders for '..table.getn(tFlankTargets)..' flank zones (staying in combat pool for micro)') end
+        end
+    end
 
     local bHaveSignificantCombatCloserToFirebase = false
     local iClosestFirebaseDist = 100000
@@ -10987,9 +11093,10 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 local iClosestLZIndirectDist = 100000
                 local iClosestDFLZRef
                 local iClosestIndirectLZRef
-                local iMinEnemyValueToAttack = iAvailableCombatUnitThreat * 0.1
+                local iMinEnemyValueToAttack = math.min(iAvailableCombatUnitThreat * 0.05, 300) --Lowered threshold so small eco targets qualify even with big armies
                 local tiIndirectLZWithNegligibleEnemies = {}
                 local tiDFLZWithNegligibleEnemies = {}
+                local tiRaidableZones = {} --Zones with eco value but low defense - prioritized for raiding
 
                 if M28Team.tTeamData[iTeam][M28Team.subrefiLandZonesWantingSupportByPlateau][iPlateau] then
                     local iIslandWanted = tLZData[M28Map.subrefLZIslandRef]
@@ -10998,9 +11105,21 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             local tOtherLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iOtherLZ]
                             if (bDontCheckPlayableArea or M28Conditions.IsLocationInPlayableArea(tOtherLZData[M28Map.subrefMidpoint])) then
                                 if iIslandWanted == tOtherLZData[M28Map.subrefLZIslandRef] then --If in dif island then want to leave for the amphibious logic later
-                                    --Check not negligible value - but bypass for baseline pressure zones
-                                    if (tOtherLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefThreatEnemyStructureTotalMass] or 0) + (tOtherLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefTThreatEnemyCombatTotal] or 0) >= iMinEnemyValueToAttack or tOtherLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefbLZBaselinePressure] then
-                                        if not(iDFLZToSupport) and tOtherLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefbLZWantsDFSupport] then
+                                    --Evaluate zone eco value vs combat threat separately for raid prioritization
+                                    local tOtherLZTeamData = tOtherLZData[M28Map.subrefLZTeamData][iTeam]
+                                    local iEcoValue = tOtherLZTeamData[M28Map.subrefThreatEnemyStructureTotalMass] or 0
+                                    local iCombatThreat = tOtherLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+                                    local bRaidWorthy = iEcoValue > 100 and iCombatThreat < 400 --Has eco but low mobile defense
+
+                                    --Calculate raid priority: eco value minus defense penalty
+                                    local iRaidPriority = iEcoValue - (iCombatThreat * 2)
+
+                                    if bRaidWorthy then
+                                        --Prioritize for raiding - add to raid list with priority score
+                                        table.insert(tiRaidableZones, {iLZ = iOtherLZ, iPriority = iRaidPriority})
+                                        if bDebugMessages == true then LOG(sFunctionRef..': Zone '..iOtherLZ..' is raid-worthy, iEcoValue='..iEcoValue..'; iCombatThreat='..iCombatThreat..'; iRaidPriority='..iRaidPriority) end
+                                    elseif (iEcoValue + iCombatThreat) >= iMinEnemyValueToAttack or tOtherLZTeamData[M28Map.subrefbLZBaselinePressure] then
+                                        if not(iDFLZToSupport) and tOtherLZTeamData[M28Map.subrefbLZWantsDFSupport] then
                                             --Redundancy - if we cant path using land units then treat distance as 10k + straight line distance, so we prioritise locations that are land pathable (although ideally wouldnt have any such zones anyway?)
                                             iCurDist = (M28Map.GetTravelDistanceBetweenLandZones(iPlateau, iLandZone, iOtherLZ) or 10000) --M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iOtherLZ][M28Map.subrefMidpoint])
                                             if bDebugMessages == true then LOG(sFunctionRef..': Considering if we want to support iOtherLZ '..iOtherLZ..'; iCurDist='..iCurDist..'; iClosestLZDFDist='..iClosestLZDFDist..'; straight line dist from our start='..M28Utilities.GetDistanceBetweenPositions(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iOtherLZ][M28Map.subrefLZTeamData][iTeam][M28Map.reftClosestFriendlyBase], M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iOtherLZ][M28Map.subrefMidpoint])) end
@@ -11009,13 +11128,13 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                 iClosestLZDFDist = iCurDist
                                                 iClosestDFLZRef = iOtherLZ
                                             end
-                                            if not(iIndirectLZToSupport) and M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iOtherLZ][M28Map.subrefLZTeamData][iTeam][M28Map.subrefbLZWantsIndirectSupport] then
+                                            if not(iIndirectLZToSupport) and tOtherLZTeamData[M28Map.subrefbLZWantsIndirectSupport] then
                                                 if iCurDist and iCurDist < iClosestLZIndirectDist then
                                                     iClosestLZIndirectDist = iCurDist
                                                     iClosestIndirectLZRef = iOtherLZ
                                                 end
                                             end
-                                        elseif not(iIndirectLZToSupport) and M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iOtherLZ][M28Map.subrefLZTeamData][iTeam][M28Map.subrefbLZWantsIndirectSupport] then
+                                        elseif not(iIndirectLZToSupport) and tOtherLZTeamData[M28Map.subrefbLZWantsIndirectSupport] then
                                             iCurDist = M28Map.GetTravelDistanceBetweenLandZones(iPlateau, iLandZone, iOtherLZ) --M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iOtherLZ][M28Map.subrefMidpoint])
                                             if bDebugMessages == true then LOG(sFunctionRef..': Considering if we want to support witih indirect iOtherLZ '..iOtherLZ..'; iLandZone='..iLandZone..'; iCurDist='..repru(iCurDist)..'; iClosestLZIndirectDist='..repru(iClosestLZIndirectDist)..'; straight line dist from our start='..M28Utilities.GetDistanceBetweenPositions(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iOtherLZ][M28Map.subrefLZTeamData][iTeam][M28Map.reftClosestFriendlyBase], M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iOtherLZ][M28Map.subrefMidpoint])) end
                                             if iCurDist and iCurDist < iClosestLZIndirectDist then
@@ -11024,10 +11143,10 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                             end
                                         end
                                     else
-                                        if not(iDFLZToSupport) and tOtherLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefbLZWantsDFSupport] then
+                                        if not(iDFLZToSupport) and tOtherLZTeamData[M28Map.subrefbLZWantsDFSupport] then
                                             table.insert(tiDFLZWithNegligibleEnemies, iOtherLZ)
                                         end
-                                        if not(iIndirectLZToSupport) and M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iOtherLZ][M28Map.subrefLZTeamData][iTeam][M28Map.subrefbLZWantsIndirectSupport] then
+                                        if not(iIndirectLZToSupport) and tOtherLZTeamData[M28Map.subrefbLZWantsIndirectSupport] then
                                             table.insert(tiIndirectLZWithNegligibleEnemies, iOtherLZ)
                                         end
 
@@ -11046,6 +11165,38 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 --Log the final support decision
                 if bDebugMessages == true then
                     LOG('ReinforcementDecision: [P'..iPlateau..'-LZ'..iLandZone..'] DFLZToSupport='..(iDFLZToSupport or 'nil')..', IndirectLZToSupport='..(iIndirectLZToSupport or 'nil')..', DFUnits='..table.getn(tDFUnits or {})..', Time='..GetGameTimeSeconds())
+                end
+
+                --Process raidable zones first (sorted by priority - highest eco value with lowest defense)
+                if M28Utilities.IsTableEmpty(tiRaidableZones) == false and M28Utilities.IsTableEmpty(tDFUnits) == false then
+                    --Sort by priority descending (best raid targets first)
+                    table.sort(tiRaidableZones, function(a, b) return a.iPriority > b.iPriority end)
+                    if bDebugMessages == true then LOG(sFunctionRef..': Processing '..table.getn(tiRaidableZones)..' raidable zones in priority order') end
+
+                    local iMaxThreatToAssign, iCurAssignedThreat
+                    for iEntry, tRaidZone in tiRaidableZones do
+                        local iOtherLZ = tRaidZone.iLZ
+                        local tOtherLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iOtherLZ]
+                        local tOtherLZTeamData = tOtherLZData[M28Map.subrefLZTeamData][iTeam]
+                        iCurAssignedThreat = 0
+                        --More aggressive assignment for raid zones - send enough to overwhelm any light defense
+                        iMaxThreatToAssign = ((tOtherLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) * 3 + (tOtherLZTeamData[M28Map.subrefThreatEnemyStructureTotalMass] or 0)) * 2
+                        iMaxThreatToAssign = math.max(iMaxThreatToAssign, 400) --Minimum raid force
+
+                        --Assign units to raid zone
+                        for iCurDFUnit = table.getn(tDFUnits), 1, -1 do
+                            if tDFUnits[iCurDFUnit][M28UnitInfo.refiUnitMassCost] < iMaxThreatToAssign then
+                                iCurAssignedThreat = iCurAssignedThreat + tDFUnits[iCurDFUnit][M28UnitInfo.refiUnitMassCost]
+                                M28Orders.IssueSmartMove(tDFUnits[iCurDFUnit], tOtherLZData[M28Map.subrefMidpoint], 5, false, 'RaidZ'..iLandZone..'To'..iOtherLZ, false)
+                                tDFUnits[iCurDFUnit][refiLastNegLZAssignment] = iOtherLZ
+                                if bDebugMessages == true then LOG(sFunctionRef..': Assigned DF unit '..tDFUnits[iCurDFUnit].UnitId..M28UnitInfo.GetUnitLifetimeCount(tDFUnits[iCurDFUnit])..' to raid zone '..iOtherLZ..' (priority='..tRaidZone.iPriority..'); iCurAssignedThreat='..iCurAssignedThreat..'; iMaxThreatToAssign='..iMaxThreatToAssign) end
+                                table.remove(tDFUnits, iCurDFUnit)
+                                if iCurAssignedThreat >= iMaxThreatToAssign then break end
+                            end
+                        end
+                        --Stop if we've run out of DF units
+                        if M28Utilities.IsTableEmpty(tDFUnits) then break end
+                    end
                 end
 
                 --If we have any negligible zones, then send some units to these first and remove them from the table of DF or IF units
@@ -11644,6 +11795,41 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
     UpdateIfLandZoneWantsSupport(tLZTeamData, iPlateau, iLandZone, iTeam, bWantDFReinforcements, bWantIndirectReinforcements)
     if bDebugMessages == true then
         LOG(sFunctionRef..': Just recorded if this LZ wants support, bWantDFReinforcements='..tostring(bWantDFReinforcements)..'; bWantIndirectReinforcements='..tostring(bWantIndirectReinforcements)..'; tLZTeamData[M28Map.subrefbLZWantsSupport] = '..tostring(tLZTeamData[M28Map.subrefbLZWantsSupport])..'; tLZTeamData[M28Map.subrefbLZWantsDFSupport]='..tostring(tLZTeamData[M28Map.subrefbLZWantsDFSupport])..'; subreftiLandZoneTargetedByOurDF='..(tLZTeamData[M28Map.subreftiLandZoneTargetedByOurDF] or 'nil')) end
+
+    --Refresh flank raider orders: ONLY if not in active combat
+    --CRITICAL: Don't refresh every tick or it overwrites micro/kiting
+    if M28Utilities.IsTableEmpty(tFlankRaiders) == false then
+        for iRaider, oRaider in tFlankRaiders do
+            if M28UnitInfo.IsUnitValid(oRaider) and oRaider[M28UnitInfo.refbFlankRaiderAssigned] then
+                local tRaidTarget = oRaider[M28UnitInfo.reftFlankRaidTarget]
+                if tRaidTarget then
+                    local iDistToTarget = M28Utilities.GetDistanceBetweenPositions(oRaider:GetPosition(), tRaidTarget)
+                    if iDistToTarget <= 40 then
+                        --Raider reached destination, clear assignment
+                        oRaider[M28UnitInfo.refbFlankRaiderAssigned] = nil
+                        oRaider[M28UnitInfo.reftFlankRaidTarget] = nil
+                        oRaider[M28UnitInfo.refiFlankRaidTargetLZ] = nil
+                    else
+                        --Check if enemy nearby (only refresh if safe)
+                        local oClosestEnemy = oRaider[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]
+                        local bEnemyNearby = false
+                        if oClosestEnemy and M28UnitInfo.IsUnitValid(oClosestEnemy) then
+                            local iDistToEnemy = M28Utilities.GetDistanceBetweenPositions(oRaider:GetPosition(), oClosestEnemy:GetPosition())
+                            if iDistToEnemy <= 45 then
+                                bEnemyNearby = true
+                            end
+                        end
+                        --Only refresh if safe (no enemy nearby, let combat logic handle micro otherwise)
+                        if not bEnemyNearby then
+                            M28Orders.IssueSmartMove(oRaider, tRaidTarget, 5, false, 'FlankRaidRefresh'..iLandZone, false)
+                        end
+                    end
+                end
+            end
+        end
+        if bDebugMessages == true then LOG(sFunctionRef..': Refreshed orders for flank raiders (skipped those in combat)') end
+    end
+
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
