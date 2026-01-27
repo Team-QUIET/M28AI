@@ -304,6 +304,8 @@ else
     end
 end
 refCategoryT15Units = categories.brmt1exm1 + categories.brot1exm1 + categories.brpt1exm1 + categories.uel0108
+refCategoryT25Units = categories.brmt2medm + categories.wel0304 + categories.brot2asb + categories.brpt2btbot
+refCategoryT35Units = categories.xrl0305 + categories.brl0307 + categories.wrl0301 + categories.brmt3bm2 + categories.xel0305 + categories.xel0307 + categories.bel0307 + categories.wel0305 + categories.sal0311 + categories.bal0310 + categories.brot3hm + categories.xsl0303 + categories.bsl0310 + categories.brpt3bot
 
 refCategoryMobileDFLand = categories.LAND * categories.MOBILE * categories.DIRECTFIRE - categories.SCOUT - refCategoryMAA - categories.UNSELECTABLE - categories.UNTARGETABLE --NOTE: Need to specify slowest (so dont pick LAB)
 refCategoryLandScout = categories.LAND * categories.MOBILE * categories.SCOUT

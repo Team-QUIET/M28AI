@@ -395,108 +395,53 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                     local iT1DFCount = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMobileDFLand * categories.TECH1 - M28UnitInfo.refCategoryT15Units)
                     -- Block T1.5 if building another would exceed 1:10 ratio (need 10 T1 DF per T1.5)
                     if (iT15Count + 1) * 10 > iT1DFCount then
-                        if bDebugMessages == true then LOG(sFunctionRef..': T1.5 ratio would be exceeded, blocking '..sBPIDToBuild..'; iT15Count='..iT15Count..'; iT1DFCount='..iT1DFCount) end
+                        if true then LOG(sFunctionRef..': T1.5 ratio would be exceeded, blocking '..sBPIDToBuild..'; iT15Count='..iT15Count..'; iT1DFCount='..iT1DFCount) end
                         for _, sUnitID in tT15UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = nil end
                         sBPIDToBuild = nil
                     else
                         for _, sUnitID in tT15UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = 1 end
                     end
                 end
-                if sBPIDToBuild == 'url0202' or sBPIDToBuild == 'brmt2ht' then --CybranLightT2DF
-                    if (M28Team.tTeamData[iTeam][M28Team.refbEnemyHasHeavyLandT2] and oFactory[refiTotalBuildCount] >= 10) or aiBrain[M28Economy.refiOurHighestLandFactoryTech] >= 3 or (oFactory[refiTotalBuildCount] >= 5 and M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * (categories.url0202 + categories.brmt2ht)) >= 20 then
-                        if oFactory:CanBuild('brmt2medm') then
-                            aiBrain[reftBlueprintPriorityOverride]['url0202'] = nil
-                            aiBrain[reftBlueprintPriorityOverride]['brmt2ht'] = nil
-                            aiBrain[reftBlueprintPriorityOverride]['brmt2medm'] = 1
-                            sBPIDToBuild = 'brmt2medm'
-                            if bDebugMessages == true then LOG(sFunctionRef..': want to build immortals instead of rhinos') end
-                        end
-                    end
-                elseif sBPIDToBuild == 'uel0202' or sBPIDToBuild == 'brnt2mt' or sBPIDToBuild == 'bel0211' then --UEFLightT2DF
-                    if (M28Team.tTeamData[iTeam][M28Team.refbEnemyHasHeavyLandT2] and oFactory[refiTotalBuildCount] >= 10) or aiBrain[M28Economy.refiOurHighestLandFactoryTech] >= 3 or (oFactory[refiTotalBuildCount] >= 5 and M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * (categories.uel0202 + categories.brnt2mt + categories.bel0211)) >= 20 then
-                        if oFactory:CanBuild('wel0304') then
-                            aiBrain[reftBlueprintPriorityOverride]['uel0202'] = nil
-                            aiBrain[reftBlueprintPriorityOverride]['brnt2mt'] = nil
-                            aiBrain[reftBlueprintPriorityOverride]['bel0211'] = nil
-                            aiBrain[reftBlueprintPriorityOverride]['wel0304'] = 1
-                            sBPIDToBuild = 'wel0304'
-                            if bDebugMessages == true then LOG(sFunctionRef..': want to build rommels instead of pillar') end
-                        end
-                    end
-                elseif sBPIDToBuild == 'ual0202' then --AeonLightT2DF
-                    if (M28Team.tTeamData[iTeam][M28Team.refbEnemyHasHeavyLandT2] and oFactory[refiTotalBuildCount] >= 10) or aiBrain[M28Economy.refiOurHighestLandFactoryTech] >= 3 or (oFactory[refiTotalBuildCount] >= 5 and M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * categories.ual0202) >= 20 then
-                        if oFactory:CanBuild('brot2asb') then
-                            aiBrain[reftBlueprintPriorityOverride]['ual0202'] = nil
-                            aiBrain[reftBlueprintPriorityOverride]['brot2asb'] = 1
-                            sBPIDToBuild = 'brot2asb'
-                            if bDebugMessages == true then LOG(sFunctionRef..': want to build amphorak instead of obsidian') end
-                        end
-                    end
-                elseif sBPIDToBuild == 'xsl0202' or sBPIDToBuild == 'wsl0202' then --SeraphimLightT2DF
-                    if (M28Team.tTeamData[iTeam][M28Team.refbEnemyHasHeavyLandT2] and oFactory[refiTotalBuildCount] >= 10) or aiBrain[M28Economy.refiOurHighestLandFactoryTech] >= 3 or (oFactory[refiTotalBuildCount] >= 5 and M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * (categories.xsl0202 + categories.wsl0202)) >= 20 then
-                        if oFactory:CanBuild('brpt2btbot') then
-                            aiBrain[reftBlueprintPriorityOverride]['xsl0202'] = 1 --Az request
-                            aiBrain[reftBlueprintPriorityOverride]['wsl0202'] = nil
-                            aiBrain[reftBlueprintPriorityOverride]['brpt2btbot'] = 1
-                            sBPIDToBuild = 'brpt2btbot'
-                            if bDebugMessages == true then LOG(sFunctionRef..': want to build ilshie instead of onyzum') end
-                        end
-                    end
-                elseif sBPIDToBuild == 'url0303' or sBPIDToBuild == 'brmt3bt' then --CybranLightT3DF
-                    if (M28Team.tTeamData[iTeam][M28Team.refbEnemyHasHeavyLandT3] and oFactory[refiTotalBuildCount] >= 10) or M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0 or (oFactory[refiTotalBuildCount] >= 5 and M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * (categories.url0303 + categories.brmt3bt)) >= 10 then
-                        if oFactory:CanBuild('xrl0305') or oFactory:CanBuild('brl0307') or oFactory:CanBuild('wrl0301') or oFactory:CanBuild('brmt3bm2') then
-                            aiBrain[reftBlueprintPriorityOverride]['url0303'] = nil --loyalist
-                            aiBrain[reftBlueprintPriorityOverride]['brmt3bt'] = nil --Mastodon
-                            aiBrain[reftBlueprintPriorityOverride]['xrl0305'] = 1 --brick
-                            aiBrain[reftBlueprintPriorityOverride]['brl0307'] = 1
-                            aiBrain[reftBlueprintPriorityOverride]['wrl0301'] = 1
-                            aiBrain[reftBlueprintPriorityOverride]['brmt3bm2'] = 1
-                            sBPIDToBuild = 'xrl0305'
-                            if bDebugMessages == true then LOG(sFunctionRef..': want to build brick instead of loyalist') end
-                        end
-                    end
-                elseif sBPIDToBuild == 'uel0303' or sBPIDToBuild == 'brnt3bt' then --UEFLightT3DF
-                    if (M28Team.tTeamData[iTeam][M28Team.refbEnemyHasHeavyLandT3] and oFactory[refiTotalBuildCount] >= 10) or M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0 or (oFactory[refiTotalBuildCount] >= 5 and M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * (categories.uel0303 + categories.brnt3bt)) >= 10 then
-                        if oFactory:CanBuild('xel0305') or oFactory:CanBuild('bel0307') or oFactory:CanBuild('wel0305') then
-                            aiBrain[reftBlueprintPriorityOverride]['uel0303'] = nil --Titan
-                            aiBrain[reftBlueprintPriorityOverride]['brnt3bt'] = nil --Bull
-                            aiBrain[reftBlueprintPriorityOverride]['xel0305'] = 1 --Percival
-                            aiBrain[reftBlueprintPriorityOverride]['xel0307'] = 1
-                            aiBrain[reftBlueprintPriorityOverride]['bel0307'] = 1
-                            aiBrain[reftBlueprintPriorityOverride]['wel0305'] = 1
-                            sBPIDToBuild = 'xel0305'
-                            if bDebugMessages == true then LOG(sFunctionRef..': want to build percival instead of titan') end
-                        end
-                    end
-                elseif sBPIDToBuild == 'ual0303' then --AeonLightT3DF
-                    if (M28Team.tTeamData[iTeam][M28Team.refbEnemyHasHeavyLandT3] and oFactory[refiTotalBuildCount] >= 10) or M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0 or (oFactory[refiTotalBuildCount] >= 5 and M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * categories.ual0303) >= 10 then
-                        if oFactory:CanBuild('sal0311') or oFactory:CanBuild('bal0310') or oFactory:CanBuild('brot3hm') then
-                            aiBrain[reftBlueprintPriorityOverride]['ual0303'] = nil
-                            aiBrain[reftBlueprintPriorityOverride]['sal0311'] = 1
-                            aiBrain[reftBlueprintPriorityOverride]['bal0310'] = 1
-                            aiBrain[reftBlueprintPriorityOverride]['brot3hm'] = 1
-                            sBPIDToBuild = 'sal0311'
-                            if bDebugMessages == true then LOG(sFunctionRef..': want to build moldovite instead of harbinger') end
-                        end
-                    end
-                elseif sBPIDToBuild == 'wsl0308' or sBPIDToBuild == 'ssl0311' then --SeraphimLightT3DF
-                    if (M28Team.tTeamData[iTeam][M28Team.refbEnemyHasHeavyLandT3] and oFactory[refiTotalBuildCount] >= 10) or M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0 or (oFactory[refiTotalBuildCount] >= 5 and M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * (categories.wsl0308 + categories.ssl0311)) >= 10 then
-                        if oFactory:CanBuild('xsl0303') or oFactory:CanBuild('bsl0310') or oFactory:CanBuild('brpt3bot') then
-                            aiBrain[reftBlueprintPriorityOverride]['wsl0308'] = nil
-                            aiBrain[reftBlueprintPriorityOverride]['ssl0311'] = nil
-                            aiBrain[reftBlueprintPriorityOverride]['xsl0303'] = 1
-                            aiBrain[reftBlueprintPriorityOverride]['bsl0310'] = 1
-                            aiBrain[reftBlueprintPriorityOverride]['brpt3bot'] = 1
-                            sBPIDToBuild = 'xsl0303'
-                        end
-                    end
-                    --Aeon - build zealot instead of obsidians initially if dont have much power
-                elseif sBPIDToBuild == 'ual0202' and (aiBrain[M28Economy.refiGrossEnergyBaseIncome] < 95 or aiBrain:GetEconomyStoredRatio('ENERGY') < 0.95 or (oFactory[refiBuildCountByBlueprint]['bal0206'] or 0) < 2 ) then
-                    if oFactory:CanBuild('bal0206') then
-                        if bDebugMessages == true then LOG(sFunctionRef..': Switching to build Zealot instead of obsidian') end
-                        sBPIDToBuild = 'bal0206'
+
+                -- T2.5 units - enforce 1:10 ratio vs normal T2
+                local tT25UnitIDs = {'brmt2medm', 'wel0304', 'brot2asb', 'brpt2btbot'}
+                if EntityCategoryContains(M28UnitInfo.refCategoryT25Units, sBPIDToBuild) then
+                    local iT25Count = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryT25Units)
+                    local iT2DFCount = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMobileDFLand * categories.TECH2 - M28UnitInfo.refCategoryT25Units)
+                    -- Block T2.5 if building another would exceed 1:10 ratio (need 5 T2 DF per T2.5)
+                    if (iT25Count + 1) * 5 > iT2DFCount then
+                        if true then LOG(sFunctionRef..': T2.5 ratio would be exceeded, blocking '..sBPIDToBuild..'; iT25Count='..iT25Count..'; iT2DFCount='..iT2DFCount) end
+                        for _, sUnitID in tT25UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = nil end
+                        sBPIDToBuild = nil
+                    else
+                        for _, sUnitID in tT25UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = 1 end
                     end
                 end
+
+                -- T3.5 units - enforce 1:10 ratio vs normal T3
+                local tT35UnitIDs = {'xrl0305', 'brl0307', 'wrl0301', 'brmt3bm2', 'xel0305', 'xel0307', 'bel0307', 'wel0305', 'sal0311', 'bal0310', 'brot3hm', 'xsl0303', 'bsl0310', 'brpt3bot'}
+                if EntityCategoryContains(M28UnitInfo.refCategoryT35Units, sBPIDToBuild) then
+                    local iT35Count = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryT35Units)
+                    local iT3DFCount = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMobileDFLand * categories.TECH3 - M28UnitInfo.refCategoryT35Units)
+                    -- Block T3.5 if building another would exceed 1:10 ratio (need 5 T3 DF per T3.5)
+                    if (iT35Count + 1) * 5 > iT3DFCount then
+                        if true then LOG(sFunctionRef..': T3.5 ratio would be exceeded, blocking '..sBPIDToBuild..'; iT35Count='..iT35Count..'; iT3DFCount='..iT3DFCount) end
+                        for _, sUnitID in tT35UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = nil end
+                        sBPIDToBuild = nil
+                    else
+                        for _, sUnitID in tT35UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = 1 end
+                    end
+                end
+
+                -- Cap Aeon T2 snipers at 5 live units (centralized enforcement to catch all build paths)
+                if EntityCategoryContains(categories.ual0204, sBPIDToBuild) then
+                    local tLiveSnipers = aiBrain:GetListOfUnits(categories.ual0204, false, true)
+                    if table.getn(tLiveSnipers) >= 5 then
+                        if bDebugMessages == true then LOG(sFunctionRef..': QUIET - Blocking T2 Aeon sniper build, already have '..table.getn(tLiveSnipers)..' live snipers (cap = 5)') end
+                        sBPIDToBuild = nil
+                    end
+                end
+
                 --Penetrator T3 Fighters - if enemy has penetrator fighters, set priority for penetrator fighters
                 if M28Team.tTeamData[iTeam][M28Team.refbEnemyHasPenetratorT3Air] then
                     local iEnemyPenetratorThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyPenetratorT3AirThreat] or 0
@@ -1195,22 +1140,16 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
                             end
                         end
                     end
-                    --LOUD/QUIET - Prioritise T2 Aeon sniperbots
-                    if bDebugMessages == true then LOG(sFunctionRef..': Deciding if we want to prioritise T2 aeon sniperbots in loud and QUIET, Factory techlevel='..iFactoryTechLevel..'; is aeon sniperbot category nil='..tostring(categories.ual0204 == nil)..'; Is factory Aeon='..tostring(EntityCategoryContains(categories.AEON, oFactory.UnitId))..'; Factory build count='..oFactory[refiTotalBuildCount]) end
+                    --QUIET - Toned down T2 Aeon sniperbot prioritization (low HP units not suitable for raiding)
+                    if bDebugMessages == true then LOG(sFunctionRef..': Deciding if we want to prioritise T2 aeon sniperbots in QUIET, Factory techlevel='..iFactoryTechLevel..'; is aeon sniperbot category nil='..tostring(categories.ual0204 == nil)..'; Is factory Aeon='..tostring(EntityCategoryContains(categories.AEON, oFactory.UnitId))..'; Factory build count='..oFactory[refiTotalBuildCount]) end
 
-                    if (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and iFactoryTechLevel >= 2 and categories.ual0204 and EntityCategoryContains(categories.AEON, oFactory.UnitId) then
+                    if iFactoryTechLevel == 2 and categories.ual0204 and EntityCategoryContains(categories.AEON, oFactory.UnitId) then
                         local iAltCategoryWanted
-                        if iFactoryTechLevel == 2 and iBaseCategoryWanted == M28UnitInfo.refCategorySkirmisher * iTechCategory and M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategorySniperBot * iTechCategory) >= 10 then
+                        if iBaseCategoryWanted == M28UnitInfo.refCategorySkirmisher * iTechCategory and M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategorySniperBot * iTechCategory) <= 5 then
                             iAltCategoryWanted = M28UnitInfo.refCategorySniperBot * iTechCategory
-                            if GetBlueprintThatCanBuildOfCategory(oFactory:GetAIBrain(), iAltCategoryWanted, oFactory) then iBaseCategoryWanted = iAltCategoryWanted end
-                        elseif not(M28Utilities.bQuietModActive) and iFactoryTechLevel == 3 and (oFactory[refiTotalBuildCount] <= 10 or math.random(1,3) == 1) then
-                            --LOUD only - still build T2 sniperbots at T3 for a bit as they're so good
-                            iAltCategoryWanted = categories.ual0204
-                            if bDebugMessages == true then LOG(sFunctionRef..': can we build a blueprint with t2 sniperbot blueprint? Is the blueprint nil='..tostring(GetBlueprintThatCanBuildOfCategory(oFactory:GetAIBrain(), iAltCategoryWanted, oFactory) == nil)) end
                             if GetBlueprintThatCanBuildOfCategory(oFactory:GetAIBrain(), iAltCategoryWanted, oFactory) then iBaseCategoryWanted = iAltCategoryWanted end
                         end
                     end
-                    if M28Utilities.bLoudModActive and categories.brmt2medm then iBaseCategoryWanted = iBaseCategoryWanted + categories.brmt2medm end
 
                     if not(GetBlueprintThatCanBuildOfCategory(oFactory:GetAIBrain(), iBaseCategoryWanted, oFactory)) then
                         if bDebugMessages == true then LOG(sFunctionRef..': No units of category wanted, so will get DFTank+skirmisher') end
@@ -4234,12 +4173,11 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                         if tLZPathing[M28Map.subrefLZTravelDist] > iDistToEnemyBaseToConsider then
                             if bHaveTooMuchIndirectVsDirect and iDistToEnemyBaseToConsider < iOldDistToConsider then
                                 if bDebugMessages == true then LOG(sFunctionRef..': Didnt find anything with shorter search range, will try and build direct fire, and failing that will increase search range') end
-                                if (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and iFactoryTechLevel >= 2 and categories.ual0204 and (not(M28Utilities.bQuietModActive) or iFactoryTechLevel == 2 or oFactory[refiTotalBuildCount] <= 5) and EntityCategoryContains(categories.AEON, oFactory.UnitId) then
-                                    if iFactoryTechLevel == 2 then
+                                --QUIET - Only build T2 Aeon snipers if < 5 currently on field
+                                if M28Utilities.bQuietModActive and iFactoryTechLevel == 2 and categories.ual0204 and EntityCategoryContains(categories.AEON, oFactory.UnitId) then
+                                    local tLiveSnipers = oFactory:GetAIBrain():GetListOfUnits(categories.ual0204, false, true)
+                                    if table.getn(tLiveSnipers) < 5 then
                                         if GetBlueprintThatCanBuildOfCategory(oFactory:GetAIBrain(), M28UnitInfo.refCategorySniperBot * categories.TECH2, oFactory) then return sBPIDToBuild end
-                                        --LOUD - keep building t2 sniperbots at t3 stage for a bit due to how good they are
-                                    elseif not(M28Utilities.bQuietModActive) and iFactoryTechLevel == 3 and (oFactory[refiTotalBuildCount] <= 10 or math.random(1,3) == 1) then
-                                        if ConsiderBuildingCategory(M28UnitInfo.refCategorySniperBot * categories.TECH2) then return sBPIDToBuild end
                                     end
                                 end
                                 if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileDFLand) then return sBPIDToBuild end
@@ -5276,18 +5214,7 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait, bConsiderDes
 end
 
 function SetPriorityPreferredUnitsByCategory(aiBrain)
-    --If have multiple units that can build for a particular category, this will specify what to build
-    --special cases where want to prioritise one unit over another where multiple of same type satisfy the category
-    --NOTE: This gets ignored if we have coded in special cases where we want to pick the fastest or slowest unit
-    --Set to less than -100 if want to not build at all even if it is the only unit of that category
     aiBrain[reftBlueprintPriorityOverride] = {}
-    --T1
-
-    --NOTE: Turned off prioritisation for the main combat tank, so that we build t1 arti as well as tanks
-    --aiBrain[reftBlueprintPriorityOverride]['ual0201'] = 1 --Aurora (instead of LAB)
-    --aiBrain[reftBlueprintPriorityOverride]['url0107'] = 1 --Mantis (instead of LAB)
-    --aiBrain[reftBlueprintPriorityOverride]['uel0201'] = 1 --Striker (instead of mechmarine)
-    --aiBrain[reftBlueprintPriorityOverride]['xsl0201'] = 1 --Thaam (instead of combat scout)
 
     --Units to disable regardless of prioriotisation settings
     aiBrain[reftBlueprintPriorityOverride]['ssl0403'] = -1000 --experimental reconstruction bot
@@ -5302,174 +5229,105 @@ function SetPriorityPreferredUnitsByCategory(aiBrain)
         end
         aiBrain[reftBlueprintPriorityOverride]['xsl0101'] = -1 --Combat scout (so prioritise thaam instead)
 
-        --T2
-        aiBrain[reftBlueprintPriorityOverride]['uel0202'] = 1 --Pillar (instead of mongoose or riptide)
-        aiBrain[reftBlueprintPriorityOverride]['xsl0202'] = 1 --Ilshavoh (instead of hover tank)
-        aiBrain[reftBlueprintPriorityOverride]['url0202'] = 1 --Rhino (instead of hover tank)
-        aiBrain[reftBlueprintPriorityOverride]['ual0202'] = 1 --Obsidian (instead of blaze)
-        --T3
-        aiBrain[reftBlueprintPriorityOverride]['uel0303'] = 1 --Titan (instead of Percy)
-        aiBrain[reftBlueprintPriorityOverride]['ual0303'] = 1 --Harby (instead of sniper bot)
-        --aiBrain[reftBlueprintPriorityOverride]['ual0304'] = 1 --Mobile t3 arti instead of shield disrupter
-        aiBrain[reftBlueprintPriorityOverride]['url0303'] = 1 --Loyalist (instead of Brick)
-        --aiBrain[reftBlueprintPriorityOverride]['xrl0305'] = 1 --Brick
-        aiBrain[reftBlueprintPriorityOverride]['xsl0303'] = 1 --Siege tank (instead of sniper bot)
-        aiBrain[reftBlueprintPriorityOverride]['xsl0301'] = 1 --Seraphim basic SACU (instead of preset)
-
         --Engineers
         aiBrain[reftBlueprintPriorityOverride]['uel0208'] = 1 --T2 Engi (instead of sparky)
         aiBrain[reftBlueprintPriorityOverride]['xrl0302'] = -1000 --fire beetle (so build wagners instead if going for fast units)
         aiBrain[reftBlueprintPriorityOverride]['srs0219'] = -1 --Engineer ship (can get built and used as naval scouts instead of frigate)
 
+        --QUIET mod unit priorities
+        --T1 standard units
+        -- aiBrain[reftBlueprintPriorityOverride]['xsl0201'] = 1
+        -- aiBrain[reftBlueprintPriorityOverride]['uel0201'] = 1
+        -- aiBrain[reftBlueprintPriorityOverride]['ual0201'] = 1
+        -- aiBrain[reftBlueprintPriorityOverride]['url0107'] = 1
+        -- aiBrain[reftBlueprintPriorityOverride]['ual0108'] = 1
+        -- aiBrain[reftBlueprintPriorityOverride]['brot1bt'] = 1
 
-        --LOUD and QUIET - Eliash (Aeon shorter range DF experimental that has a shield); also include experimental mobile arti
-        aiBrain[reftBlueprintPriorityOverride]['brot3ncm'] = 1
+        --T1.5 bots
+        aiBrain[reftBlueprintPriorityOverride]['brot1exm1'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['brmt1exm1'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['uel0108'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['brpt1exm1'] = 1
+
+        --T2 standard units
+        -- aiBrain[reftBlueprintPriorityOverride]['uel0202'] = 1 --Pillar (instead of mongoose or riptide)
+        -- aiBrain[reftBlueprintPriorityOverride]['xsl0202'] = 1 --Ilshavoh (instead of hover tank)
+        -- aiBrain[reftBlueprintPriorityOverride]['url0202'] = 1 --Rhino (instead of hover tank)
+        -- aiBrain[reftBlueprintPriorityOverride]['ual0202'] = 1 --Obsidian (instead of blaze)
+        -- aiBrain[reftBlueprintPriorityOverride]['bsl0206'] = 1
+        -- aiBrain[reftBlueprintPriorityOverride]['wsl0202'] = 1
+        -- aiBrain[reftBlueprintPriorityOverride]['bel0211'] = 1
+        -- aiBrain[reftBlueprintPriorityOverride]['brnt2mt'] = 1
+        -- aiBrain[reftBlueprintPriorityOverride]['brmt2ht'] = 1
+        -- aiBrain[reftBlueprintPriorityOverride]['ual0204'] = -1
+
+        --T2.5 units (enhanced T2) - ratio mixed 1:10 with normal T2
+        aiBrain[reftBlueprintPriorityOverride]['brmt2medm'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['wel0304'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['brot2asb'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['brpt2btbot'] = 1
+
+        --T3 standard units
+        -- aiBrain[reftBlueprintPriorityOverride]['uel0303'] = 1 --Titan (instead of Percy)
+        -- aiBrain[reftBlueprintPriorityOverride]['ual0303'] = 1 --Harby (instead of sniper bot)
+        -- aiBrain[reftBlueprintPriorityOverride]['url0303'] = 1 --Loyalist (instead of Brick)
+        -- aiBrain[reftBlueprintPriorityOverride]['xsl0303'] = 1 --Siege tank (instead of sniper bot)
+        -- aiBrain[reftBlueprintPriorityOverride]['xsl0301'] = 1 --Seraphim basic SACU (instead of preset)
+        -- aiBrain[reftBlueprintPriorityOverride]['wsl0308'] = 1
+        -- aiBrain[reftBlueprintPriorityOverride]['bsl0306'] = 1
+        -- aiBrain[reftBlueprintPriorityOverride]['ssl0311'] = 1
+        -- aiBrain[reftBlueprintPriorityOverride]['brnt3bt'] = 1
+        -- aiBrain[reftBlueprintPriorityOverride]['brmt3bt'] = 1
+
+        --T3.5 units (enhanced T3) - ratio mixed 1:10 with normal T3
+        aiBrain[reftBlueprintPriorityOverride]['xrl0305'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['wrl0301'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['brmt3bm2'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['xel0305'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['xel0307'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['bel0307'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['wel0305'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['sal0311'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['bal0310'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['brot3hm'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['xsl0303'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['bsl0310'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['brpt3bot'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['wsl0308'] = 1
+
+        --Experimentals
+        aiBrain[reftBlueprintPriorityOverride]['brot3ncm'] = 1 --Eliash (Aeon shorter range DF experimental that has a shield)
         if categories.brot3ncm then aiBrain[reftBlueprintPriorityOverride]['sal0401'] = 1 end
 
-        aiBrain[reftBlueprintPriorityOverride]['sel0324'] = -1000 --mobile omni (that also has AA so gets misused as an AA unit when
+        --Special deprioritization for units that clog production
+        aiBrain[reftBlueprintPriorityOverride]['brl0307'] = -1 --overbuilt, clogging out badly needed T3 Mobile Artillery
+        aiBrain[reftBlueprintPriorityOverride]['srl0311'] = -1 --overbuilt, clogging out badly needed T3 Mobile Artillery
+        aiBrain[reftBlueprintPriorityOverride]['srl0310'] = -1 --overbuilt, clogging out badly needed T3 Mobile Artillery
 
-        --AZ Orig LOUD unit mod suggestions (non-QUIET), and other LOUD adjustments
-        if M28Utilities.bLoudModActive then
-            aiBrain[reftBlueprintPriorityOverride]['xsl0201'] = 1 --Thaams are stronger than protector bots per QUIET discord
-            --aiBrain[reftBlueprintPriorityOverride]['brpt1exm1'] = 1 --Looks like a T1.5 type unit - better range than thaam although a bit slower; probably longer to build though; for QUIET will adjust prioritisation separately for this based on lifetime count
+        --Units to tone down or disable
+        aiBrain[reftBlueprintPriorityOverride]['bal0110'] = -1000 --T1 sniperbot
+        aiBrain[reftBlueprintPriorityOverride]['sel0324'] = -1000 --mobile omni (that also has AA so gets misused as an AA unit)
 
-            --Seraphim T2:
-            aiBrain[reftBlueprintPriorityOverride]['bsl0206'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['wsl0202'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['brpt2btbot'] = 1
-            --UEF T2
-            aiBrain[reftBlueprintPriorityOverride]['bel0211'] = 1
-            --Cybran T2:
-            aiBrain[reftBlueprintPriorityOverride]['brmt2medm'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['brmt2ht'] = 1
-            --Aeon T2:
-            aiBrain[reftBlueprintPriorityOverride]['brot2asb'] = 1
+        --Buffed units in QUIET (able to kite)
+        aiBrain[reftBlueprintPriorityOverride]['drl0204'] = 1 --Hoplite
+        aiBrain[reftBlueprintPriorityOverride]['del0204'] = 1 --Gattling bot
 
-            --Seraphim T3:
-            aiBrain[reftBlueprintPriorityOverride]['wsl0308'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['brpt3bot'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['bsl0306'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['bsl0310'] = 1
-            --UEF T3:
-            aiBrain[reftBlueprintPriorityOverride]['xel0307'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['bel0307'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['brnt3abb'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['brnt3bt'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['wel0305'] = 1
-            --Cybran T3:
-            aiBrain[reftBlueprintPriorityOverride]['brl0307'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['srl0311'] = -1
-            aiBrain[reftBlueprintPriorityOverride]['brmt3bm2'] = 1
-            --aiBrain[reftBlueprintPriorityOverride]['brmt3bt'] (good tank if you cant afford Bricks/etc but you want something better then loyalist)
-            --Aeon T3:
-            aiBrain[reftBlueprintPriorityOverride]['bal0310'] = 1
-            --SAL0311 or brot3bt (Amphibious) (Navy Maps) (Can be built on land but honestly just build harbs with the BAL0310) --further disc - Az noted sal0311 has more range and health than harbs so worth mixing in
-            aiBrain[reftBlueprintPriorityOverride]['sal0311'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['brot3hm'] = 1
+        --Naval deprioritization
+        aiBrain[reftBlueprintPriorityOverride]['urs0303'] = -1
+        aiBrain[reftBlueprintPriorityOverride]['uas0303'] = -1
+        aiBrain[reftBlueprintPriorityOverride]['xss0303'] = -1
 
-            --T1 skirmisher bots
-            aiBrain[reftBlueprintPriorityOverride]['brot1exm1'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['brmt1exm1'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['uel0108'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['brpt1exm1'] = 1
+        --Deprioritize penetration fighters in QUIET
+        aiBrain[reftBlueprintPriorityOverride]['sra0313'] = -1 --Cybran pen fighter
+        aiBrain[reftBlueprintPriorityOverride]['saa0313'] = -1 --Aeon pen fighter
+        aiBrain[reftBlueprintPriorityOverride]['sea0313'] = -1 --UEF pen fighter
+        aiBrain[reftBlueprintPriorityOverride]['ssa0313'] = -1 --Seraphim pen fighter
 
-            aiBrain[reftBlueprintPriorityOverride]['ual0204'] = 2 --Aeon T2 sniperbot (very good so will build wherever it's an option)
-            --LOUD - sniperbots at t3+ and T1 are weak
-            aiBrain[reftBlueprintPriorityOverride]['bal0110'] = -1000 --t1 sniperbot - cant kite so very weak as gets overrun, tries retreating, ends up dying doing nothing
-            --Disable T3 sniperbots since in LOUD and QUIET they are terrible
-            aiBrain[reftBlueprintPriorityOverride]['wrl0305'] = -1000
-            aiBrain[reftBlueprintPriorityOverride]['xal0305'] = -1000
-            aiBrain[reftBlueprintPriorityOverride]['xsl0305'] = -1000
-
-            aiBrain[reftBlueprintPriorityOverride]['urs0303'] = -1
-            aiBrain[reftBlueprintPriorityOverride]['uas0303'] = -1
-            aiBrain[reftBlueprintPriorityOverride]['xss0303'] = -1
-
-            --Prioritise ASFs as penetration fighters dont seem to fire consistently in LOUD
-            aiBrain[reftBlueprintPriorityOverride]['uea0303'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['ura0303'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['uaa0303'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['xsa0303'] = 1
-
-        else --QUIET Active:
-            --Az chosen unit mod prioritisations - QUIET
-            --Seraphim T1:
-            --aiBrain[reftBlueprintPriorityOverride]['bsl0106'] = -1 --protector bot - not as good as thaams
-            aiBrain[reftBlueprintPriorityOverride]['xsl0201'] = 1 --Thaams are stronger than protector bots per QUIET discord
-            aiBrain[reftBlueprintPriorityOverride]['brpt1exm1'] = 1 --Looks like a T1.5 type unit - better range than thaam although a bit slower; however takes much longer to build
-            --Aeon T1:
-            aiBrain[reftBlueprintPriorityOverride]['ual0108'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['brot1bt'] = 1
-            --Seraphim T2:
-            aiBrain[reftBlueprintPriorityOverride]['bsl0206'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['wsl0202'] = 1
-            --aiBrain[reftBlueprintPriorityOverride]['brpt2btbot'] = 1
-            --UEF T2
-            aiBrain[reftBlueprintPriorityOverride]['bel0211'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['brnt2mt'] = 1
-            --aiBrain[reftBlueprintPriorityOverride]['wel0304'] = 1
-            --Cybran T2:
-            aiBrain[reftBlueprintPriorityOverride]['brmt2ht'] = 1
-            --aiBrain[reftBlueprintPriorityOverride]['brmt2medm'] = 1
-            --Aeon T2:
-            --aiBrain[reftBlueprintPriorityOverride]['brot2asb'] = 1
-
-            --Seraphim T3:
-            aiBrain[reftBlueprintPriorityOverride]['bsl0306'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['wsl0308'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['ssl0311'] = 1
-            -- aiBrain[reftBlueprintPriorityOverride]['brpt3bot'] = 1
-            -- aiBrain[reftBlueprintPriorityOverride]['bsl0310'] = 1
-            -- UEF T3:
-            aiBrain[reftBlueprintPriorityOverride]['brnt3bt'] = 1
-            -- aiBrain[reftBlueprintPriorityOverride]['bel0307'] = 1
-            -- aiBrain[reftBlueprintPriorityOverride]['wel0305'] = 1
-            -- aiBrain[reftBlueprintPriorityOverride]['xel0307'] = 1
-            --Cybran T3:
-            aiBrain[reftBlueprintPriorityOverride]['brmt3bt'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['brl0307'] = -1 -- overbuilt, clogging out badly needed T3 Mobile Artillery
-            aiBrain[reftBlueprintPriorityOverride]['srl0311'] = -1 -- overbuilt, clogging out badly needed T3 Mobile Artillery
-            aiBrain[reftBlueprintPriorityOverride]['srl0310'] = -1 -- overbuilt, clogging out badly needed T3 Mobile Artillery
-            -- aiBrain[reftBlueprintPriorityOverride]['brmt3bm2'] = 1
-            --Aeon T3:
-            -- aiBrain[reftBlueprintPriorityOverride]['bal0310'] = 1
-            -- aiBrain[reftBlueprintPriorityOverride]['sal0311'] = 1
-            -- aiBrain[reftBlueprintPriorityOverride]['brot3hm'] = 1
-
-            --T1.5 bots
-            aiBrain[reftBlueprintPriorityOverride]['brot1exm1'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['brmt1exm1'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['uel0108'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['brpt1exm1'] = 1
-
-            aiBrain[reftBlueprintPriorityOverride]['ual0204'] = 1 --Aeon T2 sniperbot
-            aiBrain[reftBlueprintPriorityOverride]['ssl0403'] = -1000 --experimental reconstruction bot
-            aiBrain[reftBlueprintPriorityOverride]['ualx401'] = -1000 --experimental mobile smd
-
-            aiBrain[reftBlueprintPriorityOverride]['bal0110'] = -1000 --t1 sniperbot - cant kite so very weak as gets overrun, tries retreating, ends up dying doing nothing
-
-            --Hoplites and gattling meant to have been fixed/buffed in QUIET so they are able to kite
-            aiBrain[reftBlueprintPriorityOverride]['drl0204'] = 1
-            aiBrain[reftBlueprintPriorityOverride]['del0204'] = 1
-
-            aiBrain[reftBlueprintPriorityOverride]['urs0303'] = -1
-            aiBrain[reftBlueprintPriorityOverride]['uas0303'] = -1
-            aiBrain[reftBlueprintPriorityOverride]['xss0303'] = -1
-
-            --Prioritise penetration fighters in QUIET (v200 - disabled on understanding pen fighters have same physics as asfs such that M28 should be ok to build both interchangeably)
-            --v249 - switched to deprioritise, as mass for mass penetration fighters are terrible and easily outclassed by asfs
-            aiBrain[reftBlueprintPriorityOverride]['sra0313'] = -1 --Cybran pen fighter
-            aiBrain[reftBlueprintPriorityOverride]['saa0313'] = -1 --Aeon pen fighter
-            aiBrain[reftBlueprintPriorityOverride]['sea0313'] = -1 --UEF pen fighter
-            aiBrain[reftBlueprintPriorityOverride]['ssa0313'] = -1 --Seraphim pen fighter
-
-            --Prioritise normal bombers over pen bombers (we prioritise pen bombers once getting near unit cap); normal bombers likely better since dont have a salvo (which messes with M28 micro and causes bombers to overshoot target and die)
-            if categories.saa0314 then
-                aiBrain[reftBlueprintPriorityOverride]['saa0314'] = -1
-                aiBrain[reftBlueprintPriorityOverride]['sea0314'] = -1
-                aiBrain[reftBlueprintPriorityOverride]['sra0314'] = -1
-                aiBrain[reftBlueprintPriorityOverride]['ssa0314'] = -1
-            end
+        if categories.saa0314 then
+            aiBrain[reftBlueprintPriorityOverride]['saa0314'] = -1
+            aiBrain[reftBlueprintPriorityOverride]['sea0314'] = -1
+            aiBrain[reftBlueprintPriorityOverride]['sra0314'] = -1
+            aiBrain[reftBlueprintPriorityOverride]['ssa0314'] = -1
         end
     end
 end
