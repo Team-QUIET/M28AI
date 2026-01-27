@@ -388,13 +388,12 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
         if not(ScenarioInfo.Options.M28PrioritiseBPs == 2) then
             if M28Utilities.bQuietModActive then
                 local iTeam = aiBrain.M28Team
-                -- T1.5 units have good range but poor HP/mass ratio, so limit to 1:10 ratio vs regular T1
+                -- T1.5 units have good range but poor HP/mass ratio, so limit to 1:5 ratio vs regular T1
                 local tT15UnitIDs = {'brmt1exm1', 'brot1exm1', 'brpt1exm1', 'uel0108'}
                 if EntityCategoryContains(M28UnitInfo.refCategoryT15Units, sBPIDToBuild) then
                     local iT15Count = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryT15Units)
                     local iT1DFCount = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMobileDFLand * categories.TECH1 - M28UnitInfo.refCategoryT15Units)
-                    -- Block T1.5 if building another would exceed 1:10 ratio (need 10 T1 DF per T1.5)
-                    if (iT15Count + 1) * 10 > iT1DFCount then
+                    if (iT15Count + 1) * 5 > iT1DFCount then
                         if true then LOG(sFunctionRef..': T1.5 ratio would be exceeded, blocking '..sBPIDToBuild..'; iT15Count='..iT15Count..'; iT1DFCount='..iT1DFCount) end
                         for _, sUnitID in tT15UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = nil end
                         sBPIDToBuild = nil
@@ -403,12 +402,11 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                     end
                 end
 
-                -- T2.5 units - enforce 1:10 ratio vs normal T2
+                -- T2.5 units - enforce 1:5 ratio vs normal T2
                 local tT25UnitIDs = {'brmt2medm', 'wel0304', 'brot2asb', 'brpt2btbot'}
                 if EntityCategoryContains(M28UnitInfo.refCategoryT25Units, sBPIDToBuild) then
                     local iT25Count = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryT25Units)
                     local iT2DFCount = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMobileDFLand * categories.TECH2 - M28UnitInfo.refCategoryT25Units)
-                    -- Block T2.5 if building another would exceed 1:10 ratio (need 5 T2 DF per T2.5)
                     if (iT25Count + 1) * 5 > iT2DFCount then
                         if true then LOG(sFunctionRef..': T2.5 ratio would be exceeded, blocking '..sBPIDToBuild..'; iT25Count='..iT25Count..'; iT2DFCount='..iT2DFCount) end
                         for _, sUnitID in tT25UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = nil end
@@ -418,12 +416,11 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                     end
                 end
 
-                -- T3.5 units - enforce 1:10 ratio vs normal T3
+                -- T3.5 units - enforce 1:5 ratio vs normal T3
                 local tT35UnitIDs = {'xrl0305', 'brl0307', 'wrl0301', 'brmt3bm2', 'xel0305', 'xel0307', 'bel0307', 'wel0305', 'sal0311', 'bal0310', 'brot3hm', 'xsl0303', 'bsl0310', 'brpt3bot'}
                 if EntityCategoryContains(M28UnitInfo.refCategoryT35Units, sBPIDToBuild) then
                     local iT35Count = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryT35Units)
                     local iT3DFCount = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMobileDFLand * categories.TECH3 - M28UnitInfo.refCategoryT35Units)
-                    -- Block T3.5 if building another would exceed 1:10 ratio (need 5 T3 DF per T3.5)
                     if (iT35Count + 1) * 5 > iT3DFCount then
                         if true then LOG(sFunctionRef..': T3.5 ratio would be exceeded, blocking '..sBPIDToBuild..'; iT35Count='..iT35Count..'; iT3DFCount='..iT3DFCount) end
                         for _, sUnitID in tT35UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = nil end
