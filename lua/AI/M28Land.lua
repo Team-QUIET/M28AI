@@ -4559,6 +4559,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
     function GetGlobalRaidTargets(iTeamForRaid, iPlateauForRaid, iCurrentLZ, tCurrentLZData, iAvailableRaidForce)
         --Find raid-worthy zones: undefended eco, reachable path, prioritize expansions over core
+        local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+        local sFunctionRef = 'GetGlobalRaidTargets'
+
         local tRaidTargets = {}
         if M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateauForRaid]) then return tRaidTargets end
         if M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateauForRaid][M28Map.subrefPlateauLandZones]) then return tRaidTargets end
@@ -4611,15 +4614,89 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             local tTargetMidpoint = tLZDataForRaid[M28Map.subrefMidpoint]
                             local iDistance = M28Utilities.GetDistanceBetweenPositions(tCurrentMidpoint, tTargetMidpoint)
                             local iStrengthAdvantage = iAvailableRaidForce - iTotalTargetDefense
-                            local bIsExpansion = iStructureDefense < 500
 
-                            --Priority: eco value + strength advantage (favor easier targets) - distance penalty
-                            --This naturally prioritizes "relatively undefended" targets even if everything is defended
+                            --Detect if target is on a flank (lateral position relative to enemy cores)
+                            --This encourages flanking attacks rather than just pushing down the middle
+                            local iFlankBonus = 0
+                            local iMinDistanceToEnemyCore = 999999
+                            if M28Team.tTeamData[iTeamForRaid] and M28Team.tTeamData[iTeamForRaid][M28Team.subreftoEnemyBrains] then
+                                for iBrain, oBrain in M28Team.tTeamData[iTeamForRaid][M28Team.subreftoEnemyBrains] do
+                                    if M28UnitInfo.IsUnitValid(oBrain) then
+                                        local tEnemyCorePos = M28Map.GetPlayerStartPosition(oBrain)
+                                        if tEnemyCorePos then
+                                            local iDistToEnemyCore = M28Utilities.GetDistanceBetweenPositions(tTargetMidpoint, tEnemyCorePos)
+                                            iMinDistanceToEnemyCore = math.min(iMinDistanceToEnemyCore, iDistToEnemyCore)
+                                        end
+                                    end
+                                end
+                            end
+
+                            --Zones that are further from enemy core bases are likely flanks/expansions
+                            if iMinDistanceToEnemyCore > 200 and iMinDistanceToEnemyCore < 999999 then
+                                iFlankBonus = math.min(500, (iMinDistanceToEnemyCore - 200) * 2)
+                                if bDebugMessages == true then LOG(sFunctionRef..': LZ '..iLZ..' flank bonus='..iFlankBonus..' (distance to enemy core='..iMinDistanceToEnemyCore..')') end
+                            end
+
+                            --Zones with unclaimed mexes are valuable raid targets
+                            --Especially important on flanks where enemy hasn't expanded yet
+                            local iUnclaimedMexBonus = 0
+                            local tUnbuiltMexes = tLZDataForRaid[M28Map.subrefMexUnbuiltLocations] or {}
+                            local iUnclaimedMexes = table.getn(tUnbuiltMexes)
+                            if iUnclaimedMexes > 0 then
+                                iUnclaimedMexBonus = iUnclaimedMexes * 150 --150 priority per unclaimed mex
+                                if bDebugMessages == true then
+                                    LOG(sFunctionRef..': LZ '..iLZ..' has '..iUnclaimedMexes..' unbuilt mex spots, bonus='..iUnclaimedMexBonus)
+                                end
+                            end
+
+                            --Priority: eco value + strength advantage + flank bonus + unclaimed mex bonus - REDUCED distance penalty
+                            --Distance penalty reduced from 1.5 to 0.5 to not over-penalize flank attacks
                             local iPriority = iEcoValue
                                 + (iStrengthAdvantage * 0.5)
-                                - (iDistance * 1.5)
+                                + iFlankBonus
+                                + iUnclaimedMexBonus
+                                - (iDistance * 0.5)
+
+                            local bIsExpansion = iStructureDefense < 500
                             if bIsExpansion then
                                 iPriority = iPriority + 200
+                            end
+
+                            --Check if any enemy brain has their start position in this zone
+                            local bIsEnemyCoreBase = false
+                            if bDebugMessages == true then
+                                LOG(sFunctionRef..': LZ '..iLZ..' priority calculation: EcoValue='..iEcoValue..', StrengthAdv='..iStrengthAdvantage..', FlankBonus='..iFlankBonus..', UnclaimedMexBonus='..iUnclaimedMexBonus..', Distance='..iDistance..', Expansion='..tostring(bIsExpansion))
+                                LOG(sFunctionRef..': Checking LZ '..iLZ..' for enemy core base (iPlateauForRaid='..iPlateauForRaid..', iStructureDefense='..iStructureDefense..')')
+                            end
+                            if M28Team.tTeamData[iTeamForRaid] and M28Team.tTeamData[iTeamForRaid][M28Team.subreftoEnemyBrains] then
+                                for iBrain, oBrain in M28Team.tTeamData[iTeamForRaid][M28Team.subreftoEnemyBrains] do
+                                    if M28UnitInfo.IsUnitValid(oBrain) then
+                                        local tEnemyStartPos = M28Map.GetPlayerStartPosition(oBrain)
+                                        if tEnemyStartPos then
+                                            local iEnemyPlateau, iEnemyLZ = M28Map.GetPlateauAndLandZoneReferenceFromPosition(tEnemyStartPos)
+                                            if bDebugMessages == true then
+                                                LOG(sFunctionRef..': Enemy brain '..(oBrain.Nickname or 'unknown')..' start position: Plateau='..tostring(iEnemyPlateau)..', LZ='..tostring(iEnemyLZ)..'; Comparing to target LZ='..iLZ)
+                                            end
+                                            if iEnemyPlateau == iPlateauForRaid and iEnemyLZ == iLZ then
+                                                bIsEnemyCoreBase = true
+                                                if bDebugMessages == true then LOG(sFunctionRef..': *** MATCH FOUND *** LZ '..iLZ..' is enemy core base for '..(oBrain.Nickname or 'unknown')) end
+                                                break
+                                            end
+                                        else
+                                            if bDebugMessages == true then LOG(sFunctionRef..': Enemy brain '..(oBrain.Nickname or 'unknown')..' has no start position') end
+                                        end
+                                    end
+                                end
+                            else
+                                if bDebugMessages == true then LOG(sFunctionRef..': No enemy brains data available for team '..iTeamForRaid) end
+                            end
+
+                            if bIsEnemyCoreBase then
+                                if bDebugMessages == true then LOG(sFunctionRef..': Applying -50000 penalty to LZ '..iLZ..' (enemy core base). Priority before='..iPriority) end
+                                iPriority = iPriority - 50000 --Huge penalty makes core base last priority
+                                if bDebugMessages == true then LOG(sFunctionRef..': Priority after penalty='..iPriority) end
+                            else
+                                if bDebugMessages == true then LOG(sFunctionRef..': LZ '..iLZ..' is NOT an enemy core base. Final priority='..iPriority) end
                             end
 
                             table.insert(tRaidTargets, {iLZ = iLZ, iPriority = iPriority, tLZData = tLZDataForRaid})

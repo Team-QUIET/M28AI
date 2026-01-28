@@ -3247,8 +3247,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         if iFactoryTechLevel == 2 and iFactoryTechLevel == M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat - categories.TECH1) < math.min(3, aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer - categories.TECH1)) then
             if bDebugMessages == true then LOG(sFunctionRef .. ': Cur skirmishers=' .. aiBrain:GetCurrentUnits(M28UnitInfo.refCategorySkirmisher * categories.TECH2) .. '; Cur DF tnaks=' .. aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandCombat * categories.TECH2)..'; subrefbLZWantsIndirectSupport='..tostring(tLZTeamData[M28Map.subrefbLZWantsIndirectSupport] or false)) end
             if tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] and ((aiBrain.M28Easy and oFactory[refiTotalBuildCount] < 10) or (not(aiBrain.M28Easy) and aiBrain:GetCurrentUnits(M28UnitInfo.refCategorySkirmisher * categories.TECH2) > math.max(2, aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandCombat * categories.TECH2 - M28UnitInfo.refCategorySkirmisher)))) then
-                --Does enemy have structure threat in this or adjacent LZ? if so then prioritise MML instead unless we already have at least 15
-                if tLZTeamData[M28Map.subrefbLZWantsIndirectSupport] and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryIndirect * categories.TECH2) < 15 then
+                if tLZTeamData[M28Map.subrefbLZWantsIndirectSupport] and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryIndirect * categories.TECH2) < 10 then
                     if bDebugMessages == true then LOG(sFunctionRef..': Want more MML') end
                     if ConsiderBuildingCategory(M28UnitInfo.refCategoryIndirect * categories.TECH2) then return sBPIDToBuild end
                 end
@@ -3989,7 +3988,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                     end
                 end
                 --Next consider ratio of direct fire vs indirect, to handle cases where we have way too much DF or way too much indirect fire, provided we can path to enemy base
-                if iFactoryTechLevel >= 2 and (iIndirectFireOfThisTech <= 6 or iIndirectFireOfThisTech >= 50 or (iIndirectFireOfThisTech <= 15 and iFactoryTechLevel >= 3 and EntityCategoryContains(categories.UEF, oFactory.UnitId))) and tLZData[M28Map.subrefLZIslandRef] == NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestEnemyBase]) then
+                if iFactoryTechLevel >= 3 and (iIndirectFireOfThisTech <= 6 or iIndirectFireOfThisTech >= 50 or (iIndirectFireOfThisTech <= 15 and iFactoryTechLevel >= 3 and EntityCategoryContains(categories.UEF, oFactory.UnitId))) and tLZData[M28Map.subrefLZIslandRef] == NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestEnemyBase]) then
                     local iDirectFireOfThisTech = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandCombat * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel))
                     if bDebugMessages == true then LOG(sFunctionRef..': Considering higher priority DF vs indirect proportion builder since we can path to closest enemy base from here, iDirectFireOfThisTech='..iDirectFireOfThisTech..'; iIndirectFireOfThisTech='..iIndirectFireOfThisTech) end
                     --UEF - prioritise spearheads
@@ -4019,7 +4018,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                         iIndirectRatioWanted = 8
                     end
                 elseif iFactoryTechLevel == 2 then
-                    iIndirectRatioWanted = 6 --MMLs are better now
+                    iIndirectRatioWanted = 8
                 elseif iFactoryTechLevel == 3 then
                     local iCurDFCombat = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandCombat + iSkirmisherCategory)
 
