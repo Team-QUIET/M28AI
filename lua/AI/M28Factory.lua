@@ -394,7 +394,7 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                     local iT15Count = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryT15Units)
                     local iT1DFCount = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMobileDFLand * categories.TECH1 - M28UnitInfo.refCategoryT15Units)
                     if (iT15Count + 1) * 5 > iT1DFCount then
-                        if true then LOG(sFunctionRef..': T1.5 ratio would be exceeded, blocking '..sBPIDToBuild..'; iT15Count='..iT15Count..'; iT1DFCount='..iT1DFCount) end
+                        if bDebugMessages == true then LOG(sFunctionRef..': T1.5 ratio would be exceeded, blocking '..sBPIDToBuild..'; iT15Count='..iT15Count..'; iT1DFCount='..iT1DFCount) end
                         for _, sUnitID in tT15UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = nil end
                         sBPIDToBuild = nil
                     else
@@ -408,7 +408,7 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                     local iT25Count = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryT25Units)
                     local iT2DFCount = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMobileDFLand * categories.TECH2 - M28UnitInfo.refCategoryT25Units)
                     if (iT25Count + 1) * 5 > iT2DFCount then
-                        if true then LOG(sFunctionRef..': T2.5 ratio would be exceeded, blocking '..sBPIDToBuild..'; iT25Count='..iT25Count..'; iT2DFCount='..iT2DFCount) end
+                        if bDebugMessages == true then LOG(sFunctionRef..': T2.5 ratio would be exceeded, blocking '..sBPIDToBuild..'; iT25Count='..iT25Count..'; iT2DFCount='..iT2DFCount) end
                         for _, sUnitID in tT25UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = nil end
                         sBPIDToBuild = nil
                     else
@@ -422,7 +422,7 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                     local iT35Count = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryT35Units)
                     local iT3DFCount = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMobileDFLand * categories.TECH3 - M28UnitInfo.refCategoryT35Units)
                     if (iT35Count + 1) * 5 > iT3DFCount then
-                        if true then LOG(sFunctionRef..': T3.5 ratio would be exceeded, blocking '..sBPIDToBuild..'; iT35Count='..iT35Count..'; iT3DFCount='..iT3DFCount) end
+                        if bDebugMessages == true then LOG(sFunctionRef..': T3.5 ratio would be exceeded, blocking '..sBPIDToBuild..'; iT35Count='..iT35Count..'; iT3DFCount='..iT3DFCount) end
                         for _, sUnitID in tT35UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = nil end
                         sBPIDToBuild = nil
                     else
@@ -5305,8 +5305,8 @@ function SetPriorityPreferredUnitsByCategory(aiBrain)
         aiBrain[reftBlueprintPriorityOverride]['sel0324'] = -1000 --mobile omni (that also has AA so gets misused as an AA unit)
 
         --Buffed units in QUIET (able to kite)
-        aiBrain[reftBlueprintPriorityOverride]['drl0204'] = 1 --Hoplite
-        aiBrain[reftBlueprintPriorityOverride]['del0204'] = 1 --Gattling bot
+        -- aiBrain[reftBlueprintPriorityOverride]['drl0204'] = 1 --Hoplite
+        -- aiBrain[reftBlueprintPriorityOverride]['del0204'] = 1 --Gattling bot
 
         --Naval deprioritization
         aiBrain[reftBlueprintPriorityOverride]['urs0303'] = -1

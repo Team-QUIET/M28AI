@@ -4368,6 +4368,64 @@ function RecordClosestAllyAndEnemyBaseForEachLandZone(iTeam, bOnlyCheckIfEnemyBa
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+function CalculateZoneValue(iPlateau, iLandZone, iTeam, iAvailableMass)
+    --Calculates dynamic zone value based on economic value, threat ratio, distance, and force concentration
+    --Returns zone value score used for unit prioritization
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'CalculateZoneValue'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local tLZData = tAllPlateaus[iPlateau][subrefPlateauLandZones][iLandZone]
+    local tLZTeamData = tLZData[subrefLZTeamData][iTeam]
+
+    --Economic Value (mexes only - don't reward fortified zones)
+    local iAvailableMexes = tLZData[subrefLZOrWZMexCount] or 0
+    local iEconomicValue = iAvailableMexes * 500  --Higher weight since this is the only component
+
+    --Threat Modifier (inverse threat ratio) - squared to heavily penalize defended zones
+    local iEnemyThreat = tLZTeamData[subrefTThreatEnemyCombatTotal] or 0
+    local iFriendlyThreat = tLZTeamData[subrefLZTAlliedCombatUnits] and M28UnitInfo.GetMassCostOfUnits(tLZTeamData[subrefLZTAlliedCombatUnits]) or 0
+    iFriendlyThreat = math.max(1, iFriendlyThreat)
+    local iThreatRatio = iEnemyThreat / iFriendlyThreat
+    local iThreatModifier = 1.0 / (1.0 + (iThreatRatio * iThreatRatio))  --Squared for aggressive penalty
+
+    --Fortification Penalty: Heavily penalize zones with many structures (core bases)
+    local iEnemyStructureCount = (tLZTeamData[subrefTEnemyUnits] and table.getn(tLZTeamData[subrefTEnemyUnits]) or 0)
+    local iFortificationPenalty = 1.0
+    if iEnemyStructureCount > 10 then
+        --Core bases with 10+ structures get heavily penalized (each structure past 10 reduces value by 20%)
+        iFortificationPenalty = 1.0 / (1.0 + ((iEnemyStructureCount - 10) * 0.2))
+    end
+
+    --Distance Decay (closer zones prioritized)
+    local tClosestFriendlyBase = tLZTeamData[reftClosestFriendlyBase]
+    local iDistance = 1000
+    if tClosestFriendlyBase and tLZData[subrefMidpoint] then
+        iDistance = M28Utilities.GetDistanceBetweenPositions(tClosestFriendlyBase, tLZData[subrefMidpoint])
+    end
+    local iDistanceDecay = math.max(0.1, 1.0 - (iDistance / 800))  --800 unit threshold for aggressive local focus
+
+    --Concentration Penalty: Penalize zones with many units already assigned
+    local iAssignedMass = tLZTeamData[subrefLZTAlliedCombatUnits] and M28UnitInfo.GetMassCostOfUnits(tLZTeamData[subrefLZTAlliedCombatUnits]) or 0
+    local iConcentrationPenalty = 1.0
+    if iAvailableMass and iAvailableMass > 0 then
+        iConcentrationPenalty = 1.0 / (1.0 + (iAssignedMass / iAvailableMass))
+    end
+
+    --Final Zone Value Calculation (includes all penalties)
+    local iZoneValue = iEconomicValue * iThreatModifier * iFortificationPenalty * iDistanceDecay * iConcentrationPenalty
+
+    if bDebugMessages == true then
+        LOG(sFunctionRef..': iPlateau='..iPlateau..'; iLZ='..iLandZone..'; iTeam='..iTeam..
+            '; EcoValue='..iEconomicValue..'; ThreatMod='..string.format("%.2f", iThreatModifier)..
+            '; FortPenalty='..string.format("%.2f", iFortificationPenalty)..'; DistDecay='..string.format("%.2f", iDistanceDecay)..
+            '; ConcPenalty='..string.format("%.2f", iConcentrationPenalty)..'; FinalZoneValue='..math.floor(iZoneValue))
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return iZoneValue
+end
+
 function RecordClosestAllyAndEnemyBaseForEachWaterZone(iTeam, bDontInitializeWZLogic)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'RecordClosestAllyAndEnemyBaseForEachWaterZone'
