@@ -11035,16 +11035,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     local tOtherLZTeamData = tOtherLZData[M28Map.subrefLZTeamData][iTeam]
                                     local iEcoValue = tOtherLZTeamData[M28Map.subrefThreatEnemyStructureTotalMass] or 0
                                     local iCombatThreat = tOtherLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
-                                    local bRaidWorthy = iEcoValue > 100 and iCombatThreat < 400 --Has eco but low mobile defense
 
-                                    --Calculate raid priority: eco value minus defense penalty
-                                    local iRaidPriority = iEcoValue - (iCombatThreat * 2)
-
-                                    if bRaidWorthy then
-                                        --Prioritize for raiding - add to raid list with priority score
-                                        table.insert(tiRaidableZones, {iLZ = iOtherLZ, iPriority = iRaidPriority})
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Zone '..iOtherLZ..' is raid-worthy, iEcoValue='..iEcoValue..'; iCombatThreat='..iCombatThreat..'; iRaidPriority='..iRaidPriority) end
-                                    elseif (iEcoValue + iCombatThreat) >= iMinEnemyValueToAttack or tOtherLZTeamData[M28Map.subrefbLZBaselinePressure] then
+                                    if (iEcoValue + iCombatThreat) >= iMinEnemyValueToAttack or tOtherLZTeamData[M28Map.subrefbLZBaselinePressure] then
                                         if not(iDFLZToSupport) and tOtherLZTeamData[M28Map.subrefbLZWantsDFSupport] then
                                             --Select zone with highest value (includes concentration penalty for natural army splitting)
                                             iCurZoneValue = tOtherLZTeamData[M28Map.subrefLZTValue] or 0
