@@ -208,6 +208,24 @@ iMaxMexBuildPathEngineers = 15 --Maximum number of engineers that can be doing m
 tTeamMexBuildPathEngineers = {} --[iTeam] = table of engineers with mex build path
 tTeamAssignedMexLocations = {} --[iTeam] = table of mex locations already assigned; key is location string, value is engineer
 
+function GetValidAssignedMexEngineer(iTeam, sLocKey)
+    --Returns assigned engineer if still valid/on mex path; clears stale assignments
+    if not(tTeamAssignedMexLocations[iTeam]) then return nil end
+    local oAssigned = tTeamAssignedMexLocations[iTeam][sLocKey]
+    if oAssigned then
+        if not(M28UnitInfo.IsUnitValid(oAssigned)) then
+            tTeamAssignedMexLocations[iTeam][sLocKey] = nil
+            return nil
+        end
+        local bIsMexAction = oAssigned[refiAssignedAction] == refActionMexBuildPath or oAssigned[refiAssignedAction] == refActionExpandToLandZone
+        if not(bIsMexAction) and not(oAssigned[refbHasMexBuildPath]) then
+            tTeamAssignedMexLocations[iTeam][sLocKey] = nil
+            return nil
+        end
+    end
+    return oAssigned
+end
+
 --Shield related variables against a unit
 refiFailedShieldBuildDistance = 'M28EngFailedShieldBuildDist' --against a building wanting shielding - records the distance of the closest location that we can build (so can decide if the unit can even be shielded)
 refiFailedShieldConstructionCount = 'M28EngFailedShdCnt' --Number of times we have tried to get a build locatino to cover this unit and failed
@@ -740,6 +758,9 @@ function CanBuildAtLocation(aiBrain, sBlueprintToBuild, tTargetLocation, iOption
                         --Water zone
                         tLZOrWZData = M28Map.tPondDetails[M28Map.tiPondByWaterZone[iOptionalLandOrWaterZone]][M28Map.subrefPondWaterZones][iOptionalLandOrWaterZone]
                         tLZOrWZTeamData = tLZOrWZData[M28Map.subrefWZTeamData][aiBrain.M28Team]
+                    end
+                    if tLZOrWZData and M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefQueuedBuildings]) == false then
+                        RefreshQueuedBuildingsForZone(tLZOrWZData, tLZOrWZTeamData)
                     end
                     if bDebugMessages == true then LOG(sFunctionRef..': Is table of queued buildings empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefQueuedBuildings]))..'; iBuildingRadius='..iBuildingRadius..'; tTargetLocation='..repru(tTargetLocation)..'; reprs of table='..reprs(tLZOrWZData[M28Map.subrefQueuedLocationsByPosition])) end
                     if tLZOrWZData and M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefQueuedBuildings]) == false then
@@ -1707,7 +1728,8 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
                     --Skip mex locations already assigned to a MexBuildPath engineer
                     if bIsMex and tTeamAssignedMexLocations[iTeam] then
                         local sLocKey = tostring(tCurResource[1])..','..tostring(tCurResource[3])
-                        if tTeamAssignedMexLocations[iTeam][sLocKey] then
+                        local oAssignedMexEngineer = GetValidAssignedMexEngineer(iTeam, sLocKey)
+                        if oAssignedMexEngineer then
                             if bDebugMessages == true then LOG(sFunctionRef..': Skipping mex location '..repru(tCurResource)..' as it is already assigned to MexBuildPath engineer') end
                             --continue to next resource (using goto or just skip this iteration)
                         else
@@ -6033,6 +6055,48 @@ function TrackQueuedBuilding(oEngineer, sBuildingID, tBuildLocation)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+function RefreshQueuedBuildingsForZone(tLZOrWZData, tLZOrWZTeamData)
+    --Remove queued building entries whose primary builder is no longer valid
+    if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefQueuedBuildings]) then return end
+    local iTableSize = table.getn(tLZOrWZTeamData[M28Map.subrefQueuedBuildings])
+    local iRevisedIndex = 1
+    for iOrigIndex = 1, iTableSize do
+        local tQueued = tLZOrWZTeamData[M28Map.subrefQueuedBuildings][iOrigIndex]
+        local oPrimary = tQueued and tQueued[M28Map.subrefPrimaryBuilder]
+        local bKeep = true
+        if not(oPrimary) or not(M28UnitInfo.IsUnitValid(oPrimary)) then
+            bKeep = false
+        elseif oPrimary[reftQueuedBuildings] then
+            local bFound = false
+            for _, tOrderDetails in oPrimary[reftQueuedBuildings] do
+                if tOrderDetails[subrefQueueRef] == tQueued[M28Map.subrefQueueRef] then
+                    bFound = true
+                    break
+                end
+            end
+            if not(bFound) then bKeep = false end
+        end
+
+        if bKeep then
+            if iOrigIndex ~= iRevisedIndex then
+                tLZOrWZTeamData[M28Map.subrefQueuedBuildings][iRevisedIndex] = tQueued
+                tLZOrWZTeamData[M28Map.subrefQueuedBuildings][iOrigIndex] = nil
+            end
+            iRevisedIndex = iRevisedIndex + 1
+        else
+            if tQueued and tQueued[M28Map.subrefBuildingLocation] and tQueued[M28Map.subrefBuildingRadius] and tLZOrWZData and tLZOrWZData[M28Map.subrefQueuedLocationsByPosition] then
+                ChangeQueuedLocationsTracker(tQueued[M28Map.subrefBuildingLocation], tLZOrWZData, tQueued[M28Map.subrefBuildingRadius], false)
+            end
+            tLZOrWZTeamData[M28Map.subrefQueuedBuildings][iOrigIndex] = nil
+        end
+    end
+    if iRevisedIndex < iTableSize then
+        for iRemovalEntry = iTableSize, iRevisedIndex, -1 do
+            table.remove(tLZOrWZTeamData[M28Map.subrefQueuedBuildings], iRemovalEntry)
+        end
+    end
+end
+
 function ChangeQueuedLocationsTracker(tBuildLocation, tLZOrWZData, iBuildingRadius, bAddToQueue)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ChangeQueuedLocationsTracker'
@@ -7045,6 +7109,13 @@ function ClearMexBuildPathTracking(oEngineer, iTeam)
             end
         end
         oEngineer[reftAssignedMexBuildPath] = nil
+    elseif tTeamAssignedMexLocations[iTeam] then
+        --Fallback: clear any assignments still pointing to this engineer
+        for sLocKey, oAssigned in tTeamAssignedMexLocations[iTeam] do
+            if oAssigned == oEngineer then
+                tTeamAssignedMexLocations[iTeam][sLocKey] = nil
+            end
+        end
     end
     oEngineer[refbHasMexBuildPath] = nil
 
@@ -7251,7 +7322,8 @@ function QueueMexBuildPath(oEngineer, iTeam, tLZOrWZData, tLZOrWZTeamData, iPlat
     local tAvailableMexes = {}
     for _, tMexLocation in tUnbuiltMexes do
         local sLocKey = tostring(tMexLocation[1])..','..tostring(tMexLocation[3])
-        if not(tTeamAssignedMexLocations[iTeam][sLocKey]) then
+        local oAssignedMexEngineer = GetValidAssignedMexEngineer(iTeam, sLocKey)
+        if not(oAssignedMexEngineer) then
             table.insert(tAvailableMexes, tMexLocation)
         end
     end
@@ -13495,6 +13567,94 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
         LOG(sFunctionRef..': About to consider what actions we want to give engineers for iPlateau='..(iPlateau or 'nil')..'; iLandZone='..(iLandZone or 'nil')..'; iTeam='..(iTeam or 'nil')..'; bHaveLowMass='..tostring(bHaveLowMass or false)..'; Team gross mass='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 'nil')..'; Lowest mass % stored='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 'nil')..'; Team mass stored='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] or 'nil')..'; Team net mass='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 'nil')..'; Team gross mass='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 'nil'))
         LOG(sFunctionRef..': Repeat of log but without the nil backups to help identify errors, iPlateau='..iPlateau..'; iLandZone='..iLandZone..'; iTeam='..iTeam..'; bHaveLowMass='..tostring(bHaveLowMass)..'; Team gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Lowest mass % stored='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]..'; Team mass stored='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]..'; Team net mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass]..'; Team gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass])
     end
+
+    local bEngineersRecentlyRunFromEnemy = false
+    if tLZTeamData[M28Map.refiTimeLastRunFromEnemyLand] and GetGameTimeSeconds() - tLZTeamData[M28Map.refiTimeLastRunFromEnemyLand] <= 20 then
+        --Check if we now have friendly army protection - if so, ignore the "recently run" flag
+        local iAllyCombat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+        local iEnemyCombat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+        if iAllyCombat < iEnemyCombat * 0.5 then
+            --Only set flag if we don't have sufficient friendly army protection
+            bEngineersRecentlyRunFromEnemy = true
+        end
+    end
+
+    --Unclaimed mex in the zone (top priority)
+    iCurPriority = iCurPriority + 1
+    if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefMexUnbuiltLocations]) == false and not(M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tLZData, true)) then
+        local iUnbuiltMexCount = table.getn(tLZData[M28Map.subrefMexUnbuiltLocations])
+        iBPWanted = math.max(5, iUnbuiltMexCount * 2.5)
+        if bDebugMessages == true then LOG(sFunctionRef..': We have unbuilt mex locations for this land zone, iBPWanted='..iBPWanted..', iUnbuiltMexCount='..iUnbuiltMexCount..', locations='..repru(tLZData[M28Map.subrefMexUnbuiltLocations])) end
+        if bEngineersRecentlyRunFromEnemy then iBPWanted =5
+        elseif bHaveLowPower and not(bHaveLowMass) and iBPWanted > 5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 then
+            iBPWanted = 5
+        elseif bHaveLowPower and iBPWanted > 10 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.2 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 80  then
+            iBPWanted = 10
+        end
+
+        --Assign multiple engineers to mex build paths for rapid expansion
+        local iMexBuildPathsAssigned = 0
+        local iMaxLocalPaths = math.min(3, math.ceil(iUnbuiltMexCount / 3)) --Up to 3 engineers per zone, ~3 mexes each
+        if not(bEngineersRecentlyRunFromEnemy) and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) then
+            while iUnbuiltMexCount > 0 and GetMexBuildPathEngineerCount(iTeam) < iMaxMexBuildPathEngineers and iMexBuildPathsAssigned < iMaxLocalPaths do
+                local iHighestTechAvailable = GetHighestTechEngiAvailable(toAvailableEngineersByTech)
+                if iHighestTechAvailable <= 0 then break end
+
+                local oEngineerForPath = toAvailableEngineersByTech[iHighestTechAvailable][1]
+                if not(oEngineerForPath) or not(M28UnitInfo.IsUnitValid(oEngineerForPath)) then break end
+
+                if bDebugMessages == true then LOG(sFunctionRef..': Attempting mex build path #'..(iMexBuildPathsAssigned + 1)..' with engineer '..oEngineerForPath.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineerForPath)) end
+                local bQueued = QueueMexBuildPath(oEngineerForPath, iTeam, tLZData, tLZTeamData, iPlateau, iLandZone, false, 5)
+                if bQueued then
+                    table.remove(toAvailableEngineersByTech[iHighestTechAvailable], 1)
+                    table.insert(toAssignedEngineers, oEngineerForPath)
+                    iMexBuildPathsAssigned = iMexBuildPathsAssigned + 1
+                    --Reduce unbuilt count estimate (path queues ~5 mexes)
+                    iUnbuiltMexCount = iUnbuiltMexCount - 5
+                    if bDebugMessages == true then LOG(sFunctionRef..': Successfully assigned engineer to mex build path, total='..iMexBuildPathsAssigned) end
+                else
+                    --No more available mexes to queue
+                    break
+                end
+            end
+        end
+
+        --Fall back to normal mex building if no mex paths were used or we still have more mexes to build
+        if iMexBuildPathsAssigned == 0 or iUnbuiltMexCount > 5 then
+            HaveActionToAssign(refActionBuildMex, 1, iBPWanted)
+        end
+        if not(bEngineersRecentlyRunFromEnemy) and (tLZTeamData[M28Map.subreftiBPWantedByAction][refActionBuildMex] or 0) > 0 and not(tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex]) then
+            tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex] = true
+            if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
+                for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
+                    local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
+                    tAdjLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex] = true --in v274 experimented with not enabling this if lots of engis already traveling but slowed down early expansion too much
+                end
+            end
+        end
+    elseif M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoPartBuiltMexes]) == false then
+        --Do we have no engineers assigned to building a mex?
+        local bHaveEngisBuilding = false
+        if M28Utilities.IsTableEmpty(toAssignedEngineers) == false then
+            for iEngi, oEngi in toAssignedEngineers do
+                if oEngi[refiAssignedAction] == refActionBuildMex then
+                    bHaveEngisBuilding = true
+                    break
+                end
+            end
+        end
+        if bDebugMessages == true then LOG(sFunctionRef..': Is table of assigned engineers empty='..tostring(M28Utilities.IsTableEmpty(toAssignedEngineers))..'; bHaveEngisBuilding='..tostring(bHaveEngisBuilding)) end
+        if not(bHaveEngisBuilding) then
+            --Refresh list of mexes
+            RefreshPartBuiltMexList(tLZTeamData)
+            if bDebugMessages == true then LOG(sFunctionRef..': Refreshed part built mex list, is table of part built mexes empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoPartBuiltMexes]))) end
+            if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoPartBuiltMexes]) == false then
+                HaveActionToAssign(refActionCompletePartBuiltMex, 1, 5)
+                if bDebugMessages == true then LOG(sFunctionRef..': Will get engi to complete part built mex') end
+            end
+        end
+    end
+
     local iMinTechLevelForPower = 1
 
     if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 2 then
@@ -14044,66 +14204,6 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
             --function HaveActionToAssign(iActionToAssign, iMinTechLevelWanted, iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iOptionalSpecificFactionWanted, bDontUseLowerTechEngineersToAssist)
             HaveActionToAssign(refActionSpecialShieldDefence, 3, iBPWanted,         nil,                nil,                    nil,                        nil,                            true)
             --end
-        end
-    end
-
-
-
-
-    --Unclaimed mex in the zone
-    iCurPriority = iCurPriority + 1
-    if bDebugMessages == true then
-        LOG(sFunctionRef..': Considering if unbuilt or part build mexes in t his LZ, is subrefMexUnbuiltLocations empty='..tostring(M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations]))..'; Is subreftoPartBuiltMexes empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoPartBuiltMexes]))..'; Mex by tech='..repru(tLZTeamData[M28Map.subrefMexCountByTech])..'; subrefLZOrWZMexCount='..tLZData[M28Map.subrefLZOrWZMexCount])
-        if M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations]) == false then
-            LOG(sFunctionRef..': Size of unbuilt locations table='..table.getn(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations]))
-
-        end
-    end
-    if M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations]) == false and not(M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tLZData, true)) then
-        iBPWanted = math.max(5, table.getn(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations]) * 2.5)
-        if bHaveLowPower and (not(bHaveLowMass) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.1) and iBPWanted > 5 then
-            if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 then
-                if tLZData[M28Map.subrefLZOrWZMexCount] >= 6 and tLZTeamData[M28Map.subrefMexCountByTech][1] >= 2 then
-                    iBPWanted = 5
-                else
-                    iBPWanted = 10
-                end
-            elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.1 and not(bHaveLowMass) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 80 then
-                iBPWanted = 10
-            elseif iBPWanted > 20 and iBPWanted >= tiBPByTech[M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]] * 2 then
-                iBPWanted = 20
-            end
-        end
-        if bDebugMessages == true then LOG(sFunctionRef..': High priority mex builder, Have a total of '..table.getn(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations])..' unbuilt mex locations in this zone, iBPWanted='..iBPWanted..'; Highest friendly tech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]) end
-        HaveActionToAssign(refActionBuildMex, 1, iBPWanted)
-        if (tLZTeamData[M28Map.subreftiBPWantedByAction][refActionBuildMex] or 0) > 0 then
-            tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex] = true
-            if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
-                for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
-                    local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
-                    tAdjLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex] = true
-                end
-            end
-        end
-    elseif M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoPartBuiltMexes]) == false then
-        --Do we have no engineers assigned to building a mex?
-        local bHaveEngisBuilding = false
-        if bDebugMessages == true then LOG(sFunctionRef..': Have part built mexes, is toAssignedEngineers empty='..tostring(M28Utilities.IsTableEmpty(toAssignedEngineers))) end
-        if M28Utilities.IsTableEmpty(toAssignedEngineers) == false then
-            for iEngi, oEngi in toAssignedEngineers do
-                if oEngi[refiAssignedAction] == refActionBuildMex then
-                    bHaveEngisBuilding = true
-                    break
-                end
-            end
-        end
-        if not(bHaveEngisBuilding) then
-            --Refresh list of mexes
-            RefreshPartBuiltMexList(tLZTeamData)
-            if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoPartBuiltMexes]) == false then
-                if bDebugMessages == true then LOG(sFunctionRef..': Want to assign 5 BP to complete a part built mex') end
-                HaveActionToAssign(refActionCompletePartBuiltMex, 1, 5)
-            end
         end
     end
 
@@ -17761,6 +17861,63 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
         ConsiderActionToAssign(iActionToAssign, iMinTechLevelWanted, iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iCurPriority, tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, toAvailableEngineersByTech, toAssignedEngineers, false, iOptionalSpecificFactionWanted, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
     end
 
+    --Unclaimed mex in the zone (top priority)
+    iCurPriority = iCurPriority + 1
+    if bDebugMessages == true then
+        LOG(sFunctionRef..': Considering if unbuilt or part build mexes in t his LZ, is subrefMexUnbuiltLocations empty='..tostring(M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations]))..'; Is subreftoPartBuiltMexes empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoPartBuiltMexes]))..'; Mex by tech='..repru(tLZTeamData[M28Map.subrefMexCountByTech])..'; subrefLZOrWZMexCount='..tLZData[M28Map.subrefLZOrWZMexCount])
+        if M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations]) == false then
+            LOG(sFunctionRef..': Size of unbuilt locations table='..table.getn(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations]))
+
+        end
+    end
+    if M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations]) == false and not(M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tLZData, true)) then
+        iBPWanted = math.max(5, table.getn(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations]) * 2.5)
+        if bHaveLowPower and (not(bHaveLowMass) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.1) and iBPWanted > 5 then
+            if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 then
+                if tLZData[M28Map.subrefLZOrWZMexCount] >= 6 and tLZTeamData[M28Map.subrefMexCountByTech][1] >= 2 then
+                    iBPWanted = 5
+                else
+                    iBPWanted = 10
+                end
+            elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.1 and not(bHaveLowMass) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 80 then
+                iBPWanted = 10
+            elseif iBPWanted > 20 and iBPWanted >= tiBPByTech[M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]] * 2 then
+                iBPWanted = 20
+            end
+        end
+        if bDebugMessages == true then LOG(sFunctionRef..': High priority mex builder, Have a total of '..table.getn(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations])..' unbuilt mex locations in this zone, iBPWanted='..iBPWanted..'; Highest friendly tech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]) end
+        HaveActionToAssign(refActionBuildMex, 1, iBPWanted)
+        if (tLZTeamData[M28Map.subreftiBPWantedByAction][refActionBuildMex] or 0) > 0 then
+            tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex] = true
+            if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
+                for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
+                    local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
+                    tAdjLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex] = true
+                end
+            end
+        end
+    elseif M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoPartBuiltMexes]) == false then
+        --Do we have no engineers assigned to building a mex?
+        local bHaveEngisBuilding = false
+        if bDebugMessages == true then LOG(sFunctionRef..': Have part built mexes, is toAssignedEngineers empty='..tostring(M28Utilities.IsTableEmpty(toAssignedEngineers))) end
+        if M28Utilities.IsTableEmpty(toAssignedEngineers) == false then
+            for iEngi, oEngi in toAssignedEngineers do
+                if oEngi[refiAssignedAction] == refActionBuildMex then
+                    bHaveEngisBuilding = true
+                    break
+                end
+            end
+        end
+        if not(bHaveEngisBuilding) then
+            --Refresh list of mexes
+            RefreshPartBuiltMexList(tLZTeamData)
+            if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoPartBuiltMexes]) == false then
+                if bDebugMessages == true then LOG(sFunctionRef..': Want to assign 5 BP to complete a part built mex') end
+                HaveActionToAssign(refActionCompletePartBuiltMex, 1, 5)
+            end
+        end
+    end
+
     --Active gameender template - want to always have 1 engi on duty as highest priority to avoid having orders cancelled
     iCurPriority = iCurPriority + 1
     if not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and (not(bPrioritiseProduction) or (not(bHaveLowMass) and not(bHaveLowPower) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.4)) and M28Conditions.HaveActiveGameEnderTemplateLogic(tLZTeamData) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftEnemyFirebasesInRange]) then
@@ -18570,82 +18727,6 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
             HaveActionToAssign(refActionBuildAirFactory, 1, iBPWanted, nil)
         else
             HaveActionToAssign(refActionBuildLandFactory, 1, iBPWanted, nil)
-        end
-    end
-
-    --Unclaimed mex in the zone
-    iCurPriority = iCurPriority + 1
-    if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefMexUnbuiltLocations]) == false and not(M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tLZData, true)) then
-        local iUnbuiltMexCount = table.getn(tLZData[M28Map.subrefMexUnbuiltLocations])
-        iBPWanted = math.max(5, iUnbuiltMexCount * 2.5)
-        if bDebugMessages == true then LOG(sFunctionRef..': We have unbuilt mex locations for this land zone, iBPWanted='..iBPWanted..', iUnbuiltMexCount='..iUnbuiltMexCount..', locations='..repru(tLZData[M28Map.subrefMexUnbuiltLocations])) end
-        if bEngineersRecentlyRunFromEnemy then iBPWanted =5
-        elseif bHaveLowPower and not(bHaveLowMass) and iBPWanted > 5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 then
-            iBPWanted = 5
-        elseif bHaveLowPower and iBPWanted > 10 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.2 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 80  then
-            iBPWanted = 10
-        end
-
-        --Assign multiple engineers to mex build paths for rapid expansion
-        local iMexBuildPathsAssigned = 0
-        local iMaxLocalPaths = math.min(3, math.ceil(iUnbuiltMexCount / 3)) --Up to 3 engineers per zone, ~3 mexes each
-        if not(bEngineersRecentlyRunFromEnemy) and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) then
-            while iUnbuiltMexCount > 0 and GetMexBuildPathEngineerCount(iTeam) < iMaxMexBuildPathEngineers and iMexBuildPathsAssigned < iMaxLocalPaths do
-                local iHighestTechAvailable = GetHighestTechEngiAvailable(toAvailableEngineersByTech)
-                if iHighestTechAvailable <= 0 then break end
-
-                local oEngineerForPath = toAvailableEngineersByTech[iHighestTechAvailable][1]
-                if not(oEngineerForPath) or not(M28UnitInfo.IsUnitValid(oEngineerForPath)) then break end
-
-                if bDebugMessages == true then LOG(sFunctionRef..': Attempting mex build path #'..(iMexBuildPathsAssigned + 1)..' with engineer '..oEngineerForPath.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineerForPath)) end
-                local bQueued = QueueMexBuildPath(oEngineerForPath, iTeam, tLZData, tLZTeamData, iPlateau, iLandZone, false, 5)
-                if bQueued then
-                    table.remove(toAvailableEngineersByTech[iHighestTechAvailable], 1)
-                    table.insert(toAssignedEngineers, oEngineerForPath)
-                    iMexBuildPathsAssigned = iMexBuildPathsAssigned + 1
-                    --Reduce unbuilt count estimate (path queues ~5 mexes)
-                    iUnbuiltMexCount = iUnbuiltMexCount - 5
-                    if bDebugMessages == true then LOG(sFunctionRef..': Successfully assigned engineer to mex build path, total='..iMexBuildPathsAssigned) end
-                else
-                    --No more available mexes to queue
-                    break
-                end
-            end
-        end
-
-        --Fall back to normal mex building if no mex paths were used or we still have more mexes to build
-        if iMexBuildPathsAssigned == 0 or iUnbuiltMexCount > 5 then
-            HaveActionToAssign(refActionBuildMex, 1, iBPWanted)
-        end
-        if not(bEngineersRecentlyRunFromEnemy) and (tLZTeamData[M28Map.subreftiBPWantedByAction][refActionBuildMex] or 0) > 0 and not(tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex]) then
-            tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex] = true
-            if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
-                for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
-                    local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
-                    tAdjLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex] = true --in v274 experimented with not enabling this if lots of engis already traveling but slowed down early expansion too much
-                end
-            end
-        end
-    elseif M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoPartBuiltMexes]) == false then
-        --Do we have no engineers assigned to building a mex?
-        local bHaveEngisBuilding = false
-        if M28Utilities.IsTableEmpty(toAssignedEngineers) == false then
-            for iEngi, oEngi in toAssignedEngineers do
-                if oEngi[refiAssignedAction] == refActionBuildMex then
-                    bHaveEngisBuilding = true
-                    break
-                end
-            end
-        end
-        if bDebugMessages == true then LOG(sFunctionRef..': Is table of assigned engineers empty='..tostring(M28Utilities.IsTableEmpty(toAssignedEngineers))..'; bHaveEngisBuilding='..tostring(bHaveEngisBuilding)) end
-        if not(bHaveEngisBuilding) then
-            --Refresh list of mexes
-            RefreshPartBuiltMexList(tLZTeamData)
-            if bDebugMessages == true then LOG(sFunctionRef..': Refreshed part built mex list, is table of part built mexes empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoPartBuiltMexes]))) end
-            if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoPartBuiltMexes]) == false then
-                HaveActionToAssign(refActionCompletePartBuiltMex, 1, 5)
-                if bDebugMessages == true then LOG(sFunctionRef..': Will get engi to complete part built mex') end
-            end
         end
     end
 
