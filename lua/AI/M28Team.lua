@@ -6502,7 +6502,7 @@ function ShouldCommitMusteredArmy(iTeam, iPlateau)
 
     --Calculate required threat ratio based on tech level (more conservative than before)
     local iHighestTech = tTeamData[iTeam][subrefiHighestFriendlyLandFactoryTech] or 1
-    local iThreatRatioRequired = 1.2
+    local iThreatRatioRequired = 1.1
 
     --Use lower threshold when defending expansion zones with our mexes
     local tMexCountByTech = tTargetLZTeamData[M28Map.subrefMexCountByTech]
