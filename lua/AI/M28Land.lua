@@ -2022,7 +2022,7 @@ function ReviseTargetLZIfFarAway(tLZData, iTeam, iPlateau, iStartLandZone, iTarg
                 if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains]) == false then
                     for _, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains] do
                         if oBrain and not(oBrain.M28IsDefeated) then
-                            local tEnemyStart = GetPlayerStartPosition(oBrain)
+                            local tEnemyStart = M28Map.GetPlayerStartPosition(oBrain)
                             if tEnemyStart then
                                 table.insert(tEnemyBases, tEnemyStart)
                             end
@@ -3989,84 +3989,7 @@ function ManageRASSACUsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLandZo
         end
     end
 
-    --If have any SACUs without RAS upgrade that could get it, then get RAS upgrade, provided no enemies in the zone (LOUD - only doe this if close to unit cap or defending against t3 arti since that will stop us building mass fabs, due to how bad ras is)
     if M28Utilities.IsTableEmpty(tSACUs) == false then
-        if bDebugMessages == true then LOG(sFunctionRef..': Considering getting RAS if no enemies in LZ and not LOUD, tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]='..tostring(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ])..'; Enemy air to ground='..(tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0)..'; Unit cap level='..(M28Team.tTeamData[iTeam][M28Team.refiLowestUnitCapAdjustmentLevel] or 'nil')..'; Defending against arti='..tostring(M28Team.tTeamData[iTeam][M28Team.refbDefendAgainstArti])..'; Team mass%='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Team is stalling E='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])) end
-        if not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and (tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) == 0 and (not(M28Utilities.bLoudModActive) or (M28Team.tTeamData[iTeam][M28Team.refiLowestUnitCapAdjustmentLevel] or 5) <= 2 or M28Team.tTeamData[iTeam][M28Team.refbDefendAgainstArti] or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.9 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 30 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]))) then
-            local tSACUsToUpgrade = {}
-            local tSACUsUpgrading = {}
-            local bWantBuildPower = false
-            if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.6 or (M28Team.tTeamData[iTeam][M28Team.refiLowestUnitCapAdjustmentLevel] <= -2 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.2)) and (GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastNearUnitCap] or 0)) <= 5 or not(M28Conditions.HaveLowPower(iTeam)) then
-                bWantBuildPower = true
-            end
-            local sUpgradeWanted
-            for iSACU = table.getn(tSACUs), 1, -1 do
-                local oSACU = tSACUs[iSACU]
-                if bDebugMessages == true then LOG(sFunctionRef..'; Considering iSACU='..iSACU..' in the table, oSACU='..oSACU.UnitId..M28UnitInfo.GetUnitLifetimeCount(oSACU)..'; Unit state='..M28UnitInfo.GetUnitState(oSACU)..'; Special micro active='..tostring(oSACU[M28UnitInfo.refbSpecialMicroActive])..'; oSACU[M28ACU.reftPreferredUpgrades]='..repru(oSACU[M28ACU.reftPreferredUpgrades])..'; bWantBuildPower='..tostring(bWantBuildPower or false)) end
-                if oSACU:IsUnitState('Upgrading') then
-                    table.insert(tSACUsUpgrading, oSACU)
-                    table.remove(tSACUs, iSACU)
-                elseif oSACU[M28UnitInfo.refbSpecialMicroActive] and oSACU:IsUnitState('Moving') then
-                    --Do nothing - e.g. SACU might be rolling off of factory, or dodging a shot
-                else
-                    if oSACU[M28ACU.reftPreferredUpgrades] == nil or (bWantBuildPower and not(oSACU[M28ACU.refbTriedAndFailedToGetBuildRateUpgrade])) then
-                        sUpgradeWanted = M28ACU.GetUpgradeForSACU(oSACU, bWantBuildPower, bWantBuildPower)
-                        if bDebugMessages == true then LOG(sFunctionRef..': sUpgradeWanted='..(sUpgradeWanted or 'nil')) end
-                        if sUpgradeWanted then
-                            --Get upgrade wanted
-                            table.insert(tSACUsToUpgrade, oSACU)
-                            table.remove(tSACUs, iSACU)
-                            if bWantBuildPower and (oSACU[M28ACU.refiUpgradeCount] or 0) == 0  then bWantBuildPower = false end --i.e. better to just get bild power on 1 and assist with others, than try to get on all at the same time
-                            if bDebugMessages == true then LOG(sFunctionRef..': Have added SACU to table of SACUs to upgrade, sUpgradeWanted='..sUpgradeWanted) end
-                        end
-                    end
-                end
-            end
-            if bDebugMessages == true then LOG(sFunctionRef..': Is table of SACUs upgrading empty='..tostring(M28Utilities.IsTableEmpty(tSACUsUpgrading))) end
-            if M28Utilities.IsTableEmpty(tSACUsUpgrading) == false then
-                local bLeaveOneSACU = false
-                local iMaxDistanceToAssist
-                if ((tLZTeamData[M28Map.subrefiTimeLastWantSACUForExp] or tLZTeamData[M28Map.subrefiTimeLastWantSACUForSMD]) and GetGameTimeSeconds() - math.max((tLZTeamData[M28Map.subrefiTimeLastWantSACUForExp] or 0), tLZTeamData[M28Map.subrefiTimeLastWantSACUForSMD] or 0) <= 3) then
-                    bLeaveOneSACU = true
-                elseif M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftPriorityShieldsToAssist]) == false and M28Team.tTeamData[iTeam][M28Team.refbDefendAgainstArti] then
-                    bLeaveOneSACU = true
-                    iMaxDistanceToAssist = 20
-                end
-
-                --First add any SACUsToUpgrade back to main table
-                if M28Utilities.IsTableEmpty(tSACUsToUpgrade) == false then
-                    for iSACU, oSACU in tSACUsToUpgrade do
-                        table.insert(tSACUs, oSACU)
-                    end
-                end
-                --Assist with all SACUs (or all but one)
-                local oSACUToAssist = tSACUsUpgrading[1]
-                bProceed = bLeaveOneSACU
-                for iSACU = table.getn(tSACUs), 1, -1 do
-                    local oSACU = tSACUs[iSACU]
-                    if bLeaveOneSACU then
-                        bLeaveOneSACU = false
-                    else
-                        if not(iMaxDistanceToAssist) or M28Utilities.GetDistanceBetweenPositions(oSACU:GetPosition(), oSACUToAssist:GetPosition()) <= iMaxDistanceToAssist then
-                            if bDebugMessages == true then LOG(sFunctionRef..': Telling oSACU='..oSACU.UnitId..M28UnitInfo.GetUnitLifetimeCount(oSACU)..' to assist oSACUToAssist='..oSACUToAssist.UnitId..M28UnitInfo.GetUnitLifetimeCount(oSACUToAssist)) end
-                            M28Orders.IssueTrackedGuard(oSACU, oSACUToAssist, false, 'SACUUpgrAs', false)
-                            table.remove(tSACUs, iSACU)
-                        elseif bDebugMessages == true then LOG(sFunctionRef..': iMaxDistanceToAssist='..iMaxDistanceToAssist..'; are too far from oSACU='..oSACU.UnitId..M28UnitInfo.GetUnitLifetimeCount(oSACU)..'; Dist between SACUs='..M28Utilities.GetDistanceBetweenPositions(oSACU:GetPosition(), oSACUToAssist:GetPosition()))
-                        end
-                    end
-                end
-            elseif M28Utilities.IsTableEmpty(tSACUsToUpgrade) == false then
-                for iSACU, oSACU in tSACUsToUpgrade do
-                    if bDebugMessages == true then LOG(sFunctionRef..': Will ugprade oSACU='..oSACU.UnitId..M28UnitInfo.GetUnitLifetimeCount(oSACU)..' with upgrade '..(oSACU[M28ACU.reftPreferredUpgrades][1] or 'nil')..' unless special micro active, special micro='..tostring(oSACU[M28UnitInfo.refbSpecialMicroActive] or false)) end
-                    if not(oSACU[M28UnitInfo.refbSpecialMicroActive]) then
-                        M28Orders.IssueTrackedEnhancement(oSACU, oSACU[M28ACU.reftPreferredUpgrades][1], false, 'SACURasUpgr')
-                        break
-                    end
-                end
-            end
-            if M28Utilities.IsTableEmpty(tSACUs) then bProceed = false end
-        end
-        --M28Orders.IssueTrackedEnhancement(oACU, sUpgradeToGet, false, 'ACUUpg')
         local bWantExperimentalAnyway = false
         if (M28Team.tTeamData[iTeam][M28Team.refiLowestUnitCapAdjustmentLevel] or 5) <= 2 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 and not(M28Conditions.HaveLowPower(iTeam)) then
             bWantExperimentalAnyway = true
@@ -4114,6 +4037,86 @@ function ManageRASSACUsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLandZo
                 end
             end
         end
+
+        --If have any SACUs without RAS upgrade that could get it, then get RAS upgrade, provided no enemies in the zone (LOUD - only doe this if close to unit cap or defending against t3 arti since that will stop us building mass fabs, due to how bad ras is)
+        if bProceed then
+            if bDebugMessages == true then LOG(sFunctionRef..': Considering getting RAS if no enemies in LZ and not LOUD, tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]='..tostring(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ])..'; Enemy air to ground='..(tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0)..'; Unit cap level='..(M28Team.tTeamData[iTeam][M28Team.refiLowestUnitCapAdjustmentLevel] or 'nil')..'; Defending against arti='..tostring(M28Team.tTeamData[iTeam][M28Team.refbDefendAgainstArti])..'; Team mass%='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Team is stalling E='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])) end
+            if not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and (tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) == 0 and (not(M28Utilities.bLoudModActive) or (M28Team.tTeamData[iTeam][M28Team.refiLowestUnitCapAdjustmentLevel] or 5) <= 2 or M28Team.tTeamData[iTeam][M28Team.refbDefendAgainstArti] or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.9 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 30 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]))) then
+                local tSACUsToUpgrade = {}
+                local tSACUsUpgrading = {}
+                local bWantBuildPower = false
+                if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.6 or (M28Team.tTeamData[iTeam][M28Team.refiLowestUnitCapAdjustmentLevel] <= -2 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.2)) and (GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastNearUnitCap] or 0)) <= 5 or not(M28Conditions.HaveLowPower(iTeam)) then
+                    bWantBuildPower = true
+                end
+                local sUpgradeWanted
+                for iSACU = table.getn(tSACUs), 1, -1 do
+                    local oSACU = tSACUs[iSACU]
+                    if bDebugMessages == true then LOG(sFunctionRef..'; Considering iSACU='..iSACU..' in the table, oSACU='..oSACU.UnitId..M28UnitInfo.GetUnitLifetimeCount(oSACU)..'; Unit state='..M28UnitInfo.GetUnitState(oSACU)..'; Special micro active='..tostring(oSACU[M28UnitInfo.refbSpecialMicroActive])..'; oSACU[M28ACU.reftPreferredUpgrades]='..repru(oSACU[M28ACU.reftPreferredUpgrades])..'; bWantBuildPower='..tostring(bWantBuildPower or false)) end
+                    if oSACU:IsUnitState('Upgrading') then
+                        table.insert(tSACUsUpgrading, oSACU)
+                        table.remove(tSACUs, iSACU)
+                    elseif oSACU[M28UnitInfo.refbSpecialMicroActive] and oSACU:IsUnitState('Moving') then
+                        --Do nothing - e.g. SACU might be rolling off of factory, or dodging a shot
+                    else
+                        if oSACU[M28ACU.reftPreferredUpgrades] == nil or (bWantBuildPower and not(oSACU[M28ACU.refbTriedAndFailedToGetBuildRateUpgrade])) then
+                            sUpgradeWanted = M28ACU.GetUpgradeForSACU(oSACU, bWantBuildPower, bWantBuildPower)
+                            if bDebugMessages == true then LOG(sFunctionRef..': sUpgradeWanted='..(sUpgradeWanted or 'nil')) end
+                            if sUpgradeWanted then
+                                --Get upgrade wanted
+                                table.insert(tSACUsToUpgrade, oSACU)
+                                table.remove(tSACUs, iSACU)
+                                if bWantBuildPower and (oSACU[M28ACU.refiUpgradeCount] or 0) == 0  then bWantBuildPower = false end --i.e. better to just get bild power on 1 and assist with others, than try to get on all at the same time
+                                if bDebugMessages == true then LOG(sFunctionRef..': Have added SACU to table of SACUs to upgrade, sUpgradeWanted='..sUpgradeWanted) end
+                            end
+                        end
+                    end
+                end
+                if bDebugMessages == true then LOG(sFunctionRef..': Is table of SACUs upgrading empty='..tostring(M28Utilities.IsTableEmpty(tSACUsUpgrading))) end
+                if M28Utilities.IsTableEmpty(tSACUsUpgrading) == false then
+                    local bLeaveOneSACU = false
+                    local iMaxDistanceToAssist
+                    if ((tLZTeamData[M28Map.subrefiTimeLastWantSACUForExp] or tLZTeamData[M28Map.subrefiTimeLastWantSACUForSMD]) and GetGameTimeSeconds() - math.max((tLZTeamData[M28Map.subrefiTimeLastWantSACUForExp] or 0), tLZTeamData[M28Map.subrefiTimeLastWantSACUForSMD] or 0) <= 3) then
+                        bLeaveOneSACU = true
+                    elseif M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftPriorityShieldsToAssist]) == false and M28Team.tTeamData[iTeam][M28Team.refbDefendAgainstArti] then
+                        bLeaveOneSACU = true
+                        iMaxDistanceToAssist = 20
+                    end
+
+                    --First add any SACUsToUpgrade back to main table
+                    if M28Utilities.IsTableEmpty(tSACUsToUpgrade) == false then
+                        for iSACU, oSACU in tSACUsToUpgrade do
+                            table.insert(tSACUs, oSACU)
+                        end
+                    end
+                    --Assist with all SACUs (or all but one)
+                    local oSACUToAssist = tSACUsUpgrading[1]
+                    bProceed = bLeaveOneSACU
+                    for iSACU = table.getn(tSACUs), 1, -1 do
+                        local oSACU = tSACUs[iSACU]
+                        if bLeaveOneSACU then
+                            bLeaveOneSACU = false
+                        else
+                            if not(iMaxDistanceToAssist) or M28Utilities.GetDistanceBetweenPositions(oSACU:GetPosition(), oSACUToAssist:GetPosition()) <= iMaxDistanceToAssist then
+                                if bDebugMessages == true then LOG(sFunctionRef..': Telling oSACU='..oSACU.UnitId..M28UnitInfo.GetUnitLifetimeCount(oSACU)..' to assist oSACUToAssist='..oSACUToAssist.UnitId..M28UnitInfo.GetUnitLifetimeCount(oSACUToAssist)) end
+                                M28Orders.IssueTrackedGuard(oSACU, oSACUToAssist, false, 'SACUUpgrAs', false)
+                                table.remove(tSACUs, iSACU)
+                            elseif bDebugMessages == true then LOG(sFunctionRef..': iMaxDistanceToAssist='..iMaxDistanceToAssist..'; are too far from oSACU='..oSACU.UnitId..M28UnitInfo.GetUnitLifetimeCount(oSACU)..'; Dist between SACUs='..M28Utilities.GetDistanceBetweenPositions(oSACU:GetPosition(), oSACUToAssist:GetPosition()))
+                            end
+                        end
+                    end
+                elseif M28Utilities.IsTableEmpty(tSACUsToUpgrade) == false then
+                    for iSACU, oSACU in tSACUsToUpgrade do
+                        if bDebugMessages == true then LOG(sFunctionRef..': Will ugprade oSACU='..oSACU.UnitId..M28UnitInfo.GetUnitLifetimeCount(oSACU)..' with upgrade '..(oSACU[M28ACU.reftPreferredUpgrades][1] or 'nil')..' unless special micro active, special micro='..tostring(oSACU[M28UnitInfo.refbSpecialMicroActive] or false)) end
+                        if not(oSACU[M28UnitInfo.refbSpecialMicroActive]) then
+                            M28Orders.IssueTrackedEnhancement(oSACU, oSACU[M28ACU.reftPreferredUpgrades][1], false, 'SACURasUpgr')
+                            break
+                        end
+                    end
+                end
+                if M28Utilities.IsTableEmpty(tSACUs) then bProceed = false end
+            end
+        end
+        --M28Orders.IssueTrackedEnhancement(oACU, sUpgradeToGet, false, 'ACUUpg')
         --Consider sending 1 SACU to water zone if havent already sent one and this is a core base and we have multiple SACUs
         if bProceed and M28Utilities.IsTableEmpty(tSACUs) == false then
             local iCurSACUsAssignedToWaterZones = 0
@@ -11136,7 +11139,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains]) == false then
                             for _, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains] do
                                 if oBrain and not(oBrain.M28IsDefeated) then
-                                    local tEnemyStart = GetPlayerStartPosition(oBrain)
+                                    local tEnemyStart = M28Map.GetPlayerStartPosition(oBrain)
                                     if tEnemyStart then
                                         table.insert(tEnemyBases, tEnemyStart)
                                     end

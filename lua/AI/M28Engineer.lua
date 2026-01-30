@@ -3258,32 +3258,6 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
     local sFunctionRef = 'DecideOnExperimentalToBuild'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    -- Exp/GameEnder Debug: Log experimental type decision
-    local bDoExpDebug = bExpGameEnderDebugMessages
-    local iCurrentGameTime = GetGameTimeSeconds()
-    if bDoExpDebug then
-        local sActionName = 'Unknown'
-        if iActionToAssign == refActionBuildExperimental then sActionName = 'BuildExperimental'
-        elseif iActionToAssign == refActionBuildSecondExperimental then sActionName = 'BuildSecondExperimental'
-        elseif iActionToAssign == refActionManageGameEnderTemplate then sActionName = 'ManageGameEnderTemplate'
-        end
-
-        local sLogMsg = '\n---------- DECIDE EXPERIMENTAL TYPE ----------\n'
-        sLogMsg = sLogMsg .. 'Time: ' .. string.format('%.1f', iCurrentGameTime) .. 's\n'
-        sLogMsg = sLogMsg .. 'Action: ' .. sActionName .. '\n'
-        sLogMsg = sLogMsg .. 'Brain: ' .. (aiBrain.Nickname or 'nil') .. ' (Faction=' .. (aiBrain:GetFactionIndex() or 'nil') .. ')\n'
-        sLogMsg = sLogMsg .. 'Location: Plateau=' .. (iPlateauOrZero or 'nil') .. ', Zone=' .. (iLandOrWaterZone or 'nil') .. '\n'
-        sLogMsg = sLogMsg .. 'Have Engineers of Faction: ' .. tostring(tbEngineersOfFactionOrNilIfAlreadyAssigned ~= nil) .. '\n'
-        if tbEngineersOfFactionOrNilIfAlreadyAssigned then
-            local sFactions = ''
-            for iFaction, bHave in pairs(tbEngineersOfFactionOrNilIfAlreadyAssigned) do
-                if bHave then sFactions = sFactions .. iFaction .. ',' end
-            end
-            sLogMsg = sLogMsg .. '  Available Factions: ' .. sFactions .. '\n'
-        end
-        LOG(sLogMsg)
-    end
-
     local iFactionRequired
     local iCategoryWanted
     local bDontWantExperimental = false
@@ -13112,50 +13086,6 @@ function AssignBuildExperimentalOrT3NavyAction(fnHaveActionToAssign, iPlateau, i
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'AssignBuildExperimentalOrT3NavyAction'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-
-    -- Exp/GameEnder Debug: Comprehensive decision logging with cooldown
-    local bDoExpDebug = bExpGameEnderDebugMessages
-    local iCurrentGameTime = GetGameTimeSeconds()
-    if bDoExpDebug and iCurrentGameTime - iExpGameEnderLastDebugTime >= iExpGameEnderDebugCooldown then
-        iExpGameEnderLastDebugTime = iCurrentGameTime
-        local sActionName = 'Unknown'
-        if iActionToAssign == refActionBuildExperimental then sActionName = 'BuildExperimental'
-        elseif iActionToAssign == refActionBuildSecondExperimental then sActionName = 'BuildSecondExperimental'
-        elseif iActionToAssign == refActionBuildGameEnder then sActionName = 'BuildGameEnder'
-        elseif iActionToAssign == refActionBuildExperimentalNavy then sActionName = 'BuildExperimentalNavy'
-        elseif iActionToAssign == refActionBuildLandExperimental then sActionName = 'BuildLandExperimental'
-        elseif iActionToAssign == refActionBuildAirExperimental then sActionName = 'BuildAirExperimental'
-        elseif iActionToAssign == refActionManageGameEnderTemplate then sActionName = 'ManageGameEnderTemplate'
-        end
-
-        local sLogMsg = '\n========== EXP/GAMEENDER BUILD DECISION ==========\n'
-        sLogMsg = sLogMsg .. 'Time: ' .. string.format('%.1f', iCurrentGameTime) .. 's\n'
-        sLogMsg = sLogMsg .. 'Action: ' .. sActionName .. ' (ID=' .. (iActionToAssign or 'nil') .. ')\n'
-        sLogMsg = sLogMsg .. 'Location: Plateau=' .. (iPlateau or 'nil') .. ', Zone=' .. iLandOrWaterZone .. ' (' .. (bIsWaterZone and 'Water' or 'Land') .. ')\n'
-        sLogMsg = sLogMsg .. '--- ECONOMY STATE ---\n'
-        sLogMsg = sLogMsg .. '  Team Gross Mass: ' .. string.format('%.1f', M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0) .. '\n'
-        sLogMsg = sLogMsg .. '  Team Net Mass: ' .. string.format('%.1f', M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 0) .. '\n'
-        sLogMsg = sLogMsg .. '  Team Mass Stored: ' .. string.format('%.0f', M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] or 0) .. '\n'
-        sLogMsg = sLogMsg .. '  Team Mass % Stored: ' .. string.format('%.1f%%', (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0) * 100) .. '\n'
-        sLogMsg = sLogMsg .. '  Team Gross Energy: ' .. string.format('%.1f', M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] or 0) .. '\n'
-        sLogMsg = sLogMsg .. '  Have Low Mass: ' .. tostring(M28Conditions.TeamHasLowMass(iTeam)) .. '\n'
-        sLogMsg = sLogMsg .. '  Have Low Power: ' .. tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] or false) .. '\n'
-        sLogMsg = sLogMsg .. '--- EXPERIMENTAL STATE ---\n'
-        sLogMsg = sLogMsg .. '  Constructed Exp Count: ' .. (M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] or 0) .. '\n'
-        sLogMsg = sLogMsg .. '  Friendly GameEnder Count: ' .. (M28Team.tTeamData[iTeam][M28Team.refiFriendlyGameEnderCount] or 0) .. '\n'
-        sLogMsg = sLogMsg .. '  Enemy Land Exp Count: ' .. table.getn(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals] or {}) .. '\n'
-        sLogMsg = sLogMsg .. '  Enemy Air Exp Count: ' .. table.getn(M28Team.tTeamData[iTeam][M28Team.reftEnemyAirExperimentals] or {}) .. '\n'
-        sLogMsg = sLogMsg .. '  Enemy T3 Arti Count: ' .. (M28Team.tTeamData[iTeam][M28Team.refiEnemyT3ArtiCount] or 0) .. '\n'
-        sLogMsg = sLogMsg .. '  Enemy Novax Count: ' .. (M28Team.tTeamData[iTeam][M28Team.refiEnemyNovaxCount] or 0) .. '\n'
-        sLogMsg = sLogMsg .. '  Built Paragon: ' .. tostring(M28Team.tTeamData[iTeam][M28Team.refbBuiltParagon] or false) .. '\n'
-        sLogMsg = sLogMsg .. '--- REQUEST PARAMETERS ---\n'
-        sLogMsg = sLogMsg .. '  BP Wanted: ' .. (iBuildPowerWanted or 5) .. '\n'
-        sLogMsg = sLogMsg .. '  Min Tech Level: ' .. (iMinTechLevelWanted or 'nil') .. '\n'
-        sLogMsg = sLogMsg .. '  Faction Wanted: ' .. (iOptionalSpecificFactionWanted or 'any') .. '\n'
-        sLogMsg = sLogMsg .. '  Have Air Control: ' .. tostring(M28Conditions.TeamHasAirControl(iTeam)) .. '\n'
-        sLogMsg = sLogMsg .. '===================================================\n'
-        LOG(sLogMsg)
-    end
 
     --Check if a teammate has units nearby that we might want to assist instead
     if bDebugMessages == true then
