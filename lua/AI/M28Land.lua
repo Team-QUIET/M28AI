@@ -2017,11 +2017,47 @@ function ReviseTargetLZIfFarAway(tLZData, iTeam, iPlateau, iStartLandZone, iTarg
             if tBestAdjLZData and tBestAdjLZData[M28Map.subrefMidpoint] then
                 tLaneTarget = tBestAdjLZData[M28Map.subrefMidpoint]
             else
-                local tEnemyBase = tLZTeamData and tLZTeamData[M28Map.reftClosestEnemyBase]
-                if not(tEnemyBase and tEnemyBase[1] and tEnemyBase[3]) then
-                    local oBrain = M28Team.GetFirstActiveM28Brain(iTeam)
-                    if oBrain then
-                        tEnemyBase = M28Map.GetPrimaryEnemyBaseLocation(oBrain)
+                local iAxisAngleForEnemySelect = M28Utilities.GetAngleFromAToB(tLaneBase, tLaneTarget)
+                local tEnemyBases = {}
+                if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains]) == false then
+                    for _, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains] do
+                        if oBrain and not(oBrain.M28IsDefeated) then
+                            local tEnemyStart = GetPlayerStartPosition(oBrain)
+                            if tEnemyStart then
+                                table.insert(tEnemyBases, tEnemyStart)
+                            end
+                        end
+                    end
+                end
+                if M28Utilities.IsTableEmpty(tEnemyBases) then
+                    local tEnemyBase = tLZTeamData and tLZTeamData[M28Map.reftClosestEnemyBase]
+                    if not(tEnemyBase and tEnemyBase[1] and tEnemyBase[3]) then
+                        local oBrain = M28Team.GetFirstActiveM28Brain(iTeam)
+                        if oBrain then
+                            tEnemyBase = M28Map.GetPrimaryEnemyBaseLocation(oBrain)
+                        end
+                    end
+                    if tEnemyBase and tEnemyBase[1] and tEnemyBase[3] then
+                        table.insert(tEnemyBases, tEnemyBase)
+                    end
+                end
+                local tEnemyBase
+                if M28Utilities.IsTableEmpty(tEnemyBases) == false then
+                    if iAxisAngleForEnemySelect then
+                        local iBestDiff = 999
+                        for _, tCandidate in tEnemyBases do
+                            local iCandidateAngle = M28Utilities.GetAngleFromAToB(tLaneBase, tCandidate)
+                            if iCandidateAngle then
+                                local iDiff = M28Utilities.GetAngleDifference(iAxisAngleForEnemySelect, iCandidateAngle)
+                                if iDiff < iBestDiff then
+                                    iBestDiff = iDiff
+                                    tEnemyBase = tCandidate
+                                end
+                            end
+                        end
+                    end
+                    if not(tEnemyBase) then
+                        tEnemyBase = tEnemyBases[1]
                     end
                 end
                 if tEnemyBase and tEnemyBase[1] and tEnemyBase[3] then
@@ -11095,20 +11131,58 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         sSourceLaneAxis = 'adj'
                         sSourceLaneAxisDetail = 'adj'
                     else
-                        local tEnemyBase = tLZTeamData[M28Map.reftClosestEnemyBase]
-                        sSourceLaneAxisDetail = 'lz'
-                        if not(tEnemyBase and tEnemyBase[1] and tEnemyBase[3]) then
-                            local oBrain = M28Team.GetFirstActiveM28Brain(iTeam)
-                            if oBrain then
-                                tEnemyBase = M28Map.GetPrimaryEnemyBaseLocation(oBrain)
-                                sSourceLaneAxisDetail = 'team'
-                            else
-                                sSourceLaneAxisDetail = 'none'
+                        local iAxisAngleForEnemySelect = M28Utilities.GetAngleFromAToB(tLaneBase, tLaneTarget)
+                        local tEnemyBases = {}
+                        if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains]) == false then
+                            for _, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains] do
+                                if oBrain and not(oBrain.M28IsDefeated) then
+                                    local tEnemyStart = GetPlayerStartPosition(oBrain)
+                                    if tEnemyStart then
+                                        table.insert(tEnemyBases, tEnemyStart)
+                                    end
+                                end
+                            end
+                        end
+                        local sEnemyBaseSource = 'angle'
+                        if M28Utilities.IsTableEmpty(tEnemyBases) then
+                            local tEnemyBase = tLZTeamData[M28Map.reftClosestEnemyBase]
+                            sEnemyBaseSource = 'lz'
+                            if not(tEnemyBase and tEnemyBase[1] and tEnemyBase[3]) then
+                                local oBrain = M28Team.GetFirstActiveM28Brain(iTeam)
+                                if oBrain then
+                                    tEnemyBase = M28Map.GetPrimaryEnemyBaseLocation(oBrain)
+                                    sEnemyBaseSource = 'team'
+                                else
+                                    sEnemyBaseSource = 'none'
+                                end
+                            end
+                            if tEnemyBase and tEnemyBase[1] and tEnemyBase[3] then
+                                table.insert(tEnemyBases, tEnemyBase)
+                            end
+                        end
+                        local tEnemyBase
+                        if M28Utilities.IsTableEmpty(tEnemyBases) == false then
+                            if iAxisAngleForEnemySelect then
+                                local iBestDiff = 999
+                                for _, tCandidate in tEnemyBases do
+                                    local iCandidateAngle = M28Utilities.GetAngleFromAToB(tLaneBase, tCandidate)
+                                    if iCandidateAngle then
+                                        local iDiff = M28Utilities.GetAngleDifference(iAxisAngleForEnemySelect, iCandidateAngle)
+                                        if iDiff < iBestDiff then
+                                            iBestDiff = iDiff
+                                            tEnemyBase = tCandidate
+                                        end
+                                    end
+                                end
+                            end
+                            if not(tEnemyBase) then
+                                tEnemyBase = tEnemyBases[1]
                             end
                         end
                         if tEnemyBase and tEnemyBase[1] and tEnemyBase[3] then
                             tLaneTarget = tEnemyBase
                             sSourceLaneAxis = 'enemy'
+                            sSourceLaneAxisDetail = sEnemyBaseSource
                         end
                     end
                 end
