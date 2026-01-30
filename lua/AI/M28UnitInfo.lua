@@ -272,9 +272,9 @@ refCategoryMonkeylord = refCategoryLandExperimental * categories.CYBRAN * catego
 refCategoryMegalith = refCategoryLandExperimental * categories.CYBRAN * categories.DIRECTFIRE * categories.SNIPER
 refCategoryYthotha = refCategoryLandExperimental * categories.SERAPHIM * categories.DIRECTFIRE
 refCategoryMobileLand = categories.LAND * categories.MOBILE  - categories.UNSELECTABLE - categories.UNTARGETABLE
-refCategoryEngineer = categories.LAND * categories.MOBILE * categories.ENGINEER - categories.COMMAND - categories.FIELDENGINEER -categories.SUBCOMMANDER --Dont include sparkys as they cant build a lot of things, so just treat them as a combat unit that can reclaim
+refCategoryEngineer = categories.LAND * categories.MOBILE * categories.ENGINEER - categories.COMMAND - categories.FIELDENGINEER - categories.SUBCOMMANDER --Dont include sparkys as they cant build a lot of things, so just treat them as a combat unit that can reclaim
 refCategoryRASSACU = categories.SUBCOMMANDER * categories.RASPRESET + categories.SUBCOMMANDER * categories.SERAPHIM
-refCategoryRover = categories.POD * categories.ENGINEER * categories.MOBILE - categories.CONSTRUCTION -refCategoryEngineer
+refCategoryRover = categories.POD * categories.ENGINEER * categories.MOBILE - categories.CONSTRUCTION - refCategoryEngineer
 refCategoryHive = categories.STRUCTURE * categories.STATIONASSISTPOD * categories.ENGINEERSTATION
 refCategoryKennel = categories.STRUCTURE * categories.ENGINEERSTATION * categories.PODSTAGINGPLATFORM
 refCategoryEngineerStation = refCategoryRover + refCategoryHive + refCategoryKennel
@@ -369,7 +369,7 @@ refCategoryRestorer = refCategoryGunship * categories.ANTIAIR
 refCategoryAirToGround = refCategoryBomber + refCategoryGunship + refCategoryCzar + refCategoryMercy --i.e. excludes torp bombers
 
 --Naval units
-refCategoryFrigate = categories.NAVAL * categories.FRIGATE - categories.ENGINEER --LOUD mod has an engineering ship which is treated as a frigate
+refCategoryFrigate = categories.NAVAL * categories.FRIGATE - categories.ENGINEER - categories.FIELDENGINEER --LOUD mod has an engineering ship which is treated as a frigate
 refCategoryTorpedoLauncher = refCategoryAntiNavy * categories.STRUCTURE
 refCategoryHoverPD = refCategoryPD * categories.HOVER --to support LOUD which allows T2+ PD to be built on water or land
 refCategoryNavalSurface = categories.NAVAL + refCategoryTorpedoLauncher - categories.SUBMERSIBLE - categories.UNSELECTABLE - categories.UNTARGETABLE --NOTE: This includes structures (e.g. torp launcher and factory)
