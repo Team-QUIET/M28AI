@@ -407,6 +407,7 @@ iLandZoneSegmentSize = 5 --Gets updated by the SetupLandZones - the size of one 
             refiTimeLastFailedToKiteDueToScoutIntel = 'IntlFail' --gametimeseconds that we aborted scenario 1 logic due to not seeing the enemy unit
             refiTimeLastCombatDebugLog = 'CbtDbgTm' --gametimeseconds that we last logged combat debug info for this zone (cooldown tracking)
             refiTimeLastReinforcementDebugLog = 'RnfDbgTm' --gametimeseconds that we last logged reinforcement routing debug info for this zone
+            refiTimeLastLandSupportDebugLog = 'LSupDbg' --gametimeseconds that we last logged land support debug info for this zone
             --Scenario 1 breakout tracking
             refiScenario1EngagementStartTime = 'S1EngTm' --gametimeseconds when Scenario 1 kiting engagement started
             refiScenario1InitialFriendlyThreat = 'S1FrTh' --initial friendly threat when Scenario 1 started

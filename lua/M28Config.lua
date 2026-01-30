@@ -4,7 +4,7 @@
 --- DateTime: 16/11/2022 07:31
 ---
 
-M28ShowUnitNames = false --Will update units to reflect the order theyve been given
+M28ShowUnitNames = true --Will update units to reflect the order theyve been given
 M28ShowEnemyUnitNames = false --Will rename enemy units to reflect their ID and lifetime count
 M28RunVeryFast = false --Game starts off at +15 speed if set to adjustable
 
@@ -16,3 +16,6 @@ M28RunMemoryProfiling = false --if this is true then every 60s will list out how
 M28RunGamePerformanceCheck = false --Aug 22 profiling tourney profiling - Runs regardless of whether M28 is active in the game, sends a log every second with how long it took to run that second and how many units are in the game.  Copy of same profiling available for M27 (that was used in the profiling tourney)
 --Simple profiling option:
 M28RunSimpleProfiling = false --if this is true then will output time taken every 10s
+
+--Land support debug
+M28LandSupportDebug = true --Enable detailed logs for land support selection/rally targeting
