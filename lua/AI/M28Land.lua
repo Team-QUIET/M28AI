@@ -2236,91 +2236,6 @@ function GetNearestLandRallyPoint(tLZData, iTeam, iPlateau, iLandZone, iMaxLZTow
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function GetDirectionalRallyPoint(tLZData, iTeam, iPlateau, iLandZone, iTargetLandZone, iMaxLZTowardsRally)
-    --Selects a rally point aligned with the direction from current zone to target zone.
-    --Prevents convergence at a central rally point when units have different targets.
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
-    local sFunctionRef = 'GetDirectionalRallyPoint'
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-
-    if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subrefiRallyPointLandZonesByPlateau][iPlateau]) then
-        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-        return nil
-    end
-
-    local tCurrentPos = tLZData[M28Map.subrefMidpoint]
-    local tTargetPos = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iTargetLandZone][M28Map.subrefMidpoint]
-    if not(tCurrentPos) or not(tTargetPos) then
-        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-        return GetNearestLandRallyPoint(tLZData, iTeam, iPlateau, iLandZone, iMaxLZTowardsRally)
-    end
-
-    local iBaseIsland = tLZData[M28Map.subrefLZIslandRef]
-    local iTargetAngle = M28Utilities.GetAngleFromAToB(tCurrentPos, tTargetPos)
-    local iBestScore = -100000
-    local iBestRallyLZ
-
-    for iEntry, iRallyLZ in M28Team.tTeamData[iTeam][M28Team.subrefiRallyPointLandZonesByPlateau][iPlateau] do
-        local tRallyLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iRallyLZ]
-        if tRallyLZData and tRallyLZData[M28Map.subrefLZIslandRef] == iBaseIsland then
-            local tRallyPos = tRallyLZData[M28Map.subrefMidpoint]
-            local iDistToRally = M28Map.GetTravelDistanceBetweenLandZones(iPlateau, iLandZone, iRallyLZ) or M28Utilities.GetDistanceBetweenPositions(tCurrentPos, tRallyPos) or 10000
-            local iRallyAngle = M28Utilities.GetAngleFromAToB(tCurrentPos, tRallyPos)
-            local iAngleDiff = math.abs(iRallyAngle - iTargetAngle)
-            if iAngleDiff > 180 then iAngleDiff = 360 - iAngleDiff end
-
-            local iAlignmentScore = 100 * (1.0 - (iAngleDiff / 180))
-            local iDistancePenalty = iDistToRally / 10
-            local iTotalScore = iAlignmentScore - iDistancePenalty
-
-            if bDebugMessages == true then
-                LOG(sFunctionRef..': Evaluating rally LZ '..iRallyLZ..
-                    ' | AngleDiff='..math.floor(iAngleDiff)..
-                    ' | Dist='..math.floor(iDistToRally)..
-                    ' | Score='..math.floor(iTotalScore))
-            end
-
-            if iTotalScore > iBestScore then
-                iBestScore = iTotalScore
-                iBestRallyLZ = iRallyLZ
-            end
-        end
-    end
-
-    if iBestRallyLZ then
-        if not(tLZData[M28Map.subrefLZPathingToOtherLZEntryRef][iBestRallyLZ]) then
-            M28Map.ConsiderAddingTargetLandZoneToDistanceFromBaseTable(iPlateau, iLandZone, iBestRallyLZ, tLZData[M28Map.subrefMidpoint])
-        end
-
-        local tRallyPointToReturn = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iBestRallyLZ][M28Map.subrefMidpoint]
-        if iMaxLZTowardsRally and iMaxLZTowardsRally > 0 then
-            local iPathLength = M28Map.GetTravelDistanceBetweenLandZones(iPlateau, iLandZone, iBestRallyLZ)
-            if iPathLength and iPathLength > iMaxLZTowardsRally and tLZData[M28Map.subrefLZPathingToOtherLZEntryRef][iBestRallyLZ] then
-                local tPath = tLZData[M28Map.subrefLZPathingToOtherLandZones][tLZData[M28Map.subrefLZPathingToOtherLZEntryRef][iBestRallyLZ]][M28Map.subrefLZPath]
-                if tPath and table.getn(tPath) >= iMaxLZTowardsRally then
-                    local iIntermediateLZ = tPath[iMaxLZTowardsRally]
-                    tRallyPointToReturn = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iIntermediateLZ][M28Map.subrefMidpoint]
-                    if bDebugMessages == true then
-                        LOG(sFunctionRef..': Rally point too far ('..iPathLength..' > '..iMaxLZTowardsRally..'), using intermediate LZ '..iIntermediateLZ)
-                    end
-                end
-            end
-        end
-
-        if bDebugMessages == true then
-            LOG(sFunctionRef..': Selected rally LZ '..iBestRallyLZ..
-                ' with score '..math.floor(iBestScore)..
-                ' | Current='..iLandZone..', Target='..iTargetLandZone)
-        end
-
-        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-        return {tRallyPointToReturn[1], tRallyPointToReturn[2], tRallyPointToReturn[3]}
-    end
-
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-    return GetNearestLandRallyPoint(tLZData, iTeam, iPlateau, iLandZone, iMaxLZTowardsRally)
-end
-
 function RefreshLandRallyPoints(iTeam, iPlateau)
     --For now just has core bases and core expansion points as rally points, may adjust htis in the future
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
@@ -11626,9 +11541,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                 --Unit is in rear zone, stage at rally point
                                 local tRallyPoint
                                 if IsSameLane(tTargetLZData) then
-                                    tRallyPoint = GetDirectionalRallyPoint(tLZData, iTeam, iPlateau, iLandZone, iDFLZToSupport, 2)
-                                else
-                                    tRallyPoint = GetNearestLandRallyPoint(tLZData, iTeam, iPlateau, iLandZone, 2)
+                                    tRallyPoint = GetNearestLandRallyPoint(tLZData, iTeam, iPlateau, iLandZone, iDFLZToSupport, 2)
                                 end
                                 --Check if rally point would pull unit backward (away from target)
                                 local bRallyPointValid = false
@@ -11737,7 +11650,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     M28Orders.IssueTrackedMove(oUnit, M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iIndirectLZToSupport][M28Map.subrefMidpoint], 6, false, 'IFFwdLZ'..iIndirectLZToSupport..';'..iLandZone)
                                 else
                                     --Unit is in rear zone, stage at rally point
-                                    local tRallyPoint = GetDirectionalRallyPoint(tLZData, iTeam, iPlateau, iLandZone, iIndirectLZToSupport, 2)
+                                    local tRallyPoint = GetNearestLandRallyPoint(tLZData, iTeam, iPlateau, iLandZone, iIndirectLZToSupport, 2)
                                     --Check if rally point would pull unit backward (away from target)
                                     local bIFRallyPointValid = false
                                     if tRallyPoint then
