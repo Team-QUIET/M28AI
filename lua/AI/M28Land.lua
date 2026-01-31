@@ -53,9 +53,11 @@ iIntelThresholdForPriorityScout = 50 --I.e. if have less than this radar coverag
 --Support distribution tuning
 iLandSupportIncomingPenalty = 0.35
 iLandSupportLaneAngleDegrees = 35
+iLandSupportLaneAngleDegreesMid = 20
 iLandSupportLaneRearAxisModDistMax = 0.35
+iLandSupportLaneBaseMatchDist = 10
 iLandSupportLaneEmergencyValueMultiplier = 1.5
-iLandSupportLaneEmergencyThreatMin = 800
+iLandSupportLaneEmergencyThreatMin = 800S
 iLandSupportFarPathStepMax = 2
 iLandSupportFarPathStepMaxCrossLane = 1
 iLandSupportFarPathCloserPercent = 0.10
@@ -1994,8 +1996,14 @@ function ReviseTargetLZIfFarAway(tLZData, iTeam, iPlateau, iStartLandZone, iTarg
     local tLZTeamData = tLZData[M28Map.subrefLZTeamData] and tLZData[M28Map.subrefLZTeamData][iTeam]
     local tLaneBase = tLZTeamData and tLZTeamData[M28Map.reftClosestFriendlyBase]
     local iSourceLaneAngle
+    local sEnemyAngleDebug
     local iSourceLaneModDist = tLZTeamData and tLZTeamData[M28Map.refiModDistancePercent] or 0
     local iSourceIsland = tLZData[M28Map.subrefLZIslandRef]
+    local iLaneAngleMax = iLandSupportLaneAngleDegrees
+    local bEnemyAxisMid = false
+    local tLaneBands
+    local iSourceLaneBand
+    local iSourceLaneProj
     if tLaneBase and tLZData[M28Map.subrefMidpoint] then
         local tLaneTarget = tLZData[M28Map.subrefMidpoint]
         if iSourceLaneModDist <= iLandSupportLaneRearAxisModDistMax then
@@ -2042,9 +2050,26 @@ function ReviseTargetLZIfFarAway(tLZData, iTeam, iPlateau, iStartLandZone, iTarg
                     end
                 end
                 local tEnemyBase
+                local iBestDiff
                 if M28Utilities.IsTableEmpty(tEnemyBases) == false then
-                    if iAxisAngleForEnemySelect then
-                        local iBestDiff = 999
+                    if table.getn(tEnemyBases) >= 2 then
+                        local iSumX = 0
+                        local iSumZ = 0
+                        local iCount = 0
+                        for _, tCandidate in tEnemyBases do
+                            if tCandidate and tCandidate[1] and tCandidate[3] then
+                                iSumX = iSumX + tCandidate[1]
+                                iSumZ = iSumZ + tCandidate[3]
+                                iCount = iCount + 1
+                            end
+                        end
+                        if iCount > 0 then
+                            tEnemyBase = {iSumX / iCount, tLaneBase[2], iSumZ / iCount}
+                            bEnemyAxisMid = true
+                        end
+                    end
+                    if not(tEnemyBase) and iAxisAngleForEnemySelect then
+                        iBestDiff = 999
                         for _, tCandidate in tEnemyBases do
                             local iCandidateAngle = M28Utilities.GetAngleFromAToB(tLaneBase, tCandidate)
                             if iCandidateAngle then
@@ -2060,21 +2085,113 @@ function ReviseTargetLZIfFarAway(tLZData, iTeam, iPlateau, iStartLandZone, iTarg
                         tEnemyBase = tEnemyBases[1]
                     end
                 end
+                if bDebugMessages == true and iAxisAngleForEnemySelect and M28Utilities.IsTableEmpty(tEnemyBases) == false then
+                    local tCandidates = {}
+                    for _, tCandidate in tEnemyBases do
+                        local iCandidateAngle = M28Utilities.GetAngleFromAToB(tLaneBase, tCandidate)
+                        local iDiff = iCandidateAngle and M28Utilities.GetAngleDifference(iAxisAngleForEnemySelect, iCandidateAngle) or nil
+                        table.insert(tCandidates, 'cand='..repru(tCandidate)..'; ang='..tostring(iCandidateAngle)..'; diff='..tostring(iDiff))
+                    end
+                    sEnemyAngleDebug = 'EnemyAngleSelect axis='..tostring(iAxisAngleForEnemySelect)..'; chosen='..repru(tEnemyBase)..'; chosenDiff='..tostring(iBestDiff)..'; candidates='..table.concat(tCandidates, ' | ')
+                end
                 if tEnemyBase and tEnemyBase[1] and tEnemyBase[3] then
                     tLaneTarget = tEnemyBase
                 end
             end
         end
+        if iSourceLaneModDist <= iLandSupportLaneRearAxisModDistMax then
+            local tFriendlyBases = {}
+            if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyHumanAndAIBrains]) == false then
+                for _, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyHumanAndAIBrains] do
+                    if oBrain and not(oBrain.M28IsDefeated) then
+                        local tBase = M28Map.GetPlayerStartPosition(oBrain)
+                        if tBase then
+                            local iIsland = NavUtils.GetLabel(M28Map.refPathingTypeLand, tBase) or -1
+                            if iIsland == tLZData[M28Map.subrefLZIslandRef] then
+                                table.insert(tFriendlyBases, tBase)
+                            end
+                        end
+                    end
+                end
+            end
+            if table.getn(tFriendlyBases) >= 2 then
+                local iBestDistSq = -1
+                local iLatX
+                local iLatZ
+                for iBase = 1, table.getn(tFriendlyBases) - 1 do
+                    for jBase = iBase + 1, table.getn(tFriendlyBases) do
+                        local iDx = tFriendlyBases[jBase][1] - tFriendlyBases[iBase][1]
+                        local iDz = tFriendlyBases[jBase][3] - tFriendlyBases[iBase][3]
+                        local iDistSq = (iDx * iDx) + (iDz * iDz)
+                        if iDistSq > iBestDistSq then
+                            iBestDistSq = iDistSq
+                            iLatX = iDx
+                            iLatZ = iDz
+                        end
+                    end
+                end
+                local iLatMag = iBestDistSq > 0 and math.sqrt(iBestDistSq) or 0
+                if iLatMag > 1 then
+                    iLatX = iLatX / iLatMag
+                    iLatZ = iLatZ / iLatMag
+                    local tProj = {}
+                    for _, tBase in tFriendlyBases do
+                        table.insert(tProj, (tBase[1] * iLatX) + (tBase[3] * iLatZ))
+                    end
+                    table.sort(tProj)
+                    local tBoundaries = {}
+                    for iProj = 1, table.getn(tProj) - 1 do
+                        table.insert(tBoundaries, (tProj[iProj] + tProj[iProj + 1]) / 2)
+                    end
+                    tLaneBands = {
+                        iLatX = iLatX,
+                        iLatZ = iLatZ,
+                        tBoundaries = tBoundaries,
+                    }
+                    iSourceLaneProj = (tLZData[M28Map.subrefMidpoint][1] * iLatX) + (tLZData[M28Map.subrefMidpoint][3] * iLatZ)
+                    iSourceLaneBand = 1
+                    for _, iBoundary in tBoundaries do
+                        if iSourceLaneProj > iBoundary then
+                            iSourceLaneBand = iSourceLaneBand + 1
+                        end
+                    end
+                end
+            end
+        end
         iSourceLaneAngle = M28Utilities.GetAngleFromAToB(tLaneBase, tLaneTarget)
+        if bEnemyAxisMid and not(tLaneBands) then
+            iLaneAngleMax = iLandSupportLaneAngleDegreesMid
+        end
+    end
+    if sEnemyAngleDebug then
+        LOG(sFunctionRef..': '..sEnemyAngleDebug)
     end
     local function IsSameLaneFromSource(tCandidateLZData)
         if not(tLaneBase and iSourceLaneAngle and tCandidateLZData and tCandidateLZData[M28Map.subrefMidpoint]) then return false end
         if iSourceIsland and tCandidateLZData[M28Map.subrefLZIslandRef] and tCandidateLZData[M28Map.subrefLZIslandRef] ~= iSourceIsland then
             return false
         end
-        local iTargetAngle = M28Utilities.GetAngleFromAToB(tLaneBase, tCandidateLZData[M28Map.subrefMidpoint])
-        if not(iTargetAngle) then return false end
-        return M28Utilities.GetAngleDifference(iSourceLaneAngle, iTargetAngle) <= iLandSupportLaneAngleDegrees
+        if tLaneBands and iSourceLaneBand then
+            local iTargetProj = (tCandidateLZData[M28Map.subrefMidpoint][1] * tLaneBands.iLatX) + (tCandidateLZData[M28Map.subrefMidpoint][3] * tLaneBands.iLatZ)
+            local iTargetBand = 1
+            for _, iBoundary in tLaneBands.tBoundaries do
+                if iTargetProj > iBoundary then
+                    iTargetBand = iTargetBand + 1
+                end
+            end
+            local bSameBand = (iTargetBand == iSourceLaneBand)
+            if bSameBand and tLaneBase and tCandidateLZData[M28Map.subrefLZTeamData] and tCandidateLZData[M28Map.subrefLZTeamData][iTeam] then
+                local tTargetLaneBase = tCandidateLZData[M28Map.subrefLZTeamData][iTeam][M28Map.reftClosestFriendlyBase]
+                if tTargetLaneBase and M28Utilities.GetDistanceBetweenPositions(tLaneBase, tTargetLaneBase) > 10 then
+                    bSameBand = false
+                end
+            end
+            return bSameBand
+        else
+            local iTargetAngle = M28Utilities.GetAngleFromAToB(tLaneBase, tCandidateLZData[M28Map.subrefMidpoint])
+            if not(iTargetAngle) then return false end
+            return M28Utilities.GetAngleDifference(iSourceLaneAngle, iTargetAngle) <= iLaneAngleMax
+        end
     end
     if not(tLZData[M28Map.subrefLZPathingToOtherLZEntryRef][iTargetLandZone]) then
         M28Map.ConsiderAddingTargetLandZoneToDistanceFromBaseTable(iPlateau, iStartLandZone, iTargetLandZone, tLZData[M28Map.subrefMidpoint])
@@ -4748,6 +4865,178 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 end
             end
         end
+    end
+    local function GetLaneBandForLZ(tLZDataLocal, tLaneBandsLocal)
+        if not(tLaneBandsLocal and tLZDataLocal and tLZDataLocal[M28Map.subrefMidpoint]) then return nil, nil end
+        local iProj = (tLZDataLocal[M28Map.subrefMidpoint][1] * tLaneBandsLocal.iLatX) + (tLZDataLocal[M28Map.subrefMidpoint][3] * tLaneBandsLocal.iLatZ)
+        local iBand = 1
+        for _, iBoundary in tLaneBandsLocal.tBoundaries do
+            if iProj > iBoundary then
+                iBand = iBand + 1
+            end
+        end
+        return iBand, iProj
+    end
+    local function GetLaneBandForPosition(tPos, tLaneBandsLocal)
+        if not(tLaneBandsLocal and tPos and tPos[1] and tPos[3]) then return nil, nil end
+        local iProj = (tPos[1] * tLaneBandsLocal.iLatX) + (tPos[3] * tLaneBandsLocal.iLatZ)
+        local iBand = 1
+        for _, iBoundary in tLaneBandsLocal.tBoundaries do
+            if iProj > iBoundary then
+                iBand = iBand + 1
+            end
+        end
+        return iBand, iProj
+    end
+    local function GetLaneBandDataForLZ(tLZDataLocal, tLZTeamDataLocal)
+        if not(tLZDataLocal and tLZTeamDataLocal) then return nil, nil, nil end
+        local tFriendlyBases = {}
+        if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyHumanAndAIBrains]) == false then
+            for _, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyHumanAndAIBrains] do
+                if oBrain and not(oBrain.M28IsDefeated) then
+                    local tBase = M28Map.GetPlayerStartPosition(oBrain)
+                    if tBase then
+                        local iIsland = NavUtils.GetLabel(M28Map.refPathingTypeLand, tBase) or -1
+                        if iIsland == tLZDataLocal[M28Map.subrefLZIslandRef] then
+                            table.insert(tFriendlyBases, tBase)
+                        end
+                    end
+                end
+            end
+        end
+        if table.getn(tFriendlyBases) < 2 then
+            local tFallbackBases = {}
+            if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyHumanAndAIBrains]) == false then
+                for _, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyHumanAndAIBrains] do
+                    if oBrain and not(oBrain.M28IsDefeated) then
+                        local tBase = M28Map.GetPlayerStartPosition(oBrain)
+                        if tBase then
+                            table.insert(tFallbackBases, tBase)
+                        end
+                    end
+                end
+            end
+            tFriendlyBases = tFallbackBases
+        end
+        if table.getn(tFriendlyBases) < 2 then return nil, nil, nil end
+        local iBestDistSq = -1
+        local iLatX
+        local iLatZ
+        for iBase = 1, table.getn(tFriendlyBases) - 1 do
+            for jBase = iBase + 1, table.getn(tFriendlyBases) do
+                local iDx = tFriendlyBases[jBase][1] - tFriendlyBases[iBase][1]
+                local iDz = tFriendlyBases[jBase][3] - tFriendlyBases[iBase][3]
+                local iDistSq = (iDx * iDx) + (iDz * iDz)
+                if iDistSq > iBestDistSq then
+                    iBestDistSq = iDistSq
+                    iLatX = iDx
+                    iLatZ = iDz
+                end
+            end
+        end
+        local iLatMag = iBestDistSq > 0 and math.sqrt(iBestDistSq) or 0
+        if iLatMag <= 1 then return nil, nil, nil end
+        iLatX = iLatX / iLatMag
+        iLatZ = iLatZ / iLatMag
+        local tProj = {}
+        for _, tBase in tFriendlyBases do
+            table.insert(tProj, (tBase[1] * iLatX) + (tBase[3] * iLatZ))
+        end
+        table.sort(tProj)
+        local tBoundaries = {}
+        for iProj = 1, table.getn(tProj) - 1 do
+            table.insert(tBoundaries, (tProj[iProj] + tProj[iProj + 1]) / 2)
+        end
+        local tLaneBands = {
+            iLatX = iLatX,
+            iLatZ = iLatZ,
+            tBoundaries = tBoundaries,
+        }
+        local iSourceLaneBand, iSourceLaneProj = GetLaneBandForLZ(tLZDataLocal, tLaneBands)
+        return tLaneBands, iSourceLaneBand, iSourceLaneProj
+    end
+    local tLaneBands, iSourceLaneBand, iSourceLaneProj = GetLaneBandDataForLZ(tLZData, tLZTeamData)
+    local function IsSameLanePosition(tPos)
+        if not(tLaneBands and iSourceLaneBand and tPos) then return nil end
+        local iBand = GetLaneBandForPosition(tPos, tLaneBands)
+        if not(iBand) then return nil end
+        return (iBand == iSourceLaneBand)
+    end
+    local function GetClosestFriendlyBaseToPosition(tPos)
+        if not(tPos and tPos[1] and tPos[3]) then return nil end
+        local tBases = {}
+        if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyHumanAndAIBrains]) == false then
+            for _, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyHumanAndAIBrains] do
+                if oBrain and not(oBrain.M28IsDefeated) then
+                    local tBase = M28Map.GetPlayerStartPosition(oBrain)
+                    if tBase then
+                        local iIsland = NavUtils.GetLabel(M28Map.refPathingTypeLand, tBase) or -1
+                        if iIsland == tLZData[M28Map.subrefLZIslandRef] then
+                            table.insert(tBases, tBase)
+                        end
+                    end
+                end
+            end
+        end
+        if table.getn(tBases) < 1 and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyHumanAndAIBrains]) == false then
+            for _, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyHumanAndAIBrains] do
+                if oBrain and not(oBrain.M28IsDefeated) then
+                    local tBase = M28Map.GetPlayerStartPosition(oBrain)
+                    if tBase then table.insert(tBases, tBase) end
+                end
+            end
+        end
+        if table.getn(tBases) < 1 then return nil end
+        local tClosest
+        local iBestDist = 1e9
+        for _, tBase in tBases do
+            local iDist = M28Utilities.GetDistanceBetweenPositions(tPos, tBase)
+            if iDist < iBestDist then
+                iBestDist = iDist
+                tClosest = tBase
+            end
+        end
+        return tClosest
+    end
+    local function IsSameLanePositionWithFallbackAngle(tPos, iAngleMax)
+        local bSameBand = IsSameLanePosition(tPos)
+        if bSameBand ~= nil then
+            local iBaseDist
+            if bSameBand and tPos and tLZTeamData and tLZTeamData[M28Map.reftClosestFriendlyBase] then
+                local tClosestBase = GetClosestFriendlyBaseToPosition(tPos)
+                if tClosestBase then
+                    iBaseDist = M28Utilities.GetDistanceBetweenPositions(tClosestBase, tLZTeamData[M28Map.reftClosestFriendlyBase])
+                    if iBaseDist > iLandSupportLaneBaseMatchDist then
+                        return false, 'band-base', nil, nil, iBaseDist
+                    end
+                end
+            end
+            if bSameBand and tPos and tLZTeamData and tLZTeamData[M28Map.reftClosestFriendlyBase] and tLZData and tLZData[M28Map.subrefMidpoint] then
+                local tLaneBase = tLZTeamData[M28Map.reftClosestFriendlyBase]
+                local iSourceAngle = M28Utilities.GetAngleFromAToB(tLaneBase, tLZData[M28Map.subrefMidpoint])
+                local iTargetAngle = M28Utilities.GetAngleFromAToB(tLaneBase, tPos)
+                if iSourceAngle and iTargetAngle then
+                    local iMax = iAngleMax or iLandSupportLaneAngleDegrees
+                    if M28Utilities.GetAngleDifference(iSourceAngle, iTargetAngle) > iMax then
+                        return false, 'band-angle', iSourceAngle, iTargetAngle, iBaseDist
+                    end
+                    return true, 'band-angle', iSourceAngle, iTargetAngle, iBaseDist
+                end
+            end
+            return bSameBand, 'band', nil, nil, iBaseDist
+        end
+        local tLaneBase = tLZTeamData and tLZTeamData[M28Map.reftClosestFriendlyBase]
+        if not(tLaneBase and tLZData and tLZData[M28Map.subrefMidpoint] and tPos) then return nil, 'none', nil, nil end
+        local iSourceAngle = M28Utilities.GetAngleFromAToB(tLaneBase, tLZData[M28Map.subrefMidpoint])
+        local iTargetAngle = M28Utilities.GetAngleFromAToB(tLaneBase, tPos)
+        if iSourceAngle and iTargetAngle then
+            local iMax = iAngleMax or iLandSupportLaneAngleDegrees
+            return (M28Utilities.GetAngleDifference(iSourceAngle, iTargetAngle) <= iMax), 'angle', iSourceAngle, iTargetAngle
+        end
+        return nil, 'none', nil, nil
+    end
+    local function IsSameLanePositionWithFallback(tPos)
+        return IsSameLanePositionWithFallbackAngle(tPos, iLandSupportLaneAngleDegrees)
     end
 
     local bWantReinforcements = false
@@ -7967,7 +8256,15 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                                                 M28Orders.IssueSmartMove(oUnit, oNearestEnemyToConsider[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'ClKAMve'..iLandZone, false)
                                                                             else
                                                                                 if bDebugMessages == true then LOG(sFunctionRef..': Will give a move order to the nearest enemy') end
-                                                                                M28Orders.IssueSmartMove(oUnit, oNearestEnemyToConsider[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'KMve'..iLandZone, false)
+                                                                                local bSameLaneEnemy, sLaneMode, iSourceAngle, iTargetAngle, iBaseDist = IsSameLanePositionWithFallbackAngle(oNearestEnemyToConsider[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], iLandSupportLaneAngleDegreesMid)
+                                                                                if bSameLaneEnemy == false then
+                                                                                    if M28Config.M28LandSupportDebug == true then
+                                                                                        local sLaneDetail = (sLaneMode == 'band-base' and ('band='..tostring(iSourceLaneBand)..'; baseDist='..string.format('%.1f', iBaseDist or -1))) or (sLaneMode == 'band-angle' and ('band='..tostring(iSourceLaneBand)..'; angle='..tostring(iSourceAngle)..'->'..tostring(iTargetAngle)..'; max='..iLandSupportLaneAngleDegreesMid)) or (sLaneMode == 'band' and ('band='..tostring(iSourceLaneBand))) or (sLaneMode == 'angle' and ('angle='..tostring(iSourceAngle)..'->'..tostring(iTargetAngle)..'; max='..iLandSupportLaneAngleDegreesMid)) or 'none'
+                                                                                        LOG('LandSupportDebug: [P'..iPlateau..'-LZ'..iLandZone..'] KMveRejected target cross-lane; mode='..sLaneMode..'; '..sLaneDetail)
+                                                                                    end
+                                                                                else
+                                                                                    M28Orders.IssueSmartMove(oUnit, oNearestEnemyToConsider[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'KMve'..iLandZone, false)
+                                                                                end
                                                                             end
 
 
@@ -8613,6 +8910,16 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                             bAttackWithOutrangedDFUnits = false
                                             break
                                         end
+                                    end
+                                end
+                                if bAttackWithOutrangedDFUnits and oNearestEnemyToFriendlyBase then
+                                    local bSameLaneEnemy, sLaneMode, iSourceAngle, iTargetAngle, iBaseDist = IsSameLanePositionWithFallbackAngle(oNearestEnemyToFriendlyBase:GetPosition(), iLandSupportLaneAngleDegreesMid)
+                                    if bSameLaneEnemy == false then
+                                        if bDebugMessages == true or M28Config.M28LandSupportDebug == true then
+                                            local sLaneDetail = (sLaneMode == 'band-base' and ('band='..tostring(iSourceLaneBand)..'; baseDist='..string.format('%.1f', iBaseDist or -1))) or (sLaneMode == 'band-angle' and ('band='..tostring(iSourceLaneBand)..'; angle='..tostring(iSourceAngle)..'->'..tostring(iTargetAngle)..'; max='..iLandSupportLaneAngleDegreesMid)) or (sLaneMode == 'band' and ('band='..tostring(iSourceLaneBand))) or (sLaneMode == 'angle' and ('angle='..tostring(iSourceAngle)..'->'..tostring(iTargetAngle)..'; max='..iLandSupportLaneAngleDegreesMid)) or 'none'
+                                            LOG(sFunctionRef..': Nearest enemy for SRDF is cross-lane, suppressing SRDF attack orders; mode='..sLaneMode..'; '..sLaneDetail)
+                                        end
+                                        bAttackWithOutrangedDFUnits = false
                                     end
                                 end
                                 if bAttackWithOutrangedDFUnits then
@@ -10077,15 +10384,24 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             for _, iAdjZone in tLZData[M28Map.subrefLZAdjacentLandZones] do
                                 local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjZone][M28Map.subrefLZTeamData][iTeam]
                                 local tAdjLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjZone]
-                                local iAdjAllyThreat = tAdjLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0
-                                local iAdjEnemyThreat = tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
-                                --Check if this adjacent zone is attacking (has more threat than enemy)
-                                if iAdjAllyThreat > iAdjEnemyThreat and iAdjAllyThreat > iBestAdjacentThreat then
-                                    --Also check that moving there wouldn't take us toward a stronger enemy
-                                    if iAdjEnemyThreat < (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) or iAdjAllyThreat >= iAdjEnemyThreat * 1.2 then
-                                        iBestAdjacentThreat = iAdjAllyThreat
-                                        iConsolidationZone = iAdjZone
-                                        tConsolidationPoint = tAdjLZData[M28Map.subrefMidpoint]
+                                local bAdjSameBand = true
+                                if tLaneBands and iSourceLaneBand then
+                                    local iAdjBand = GetLaneBandForLZ(tAdjLZData, tLaneBands)
+                                    if iAdjBand and iAdjBand ~= iSourceLaneBand then
+                                        bAdjSameBand = false
+                                    end
+                                end
+                                if bAdjSameBand then
+                                    local iAdjAllyThreat = tAdjLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0
+                                    local iAdjEnemyThreat = tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+                                    --Check if this adjacent zone is attacking (has more threat than enemy)
+                                    if iAdjAllyThreat > iAdjEnemyThreat and iAdjAllyThreat > iBestAdjacentThreat then
+                                        --Also check that moving there wouldn't take us toward a stronger enemy
+                                        if iAdjEnemyThreat < (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) or iAdjAllyThreat >= iAdjEnemyThreat * 1.2 then
+                                            iBestAdjacentThreat = iAdjAllyThreat
+                                            iConsolidationZone = iAdjZone
+                                            tConsolidationPoint = tAdjLZData[M28Map.subrefMidpoint]
+                                        end
                                     end
                                 end
                             end
@@ -11110,7 +11426,12 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
             local iSourceLaneAngle
             local sSourceLaneAxis = 'source'
             local sSourceLaneAxisDetail = 'source'
+            local sEnemyAngleDebug
             local iSourceLaneModDist = tLZTeamData[M28Map.refiModDistancePercent] or 0
+            local iLaneAngleMax = iLandSupportLaneAngleDegrees
+            local tLaneBands
+            local iSourceLaneBand
+            local iSourceLaneProj
             if tLaneBase and tLZData[M28Map.subrefMidpoint] then
                 local tLaneTarget = tLZData[M28Map.subrefMidpoint]
                 if iSourceLaneModDist <= iLandSupportLaneRearAxisModDistMax then
@@ -11164,9 +11485,26 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             end
                         end
                         local tEnemyBase
+                        local iBestDiff
                         if M28Utilities.IsTableEmpty(tEnemyBases) == false then
-                            if iAxisAngleForEnemySelect then
-                                local iBestDiff = 999
+                            if table.getn(tEnemyBases) >= 2 then
+                                local iSumX = 0
+                                local iSumZ = 0
+                                local iCount = 0
+                                for _, tCandidate in tEnemyBases do
+                                    if tCandidate and tCandidate[1] and tCandidate[3] then
+                                        iSumX = iSumX + tCandidate[1]
+                                        iSumZ = iSumZ + tCandidate[3]
+                                        iCount = iCount + 1
+                                    end
+                                end
+                                if iCount > 0 then
+                                    tEnemyBase = {iSumX / iCount, tLaneBase[2], iSumZ / iCount}
+                                    sEnemyBaseSource = 'mid'
+                                end
+                            end
+                            if not(tEnemyBase) and iAxisAngleForEnemySelect then
+                                iBestDiff = 999
                                 for _, tCandidate in tEnemyBases do
                                     local iCandidateAngle = M28Utilities.GetAngleFromAToB(tLaneBase, tCandidate)
                                     if iCandidateAngle then
@@ -11182,12 +11520,25 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                 tEnemyBase = tEnemyBases[1]
                             end
                         end
+                        if iAxisAngleForEnemySelect and M28Utilities.IsTableEmpty(tEnemyBases) == false then
+                            local tCandidates = {}
+                            for _, tCandidate in tEnemyBases do
+                                local iCandidateAngle = M28Utilities.GetAngleFromAToB(tLaneBase, tCandidate)
+                                local iDiff = iCandidateAngle and M28Utilities.GetAngleDifference(iAxisAngleForEnemySelect, iCandidateAngle) or nil
+                                table.insert(tCandidates, 'cand='..repru(tCandidate)..'; ang='..tostring(iCandidateAngle)..'; diff='..tostring(iDiff))
+                            end
+                            sEnemyAngleDebug = 'EnemyAngleSelect axis='..tostring(iAxisAngleForEnemySelect)..'; source='..sEnemyBaseSource..'; chosen='..repru(tEnemyBase)..'; chosenDiff='..tostring(iBestDiff)..'; candidates='..table.concat(tCandidates, ' | ')
+                        end
                         if tEnemyBase and tEnemyBase[1] and tEnemyBase[3] then
                             tLaneTarget = tEnemyBase
                             sSourceLaneAxis = 'enemy'
                             sSourceLaneAxisDetail = sEnemyBaseSource
                         end
                     end
+                end
+                -- lane bands computed earlier (tLaneBands/iSourceLaneBand/iSourceLaneProj)
+                if sSourceLaneAxisDetail == 'mid' and not(tLaneBands) then
+                    iLaneAngleMax = iLandSupportLaneAngleDegreesMid
                 end
                 iSourceLaneAngle = M28Utilities.GetAngleFromAToB(tLaneBase, tLaneTarget)
             end
@@ -11203,16 +11554,40 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
             end
             if bSupportDebugLog then
                 local sLaneBase = tLaneBase and repru(tLaneBase) or 'nil'
-                LOG('LandSupportDebug: [P'..iPlateau..'-LZ'..iLandZone..'] LaneBase='..sLaneBase..'; SourceAngle='..(iSourceLaneAngle or 'nil')..'; SourceAxis='..sSourceLaneAxis..'; SourceAxisDetail='..sSourceLaneAxisDetail..'; SourceModDist='..string.format('%.2f', iSourceLaneModDist)..'; LaneAngleMax='..iLandSupportLaneAngleDegrees..'; Island='..tostring(tLZData[M28Map.subrefLZIslandRef] or 'nil')..'; DFUnits='..table.getn(tDFUnits or {})..'; IFUnits='..table.getn(tIndirectUnits or {})..'; Time='..GetGameTimeSeconds())
+                LOG('LandSupportDebug: [P'..iPlateau..'-LZ'..iLandZone..'] LaneBase='..sLaneBase..'; SourceAngle='..(iSourceLaneAngle or 'nil')..'; SourceAxis='..sSourceLaneAxis..'; SourceAxisDetail='..sSourceLaneAxisDetail..'; SourceModDist='..string.format('%.2f', iSourceLaneModDist)..'; LaneAngleMax='..iLaneAngleMax..'; Island='..tostring(tLZData[M28Map.subrefLZIslandRef] or 'nil')..'; DFUnits='..table.getn(tDFUnits or {})..'; IFUnits='..table.getn(tIndirectUnits or {})..'; Time='..GetGameTimeSeconds())
+                if tLaneBands and iSourceLaneBand then
+                    LOG('LandSupportDebug: [P'..iPlateau..'-LZ'..iLandZone..'] LaneBands lat='..string.format('%.3f', tLaneBands.iLatX)..','..string.format('%.3f', tLaneBands.iLatZ)..'; SourceBand='..iSourceLaneBand..'; SourceProj='..string.format('%.1f', iSourceLaneProj or 0)..'; Boundaries='..repru(tLaneBands.tBoundaries))
+                end
+                if sEnemyAngleDebug then
+                    LOG('LandSupportDebug: [P'..iPlateau..'-LZ'..iLandZone..'] '..sEnemyAngleDebug)
+                end
             end
             function IsSameLane(tTargetLZData)
                 if not(tLaneBase and iSourceLaneAngle and tTargetLZData and tTargetLZData[M28Map.subrefMidpoint]) then return false, nil, nil, nil end
                 local bSameIsland = (tTargetLZData[M28Map.subrefLZIslandRef] == tLZData[M28Map.subrefLZIslandRef])
                 if not(bSameIsland) then return false, nil, nil, false end
-                local iTargetAngle = M28Utilities.GetAngleFromAToB(tLaneBase, tTargetLZData[M28Map.subrefMidpoint])
-                if not(iTargetAngle) then return false, nil, nil, bSameIsland end
-                local iAngleDiff = M28Utilities.GetAngleDifference(iSourceLaneAngle, iTargetAngle)
-                return iAngleDiff <= iLandSupportLaneAngleDegrees, iAngleDiff, iTargetAngle, bSameIsland
+                if tLaneBands and iSourceLaneBand then
+                    local iTargetProj = (tTargetLZData[M28Map.subrefMidpoint][1] * tLaneBands.iLatX) + (tTargetLZData[M28Map.subrefMidpoint][3] * tLaneBands.iLatZ)
+                    local iTargetBand = 1
+                    for _, iBoundary in tLaneBands.tBoundaries do
+                        if iTargetProj > iBoundary then
+                            iTargetBand = iTargetBand + 1
+                        end
+                    end
+                    local bSameBand = (iTargetBand == iSourceLaneBand)
+                    if bSameBand and tLaneBase and tTargetLZData[M28Map.subrefLZTeamData] and tTargetLZData[M28Map.subrefLZTeamData][iTeam] then
+                        local tTargetLaneBase = tTargetLZData[M28Map.subrefLZTeamData][iTeam][M28Map.reftClosestFriendlyBase]
+                        if tTargetLaneBase and M28Utilities.GetDistanceBetweenPositions(tLaneBase, tTargetLaneBase) > 10 then
+                            bSameBand = false
+                        end
+                    end
+                    return bSameBand, math.abs(iTargetProj - (iSourceLaneProj or iTargetProj)), iTargetProj, bSameIsland
+                else
+                    local iTargetAngle = M28Utilities.GetAngleFromAToB(tLaneBase, tTargetLZData[M28Map.subrefMidpoint])
+                    if not(iTargetAngle) then return false, nil, nil, bSameIsland end
+                    local iAngleDiff = M28Utilities.GetAngleDifference(iSourceLaneAngle, iTargetAngle)
+                    return iAngleDiff <= iLaneAngleMax, iAngleDiff, iTargetAngle, bSameIsland
+                end
             end
             function GetIncomingSupportCount(tTargetLZTeamData)
                 local iCount = 0
@@ -11709,6 +12084,15 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 if bDebugMessages == true then LOG(sFunctionRef..': Want to support LZ '..iDFLZToSupport..'; Will adjust DF to get via point if it is far away; midpoint of iDFToSupport='..repru(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport][M28Map.subrefMidpoint])..'; Midpoint of this LZ='..repru(tLZData[M28Map.subrefMidpoint])) end
                 local iOriginalDFLZ = iDFLZToSupport
                 iDFLZToSupport = ReviseTargetLZIfFarAway(tLZData, iTeam, iPlateau, iLandZone, iDFLZToSupport, iLandSupportFarPathStepMax)
+                if iDFLZToSupport and iDFLZToSupport > 0 then
+                    local tRevisedDFData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport]
+                    if tRevisedDFData and not IsSameLane(tRevisedDFData) then
+                        if bSupportDebugLog then
+                            LOG('LandSupportDebug: [P'..iPlateau..'-LZ'..iLandZone..'] DFReviseRejected '..(iDFLZToSupport or 'nil')..' (cross-lane), using original '..(iOriginalDFLZ or 'nil'))
+                        end
+                        iDFLZToSupport = iOriginalDFLZ
+                    end
+                end
                 if bSupportDebugLog then
                     local bSameLane = false
                     local tDFTargetData = iDFLZToSupport and M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport]
@@ -11784,6 +12168,11 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                 end
                             else
                                 if not(IgnoreOrderDueToStuckUnit(oUnit)) then
+                                    if bSupportDebugLog then
+                                        local bSameLane = false
+                                        if tTargetLZData then bSameLane = IsSameLane(tTargetLZData) end
+                                        LOG('LandSupportDebug: [P'..iPlateau..'-LZ'..iLandZone..'] DFMovLZ order unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; targetLZ='..iDFLZToSupport..'; sameLane='..tostring(bSameLane))
+                                    end
                                     M28Orders.IssueSmartMove(oUnit, M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport][M28Map.subrefMidpoint], 6, false, 'DFMovLZ'..iDFLZToSupport..';'..iLandZone)
                                 end
                             end
@@ -11842,6 +12231,11 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     --Rally point would pull unit backward, send directly to target instead
                                     if bDebugMessages == true then LOG(sFunctionRef..': Rally point would pull unit backward, sending unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' directly to LZ '..iDFLZToSupport) end
                                     if not(IgnoreOrderDueToStuckUnit(oUnit)) then
+                                        if bSupportDebugLog then
+                                            local bSameLane = false
+                                            if tTargetLZData then bSameLane = IsSameLane(tTargetLZData) end
+                                            LOG('LandSupportDebug: [P'..iPlateau..'-LZ'..iLandZone..'] DFMovLZ order unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; targetLZ='..iDFLZToSupport..'; sameLane='..tostring(bSameLane))
+                                        end
                                         M28Orders.IssueSmartMove(oUnit, M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport][M28Map.subrefMidpoint], 6, false, 'DFMovLZ'..iDFLZToSupport..';'..iLandZone)
                                     end
                                 end
@@ -11855,6 +12249,15 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
             if iIndirectLZToSupport > 0 and M28Utilities.IsTableEmpty(tIndirectUnits) == false then
                 local iOriginalIFLZ = iIndirectLZToSupport
                 iIndirectLZToSupport = ReviseTargetLZIfFarAway(tLZData, iTeam, iPlateau, iLandZone, iIndirectLZToSupport, iLandSupportFarPathStepMax)
+                if iIndirectLZToSupport and iIndirectLZToSupport > 0 then
+                    local tRevisedIFData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iIndirectLZToSupport]
+                    if tRevisedIFData and not IsSameLane(tRevisedIFData) then
+                        if bSupportDebugLog then
+                            LOG('LandSupportDebug: [P'..iPlateau..'-LZ'..iLandZone..'] IFReviseRejected '..(iIndirectLZToSupport or 'nil')..' (cross-lane), using original '..(iOriginalIFLZ or 'nil'))
+                        end
+                        iIndirectLZToSupport = iOriginalIFLZ
+                    end
+                end
                 if bSupportDebugLog then
                     local bSameLane = false
                     local tIFTargetData = iIndirectLZToSupport and M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iIndirectLZToSupport]
@@ -11997,6 +12400,12 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         local tCurZoneTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][tSubtable[M28Map.subrefLZNumber]][M28Map.subrefLZTeamData][iTeam]
                         if M28Utilities.IsTableEmpty(tCurZoneTeamData[M28Map.subrefTEnemyUnits]) == false then
                             local tCurLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][tSubtable[M28Map.subrefLZNumber]]
+                            if tCurLZData and IsSameLane(tCurLZData) ~= true then
+                                if M28Config.M28LandSupportDebug == true then
+                                    LOG('LandSupportDebug: [P'..iPlateau..'-LZ'..iLandZone..'] BkMvLZRejected target='..tSubtable[M28Map.subrefLZNumber]..'; sameLane=false')
+                                end
+                                continue
+                            end
                             if not(tLZTeamData[M28Map.subreftiLandZoneTargetedByOurDF]) then --Only record if we havent already recorded above (or else we will end up overriding cur zone target); not sure if such a scenario could arise but best to be safe
                                 RecordDFLandZoneTarget(tSubtable[M28Map.subrefLZNumber], M28Map.subrefiLZTMovingToOtherZone)
                             end
