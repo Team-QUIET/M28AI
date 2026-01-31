@@ -129,6 +129,7 @@ tTeamData = {} --[x] is the aiBrain.M28Team number - stores certain team-wide in
     refiTimeFirstT2LandFactory = 'M28TeamTimeFirstT2Land' --Gametimeseconds when team first got T2 land factory HQ
     refiTimeFirstT3LandFactory = 'M28TeamTimeFirstT3Land' --Gametimeseconds when team first got T3 land factory HQ
     refiTimeLastLandFactoryUpgradeStarted = 'M28TeamLastLandFacUpgStart' --Gametimeseconds when we last started a land factory upgrade (cooldown tracking)
+    refiTimeLastHQUpgradeCompleted = 'M28TeamLastHQUpgDone' --Gametimeseconds when a HQ upgrade last completed (stagnation grace)
     --subrefiHighestEnemyMexTech = 'M28TeamHighestEnemyMex' --I.e. 1, 2 or 3
     subrefiTotalFactoryCountByType = 'M28TeamFactoryByType' --[x] is the factory type, returns the number that our team has; factory type per M28Factory.refiFactoryType..., e.g. M28Factory.refiFactoryTypeLand
     refbBuiltLotsOfT3Combat = 'M28TeamBuiltLotsOfT3Combat' --true once we have reached a certain lifetime count of T3 combat units (used e.g. to decide if we want to build an experimental)
@@ -525,6 +526,9 @@ function UpdateUpgradeTrackingOfUnit(oUnitDoingUpgrade, bUnitDeadOrCompletedUpgr
         if bUnitDeadOrCompletedUpgrade then
             local iTeam = oUnitDoingUpgrade:GetAIBrain().M28Team
             table.remove(tTeamData[iTeam][sUpgradeTableRef], iTableRefOfUnit)
+            if sUpgradeTableRef == subreftTeamUpgradingHQs then
+                tTeamData[iTeam][refiTimeLastHQUpgradeCompleted] = GetGameTimeSeconds()
+            end
             local iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oUnitDoingUpgrade:GetPosition(), true, oUnitDoingUpgrade)
             local iWaterZone, iPond
             local tBackupLZData, tLZOrWZTeamData
@@ -713,6 +717,7 @@ function CreateNewTeam(aiBrain)
     tTeamData[iTotalTeamCount][subrefiTeamForwardFactoryCount] = 0
     tTeamData[iTotalTeamCount][refiTimeLastForwardFactoryBuilt] = -120 --Set to negative to allow building immediately
     tTeamData[iTotalTeamCount][refiTimeLastLandFactoryUpgradeStarted] = -60 --Set to negative to allow upgrading immediately
+    tTeamData[iTotalTeamCount][refiTimeLastHQUpgradeCompleted] = -1000
     --Economy growth tracking initialization
     tTeamData[iTotalTeamCount][reftMassIncomeHistory] = {} --Will store snapshots as {[1]={time=X, income=Y}, ...}
     tTeamData[iTotalTeamCount][refiTimeLastEcoSnapshot] = 0
@@ -3194,6 +3199,8 @@ function ConsiderPriorityMexUpgrades(iM28Team)
 
     local bEcoStagnant = tTeamData[iM28Team][refbEcoStagnant] or false
     local iStagnantMexBoost = 0
+    local iTimeSinceLastHQUpgrade = GetGameTimeSeconds() - (tTeamData[iM28Team][refiTimeLastHQUpgradeCompleted] or -1000)
+    local bUpgradingHQ = M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingHQs]) == false or iTimeSinceLastHQUpgrade <= 180
     if bEcoStagnant and tTeamData[iM28Team][refiTimeEcoStagnantSince] then
         local iTimeStagnant = GetGameTimeSeconds() - tTeamData[iM28Team][refiTimeEcoStagnantSince]
         --longer stagnation = more aggressive eco focus
@@ -3207,6 +3214,17 @@ function ConsiderPriorityMexUpgrades(iM28Team)
             iStagnantMexBoost = 1.5
         end
         if bDebugMessages == true then LOG(sFunctionRef..': ECO STAGNANT - TimeStagnant='..string.format('%.0f', iTimeStagnant)..'s | iStagnantMexBoost='..iStagnantMexBoost) end
+    end
+    if bEcoStagnant and bUpgradingHQ then
+        local bMassTight = (tTeamData[iM28Team][subrefbTeamIsStallingMass] == true)
+                or ((tTeamData[iM28Team][subrefiTeamMassStored] or 0) < 100)
+                or ((tTeamData[iM28Team][subrefiTeamNetMass] or 0) < 0)
+        if bMassTight then
+            iStagnantMexBoost = 0
+        elseif iStagnantMexBoost > 1.5 then
+            iStagnantMexBoost = 1.5
+        end
+        if bDebugMessages == true then LOG(sFunctionRef..': HQ upgrade clamp on stagnant mex boost, bUpgradingHQ='..tostring(bUpgradingHQ)..'; bMassTight='..tostring(bMassTight)..'; iStagnantMexBoost='..iStagnantMexBoost) end
     end
 
     if bDebugMessages == true then LOG(sFunctionRef..': Time='..GetGameTimeSeconds()..'; Is table of upgrading mexes empty='..tostring(M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]))..'; tTeamData[iM28Team][subrefiTeamMassStored]='..tTeamData[iM28Team][subrefiTeamMassStored]..'; tTeamData[iM28Team][subrefiTeamNetMass]='..tTeamData[iM28Team][subrefiTeamNetMass]..'; tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle]='..tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle]..'; or M28Overseer.bNoRushActive='..tostring(M28Overseer.bNoRushActive or false)) end
