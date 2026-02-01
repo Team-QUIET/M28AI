@@ -840,6 +840,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
     local iBaseCategoryWanted
     local tTargetLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iTargetLandZone]
     local tLZTargetTeamData = tTargetLZData[M28Map.subrefLZTeamData][iTeam]
+    local bHaveLowMass = M28Conditions.TeamHasLowMass(iTeam)
     local bInSameIsland = false
     if NavUtils.GetLabel(M28Map.refPathingTypeLand, oFactory:GetPosition()) == NavUtils.GetLabel(M28Map.refPathingTypeLand, M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iTargetLandZone][M28Map.subrefMidpoint]) then
         bInSameIsland = true
@@ -1063,7 +1064,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
         end
         if not(iBaseCategoryWanted) then
             --Mobile shields
-            if bConsiderMobileShields and tLZTargetTeamData[M28Map.refbLZWantsMobileShield] then
+            if bConsiderMobileShields and not(bHaveLowMass) and tLZTargetTeamData[M28Map.refbLZWantsMobileShield] and (bDontGetCombat or not(tLZTargetTeamData[M28Map.subrefbLZWantsSupport])) then
                 iBaseCategoryWanted = M28UnitInfo.refCategoryMobileLandShield
                 if bInSameIsland then iBaseCategoryWanted = M28UnitInfo.refCategoryMobileLandShield
                 else iBaseCategoryWanted = iBaseCategoryWanted * M28UnitInfo.refCategoryAmphibious + iBaseCategoryWanted * categories.HOVER
@@ -1080,7 +1081,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
             if not(iBaseCategoryWanted) then
                 --Mobile stealth (unless enemy so close that combat units would be better)
                 if bDebugMessages == true then LOG(sFunctionRef..': Considering if we want mobile stealth, bConsiderMobileStealths='..tostring(bConsiderMobileStealths)..'; tLZTargetTeamData[M28Map.refbLZWantsMobileStealth]='..tostring(tLZTargetTeamData[M28Map.refbLZWantsMobileStealth])..'; tLZTargetTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]='..tostring(tLZTargetTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ])) end
-                if bConsiderMobileStealths and tLZTargetTeamData[M28Map.refbLZWantsMobileStealth] and not(tLZTargetTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) then
+                if bConsiderMobileStealths and not(bHaveLowMass) and tLZTargetTeamData[M28Map.refbLZWantsMobileStealth] and not(tLZTargetTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) and (bDontGetCombat or not(tLZTargetTeamData[M28Map.subrefbLZWantsSupport])) then
                     iBaseCategoryWanted = M28UnitInfo.refCategoryMobileLandStealth
                     if bInSameIsland then iBaseCategoryWanted = M28UnitInfo.refCategoryMobileLandStealth
                     else iBaseCategoryWanted = iBaseCategoryWanted * M28UnitInfo.refCategoryAmphibious + iBaseCategoryWanted * categories.HOVER
@@ -2541,14 +2542,14 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     end
 
     iCurrentConditionToTry = iCurrentConditionToTry + 1
-    if bHaveNearbyPriorityUnitWantingMobileStealth and M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryMobileLandStealth, false) == 0 then
+    if bHaveNearbyPriorityUnitWantingMobileStealth and not(bHaveLowMass) and M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryMobileLandStealth, false) == 0 then
         if bDebugMessages == true then LOG(sFunctionRef..': Getting mobile stealth as none under construction in this zone and bHaveNearbyPriorityUnitWantingMobileStealth is true') end
         if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileLandStealth) then return sBPIDToBuild end
     end
 
     --Counter enemy T3 mobile artillery with our own T3 mobile artillery (high priority)
     iCurrentConditionToTry = iCurrentConditionToTry + 1
-    if iFactoryTechLevel >= 3 then
+    if iFactoryTechLevel >= 3 and not(bHaveLowMass) then
         --Count enemy T3 mobile artillery across all enemy brains
         local iEnemyT3MobileArtiCount = 0
         if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains]) == false then
@@ -2571,7 +2572,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 
     --Want to prioritise sniperbots to deal with enemy land experimental (when enemy lacks fatboy/megalith) or ACU; exception in QUIET though as land experimentals can be faster
     iCurrentConditionToTry = iCurrentConditionToTry + 1
-    if (M28Utilities.bLoudModActive or EntityCategoryContains(categories.AEON + categories.SERAPHIM, oFactory.UnitId)) and (iFactoryTechLevel == 3 or tLZTeamData[M28Map.subrefLZbCoreBase]) then
+    if (M28Utilities.bLoudModActive or EntityCategoryContains(categories.AEON + categories.SERAPHIM, oFactory.UnitId)) and not(bHaveLowMass) and (iFactoryTechLevel == 3 or tLZTeamData[M28Map.subrefLZbCoreBase]) then
         --Don't build sniperbots if enemy has 3+ T3 mobile artillery (they hard counter sniperbots)
         local bEnemyHasT3MobileArtiCounter = false
         if iFactoryTechLevel >= 3 then
@@ -3160,7 +3161,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                             end
                         end
                         if not(bDontGetCombat) and (iTankLC < 3 or
-                                ((not(bHaveLowMass) or iFactoryTechLevel >= M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] or (tiLandFactoriesByTechInZone[iFactoryTechLevel + 1] == 0 and (iFactoryTechLevel == 2 or tiLandFactoriesByTechInZone[3] ==0))) and iTankLC < M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryEngineer * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)))) then
+                                (((not(bHaveLowMass) or tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) or iFactoryTechLevel >= M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] or (tiLandFactoriesByTechInZone[iFactoryTechLevel + 1] == 0 and (iFactoryTechLevel == 2 or tiLandFactoriesByTechInZone[3] ==0))) and iTankLC < M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryEngineer * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)))) then
                             if iFactoryTechLevel < 3 then
                                 if ConsiderBuildingCategory(iCategoryToGet) then
                                     return sBPIDToBuild

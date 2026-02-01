@@ -362,7 +362,7 @@ tiActionCategory = {
     [refActionBuildAA] = M28UnitInfo.refCategoryStructureAA - categories.EXPERIMENTAL,
     --refActionBuildEmergencyPD - will use custom code as sometimes want T1 PD
     [refActionBuildSecondPD] = M28UnitInfo.refCategoryPD,
-    [refActionBuildEmergencyArti] = M28UnitInfo.refCategoryFixedT2Arti + M28UnitInfo.refCategoryFixedT3Arti,
+    [refActionBuildEmergencyArti] = M28UnitInfo.refCategoryFixedT2Arti,
     [refActionBuildQuantumGateway] = M28UnitInfo.refCategoryQuantumGateway,
     [refActionBuildQuantumOptics] = M28UnitInfo.refCategoryQuantumOptics,
     [refActionBuildSecondLandFactory] = M28UnitInfo.refCategoryLandFactory,
