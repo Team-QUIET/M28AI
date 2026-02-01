@@ -2163,7 +2163,7 @@ function RecordUnitRange(oUnit, bReferenceIsATableWithUnitId)
                     end
                 elseif oCurWeapon.RangeCategory == 'UWRC_IndirectFire' then
                     --GC tractor claws - dont want to include as indirect fire weapon since logic is on the assumption indirect fire is good vs structures
-                    if (oCurWeapon.Damage or 0) > 0.01 or not(oCurWeapon.WeaponCategory == 'Experimental') then
+                    if EntityCategoryContains(categories.INDIRECTFIRE, oUnit.UnitId) and ((oCurWeapon.Damage or 0) > 0.01 or not(oCurWeapon.WeaponCategory == 'Experimental')) then
                         oUnit[refiIndirectRange] = math.max((oUnit[refiIndirectRange] or 0), oCurWeapon.MaxRadius)
                         if oCurWeapon.WeaponUnpacks then oUnit[refbWeaponUnpacks] = true end
                         oUnit[refiIndirectAOE] = math.max((oUnit[refiIndirectAOE] or 0), (oCurWeapon.DamageRadius or 0))

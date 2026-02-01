@@ -251,7 +251,7 @@ local tCategoryAttackMoveUnits = false --MML, Sniper Bots, T3 Mobile Artillery
 function ShouldUseAttackMove(oUnit)
     --Returns true if this unit type benefits from attack-move orders
     if not(tCategoryAttackMoveUnits) then
-        tCategoryAttackMoveUnits = M28UnitInfo.refCategoryMML + M28UnitInfo.refCategorySniperBot + M28UnitInfo.refCategoryT3MobileArtillery
+        tCategoryAttackMoveUnits = M28UnitInfo.refCategoryMML + M28UnitInfo.refCategorySniperBot + M28UnitInfo.refCategoryT3MobileArtillery + (M28UnitInfo.EXPERIMENTAL * M28UnitInfo.INDIRECTFIRE)
     end
     return EntityCategoryContains(tCategoryAttackMoveUnits, oUnit.UnitId)
 end

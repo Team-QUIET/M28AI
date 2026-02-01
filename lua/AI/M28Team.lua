@@ -4165,7 +4165,7 @@ function TeamEconomyRefresh(iM28Team)
                     end
                 end
 
-                if true then
+                if bDebugMessages == true then
                     LOG(sFunctionRef..': ECO GROWTH TRACKING - CurrentGross='..string.format('%.1f', iCurrentGrossMass)..
                         ' | OldestGross='..string.format('%.1f', iOldestSnapshot.income)..' ('..string.format('%.0f', iCurTime - iOldestSnapshot.time)..'s ago)'..
                         ' | GrowthRate='..string.format('%.2f', tTeamData[iM28Team][refiEcoGrowthRate])..' mass/min'..
