@@ -4723,23 +4723,14 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         end
     end
 
-    --Fallback: if no blueprint chosen and we have positive net mass
+    --Fallback: if no blueprint chosen and we have positive net mass (and can path to enemy by land)
     iCurrentConditionToTry = iCurrentConditionToTry + 1
     local bCloseToUnitCap = aiBrain[M28Overseer.refbCloseToUnitCap] or false
-    if iNetMassIncome >= 0 and not(bCloseToUnitCap) then
-        if bDebugMessages == true then LOG(sFunctionRef..': Fallback DF builder, net mass='..tostring(iNetMassIncome)..'; close to unit cap='..tostring(bCloseToUnitCap)) end
-        sBPIDToBuild = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryMobileDFLand, oFactory, nil, nil, true, nil, false)
-        if bDebugMessages == true then LOG(sFunctionRef..': Fallback DF builder candidate='..(sBPIDToBuild or 'nil')) end
-        if sBPIDToBuild then
-            sBPIDToBuild = AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamData, iFactoryTechLevel)
-            if sBPIDToBuild then
-                if bDebugMessages == true then LOG(sFunctionRef..': Fallback DF builder accepted='..sBPIDToBuild) end
-                M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-                return sBPIDToBuild
-            end
-        end
+    if iNetMassIncome >= 0 and not(bCloseToUnitCap) and bCanPathToEnemyWithLand then
+        if bDebugMessages == true then LOG(sFunctionRef..': Fallback DF builder, net mass='..tostring(iNetMassIncome)..'; close to unit cap='..tostring(bCloseToUnitCap)..'; can path to enemy='..tostring(bCanPathToEnemyWithLand)) end
+        if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileDFLand) then return sBPIDToBuild end
     elseif bDebugMessages == true then
-        LOG(sFunctionRef..': Fallback DF builder skipped due to net negative mass or unit cap, net mass='..tostring(iNetMassIncome)..'; close to unit cap='..tostring(bCloseToUnitCap))
+        LOG(sFunctionRef..': Fallback DF builder skipped due to net negative mass, unit cap, or no land path, net mass='..tostring(iNetMassIncome)..'; close to unit cap='..tostring(bCloseToUnitCap)..'; can path to enemy='..tostring(bCanPathToEnemyWithLand))
     end
 
 
