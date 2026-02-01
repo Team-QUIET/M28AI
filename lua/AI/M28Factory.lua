@@ -4723,6 +4723,25 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         end
     end
 
+    --Fallback: if no blueprint chosen and we have positive net mass
+    iCurrentConditionToTry = iCurrentConditionToTry + 1
+    local bCloseToUnitCap = aiBrain[M28Overseer.refbCloseToUnitCap] or false
+    if iNetMassIncome >= 0 and not(bCloseToUnitCap) then
+        if bDebugMessages == true then LOG(sFunctionRef..': Fallback DF builder, net mass='..tostring(iNetMassIncome)..'; close to unit cap='..tostring(bCloseToUnitCap)) end
+        sBPIDToBuild = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryMobileDFLand, oFactory, nil, nil, true, nil, false)
+        if bDebugMessages == true then LOG(sFunctionRef..': Fallback DF builder candidate='..(sBPIDToBuild or 'nil')) end
+        if sBPIDToBuild then
+            sBPIDToBuild = AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamData, iFactoryTechLevel)
+            if sBPIDToBuild then
+                if bDebugMessages == true then LOG(sFunctionRef..': Fallback DF builder accepted='..sBPIDToBuild) end
+                M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                return sBPIDToBuild
+            end
+        end
+    elseif bDebugMessages == true then
+        LOG(sFunctionRef..': Fallback DF builder skipped due to net negative mass or unit cap, net mass='..tostring(iNetMassIncome)..'; close to unit cap='..tostring(bCloseToUnitCap))
+    end
+
 
 
     M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadNothingToBuildForLandFactory] = GetGameTimeSeconds()
@@ -7208,7 +7227,6 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
         if bWantBPOfThisTech then if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end end
     end
 
-
     if iFactoryTechLevel >= M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] and not(bHaveLowPower and bHaveLowMass) then --i.e. if we dont have low mass we should be building engi even if we lack power; if we dont have low power we should be building airforce even if we dont have loads of mass
         M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadNothingToBuildForAirFactory] = GetGameTimeSeconds()
         tLZTeamData[M28Map.subrefiTimeAirFacHadNothingToBuild] = GetGameTimeSeconds()
@@ -7216,11 +7234,6 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
     end
     oFactory[refiTimeSinceLastFailedToGetOrder] = GetGameTimeSeconds() --Redundancy, will also include in parent logic
 
-    --Verbose logging for no blueprint decision
-    if bDebugMessages == true then
-        LOG('M28AirProduction: DECISION: No blueprint to build; LastConditionChecked='..iCurrentConditionToTry..'; LowMass='..tostring(bHaveLowMass)..'; LowPower='..tostring(bHaveLowPower))
-        LOG('M28AirProduction: ========== END AIR FACTORY DECISION (NO BUILD) ==========')
-    end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
