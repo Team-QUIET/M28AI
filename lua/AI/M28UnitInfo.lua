@@ -1160,8 +1160,12 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                                     --T2 arti - reduce its value because it sucks
                                     if EntityCategoryContains(refCategoryFixedT2Arti, oUnit.UnitId) then
                                         iMassMod = iMassMod * 0.6
+                                    elseif EntityCategoryContains(refCategoryFixedT2Arti * categories.TECH3, oUnit.UnitId) then
+                                        iMassMod = iMassMod * 0.3
                                     elseif EntityCategoryContains(refCategoryStructureAA * categories.TECH1, oUnit.UnitId) then
                                         iMassMod = iMassMod * 1.5
+                                    elseif EntityCategoryContains(categories.brpt2pd + categories.brot2epd + categories.brnt2epd + categories.brmt2epd, oUnit.UnitId) then
+                                        iMassMod = iMassMod * 0.4
                                     else
                                         iMassMod = iMassMod * 2
                                         if bAntiNavyOnly or (bAddAntiNavy and M28Utilities.bLoudModActive) then
