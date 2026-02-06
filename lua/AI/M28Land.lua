@@ -11352,7 +11352,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             end
                         else
                             --Consider mustering instead of simple retreat for significant threats
-                            local iEnemyThreatForMustering = (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) + (tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0)
+                            local iEnemyThreatForMustering = (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)
                             local tMusteringPoint = ConsiderMusteringForRetreat(oUnit, iTeam, iPlateau, iLandZone, iEnemyThreatForMustering)
                             --Throttled debug logging for muster evaluation (every 30 seconds per zone)
                             if tMusteringPoint then

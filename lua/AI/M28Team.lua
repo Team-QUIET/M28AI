@@ -6509,7 +6509,7 @@ function ShouldCommitMusteredArmy(iTeam, iPlateau)
             if tAdjLZData then
                 local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][iTeam]
                 if tAdjLZTeamData then
-                    iAdjacentEnemyThreat = iAdjacentEnemyThreat + (tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) * 0.5
+                    iAdjacentEnemyThreat = iAdjacentEnemyThreat + (tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) * 0.25
                 end
             end
         end
@@ -6518,9 +6518,9 @@ function ShouldCommitMusteredArmy(iTeam, iPlateau)
     --Use max of recorded threat and current threat + adjacent threats
     iEnemyThreat = math.max(iEnemyThreat, iCurrentEnemyThreat + iAdjacentEnemyThreat)
 
-    --Calculate required threat ratio based on tech level (more conservative than before)
+    --Calculate required threat ratio based on tech level
     local iHighestTech = tTeamData[iTeam][subrefiHighestFriendlyLandFactoryTech] or 1
-    local iThreatRatioRequired = 1.1
+    local iThreatRatioRequired = 1.05
 
     --Use lower threshold when defending expansion zones with our mexes
     local tMexCountByTech = tTargetLZTeamData[M28Map.subrefMexCountByTech]
