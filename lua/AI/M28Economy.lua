@@ -369,7 +369,8 @@ function FindAndUpgradeUnitOfCategory(aiBrain, iCategoryWanted, iOptionalMinUnit
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local tUnitsOfCategory = aiBrain:GetListOfUnits(iCategoryWanted, false, true)
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code for brain '..aiBrain.Nickname..'; is tUnitsOfCategory empty='..tostring(M28Utilities.IsTableEmpty(tUnitsOfCategory))..'; iOptionalMinUnitsToHaveBuilt='..(iOptionalMinUnitsToHaveBuilt or 'nil')) end
+    local iMinUnitsToHaveBuilt = iOptionalMinUnitsToHaveBuilt or 2
+    if bDebugMessages == true then LOG(sFunctionRef..': Start of code for brain '..aiBrain.Nickname..'; is tUnitsOfCategory empty='..tostring(M28Utilities.IsTableEmpty(tUnitsOfCategory))..'; iOptionalMinUnitsToHaveBuilt='..(iOptionalMinUnitsToHaveBuilt or 'nil')..'; iMinUnitsToHaveBuilt='..iMinUnitsToHaveBuilt) end
     if M28Utilities.IsTableEmpty(tUnitsOfCategory) == false then
         local tUnitsToSearch = {}
         local tUnsafeUnitsOfCategory = {}
@@ -379,7 +380,7 @@ function FindAndUpgradeUnitOfCategory(aiBrain, iCategoryWanted, iOptionalMinUnit
             --Removed CheckIfNeedMoreEngineersOrSnipeUnitsBeforeUpgrading check to speed up upgrades
             if true then
                 if oUnit:GetFractionComplete() == 1 and not(oUnit:IsUnitState('Upgrading')) and not(oUnit.Dead) and not(oUnit:IsUnitState('BeingUpgraded')) then
-                    if not(iOptionalMinUnitsToHaveBuilt) or oUnit[M28Factory.refiTotalBuildCount] >= iOptionalMinUnitsToHaveBuilt then
+                    if oUnit[M28Factory.refiTotalBuildCount] >= iMinUnitsToHaveBuilt then
                         --Are we in a safe land zone?
                         iCurPlateau, iCurLZ = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oUnit:GetPosition(), true, oUnit)
                         local tLZTeamData = M28Map.tAllPlateaus[iCurPlateau][M28Map.subrefPlateauLandZones][iCurLZ][M28Map.subrefLZTeamData][aiBrain.M28Team]

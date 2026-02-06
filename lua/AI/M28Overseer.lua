@@ -2785,9 +2785,9 @@ function DecideOnGeneralMapStrategy(aiBrain)
     local sFunctionRef = 'DecideOnGeneralMapStrategy'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    --5-10km 1v1 but not winter duel, and can path to enemy by land
+    --5-20km 1v1 but not winter duel, and can path to enemy by land
     if bDebugMessages == true then LOG(sFunctionRef..': Considering brain '..aiBrain.Nickname..'; Map size='..M28Map.iMapSize..'; Players at start='.. M28Team.iPlayersAtGameStart..'; aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]='..tostring(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand])) end
-    if M28Map.iMapSize >= 225 and M28Map.iMapSize <= 512 and M28Team.iPlayersAtGameStart <= 4 and aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] then
+    if M28Map.iMapSize >= 225 and M28Map.iMapSize <= 1024 and M28Team.iPlayersAtGameStart <= 10 and aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] then
         --Dont stay at t1 if we have a high AIx modifier or no mexes on map, or a campaign map
         if bDebugMessages == true then LOG(sFunctionRef..': Is low mex map='..tostring(M28Map.bIsLowMexMap)..'; Resource mult='..(aiBrain[M28Economy.refiBrainResourceMultiplier] or 1)..'; Is campaign map='..tostring(M28Map.bIsCampaignMap)) end
         if not(M28Map.bIsLowMexMap) and (aiBrain[M28Economy.refiBrainResourceMultiplier] or 1) <= 1.7 and not(M28Map.bIsCampaignMap) then
@@ -2817,7 +2817,7 @@ function DecideOnGeneralMapStrategy(aiBrain)
                     end
                 end
                 local iMexPercentThreshold = 0.45
-                if iMexesOnMap > 80 or M28Team.iPlayersAtGameStart >= 4 then
+                if iMexesOnMap > 80 or M28Team.iPlayersAtGameStart >= 10 then
                     if iMexesOnMap > 130 then iMexPercentThreshold = 0.3
                     else iMexPercentThreshold = 0.375
                     end
@@ -2826,7 +2826,7 @@ function DecideOnGeneralMapStrategy(aiBrain)
                 if iMexesInStartZones < iMexPercentThreshold * iMexesOnMap then
                     M28Team.tTeamData[aiBrain.M28Team][M28Team.refbFocusOnT1Spam] = true
                     ForkThread(M28Team.MonitorLeavingT1SpamMode, aiBrain.M28Team)
-                    if bDebugMessages == true then LOG(sFunctionRef..': Want to avoid getting T2 mex upgrade') end
+                    if true then LOG(sFunctionRef..': Want to avoid getting T2 mex upgrade') end
                 end
             end
         end
