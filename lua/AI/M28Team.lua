@@ -6536,7 +6536,7 @@ function ShouldCommitMusteredArmy(iTeam, iPlateau)
     elseif iHighestTech >= 2 then iMinUnitCount = 4 end
 
     --Minimum mustering time to let more units gather
-    local iMinMusteringTime = 30
+    local iMinMusteringTime = 5
 
     local iUnitCount = table.getn(tMusterData[subreftMusteringUnits])
 

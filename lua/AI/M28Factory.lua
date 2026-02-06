@@ -4723,18 +4723,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         end
     end
 
-    --Fallback: if no blueprint chosen and we have positive net mass (and can path to enemy by land)
-    iCurrentConditionToTry = iCurrentConditionToTry + 1
-    local bCloseToUnitCap = aiBrain[M28Overseer.refbCloseToUnitCap] or false
-    if iNetMassIncome >= 0 and not(bCloseToUnitCap) and bCanPathToEnemyWithLand then
-        if bDebugMessages == true then LOG(sFunctionRef..': Fallback DF builder, net mass='..tostring(iNetMassIncome)..'; close to unit cap='..tostring(bCloseToUnitCap)..'; can path to enemy='..tostring(bCanPathToEnemyWithLand)) end
-        if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileDFLand) then return sBPIDToBuild end
-    elseif bDebugMessages == true then
-        LOG(sFunctionRef..': Fallback DF builder skipped due to net negative mass, unit cap, or no land path, net mass='..tostring(iNetMassIncome)..'; close to unit cap='..tostring(bCloseToUnitCap)..'; can path to enemy='..tostring(bCanPathToEnemyWithLand))
-    end
-
-
-
     M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadNothingToBuildForLandFactory] = GetGameTimeSeconds()
     oFactory[refiTimeSinceLastFailedToGetOrder] = GetGameTimeSeconds() --Redundancy, will also include in parent logic
     tLZTeamData[M28Map.subrefiTimeLandFacHadNothingToBuild] = GetGameTimeSeconds()
