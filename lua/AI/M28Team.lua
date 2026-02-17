@@ -5566,7 +5566,7 @@ function MonitorLeavingT1SpamMode(iTeam)
             WaitSeconds(1)
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
             --Various cases where we want to stop t1 spam:
-            if GetGameTimeSeconds() >= 1080 or (tTeamData[iTeam][subrefiHighestEnemyAirTech] or 0) >= 3 or (tTeamData[iTeam][subrefiHighestEnemyGroundTech] or 0) >= 3 or (tTeamData[iTeam][subrefiHighestEnemyGroundTech] or 0) >= 3
+            if GetGameTimeSeconds() >= 480 or (tTeamData[iTeam][subrefiHighestEnemyAirTech] or 0) >= 3 or (tTeamData[iTeam][subrefiHighestEnemyGroundTech] or 0) >= 3 or (tTeamData[iTeam][subrefiHighestEnemyGroundTech] or 0) >= 3
                     or (tTeamData[iTeam][refiEnemyAirToGroundThreat] or 0) >= 1000 or tTeamData[iTeam][subrefiTeamGrossMass] >= 20 or M28Utilities.IsTableEmpty(tTeamData[iTeam][reftoEnemyT2Arti]) == false
                     or tTeamData[iTeam][subrefiHighestFriendlyFactoryTech] >= 3 or tTeamData[iTeam][subrefiHighestFriendlyNavalFactoryTech] >= 2
                     or M28Utilities.IsTableEmpty(tTeamData[iTeam][reftoLongRangeEnemyDFUnits]) == false
