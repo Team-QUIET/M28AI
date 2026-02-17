@@ -2468,7 +2468,32 @@ function DoesACUWantToRun(iPlateau, iLandZone, tLZData, tLZTeamData, oACU)
 
     --Dont run if in core base unless low health or close to the rally point
     if bDebugMessages == true then LOG(sFunctionRef..': Start of code for brain '..oACU:GetAIBrain().Nickname..'; Is ACU in core base='..tostring(tLZTeamData[M28Map.subrefLZbCoreBase])..' iPlateau='..(iPlateau or 'nil')..'; iLandZone='..(iLandZone or 'nil')..'; oACU='..oACU.UnitId..M28UnitInfo.GetUnitLifetimeCount(oACU)..'; M28Team.tTeamData[aiBrain.M28Team][M28Team.refbDangerousForACUs]='..tostring(M28Team.tTeamData[oACU:GetAIBrain().M28Team][M28Team.refbDangerousForACUs] or false)..'; Does enemy have sub? count='..(M28Team.tTeamData[oACU:GetAIBrain().M28Team][M28Team.refiEnemySubCount] or 0)..'; Dist to midpoint='..M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZData[M28Map.subrefMidpoint])) end
-    if tLZTeamData[M28Map.subrefLZbCoreBase] and (M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.2 and (oACU[refbUseACUAggressively] or (M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.4 and ((oACU[refiUpgradeCount] or 0) > 0 or not(M28Team.tTeamData[iTeam][M28Team.refbEnemyHasUpgradedACU])) and (false and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.75 or M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZData[M28Map.subrefMidpoint]) <= 70)) or M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZData[M28Map.subrefMidpoint]) <= 15)) and ((M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.5 or M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZTeamData[M28Map.reftClosestEnemyBase]) > 5 + M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint],tLZTeamData[M28Map.reftClosestEnemyBase])))  then
+    --Adjacent water zone with destroyers - run even if are in core base if ACU health low
+    if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefAdjacentWaterZones]) == false and not(oACU[refbUseACUAggressively]) and M28UnitInfo.GetUnitHealthPercent(oACU) < 0.95 then
+        local iAdjWZ, iPond
+        for iEntry, tSubtable in tLZData[M28Map.subrefAdjacentWaterZones] do
+            iAdjWZ = tSubtable[M28Map.subrefAWZRef]
+            iPond = M28Map.tiPondByWaterZone[iAdjWZ]
+            local tWZTeamData = M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones][iAdjWZ][M28Map.subrefWZTeamData][iTeam]
+            local iDFRangeThreshold = 5 + oACU[M28UnitInfo.refiDFRange]
+            if tWZTeamData[M28Map.subrefWZBestEnemyDFRange] > iDFRangeThreshold and M28Utilities.IsTableEmpty(tWZTeamData[M28Map.subrefTEnemyUnits]) == false and tWZTeamData[M28Map.subrefWZThreatEnemyVsSurface] >= 1500 and (tWZTeamData[M28Map.subrefWZThreatEnemyVsSurface] > tWZTeamData[M28Map.subrefWZTThreatAllyCombatTotal] or tWZTeamData[M28Map.subrefWZThreatEnemyVsSurface] >= 5000) then
+                --This WZ has enemies that are dangerous to the ACU; dont want ACU to get within 20 of being in range of them
+                for iUnit, oUnit in tWZTeamData[M28Map.subrefTEnemyUnits] do
+                    if not(oUnit.Dead) and (oUnit[M28UnitInfo.refiDFRange] or 0) > iDFRangeThreshold then
+                        if bDebugMessages == true then LOG(sFunctionRef..': Considering enemy naval unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Dist from unit to ACU='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oACU:GetPosition())..'; Unit DF range='..oUnit[M28UnitInfo.refiDFRange]) end
+                        if M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oACU:GetPosition()) - oUnit[M28UnitInfo.refiDFRange] <= 20 then
+                            bWantToRun = true
+                            break
+                        end
+                    end
+                end
+                if bWantToRun then break end
+            end
+        end
+    end
+    if bWantToRun then
+        if bDebugMessages == true then LOG(sFunctionRef..': Will run due to dangerous adjacent water zone') end
+    elseif tLZTeamData[M28Map.subrefLZbCoreBase] and (M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.2 and (oACU[refbUseACUAggressively] or (M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.4 and ((oACU[refiUpgradeCount] or 0) > 0 or not(M28Team.tTeamData[iTeam][M28Team.refbEnemyHasUpgradedACU])) and (false and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.75 or M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZData[M28Map.subrefMidpoint]) <= 70)) or M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZData[M28Map.subrefMidpoint]) <= 15)) and ((M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.5 or M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZTeamData[M28Map.reftClosestEnemyBase]) > 5 + M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint],tLZTeamData[M28Map.reftClosestEnemyBase])))  then
         if bDebugMessages == true then LOG(sFunctionRef..': Are in core base with some health so dont want to run unless approaching experimental or large threat, oACU[refbUseACUAggressively]='..tostring(oACU[refbUseACUAggressively])) end
         --20km type map - be more cautious in assassination
         --Large map caution check - but allow upgraded ACU with advantage to push further
