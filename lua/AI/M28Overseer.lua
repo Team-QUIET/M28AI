@@ -2787,7 +2787,7 @@ function DecideOnGeneralMapStrategy(aiBrain)
 
     --5-20km 1v1 but not winter duel, and can path to enemy by land
     if bDebugMessages == true then LOG(sFunctionRef..': Considering brain '..aiBrain.Nickname..'; Map size='..M28Map.iMapSize..'; Players at start='.. M28Team.iPlayersAtGameStart..'; aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]='..tostring(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand])) end
-    if M28Map.iMapSize >= 225 and M28Map.iMapSize <= 1024 and M28Team.iPlayersAtGameStart <= 10 and aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] then
+    if M28Map.iMapSize >= 225 and M28Map.iMapSize <= 512 and M28Team.iPlayersAtGameStart <= 10 and aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] then
         --Dont stay at t1 if we have a high AIx modifier or no mexes on map, or a campaign map
         if bDebugMessages == true then LOG(sFunctionRef..': Is low mex map='..tostring(M28Map.bIsLowMexMap)..'; Resource mult='..(aiBrain[M28Economy.refiBrainResourceMultiplier] or 1)..'; Is campaign map='..tostring(M28Map.bIsCampaignMap)) end
         if not(M28Map.bIsLowMexMap) and (aiBrain[M28Economy.refiBrainResourceMultiplier] or 1) <= 1.7 and not(M28Map.bIsCampaignMap) then
