@@ -3218,7 +3218,11 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
             elseif aiBrain[refiGrossMassBaseIncome] < 5 and iMexesOnMap <= 60 and M28UnitInfo.GetUnitLifetimeCount(oMex) <= 3 then --Prioritise first few t3 mex upgrades
                 iTimeToWait = 2 * 60 + 4 * 60 * (10-aiBrain[refiGrossMassBaseIncome]) / 10
             else
-                iTimeToWait = 8 * 60
+                if aiBrain[M28Overseer.refbPrioritiseHighTech] then
+                    iTimeToWait = 7 * 60
+                else
+                    iTimeToWait = 8 * 60
+                end
             end
             if M28Utilities.bLoudModActive or M28Utilities.bQuietModActive then
                 if iMexesOnMap > 20 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] then
