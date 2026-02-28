@@ -7049,8 +7049,10 @@ function ManageTorpedoBombers(iTeam, iAirSubteam)
                             iAAThreatThreshold = iNewThreshold
                         end
 
-                        if bDebugMessages == true then LOG(sFunctionRef..': Considering if enemies in iWaterZone='..iWaterZone..'; iStartPlateauOrZero='..iStartPlateauOrZero..'; iStartLandOrWaterZone='..iStartLandOrWaterZone..';  iDistance='..iDistance..'; Is table of enemy units in this WZ empty='..tostring(M28Utilities.IsTableEmpty(tWZTeamData[M28Map.subrefTEnemyUnits]))..'; tWZTeamData[M28Map.subrefWZbCoreBase]='..tostring(tWZTeamData[M28Map.subrefWZbCoreBase] or false)..'; iTorpBomberThreat='..iTorpBomberThreat..'; tWZTeamData[M28Map.refiModDistancePercent]='..tWZTeamData[M28Map.refiModDistancePercent]..'; iMassValueOfEnemyUnits='..iMassValueOfEnemyUnits..'; tWZTeamData[M28Map.refiEnemyTorpDefenceCount]='..(tWZTeamData[M28Map.refiEnemyTorpDefenceCount] or 'nil')..'; Enemy groundAA just in this water zone='..tWZTeamData[M28Map.subrefiThreatEnemyGroundAA]) end
-                        --Detailed logging for torpedo bomber attack decisions
+                        --Min AA threat for nearby WZs as we can probably attrition enemy destroyers with a single torp bomber that then reheals itself at staging
+                        if tWZTeamData[M28Map.refiModDistancePercent] <= 0.35 and iAAThreatThreshold < 200 and tWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] > tWZTeamData[M28Map.subrefiThreatEnemyGroundAA] then iAAThreatThreshold = 200 end
+
+                        if bDebugMessages == true then LOG(sFunctionRef..': Considering if enemies in iWaterZone='..iWaterZone..'; iStartPlateauOrZero='..iStartPlateauOrZero..'; iStartLandOrWaterZone='..iStartLandOrWaterZone..';  iDistance='..iDistance..'; Is table of enemy units in this WZ empty='..tostring(M28Utilities.IsTableEmpty(tWZTeamData[M28Map.subrefTEnemyUnits]))..'; tWZTeamData[M28Map.subrefWZbCoreBase]='..tostring(tWZTeamData[M28Map.subrefWZbCoreBase] or false)..'; iTorpBomberThreat='..iTorpBomberThreat..'; tWZTeamData[M28Map.refiModDistancePercent]='..tWZTeamData[M28Map.refiModDistancePercent]..'; iMassValueOfEnemyUnits='..iMassValueOfEnemyUnits..'; tWZTeamData[M28Map.refiEnemyTorpDefenceCount]='..(tWZTeamData[M28Map.refiEnemyTorpDefenceCount] or 'nil')..'; Enemy groundAA just in this water zone='..tWZTeamData[M28Map.subrefiThreatEnemyGroundAA]..'; iAAThreatThreshold after adjustments='..iAAThreatThreshold) end
                         if bDebugMessages == true then
                             local iEnemyUnitCount = table.getn(tWZTeamData[M28Map.subrefTEnemyUnits])
                             LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] TORP_ZONE_EVAL - WZ='..iWaterZone..', Dist='..math.floor(iDistance)..', EnemyMass='..math.floor(iMassValueOfEnemyUnits)..', EnemyUnits='..iEnemyUnitCount..', EnemyGroundAA='..(tWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0)..', TorpDef='..(tWZTeamData[M28Map.refiEnemyTorpDefenceCount] or 0)..', AAThreshold='..math.floor(iAAThreatThreshold)..', TorpThreat='..iTorpBomberThreat..', ModDist%='..string.format('%.2f', tWZTeamData[M28Map.refiModDistancePercent])..', AirAAThreshold='..iAirAAThreatThreshold..', Time='..GetGameTimeSeconds())
@@ -7142,7 +7144,7 @@ function ManageTorpedoBombers(iTeam, iAirSubteam)
                                 --Clear enemy targets (incase e.g. we have decided not to attack some of them because we have enough threat assigned already or outside playable area)
                                 tEnemyTargets = {}
                                 --Consider attacking the nearest enemy AA unit in the zone if it is exposed, or if there is no nearby AA unit the nearest non-hover unit
-                            elseif bDoDetailedCheck and tWZTeamData[M28Map.subrefiThreatEnemyGroundAA] <= 2000 and tWZTeamData[M28Map.subrefiThreatEnemyGroundAA] < iAAThreatThreshold * 0.8 then
+                            elseif bDoDetailedCheck and tWZTeamData[M28Map.subrefiThreatEnemyGroundAA] <= 2000 and (iAAThreatThreshold < 400 or tWZTeamData[M28Map.subrefiThreatEnemyGroundAA] < iAAThreatThreshold * 0.8) then
                                 local oClosestAAUnit, iCurDist
                                 local oClosestNonAAUnit
                                 local iClosestAAUnit = 10000
