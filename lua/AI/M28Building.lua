@@ -1355,7 +1355,7 @@ function GetUnitWantingTMD(tLZData, tLZTeamData, iTeam, iOptionalLandZone, bRetu
                     iClosestDist = iCurDist
                     oClosestUnit = tLZTeamData[M28Map.reftUnitsWantingTMD][iEntry]
                 end
-            end
+
             end
         elseif bDebugMessages == true then LOG(sFunctionRef..': Unit wnating TMD, '..tLZTeamData[M28Map.reftUnitsWantingTMD][iEntry].UnitId..M28UnitInfo.GetUnitLifetimeCount(tLZTeamData[M28Map.reftUnitsWantingTMD][iEntry])..', iEntry='..iEntry..' isnt the desired category')
         end
