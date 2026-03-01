@@ -5867,6 +5867,16 @@ function GetPrimaryEnemyBaseLocation(aiBrain)
     return aiBrain[reftPrimaryEnemyBaseLocation]
 end
 
+function GetPriorityEnemyBaseLocationForLand(aiBrain)
+    if aiBrain and aiBrain.M28Team then
+        local tLandEmergencyState = M28Team.GetLandEmergencyState(aiBrain.M28Team)
+        if tLandEmergencyState and tLandEmergencyState[M28Team.subreftLandEmergencyEnemyBase] and M28Team.GetLandEmergencyModeForBrain(aiBrain) > 0 then
+            return tLandEmergencyState[M28Team.subreftLandEmergencyEnemyBase]
+        end
+    end
+    return GetPrimaryEnemyBaseLocation(aiBrain)
+end
+
 function AddLocationToPlateauExceptions(tLocation, iPlateau, iLandZone)
     local iX = math.floor(tLocation[1])
     local iZ = math.floor(tLocation[3])
