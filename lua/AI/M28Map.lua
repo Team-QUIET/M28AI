@@ -318,7 +318,13 @@ iLandZoneSegmentSize = 5 --Gets updated by the SetupLandZones - the size of one 
             subreftiLandZonesTargetingThisWithOurDF = 'LZBTB' --table, [x] = land zone ref; returns 1 or 2 depending on if the land zone is attacking a unit in this zone, or is just moving to this zone; table of land zones on the same plateau that are sending friendly DF units to this zone in either scenario 2 or reinforcement (not scenario 1)
                 subrefiLZTAttackingUnit = 1
                 subrefiLZTMovingToOtherZone = 2
+                subrefiLZOrWZTAttackingUnit = subrefiLZTAttackingUnit
+                subrefiLZOrWZTMovingToOtherZone = subrefiLZTMovingToOtherZone
             subreftiLandZoneTargetedByOurDF = 'LZTBD' --returns land zone ref we are sending DF units in this LZ to
+            subreftiLandZoneTargetedByOurCombat = subreftiLandZoneTargetedByOurDF --shared land-zone target ref used by land and water coordination
+            subreftiWaterZonesTargetingThisWithAmphibious = 'WZBTB' --table, [x] = water zone ref; returns 1 or 2 depending on if the water zone is attacking a unit in this zone, or is just moving to this zone
+            subreftiWaterZoneTargetedByOurSurfaceCombat = 'WZTBDS' --returns water zone ref we are sending hover/amphibious or naval surface combat to from this land/water zone
+            subreftiWaterZoneTargetedByOurSubmersibleCombat = 'WZTBDU' --returns water zone ref we are sending submersible combat to from this land/water zone
             subrefiLandZoneLastLoggedTarget = 'LZLLT' --last target we logged about (to avoid log spam when target is cleared and re-set each cycle)
             subrefiLandZoneLastLoggedAttackType = 'LZLLA' --last attack type we logged about
             --Two-phase coordination: Intent signaling (Phase 1) before commitment (Phase 2)
@@ -592,6 +598,9 @@ tPondDetails = {}
             subrefbWZWantsSupport = 'WZWntSup'
             subrefbWZOnlyHoverEnemies = 'WZHvEn' --true if only hover units (so we dont want to send subs to support)
             subrefbWZOnlySubmersibleEnemies = 'WZSubEn' --true if only submersible enemies (so we dont want to send units without antinavy to support)
+            subreftiLandZonesTargetingThisWithAmphibious = 'LZBTB' --table, [x] = land zone ref; returns 1 or 2 depending on if the land zone is attacking a unit in this zone, or is just moving to this zone
+            subreftiWaterZonesTargetingThisWithSurfaceNavy = 'WZSBTB' --table, [x] = water zone ref; returns 1 or 2 depending on if the water zone is attacking a unit in this zone, or is just moving to this zone
+            subreftiWaterZonesTargetingThisWithSubmersibleNavy = 'WSBBTB' --table, [x] = water zone ref; returns 1 or 2 depending on if the water zone is attacking a unit in this zone, or is just moving to this zone
 
             reftoWZUnitsWantingMobileShield = 'MShUnit'
             refbWZWantsMobileShield = 'bWntMSh'

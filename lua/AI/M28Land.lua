@@ -71,6 +71,70 @@ refoAssignedMobileStealth = 'M28LandAssignedMobileStealth' --If a mobile stealth
 refoMobileStealthTarget = 'M28LandMobileStealthTarget' --Against mobile stleaht units, returns the unit the mobile stealth is trying to cover
 refoLandScoutTarget = 'M28LndSTrg' --Against land scouts if assigned to follow a unit such as an ACU
 
+function RecordDFLandZoneTarget(tCurrentLZOrWZTeamData, iPlateau, iLandOrWaterZone, iTeam, iLandZoneTarget, iAttackType, bIsWaterZone)
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
+    local sFunctionRef = 'RecordDFLandZoneTarget'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+    local function NormaliseLandZoneTarget(vTarget)
+        if type(vTarget) ~= 'table' then return vTarget end
+        if M28Map.subrefLZNumber and type(vTarget[M28Map.subrefLZNumber]) == 'number' then return vTarget[M28Map.subrefLZNumber] end
+        if type(vTarget[1]) == 'number' and type(vTarget[2]) == 'number' and vTarget[1] == iPlateau then return vTarget[2] end
+        return nil
+    end
+    local function GetLandZoneTargetLogValue(vTarget)
+        local iNormalisedTarget = NormaliseLandZoneTarget(vTarget)
+        if iNormalisedTarget ~= nil then return tostring(iNormalisedTarget) end
+        if vTarget == nil then return 'nil' end
+        return tostring(vTarget)
+    end
+    iLandZoneTarget = NormaliseLandZoneTarget(iLandZoneTarget)
+
+    local iPreviousTarget = tCurrentLZOrWZTeamData[M28Map.subreftiLandZoneTargetedByOurCombat]
+    local tPlateauLandZones = M28Map.tAllPlateaus[iPlateau] and M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones]
+    if not(iLandZoneTarget) then
+        if iPreviousTarget then
+            local tTargetingLandZoneTeamData
+            if tPlateauLandZones and tPlateauLandZones[iPreviousTarget] and tPlateauLandZones[iPreviousTarget][M28Map.subrefLZTeamData] then
+                tTargetingLandZoneTeamData = tPlateauLandZones[iPreviousTarget][M28Map.subrefLZTeamData][iTeam]
+            end
+            if tTargetingLandZoneTeamData then
+                if bIsWaterZone then
+                    if tTargetingLandZoneTeamData[M28Map.subreftiWaterZonesTargetingThisWithAmphibious] then
+                        tTargetingLandZoneTeamData[M28Map.subreftiWaterZonesTargetingThisWithAmphibious][iLandOrWaterZone] = nil
+                    end
+                else
+                    if not(tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF]) then tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF] = {} end
+                    tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF][iLandOrWaterZone] = nil
+                end
+            else
+                M28Utilities.ErrorHandler('invalid LZ ref, iPlateau='..(iPlateau or 'nil')..'; iLandOrWaterZone='..(iLandOrWaterZone or 'nil')..'; subreftiLandZoneTargetedByOurCombat='..(iPreviousTarget or 'nil'))
+            end
+            tCurrentLZOrWZTeamData[M28Map.subreftiLandZoneTargetedByOurCombat] = nil
+        end
+    else
+        local tTargetingLandZoneTeamData
+        if tPlateauLandZones and tPlateauLandZones[iLandZoneTarget] and tPlateauLandZones[iLandZoneTarget][M28Map.subrefLZTeamData] then
+            tTargetingLandZoneTeamData = tPlateauLandZones[iLandZoneTarget][M28Map.subrefLZTeamData][iTeam]
+        end
+        if tTargetingLandZoneTeamData then
+            tCurrentLZOrWZTeamData[M28Map.subreftiLandZoneTargetedByOurCombat] = iLandZoneTarget
+            if bIsWaterZone then
+                if not(tTargetingLandZoneTeamData[M28Map.subreftiWaterZonesTargetingThisWithAmphibious]) then tTargetingLandZoneTeamData[M28Map.subreftiWaterZonesTargetingThisWithAmphibious] = {} end
+                tTargetingLandZoneTeamData[M28Map.subreftiWaterZonesTargetingThisWithAmphibious][iLandOrWaterZone] = iAttackType
+            else
+                if not(tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF]) then tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF] = {} end
+                tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF][iLandOrWaterZone] = iAttackType
+            end
+            if bDebugMessages == true then LOG(sFunctionRef..': iPlateau='..iPlateau..'; iLandOrWaterZone='..iLandOrWaterZone..'; iLandZoneTarget='..iLandZoneTarget..'; bIsWaterZone='..tostring(bIsWaterZone or false)..'; iAttackType='..(iAttackType or 'nil')) end
+        else
+            tCurrentLZOrWZTeamData[M28Map.subreftiLandZoneTargetedByOurCombat] = nil
+            M28Utilities.ErrorHandler('invalid LZ ref when setting target, iPlateau='..tostring(iPlateau or 'nil')..'; iLandOrWaterZone='..tostring(iLandOrWaterZone or 'nil')..'; iLandZoneTarget='..GetLandZoneTargetLogValue(iLandZoneTarget))
+        end
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+end
+
 function UpdateIfLandZoneWantsSupport(tLZTeamData, iPlateau, iLandZone, iTeam, bWantDFSupport, bWantIndirectSupport)
     tLZTeamData[M28Map.subrefbLZWantsSupport] = (bWantDFSupport or bWantIndirectSupport)
     tLZTeamData[M28Map.subrefbLZWantsDFSupport] = bWantDFSupport
@@ -4303,7 +4367,7 @@ function ManageRASSACUsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLandZo
                         end
                     end
                 end
-            elseif iCurSACUsAssignedToWaterZones > 0then
+            elseif iCurSACUsAssignedToWaterZones > 0 then
                 for iCurEntry = table.getn(tLZTeamData[M28Map.subreftoSACUsTravelingToWaterZoneFromHere]), 1, -1 do
                     local oTravelingSACU = tLZTeamData[M28Map.subreftoSACUsTravelingToWaterZoneFromHere][iCurEntry]
                     if not(oTravelingSACU[M28UnitInfo.refiSACUWaterZoneTarget]) then
@@ -5928,29 +5992,59 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
     function RecordDFLandZoneTarget(iLandZoneTarget, iAttackType)
         --Send nil value to clear previously recorded values
+        local function NormaliseLandZoneTarget(vTarget)
+            if type(vTarget) ~= 'table' then return vTarget end
+            if M28Map.subrefLZNumber and type(vTarget[M28Map.subrefLZNumber]) == 'number' then return vTarget[M28Map.subrefLZNumber] end
+            if type(vTarget[1]) == 'number' and type(vTarget[2]) == 'number' and vTarget[1] == iPlateau then return vTarget[2] end
+            return nil
+        end
+        local function GetLandZoneTargetLogValue(vTarget)
+            local iNormalisedTarget = NormaliseLandZoneTarget(vTarget)
+            if iNormalisedTarget ~= nil then return tostring(iNormalisedTarget) end
+            if vTarget == nil then return 'nil' end
+            return tostring(vTarget)
+        end
+        iLandZoneTarget = NormaliseLandZoneTarget(iLandZoneTarget)
         local iPreviousTarget = tLZTeamData[M28Map.subreftiLandZoneTargetedByOurDF]
+        local tPlateauLandZones = M28Map.tAllPlateaus[iPlateau] and M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones]
         --Track last logged target separately to avoid log spam (target gets cleared each cycle then re-set)
         local iLastLoggedTarget = tLZTeamData[M28Map.subrefiLandZoneLastLoggedTarget]
         local iLastLoggedAttackType = tLZTeamData[M28Map.subrefiLandZoneLastLoggedAttackType]
 
         if not(iLandZoneTarget) then
             if iPreviousTarget then
-                local tTargetingLandZoneTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iPreviousTarget][M28Map.subrefLZTeamData][iTeam]
+                local tTargetingLandZoneTeamData
+                if tPlateauLandZones and tPlateauLandZones[iPreviousTarget] and tPlateauLandZones[iPreviousTarget][M28Map.subrefLZTeamData] then
+                    tTargetingLandZoneTeamData = tPlateauLandZones[iPreviousTarget][M28Map.subrefLZTeamData][iTeam]
+                end
                 if bDebugMessages == true then LOG(sFunctionRef..': About to update for iPlateau='..iPlateau..'subreftiLandZoneTargetedByOurDF='..(iPreviousTarget or 'nil')..'; is tTargetingLandZoneTeamData nil='..tostring(tTargetingLandZoneTeamData == nil)) end
-                if not(tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF]) then tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF] = {} end
-                tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF][iLandZone] = nil --Use iLandZone (source) not target zone number
+                if tTargetingLandZoneTeamData then
+                    if not(tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF]) then tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF] = {} end
+                    tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF][iLandZone] = nil --Use iLandZone (source) not target zone number
+                else
+                    M28Utilities.ErrorHandler('invalid LZ ref in local RecordDFLandZoneTarget clear, iPlateau='..(iPlateau or 'nil')..'; iLandZone='..(iLandZone or 'nil')..'; iPreviousTarget='..(iPreviousTarget or 'nil'))
+                end
                 tLZTeamData[M28Map.subreftiLandZoneTargetedByOurDF] = nil
             end
         else
             --Only log if target or attack type actually changed from last logged value (not just from cleared state)
             local bTargetChanged = (iLastLoggedTarget ~= iLandZoneTarget) or (iLastLoggedAttackType ~= iAttackType)
 
-            tLZTeamData[M28Map.subreftiLandZoneTargetedByOurDF] = iLandZoneTarget
-            local tTargetingLandZoneTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZoneTarget][M28Map.subrefLZTeamData][iTeam]
-            if tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF] then
-                tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF][iLandZone] = iAttackType
+            local tTargetingLandZoneTeamData
+            if tPlateauLandZones and tPlateauLandZones[iLandZoneTarget] and tPlateauLandZones[iLandZoneTarget][M28Map.subrefLZTeamData] then
+                tTargetingLandZoneTeamData = tPlateauLandZones[iLandZoneTarget][M28Map.subrefLZTeamData][iTeam]
             end
-            if bDebugMessages == true then
+            if tTargetingLandZoneTeamData then
+                tLZTeamData[M28Map.subreftiLandZoneTargetedByOurDF] = iLandZoneTarget
+                if not(tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF]) then
+                    tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF] = {}
+                end
+                tTargetingLandZoneTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF][iLandZone] = iAttackType
+            else
+                tLZTeamData[M28Map.subreftiLandZoneTargetedByOurDF] = nil
+                M28Utilities.ErrorHandler('invalid LZ ref in local RecordDFLandZoneTarget set, iPlateau='..tostring(iPlateau or 'nil')..'; iLandZone='..tostring(iLandZone or 'nil')..'; iLandZoneTarget='..GetLandZoneTargetLogValue(iLandZoneTarget))
+            end
+            if bDebugMessages == true and bTargetChanged and tTargetingLandZoneTeamData then
                 local sAttackType = (iAttackType == M28Map.subrefiLZTAttackingUnit) and 'ATTACKING' or 'MOVING_TO'
                 local sPreviousTarget = iLastLoggedTarget and ('LZ'..iLastLoggedTarget) or 'nil'
                 LOG('CrossZoneCoord: [P'..iPlateau..'-LZ'..iLandZone..'] Target: '..sPreviousTarget..' -> LZ'..iLandZoneTarget..' ('..sAttackType..'), Time='..GetGameTimeSeconds())
@@ -5963,6 +6057,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
     --NOTE: We no longer clear the target at start of cycles
     --Instead, target is only updated when we make a new attack/retreat decision.
     --The old code was: if tLZTeamData[M28Map.subreftiLandZoneTargetedByOurDF] then RecordDFLandZoneTarget(nil) end
+    if tLZTeamData[M28Map.subreftiWaterZoneTargetedByOurSurfaceCombat] then M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, false, nil, nil, true) end
+    if tLZTeamData[M28Map.subreftiWaterZoneTargetedByOurSubmersibleCombat] then M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, true, nil, nil, true) end
 
     local bGivenCombatUnitsOrders = false
 
@@ -8994,6 +9090,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     end
                                 end
                                 if bAttackWithOutrangedDFUnits then
+                                    if oNearestEnemyToFriendlyBase and oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedWaterZoneByTeam][iTeam] then
+                                        M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, false, oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedWaterZoneByTeam][iTeam], M28Map.subrefiLZOrWZTAttackingUnit, true)
+                                    end
                                     for iUnit, oUnit in tOutrangedCombatUnits do
                                         if bCheckIfNearestUnitVisible and not(bUpdateNearestUnit) and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]) <= 18 then bUpdateNearestUnit = true end
 
@@ -9538,7 +9637,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
 
                         --Enemy close to our base, with a firebase, and we have experimental level threat that has a lifetime count of 1 - do a more detailed assessment
-                        if bDebugMessages == true then LOG(sFunctionRef..': Considering whether to be aggressive with 1st experimental if relevant, iAvailableCombatUnitThreat='..iAvailableCombatUnitThreat..'; iEnemyCombatThreat='..iEnemyCombatThreat..'; oNearestEnemyToFriendlyBase='..(oNearestEnemyToFriendlyBase.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oNearestEnemyToFriendlyBase) or 'nil')..'; This zone mod dist='..tLZTeamData[M28Map.refiModDistancePercent] <= 0.25..'; Constructed exp count='..M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount]) end
+                        if bDebugMessages == true then LOG(sFunctionRef..': Considering whether to be aggressive with 1st experimental if relevant, iAvailableCombatUnitThreat='..iAvailableCombatUnitThreat..'; iEnemyCombatThreat='..iEnemyCombatThreat..'; oNearestEnemyToFriendlyBase='..(oNearestEnemyToFriendlyBase.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oNearestEnemyToFriendlyBase) or 'nil')..'; This zone mod dist <= 0.25='..tostring((tLZTeamData[M28Map.refiModDistancePercent] or 1) <= 0.25)..'; Constructed exp count='..M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount]) end
                         if not(bAttackWithEverything) and iAvailableCombatUnitThreat >= 5000 and iEnemyCombatThreat <= 40000 and oNearestEnemyToFriendlyBase and tLZTeamData[M28Map.refiModDistancePercent] <= 0.25 and iAvailableCombatUnitThreat > iEnemyCombatThreat * 0.5 and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] <= 3 and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] >= 1 then
                             local toFriendlySRExperimentals = EntityCategoryFilterDown(M28UnitInfo.refCategoryLandExperimental - M28UnitInfo.refCategoryFatboy - M28UnitInfo.refCategoryMegalith, tAvailableCombatUnits)
                             if bDebugMessages == true then LOG(sFunctionRef..': is table of SR exp empty='..tostring(M28Utilities.IsTableEmpty(toFriendlySRExperimentals))) end
@@ -9610,7 +9709,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         end
 
                         --Include threat of friendly zones attacking the same target - if this is enough to change our decision on whether to attack, then
-                        if bDebugMessages == true then LOG(sFunctionRef..': Decision before including other zones with same target='..tostring(bAttackWithEverything)..'; iLandZone='..iLandZone..'; oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam]=P'..oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][1]..'Z'..oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2]) end
+                        if bDebugMessages == true then LOG(sFunctionRef..': Decision before including other zones with same target='..tostring(bAttackWithEverything)..'; iLandZone='..iLandZone..'; oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam]=P'..(oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][1] or 'nil')..'Z'..(oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2] or 'nil')) end
                         if not(bAttackWithEverything) and oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][1] == iPlateau then
                             local iLikelyTargetZone = oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2]
                             local tLikelyTargetLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLikelyTargetZone][M28Map.subrefLZTeamData][iTeam]
@@ -9735,6 +9834,58 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     end
                                 end
                                 if bDebugMessages == true then LOG(sFunctionRef..': iAdjacentMobileDFThreat after including adj zones with the same targetLZ as us='..iAdjacentMobileDFThreat) end
+
+                                if M28Utilities.IsTableEmpty(tLikelyTargetLZTeamData[M28Map.subreftiWaterZonesTargetingThisWithAmphibious]) == false and M28Utilities.IsTableEmpty(tLZData[M28Map.subrefAdjacentWaterZones]) == false then
+                                    local tbWaterZonesAdjacentToThis = {}
+                                    for iEntry, tSubtable in tLZData[M28Map.subrefAdjacentWaterZones] do
+                                        tbWaterZonesAdjacentToThis[tSubtable[M28Map.subrefAWZRef]] = true
+                                    end
+                                    for iOtherWZ, iAttackingType in tLikelyTargetLZTeamData[M28Map.subreftiWaterZonesTargetingThisWithAmphibious] do
+                                        if bDebugMessages == true then LOG(sFunctionRef..': Considering iOtherWZ='..iOtherWZ..'; tbWaterZonesAdjacentToThis[iOtherWZ]='..tostring(tbWaterZonesAdjacentToThis[iOtherWZ] or false)..'; iLikelyTargetZone='..iLikelyTargetZone) end
+                                        if tbWaterZonesAdjacentToThis[iOtherWZ] then
+                                            local tAdjWZTeamData = M28Map.tPondDetails[M28Map.tiPondByWaterZone[iOtherWZ]][M28Map.subrefPondWaterZones][iOtherWZ][M28Map.subrefWZTeamData][iTeam]
+                                            if bDebugMessages == true then LOG(sFunctionRef..': subrefWZThreatAlliedSurface for otherWZ='..(tAdjWZTeamData[M28Map.subrefWZThreatAlliedSurface] or 'nil')..'; is subrefWZTAlliedCombatUnits empty='..tostring(M28Utilities.IsTableEmpty(tAdjWZTeamData[M28Map.subrefWZTAlliedCombatUnits]))) end
+                                            if tAdjWZTeamData[M28Map.subrefWZThreatAlliedSurface] > 0 and M28Utilities.IsTableEmpty(tAdjWZTeamData[M28Map.subrefWZTAlliedCombatUnits]) == false then
+                                                if iAttackingType == M28Map.subrefiLZOrWZTMovingToOtherZone then
+                                                    local toUnitsToInclude = {}
+                                                    local toPotentialUnits = EntityCategoryFilterDown(M28UnitInfo.refCategoryAmphibiousCombat, tAdjWZTeamData[M28Map.subrefWZTAlliedCombatUnits])
+                                                    if M28Utilities.IsTableEmpty(toPotentialUnits) == false then
+                                                        local iClosestFriendlyToOtherZoneDist = 10000
+                                                        local oClosestFriendlyToOtherZone
+                                                        local tOtherZoneMidpoint = M28Map.tPondDetails[M28Map.tiPondByWaterZone[iOtherWZ]][M28Map.subrefPondWaterZones][iOtherWZ][M28Map.subrefMidpoint]
+                                                        for iUnit, oUnit in tAvailableCombatUnits do
+                                                            iCurDist = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tOtherZoneMidpoint)
+                                                            if iCurDist < iClosestFriendlyToOtherZoneDist then
+                                                                iClosestFriendlyToOtherZoneDist = iCurDist
+                                                                oClosestFriendlyToOtherZone = oUnit
+                                                            end
+                                                        end
+                                                        if oClosestFriendlyToOtherZone then
+                                                            for iUnit, oUnit in toPotentialUnits do
+                                                                if not(oUnit.Dead) then
+                                                                    if bDebugMessages == true then LOG(sFunctionRef..': Dist between WZ unit='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestFriendlyToOtherZone:GetPosition())..'; CombatRange='..oUnit[M28UnitInfo.refiCombatRange]..'; Dist until in range='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestFriendlyToOtherZone:GetPosition()) - oUnit[M28UnitInfo.refiCombatRange]) end
+                                                                    if M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestFriendlyToOtherZone:GetPosition()) - oUnit[M28UnitInfo.refiCombatRange] <= 30 then
+                                                                        table.insert(toUnitsToInclude, oUnit)
+                                                                    end
+                                                                end
+                                                            end
+                                                            if M28Utilities.IsTableEmpty(toUnitsToInclude) == false then
+                                                                if bDebugMessages == true then LOG(sFunctionRef..': Combat threat of WZ units that are including='..M28UnitInfo.GetCombatThreatRating(toUnitsToInclude, false)) end
+                                                                iAdjacentMobileDFThreat = iAdjacentMobileDFThreat + M28UnitInfo.GetCombatThreatRating(toUnitsToInclude, false)
+                                                            end
+                                                        end
+                                                    end
+                                                else
+                                                    local tHoverAndAmphibiousUnits = EntityCategoryFilterDown(M28UnitInfo.refCategoryAmphibiousCombat, tAdjWZTeamData[M28Map.subrefWZTAlliedCombatUnits])
+                                                    if M28Utilities.IsTableEmpty(tHoverAndAmphibiousUnits) == false then
+                                                        iAdjacentMobileDFThreat = iAdjacentMobileDFThreat + M28UnitInfo.GetCombatThreatRating(tHoverAndAmphibiousUnits, false, false)
+                                                    end
+                                                end
+                                                if bDebugMessages == true then LOG(sFunctionRef..': Including threat of friendly DF units in iOtherWZ='..iOtherWZ..', iAdjacentMobileDFThreat after this='..iAdjacentMobileDFThreat) end
+                                            end
+                                        end
+                                    end
+                                end
                                 if iAdjacentMobileDFThreat > 40 then
                                     --M28Conditions.HaveEnoughThreatToAttack(iPlateau, iLandZone, tLZData, tLZTeamData, iOurCombatThreat,                                     iEnemyCombatThreat, iFirebaseThreatAdjust,                                                                              bHaveSignificantCombatCloserToFirebase, iTeam, iOptionalOverrideDefaultThreatRatioWanted, bOptionalUseSlightlyLowerThreatRatio)
                                     local bPreviousAttackDecision = bAttackWithEverything
@@ -10010,11 +10161,20 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     --Update cross-zone coordination target based on decision
                     if bAttackWithEverything then
                         if iTargetZoneForDecision and iTargetZoneForDecision ~= iLandZone and oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][1] == iPlateau then
+                            if tLZTeamData[M28Map.subreftiWaterZoneTargetedByOurSurfaceCombat] then M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, false, nil, nil, true) end
                             RecordDFLandZoneTarget(iTargetZoneForDecision, M28Map.subrefiLZTAttackingUnit)
+                        elseif oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedWaterZoneByTeam][iTeam] then
+                            RecordDFLandZoneTarget(nil)
+                            M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, false, oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedWaterZoneByTeam][iTeam], M28Map.subrefiLZOrWZTAttackingUnit, true)
+                        else
+                            RecordDFLandZoneTarget(nil)
+                            if tLZTeamData[M28Map.subreftiWaterZoneTargetedByOurSurfaceCombat] then M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, false, nil, nil, true) end
                         end
                     else
                         --Retreating - clear our attack target (only on explicit retreat)
                         RecordDFLandZoneTarget(nil)
+                        if tLZTeamData[M28Map.subreftiWaterZoneTargetedByOurSurfaceCombat] then M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, false, nil, nil, true) end
+                        if tLZTeamData[M28Map.subreftiWaterZoneTargetedByOurSubmersibleCombat] then M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, true, nil, nil, true) end
                     end
 
                     if bAttackWithEverything then
