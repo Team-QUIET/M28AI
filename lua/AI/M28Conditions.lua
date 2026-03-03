@@ -71,14 +71,6 @@ function GetTeamLifetimeBuildCount(iTeam, category)
     return iTotalBuild
 end
 
-function IsHardLandEmergency(aiBrain)
-    return M28Team.GetLandEmergencyModeForBrain(aiBrain) >= 2
-end
-
-function IsSoftLandEmergency(aiBrain)
-    return M28Team.GetLandEmergencyModeForBrain(aiBrain) > 0
-end
-
 function GetLifetimeBuildCount(aiBrain, category)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'GetLifetimeBuildCount'
@@ -1701,7 +1693,10 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
     local tLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone]
     local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
     local aiBrain = ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
-    local bHardLandEmergency = IsHardLandEmergency(aiBrain)
+    local bTreatAsHighTechPersonality = aiBrain[M28Overseer.refbPrioritiseHighTech]
+    local bTreatAsLowTechPersonality = aiBrain[M28Overseer.refbPrioritiseLowTech]
+    local bTreatAsAirPersonality = aiBrain[M28Overseer.refbPrioritiseAir]
+    local bTreatAsFactoryLightPersonality = bTreatAsHighTechPersonality or aiBrain[M28Overseer.refbPrioritiseDefence] or aiBrain[M28Overseer.refbPrioritiseNavy]
     local tPriorityEnemyBase = M28Map.GetPriorityEnemyBaseLocationForLand(aiBrain) or tLZTeamData[M28Map.reftClosestEnemyBase]
     local iCurIsland = NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZData[M28Map.subrefMidpoint])
     local iEnemyIsland = NavUtils.GetLabel(M28Map.refPathingTypeLand, tPriorityEnemyBase)
@@ -1715,7 +1710,9 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
         end
     elseif M28Map.iMapSize >= 1000 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] < 3 and tLZTeamData[M28Map.subrefMexCountByTech][3] == 0 and tLZTeamData[M28Map.refiModDistancePercent] <= 0.2 and not(M28Utilities.bQuietModActive) then
         for iTech, iValue in tiGrossMassWantedPerFactoryByTech do
-            if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.02) or aiBrain[M28Overseer.refbPrioritiseNavy] or aiBrain[M28Overseer.refbPrioritiseHighTech] then
+            if bTreatAsFactoryLightPersonality then
+                tiGrossMassWantedPerFactoryByTech[iTech] = iValue * 4
+            elseif M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.02) then
                 tiGrossMassWantedPerFactoryByTech[iTech] = iValue * 2
             else
                 tiGrossMassWantedPerFactoryByTech[iTech] = iValue * 1.5
@@ -1731,7 +1728,9 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
             if tBaseLZTeamData and tBaseLZData[M28Map.subrefLZOrWZMexCount] >= 6 and tBaseLZData[M28Map.subrefLZOrWZMexCount] > M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauTotalMexCount] * (0.3 / M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) and tBaseLZTeamData[M28Map.subrefMexCountByTech][3] < 2 then
                 if bDebugMessages == true then LOG(sFunctionRef..': Will reduce the number of factories wanted') end
                 for iTech, iValue in tiGrossMassWantedPerFactoryByTech do
-                    if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.02) or aiBrain[M28Overseer.refbPrioritiseNavy] or aiBrain[M28Overseer.refbPrioritiseHighTech] then
+                    if bTreatAsFactoryLightPersonality then
+                        tiGrossMassWantedPerFactoryByTech[iTech] = iValue * 4
+                    elseif M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.02) then
                         tiGrossMassWantedPerFactoryByTech[iTech] = iValue * 2
                     else
                         tiGrossMassWantedPerFactoryByTech[iTech] = iValue * 1.5
@@ -1747,7 +1746,7 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
         end
     end
     --If we have navy then reduce the mass wanted
-    if (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyNavalFactoryTech] >= 1 or M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0) and not(aiBrain[M28Overseer.refbPrioritiseAir]) and not(aiBrain[M28Overseer.refbPrioritiseLowTech]) then
+    if (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyNavalFactoryTech] >= 1 or M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0) and not(bTreatAsAirPersonality) and not(bTreatAsLowTechPersonality) then
         local iReductionFactor = 0.75
         if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyNavalFactoryTech] >= 2 then iReductionFactor = 0.5 end
         if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyNavalFactoryTech] >= 1 and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0 then
@@ -1816,12 +1815,6 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
     end
 
     if bDebugMessages == true then LOG(sFunctionRef..': Finished checking if close to unit cap, bDontWantDueToUnitCap='..tostring(bDontWantDueToUnitCap)..'; M28Team.tTeamData[iTeam][M28Team.refiTimeLastNearUnitCap]='..(M28Team.tTeamData[iTeam][M28Team.refiTimeLastNearUnitCap] or 'nil')..'; iAverageCurAirAndLandFactories='..iAverageCurAirAndLandFactories..'; iPlateau='..iPlateau..'; iLandZone='..iLandZone..'; Mass stored='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]) end
-
-    if bHardLandEmergency and not(bDontWantDueToUnitCap) then
-        if bDebugMessages == true then LOG(sFunctionRef..': Hard land emergency active so will bypass normal eco gating and allow more factories') end
-        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-        return true
-    end
 
     --Norush or eco slot at T2 and lower when arent overflowing mass
     if (M28Overseer.bNoRushActive and M28Overseer.iNoRushTimer - GetGameTimeSeconds() >= 30) or (tLZTeamData[M28Map.refbBaseInSafePosition] and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] < 3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.7) then
@@ -2023,10 +2016,10 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
     end
 
     --AI personality adjustments - get fewer factories for certain AI types
-    if bDebugMessages == true then LOG(sFunctionRef..': Considering personality adjustment if want more facs, bWantMoreFactories='..tostring(bWantMoreFactories)..'; Highest air='..aiBrain[M28Economy.refiOurHighestAirFactoryTech]..'; Land='..aiBrain[M28Economy.refiOurHighestLandFactoryTech]..'; Prioritise tech='..tostring(aiBrain[M28Overseer.refbPrioritiseHighTech] or false)..'; Prioritise defence='..tostring(aiBrain[M28Overseer.refbPrioritiseDefence] or false)..'; Prioritise navy='..tostring(aiBrain[M28Overseer.refbPrioritiseNavy] or false)) end
+    if bDebugMessages == true then LOG(sFunctionRef..': Considering personality adjustment if want more facs, bWantMoreFactories='..tostring(bWantMoreFactories)..'; Highest air='..aiBrain[M28Economy.refiOurHighestAirFactoryTech]..'; Land='..aiBrain[M28Economy.refiOurHighestLandFactoryTech]..'; Prioritise tech='..tostring(bTreatAsHighTechPersonality or false)..'; Prioritise defence='..tostring(aiBrain[M28Overseer.refbPrioritiseDefence] or false)..'; Prioritise navy='..tostring(aiBrain[M28Overseer.refbPrioritiseNavy] or false)..'; DynamicRole='..(aiBrain[M28Overseer.refsDynamicPersonalityRole] or 'base')) end
     if bWantMoreFactories and aiBrain[M28Economy.refiOurHighestAirFactoryTech] > 0 and aiBrain[M28Economy.refiOurHighestLandFactoryTech] > 0 then
         --Tech and turtle, and navy (except for water zones, but i think this condition is only used for land zones) - dont want as many
-        if aiBrain[M28Overseer.refbPrioritiseHighTech] or aiBrain[M28Overseer.refbPrioritiseDefence] or aiBrain[M28Overseer.refbPrioritiseNavy] then
+        if bTreatAsFactoryLightPersonality then
             --Only get more if have lots of mass
             if bDebugMessages == true then LOG(sFunctionRef..': Mass %='..aiBrain:GetEconomyStoredRatio('MASS')..'; Net income='..aiBrain[M28Economy.refiNetMassBaseIncome]..'; Highest fac tech='..aiBrain[M28Economy.refiOurHighestFactoryTechLevel]..'; Naval fac tech='..aiBrain[M28Economy.refiOurHighestNavalFactoryTech]..'; Team net mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass]..'; Energy % stored='..aiBrain:GetEconomyStoredRatio('ENERGY')..'; Have low power='..tostring(HaveLowPower(iTeam))) end
             if not(iLandFacsInZone) or not(iAirFacsInZone) then
@@ -2055,7 +2048,8 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
             elseif iLandFacsInZone + iAirFacsInZone > 0 and aiBrain:GetEconomyStoredRatio('MASS') < 0.2 or (aiBrain:GetEconomyStoredRatio('MASS') < 0.75 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass]  < 0 or GetGameTimeSeconds() <= 600) and (aiBrain:GetEconomyStoredRatio('MASS') < 0.4 or (aiBrain:GetEconomyStoredRatio('ENERGY') <= 0.9 or HaveLowPower(iTeam)))) then
                 if aiBrain[M28Overseer.refbPrioritiseDefence] or aiBrain[M28Economy.refiOurHighestAirFactoryTech] < 3 or aiBrain[M28Economy.refiOurHighestLandFactoryTech] < 3
                         --Naval facs - want to get more land/air facs if we have lost navy
-                        or (aiBrain[M28Overseer.refbPrioritiseNavy] and iPlateau > 0 and (aiBrain[M28Economy.refiOurHighestFactoryTechLevel] < 3 or aiBrain[M28Economy.refiOurHighestNavalFactoryTech] > 0 or (GetGameTimeSeconds() <= 600 and GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryNavalFactory) == 0))) then
+                        or (aiBrain[M28Overseer.refbPrioritiseNavy] and iPlateau > 0 and (aiBrain[M28Economy.refiOurHighestFactoryTechLevel] < 3 or aiBrain[M28Economy.refiOurHighestNavalFactoryTech] > 0 or (GetGameTimeSeconds() <= 600 and GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryNavalFactory) == 0)))
+                        or (iLandFacsInZone + iAirFacsInZone >= 3 and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] < 2) then
                     if bDebugMessages == true then LOG(sFunctionRef..': Dont want more facs as want to tech or turtle, unless this zone has no factories') end
                     bWantMoreFactories = false
                     bDecided = true
@@ -2068,7 +2062,7 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
                     if iLandFacsInZone == 0 or (iAirFacsInZone == 0 and tLZTeamData[M28Map.subrefLZbCoreBase]) then
                         bWantMoreFactories = true --i.e. revert back to previous conclusion
                         if bDebugMessages == true then LOG(sFunctionRef..': low fac Personality- no land or air fac in zone, and either core base or no land fac') end
-                    elseif aiBrain[M28Overseer.refbPrioritiseHighTech] and aiBrain[M28Economy.refiOurHighestAirFactoryTech] >= 3 and aiBrain[M28Economy.refiOurHighestLandFactoryTech] >= 3 then
+                    elseif bTreatAsHighTechPersonality and aiBrain[M28Economy.refiOurHighestAirFactoryTech] >= 3 and aiBrain[M28Economy.refiOurHighestLandFactoryTech] >= 3 then
                         bWantMoreFactories = true --i.e. revert back to previous conclusion
                     elseif (aiBrain:GetEconomyStoredRatio('MASS') < 0.35 and aiBrain[M28Economy.refiNetMassBaseIncome] < 0) then
                         if bDebugMessages == true then LOG(sFunctionRef..': low fac Personality-Dont want more facs as want to tech or turtle or get navy') end
@@ -2354,18 +2348,7 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
         end
 
         local aiBrain = oOptionalBrainOverride or ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
-        local iLandEmergencyMode = M28Team.GetLandEmergencyModeForBrain(aiBrain)
         if bDebugMessages == true then LOG(sFunctionRef..': Near start, iLandFactoriesHave='..iLandFactoriesHave..'; Highest air fac tech='..(aiBrain[M28Economy.refiOurHighestAirFactoryTech] or 'nil')..'; bGoingSecondAir='..tostring(aiBrain[M28Economy.refbGoingSecondAir] or false)..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]..'; Focus on T1 spam='..tostring(M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam] or false)..'; oOptionalBrainOverride='..(oOptionalBrainOverride.Nickname or 'nil')..'; aiBrain='..(aiBrain.Nickname or 'nil')) end
-
-        if iLandEmergencyMode >= 2 then
-            if bDebugMessages == true then LOG(sFunctionRef..': Hard land emergency active so will prefer land factory immediately') end
-            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-            return false
-        elseif iLandEmergencyMode == 1 and iLandFactoriesHave > 0 and not(aiBrain[M28Overseer.refbPrioritiseAir]) and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] < math.max(600, M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 0) then
-            if bDebugMessages == true then LOG(sFunctionRef..': Soft land emergency active with manageable air threat so will bias toward land factory') end
-            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-            return false
-        end
 
         --Early game where ACU wants to go second air - build air fac if low on mass to avoid a case where we stall mass while trying to build 2 different factories at once
         if GetGameTimeSeconds() <= 240 then

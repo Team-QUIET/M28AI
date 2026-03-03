@@ -5870,7 +5870,7 @@ end
 function GetPriorityEnemyBaseLocationForLand(aiBrain)
     if aiBrain and aiBrain.M28Team then
         local tLandEmergencyState = M28Team.GetLandEmergencyState(aiBrain.M28Team)
-        if tLandEmergencyState and tLandEmergencyState[M28Team.subreftLandEmergencyEnemyBase] and M28Team.GetLandEmergencyModeForBrain(aiBrain) > 0 then
+        if tLandEmergencyState and tLandEmergencyState[M28Team.subreftLandEmergencyEnemyBase] and aiBrain[M28Overseer.refsDynamicPersonalityRole] == 'rush' then
             return tLandEmergencyState[M28Team.subreftLandEmergencyEnemyBase]
         end
     end

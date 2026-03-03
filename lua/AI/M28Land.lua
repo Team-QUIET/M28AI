@@ -11864,14 +11864,14 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
             end
             local oSupportBrain = ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
             local tLandEmergencyState = oSupportBrain and M28Team.GetLandEmergencyState(iTeam) or nil
-            local iLandEmergencyMode = oSupportBrain and M28Team.GetLandEmergencyModeForBrain(oSupportBrain) or 0
+            local sLandEmergencyRole = oSupportBrain and (oSupportBrain[M28Overseer.refsDynamicPersonalityRole] or 'base') or 'base'
             local iLandEmergencyTargetPlateau = tLandEmergencyState and tLandEmergencyState[M28Team.subrefiLandEmergencyPlateau] or nil
             local iLandEmergencyTargetLZ = tLandEmergencyState and tLandEmergencyState[M28Team.subrefiLandEmergencyTargetLZ] or nil
             function GetLandEmergencySupportBonus(iCandidateLZ, iEnemyThreat)
-                if iLandEmergencyMode > 0 and iLandEmergencyTargetPlateau == iPlateau and iLandEmergencyTargetLZ == iCandidateLZ then
-                    if iLandEmergencyMode >= 2 then
+                if iLandEmergencyTargetPlateau == iPlateau and iLandEmergencyTargetLZ == iCandidateLZ then
+                    if sLandEmergencyRole == 'rush' then
                         return math.max(1000, (iEnemyThreat or 0) * 0.75)
-                    else
+                    elseif sLandEmergencyRole == 'support' then
                         return math.max(400, (iEnemyThreat or 0) * 0.35)
                     end
                 end
@@ -15859,8 +15859,8 @@ function ConsiderMusteringForRetreat(oUnit, iTeam, iPlateau, iLandZone, iEnemyTh
     local sFunctionRef = 'ConsiderMusteringForRetreat'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    local iLandEmergencyMode = M28Team.GetLandEmergencyModeForBrain(oUnit:GetAIBrain())
-    if iLandEmergencyMode >= 2 then
+    local bRushDynamicPersonality = oUnit:GetAIBrain()[M28Overseer.refsDynamicPersonalityRole] == 'rush'
+    if bRushDynamicPersonality then
         local tLandEmergencyState = M28Team.GetLandEmergencyState(iTeam)
         local iEmergencyPlateau = tLandEmergencyState[M28Team.subrefiLandEmergencyPlateau]
         local iEmergencyTargetLZ = tLandEmergencyState[M28Team.subrefiLandEmergencyTargetLZ]
@@ -15868,7 +15868,7 @@ function ConsiderMusteringForRetreat(oUnit, iTeam, iPlateau, iLandZone, iEnemyTh
             local tEmergencyLZTeamData = M28Map.tAllPlateaus[iEmergencyPlateau][M28Map.subrefPlateauLandZones][iEmergencyTargetLZ][M28Map.subrefLZTeamData][iTeam]
             iLandZone = iEmergencyTargetLZ
             iEnemyThreat = math.max(iEnemyThreat, tEmergencyLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)
-            if bDebugMessages == true then LOG(sFunctionRef..': Land emergency retargeted mustering consideration to emergency LZ '..iLandZone..'; threat='..iEnemyThreat..'; mode='..iLandEmergencyMode) end
+            if bDebugMessages == true then LOG(sFunctionRef..': Dynamic rush personality retargeted mustering consideration to emergency LZ '..iLandZone..'; threat='..iEnemyThreat) end
         end
     end
 

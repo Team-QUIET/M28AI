@@ -1397,11 +1397,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     local iLandSubteam = aiBrain.M28LandSubteam
     local bHaveLowMass = M28Conditions.TeamHasLowMass(iTeam)
     local bHaveLowPower = M28Conditions.HaveLowPower(iTeam)
-    local tLandEmergencyState = M28Team.GetLandEmergencyState(iTeam)
-    local iLandEmergencyMode = M28Team.GetLandEmergencyModeForBrain(aiBrain)
-    local bHardLandEmergency = iLandEmergencyMode >= 2
-    local iLandEmergencyPlateau = tLandEmergencyState[M28Team.subrefiLandEmergencyPlateau]
-    local iLandEmergencyTargetLZ = tLandEmergencyState[M28Team.subrefiLandEmergencyTargetLZ]
     local tPriorityEnemyBase = M28Map.GetPriorityEnemyBaseLocationForLand(aiBrain) or tLZTeamData[M28Map.reftClosestEnemyBase]
     local bCanPathToEnemyWithLand = false
     if tLZData[M28Map.subrefLZIslandRef] == NavUtils.GetLabel(M28Map.refPathingTypeLand, tPriorityEnemyBase) then
@@ -1493,7 +1488,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     end
 
     --All conditions must pass
-    if not(bHardLandEmergency) and bPassGrossMass and bPassNetMass and bPassMassStorage and bPassEnergy and bPassCooldown and bPassConcurrent and bPassNotStallingMass and bPassHQRequirement then
+    if bPassGrossMass and bPassNetMass and bPassMassStorage and bPassEnergy and bPassCooldown and bPassConcurrent and bPassNotStallingMass and bPassHQRequirement then
         bGoodEconomyForUpgrade = true
     end
 
@@ -1985,12 +1980,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         bSaveMassDueToEnemyFirebaseOrOurExperimental = M28Conditions.WantToEcoDueToEnemyFirebase(iTeam, tLZTeamData, iPlateau)
     end
 
-    local iForcedEmergencyCategoryToBuild = nil
-    if bHardLandEmergency and iLandEmergencyPlateau == iPlateau and iLandEmergencyTargetLZ and not(iLandZone == iLandEmergencyTargetLZ) then
-        iForcedEmergencyCategoryToBuild = GetLandZoneSupportCategoryWanted(oFactory, iTeam, tLZTeamData, iPlateau, iLandZone, iLandEmergencyTargetLZ, false, bConsiderMobileShields, bConsiderMobileStealths, bConsiderAbsolvers, bSaveMassDueToEnemyFirebaseOrOurExperimental, nil, bDontConsiderLandScouts, bDontConsiderBuildingSkirmishers)
-        if bDebugMessages == true then LOG(sFunctionRef..': Hard land emergency target override, iLandEmergencyTargetLZ='..iLandEmergencyTargetLZ..'; iForcedEmergencyCategoryToBuild='..repru(iForcedEmergencyCategoryToBuild)) end
-    end
-
     iCategoryToBuild = M28UnitInfo.refCategoryEngineer --Placeholder
     local sBPIDToBuild
     local iCurrentConditionToTry = 0
@@ -2110,12 +2099,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     end
 
     --MAIN BUILDER LOGIC:
-    if iForcedEmergencyCategoryToBuild then
-        local sEmergencyBPID = ConsiderBuildingCategory(iForcedEmergencyCategoryToBuild)
-        if sEmergencyBPID then
-            return sEmergencyBPID
-        end
-    end
     --Workaround for issue with Aeon satellite centre categories:
     if oFactory.UnitId == 'bab2404' then
         iCurrentConditionToTry = iCurrentConditionToTry + 1
