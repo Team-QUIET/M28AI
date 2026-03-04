@@ -4307,19 +4307,26 @@ local ttBasePersonalityRefByLiveRef = {
     [M28Overseer.refbPrioritiseDefence] = M28Overseer.refbBasePrioritiseDefence,
 }
 
+local function GetBlankLandEmergencyState()
+    return {
+        [subrefiLandEmergencyEnemyBrainIndex] = nil,
+        [subreftLandEmergencyEnemyBase] = nil,
+        [subrefiLandEmergencyPlateau] = nil,
+        [subrefiLandEmergencyTargetLZ] = nil,
+        [subrefiLandEmergencyScore] = 0,
+        [subrefiLandEmergencyLastAboveThreshold] = 0,
+        [subrefiLandEmergencySupportBrainIndex] = nil,
+        [subreftsLandEmergencyRoleByBrainIndex] = {},
+        [subreftiLandEmergencyModeByBrainIndex] = {},
+    }
+end
+
 local function GetOrCreateLandEmergencyState(iTeam)
+    if not(iTeam and tTeamData[iTeam]) then
+        return GetBlankLandEmergencyState()
+    end
     if not(tTeamData[iTeam][subreftLandEmergencyState]) then
-        tTeamData[iTeam][subreftLandEmergencyState] = {
-            [subrefiLandEmergencyEnemyBrainIndex] = nil,
-            [subreftLandEmergencyEnemyBase] = nil,
-            [subrefiLandEmergencyPlateau] = nil,
-            [subrefiLandEmergencyTargetLZ] = nil,
-            [subrefiLandEmergencyScore] = 0,
-            [subrefiLandEmergencyLastAboveThreshold] = 0,
-            [subrefiLandEmergencySupportBrainIndex] = nil,
-            [subreftsLandEmergencyRoleByBrainIndex] = {},
-            [subreftiLandEmergencyModeByBrainIndex] = {},
-        }
+        tTeamData[iTeam][subreftLandEmergencyState] = GetBlankLandEmergencyState()
     elseif not(tTeamData[iTeam][subreftLandEmergencyState][subreftiLandEmergencyModeByBrainIndex]) then
         tTeamData[iTeam][subreftLandEmergencyState][subreftiLandEmergencyModeByBrainIndex] = {}
     end
