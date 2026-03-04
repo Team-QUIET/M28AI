@@ -2205,8 +2205,8 @@ function HaveEnoughThreatToAttack(iPlateau, iLandZone, tLZData, tLZTeamData, iOu
 
     local iDefaultThreatRatioWanted
     if iOptionalOverrideDefaultThreatRatioWanted then iDefaultThreatRatioWanted = iOptionalOverrideDefaultThreatRatioWanted
-    elseif bOptionalUseSlightlyLowerThreatRatio then iDefaultThreatRatioWanted = 1.15
-    else iDefaultThreatRatioWanted = 1.2
+    elseif bOptionalUseSlightlyLowerThreatRatio then iDefaultThreatRatioWanted = 0.9
+    else iDefaultThreatRatioWanted = 0.95
     end
 
     if bDebugMessages == true then LOG(sFunctionRef..': Deciding if have enough combat threat to attack, iOurCombatThreat='..iOurCombatThreat..'; iEnemyCombatThreat='..iEnemyCombatThreat..'; iFirebaseThreatAdjust='..iFirebaseThreatAdjust..'; bHaveSignificantCombatCloserToFirebase='..tostring(bHaveSignificantCombatCloserToFirebase)..'; iTeam='..(iTeam or 'nil')..'; LZ value='..tLZTeamData[M28Map.subrefLZTValue]..'; Map size='..M28Map.iMapSize..'; Time='..GetGameTimeSeconds()..'; subrefLZSValue='..tLZTeamData[M28Map.subrefLZSValue]..'; tLZTeamData[M28Map.refiModDistancePercent]='..tLZTeamData[M28Map.refiModDistancePercent]) end
@@ -2266,19 +2266,6 @@ function HaveEnoughThreatToAttack(iPlateau, iLandZone, tLZData, tLZTeamData, iOu
                     return true
                 end
             end
-        end
-    end
-
-    --Combat debug logging with cooldown (every 30 seconds per zone) when we don't have enough threat to attack
-    if bDebugMessages == true then
-        local iCurTime = GetGameTimeSeconds()
-        local iLastLogTime = tLZTeamData[M28Map.refiTimeLastCombatDebugLog] or 0
-        if iCurTime - iLastLogTime >= 30 and iEnemyCombatThreat > 0 then
-            tLZTeamData[M28Map.refiTimeLastCombatDebugLog] = iCurTime
-            local iActualRatio = iEnemyCombatThreat > 0 and (math.floor(iOurCombatThreat/iEnemyCombatThreat*100)/100) or 999
-            local iEnemyPDThreat = tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0
-            local iEnemyMobileDFThreat = tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0
-            LOG(sFunctionRef..': [P'..iPlateau..'-LZ'..iLandZone..'] NOT attacking. OurThreat='..iOurCombatThreat..', EnemyTotal='..iEnemyCombatThreat..', EnemyPD='..iEnemyPDThreat..', EnemyMobileDF='..iEnemyMobileDFThreat..', FirebaseAdj='..iFirebaseThreatAdjust..', RatioNeeded='..iDefaultThreatRatioWanted..', ActualRatio='..iActualRatio..', Time='..iCurTime)
         end
     end
 

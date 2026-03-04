@@ -9976,8 +9976,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             if bDebugMessages == true then LOG(sFunctionRef..': Will attack with everything as ACU is in trouble') end
                         end
                         if bDebugMessages == true then LOG(sFunctionRef..': We dont outrange enemy, considering if we have much more threat than them, iEnemyCombatThreat='..iEnemyCombatThreat..'; iOurDFAndT1ArtiCombatThreat='..iOurDFAndT1ArtiCombatThreat..'; bWantReinforcements='..tostring(bWantReinforcements)..'; bAttackWithEverything='..tostring(bAttackWithEverything)..'; iClosestFriendlyUnitToAnEnemyFirebase='..iClosestFriendlyUnitToAnEnemyFirebase..'; iFirebaseThreatAdjust='..iFirebaseThreatAdjust..'; bHaveACUInTroubleAndRecentlyInCombat='..tostring(bHaveACUInTroubleAndRecentlyInCombat or false)..'; tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat]='..tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat]..'; bAttackWithEverything='..tostring(bAttackWithEverything)) end
-                        --Early/mid game attack - if we have 1.2x+ threat, attack regardless of enemy range
-                        if not(bAttackWithEverything) and iOurDFAndT1ArtiCombatThreat > math.max(900, iEnemyCombatThreat * 1.2) then
+                        --Early/mid game attack - if we have 1.05x+ threat, attack regardless of enemy range
+                        if not(bAttackWithEverything) and iOurDFAndT1ArtiCombatThreat > math.max(900, iEnemyCombatThreat * 1.05) then
                             if bDebugMessages == true then LOG(sFunctionRef..': We have 1.2x+ threat advantage, pressing attack regardless of range. iOurDFAndT1ArtiCombatThreat='..iOurDFAndT1ArtiCombatThreat..'; iEnemyCombatThreat='..iEnemyCombatThreat) end
                             bAttackWithEverything = true
                         end
