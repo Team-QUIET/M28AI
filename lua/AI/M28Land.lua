@@ -6301,7 +6301,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
             --Muster threshold: base 1.2 (need 20% advantage), reduced when defending territory
             local iModDistPercent = tLZTeamData[M28Map.refiModDistancePercent] or 50
             local iZoneValue = tLZTeamData[M28Map.subrefLZSValue] or 0
-            local iMusterMultiplier = 1.2
+            local iMusterMultiplier = 1.05
                 - (iModDistPercent < 30 and 0.15 or iModDistPercent < 50 and 0.10 or 0)
                 - (iZoneValue >= 2000 and 0.10 or iZoneValue >= 500 and 0.05 or 0)
             iMusterMultiplier = math.max(1.0, iMusterMultiplier)
@@ -7186,12 +7186,12 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 local iIntelLevel = M28Intel.GetIntelConfidenceLevel(iIntelConfidence)
                 if iIntelLevel == M28Intel.refiIntelLow then
                     -- Low intel means enemy could have more units than we know about - be more cautious
-                    local iThreatMultiplier = 1.3 -- Assume 30% more threat when intel is poor
+                    local iThreatMultiplier = 1.15 -- Assume 15% more threat when intel is poor
                     iEnemyCombatThreat = iEnemyCombatThreat * iThreatMultiplier
                     if bDebugMessages == true then LOG(sFunctionRef..': Low intel confidence ('..iIntelConfidence..') - boosting enemy threat estimate by 30%') end
                 elseif iIntelLevel == M28Intel.refiIntelMedium then
                     -- Medium intel - slight caution
-                    local iThreatMultiplier = 1.1
+                    local iThreatMultiplier = 1.05
                     iEnemyCombatThreat = iEnemyCombatThreat * iThreatMultiplier
                     if bDebugMessages == true then LOG(sFunctionRef..': Medium intel confidence ('..iIntelConfidence..') - boosting enemy threat estimate by 10%') end
                 end
@@ -10142,7 +10142,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     --Override attack decision if we should muster (enemy has equal or greater threat)
                     --This is the final check before acting on the decision - ensures we don't attack when outgunned
                     if bAttackWithEverything and bShouldMusterNotAttack then
-                        bAttackWithEverything = false
+                        if iOurDFAndT1ArtiCombatThreat <= iEnemyCombatThreat * 1.05 and not(bHaveACUInTroubleAndRecentlyInCombat) then
+                            bAttackWithEverything = false
+                        end
                         bWantReinforcements = true
                         if bDebugMessages == true then LOG(sFunctionRef..': Overriding bAttackWithEverything to false due to bShouldMusterNotAttack=true, will muster/retreat instead') end
                     end
