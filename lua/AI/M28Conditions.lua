@@ -4164,12 +4164,6 @@ function PrioritiseSniperBots(tLZData, iTeam, tLZTeamData, iPlateau, iLandZone, 
         else LOG(sFunctionRef..': Enemy has no land exp')
         end
     end
-    --DF-first QUIET tuning: disable sniper-priority escalation in QUIET to prevent overproduction.
-    if M28Utilities.bQuietModActive then
-        if bDebugMessages == true then LOG(sFunctionRef..': QUIET mode active, disabling PrioritiseSniperBots') end
-        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-        return false
-    end
     if tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] < 2600 then --If enemy has lots of sniperbots then we probably lose in a fight (if we check for them), but main purpose of this is ravagers since they now outrange sniperbots in FAF, so better off going for t3 mobile arti
         local bDangerousExperimentalOrACUThreat = false
         local bEnemyHasLongRangeThreat = false

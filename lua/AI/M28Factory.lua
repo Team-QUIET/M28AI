@@ -282,6 +282,28 @@ function GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryCondition, oFactor
 
 end
 
+local function GetLongRangeT3BuildAllowance(aiBrain, iTeam, tLZTeamData)
+    --Returns whether we can add more T3 sniper or T3 mobile artillery without skewing armies away from direct-fire.
+    local iT3DFCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand * categories.TECH3 - M28UnitInfo.refCategorySkirmisher)
+    local iT3SniperCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategorySniperBot * categories.TECH3)
+    local iT3MobileArtiCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryT3MobileArtillery)
+    local iT3SniperUnderConstruction = 0
+    local iT3MobileArtiUnderConstruction = 0
+    if tLZTeamData then
+        iT3SniperUnderConstruction = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategorySniperBot * categories.TECH3, false)
+        iT3MobileArtiUnderConstruction = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryT3MobileArtillery, false)
+    end
+    local bEnemyHasLandExperimental = M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]) == false
+    local bEnemyHasNearbyFirebase = tLZTeamData and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftEnemyFirebasesInRange]) == false
+
+    local iMaxSnipersWanted = math.max(2, math.floor(iT3DFCount * (bEnemyHasLandExperimental and 0.35 or 0.28)))
+    local iMaxT3MobileArtiWanted = math.max((bEnemyHasNearbyFirebase and 2 or 1), math.floor(iT3DFCount * (bEnemyHasNearbyFirebase and 0.22 or 0.16)))
+
+    local bCanAddT3Sniper = iT3DFCount >= 8 and (iT3SniperCount + iT3SniperUnderConstruction) < iMaxSnipersWanted
+    local bCanAddT3MobileArti = iT3DFCount >= 10 and (iT3MobileArtiCount + iT3MobileArtiUnderConstruction) < iMaxT3MobileArtiWanted
+    return bCanAddT3Sniper, bCanAddT3MobileArti
+end
+
 function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamData, iFactoryTechLevel)
     --Blacklisted units (done on land subteam basis - in theory should work ok if use naval units or air units here as well)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
@@ -393,6 +415,17 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
         if bDebugMessages == true then LOG(sFunctionRef..': Unit is on blacklist so dont want to build') end
         sBPIDToBuild = nil
     else
+        --Deprioritize overrepresented T3 snipers and T3 mobile artillery.
+        if sBPIDToBuild and (EntityCategoryContains(M28UnitInfo.refCategorySniperBot * categories.TECH3, sBPIDToBuild) or EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, sBPIDToBuild)) then
+            local bCanAddT3Sniper, bCanAddT3MobileArti = GetLongRangeT3BuildAllowance(aiBrain, iTeam, tLZTeamData)
+            local bShouldReplaceWithDF = (EntityCategoryContains(M28UnitInfo.refCategorySniperBot * categories.TECH3, sBPIDToBuild) and not(bCanAddT3Sniper))
+                or (EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, sBPIDToBuild) and not(bCanAddT3MobileArti))
+            if bShouldReplaceWithDF then
+                local sFallbackBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher, oFactory)
+                if bDebugMessages == true then LOG(sFunctionRef..': Replacing overrepresented long-range T3 pick with DF if possible. Original='..sBPIDToBuild..'; Fallback='..(sFallbackBlueprint or 'nil')) end
+                if sFallbackBlueprint then sBPIDToBuild = sFallbackBlueprint end
+            end
+        end
         if not(ScenarioInfo.Options.M28PrioritiseBPs == 2) then
             if M28Utilities.bQuietModActive then
                 local iTeam = aiBrain.M28Team
@@ -2572,14 +2605,16 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             local iT3MobileArtiWanted = math.max(iEnemyT3MobileArtiCount, math.floor(iEnemyT3MobileArtiCount))
             if bDebugMessages == true then LOG(sFunctionRef..': Our T3 mobile arti='..iOurT3MobileArtiCount..'; Under construction='..iT3MobileArtiUnderConstruction..'; Wanted='..iT3MobileArtiWanted) end
             if iOurT3MobileArtiCount + iT3MobileArtiUnderConstruction < iT3MobileArtiWanted then
-                if ConsiderBuildingCategory(M28UnitInfo.refCategoryT3MobileArtillery) then return sBPIDToBuild end
+                local _, bCanAddT3MobileArti = GetLongRangeT3BuildAllowance(aiBrain, iTeam, tLZTeamData)
+                if bCanAddT3MobileArti and ConsiderBuildingCategory(M28UnitInfo.refCategoryT3MobileArtillery) then return sBPIDToBuild end
+                if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher) then return sBPIDToBuild end
             end
         end
     end
 
-    --Want to prioritise sniperbots to deal with enemy land experimental (when enemy lacks fatboy/megalith) or ACU; exception in QUIET though as land experimentals can be faster
+    --Want to prioritise sniperbots to deal with enemy land experimental (when enemy lacks fatboy/megalith) or ACU.
     iCurrentConditionToTry = iCurrentConditionToTry + 1
-    if not(M28Utilities.bQuietModActive) and (M28Utilities.bLoudModActive or EntityCategoryContains(categories.AEON + categories.SERAPHIM, oFactory.UnitId)) and not(bHaveLowMass) and (iFactoryTechLevel == 3 or tLZTeamData[M28Map.subrefLZbCoreBase]) then
+    if (M28Utilities.bLoudModActive or EntityCategoryContains(categories.AEON + categories.SERAPHIM, oFactory.UnitId)) and not(bHaveLowMass) and (iFactoryTechLevel == 3 or tLZTeamData[M28Map.subrefLZbCoreBase]) then
         --Don't build sniperbots if enemy has 3+ T3 mobile artillery (they hard counter sniperbots)
         local bEnemyHasT3MobileArtiCounter = false
         if iFactoryTechLevel >= 3 then
@@ -2695,11 +2730,15 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                     end
                     if bDebugMessages == true then LOG(sFunctionRef..': iBrainLifetimeSniperBuild='..iBrainLifetimeSniperBuild..'; bGetMobileArtiBeforeSniperBot='..tostring(bGetMobileArtiBeforeSniperBot)) end
                     if bGetMobileArtiBeforeSniperBot then
-                        if ConsiderBuildingCategory(M28UnitInfo.refCategoryT3MobileArtillery) then return sBPIDToBuild end
+                        local _, bCanAddT3MobileArti = GetLongRangeT3BuildAllowance(aiBrain, iTeam, tLZTeamData)
+                        if bCanAddT3MobileArti and ConsiderBuildingCategory(M28UnitInfo.refCategoryT3MobileArtillery) then return sBPIDToBuild end
+                        if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher) then return sBPIDToBuild end
                     end
 
                 end
-                if ConsiderBuildingCategory(M28UnitInfo.refCategorySniperBot) then return sBPIDToBuild end
+                local bCanAddT3Sniper = GetLongRangeT3BuildAllowance(aiBrain, iTeam, tLZTeamData)
+                if bCanAddT3Sniper and ConsiderBuildingCategory(M28UnitInfo.refCategorySniperBot) then return sBPIDToBuild end
+                if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher) then return sBPIDToBuild end
             end
         end
     end
@@ -3225,9 +3264,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                                         iDirectThreatPerIndirectThreatWanted = iDirectThreatPerIndirectThreatWanted * 2
                                     end
 
-                                    if M28Utilities.bQuietModActive then
-                                        iDirectThreatPerIndirectThreatWanted = iDirectThreatPerIndirectThreatWanted * 0.8
-                                    end
                                     local iIndirectThreatWanted = math.max(100, math.min(10000, iDFTotalThreat) / iDirectThreatPerIndirectThreatWanted)
                                     if iDFTotalThreat > 10000 then
                                         iDirectThreatPerIndirectThreatWanted = iDirectThreatPerIndirectThreatWanted * 2
@@ -3240,7 +3276,9 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 
 
                                     if iDFTotalThreat >= 8000 and iIndirectTotalThreat < iIndirectThreatWanted and iEnemyAirToGroundThreat <= tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] then
-                                        if ConsiderBuildingCategory(M28UnitInfo.refCategoryT3MobileArtillery) then return sBPIDToBuild end
+                                        local _, bCanAddT3MobileArti = GetLongRangeT3BuildAllowance(aiBrain, iTeam, tLZTeamData)
+                                        if bCanAddT3MobileArti and ConsiderBuildingCategory(M28UnitInfo.refCategoryT3MobileArtillery) then return sBPIDToBuild end
+                                        if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher) then return sBPIDToBuild end
                                     elseif ConsiderBuildingCategory(iCategoryToGet) then
                                         return sBPIDToBuild
                                     end
