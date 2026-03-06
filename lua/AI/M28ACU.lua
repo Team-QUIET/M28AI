@@ -1539,28 +1539,28 @@ function GetUpgradePathForACU(oACU, bWantToDoTeleSnipe)
             if bWantCombatPath then
                 oACU[reftPreferredUpgrades] = {'EXGattlingEnergyCannon', 'EXShieldBubble', 'EXImprovedCoolingSystem', 'EXActiveSkinShield', 'EXEnergyShellHardener', 'EXAdvancedSkinShield'}
             else
-                oACU[reftPreferredUpgrades] = {'EXImprovedEngineering', 'EXAdvancedEngineering', 'EXShieldBubble', 'EXExperimentalEngineering', 'EXActiveSkinShield'}
+                oACU[reftPreferredUpgrades] = {'EXImprovedEngineering', 'EXAdvancedEngineering', 'EXShieldBubble', 'EXActiveSkinShield'}
             end
         elseif EntityCategoryContains(categories.AEON, oACU.UnitId) then
             --Aeon BlackOps ACU: Beam path + Shield path
             if bWantCombatPath then
                 oACU[reftPreferredUpgrades] = {'EXBeamPhason', 'EXShieldBubble', 'EXImprovedCoolingSystem', 'EXActiveSkinShield', 'EXPowerBooster', 'EXAdvancedSkinShield'}
             else
-                oACU[reftPreferredUpgrades] = {'EXImprovedEngineering', 'EXAdvancedEngineering', 'EXShieldBubble', 'EXExperimentalEngineering', 'EXActiveSkinShield'}
+                oACU[reftPreferredUpgrades] = {'EXImprovedEngineering', 'EXAdvancedEngineering', 'EXShieldBubble', 'EXActiveSkinShield'}
             end
         elseif EntityCategoryContains(categories.CYBRAN, oACU.UnitId) then
             --Cybran BlackOps ACU: Laser path + Stealth/Regen path
             if bWantCombatPath then
                 oACU[reftPreferredUpgrades] = {'EXMasor', 'EXAgilityPackage', 'EXImprovedCoolingSystem', 'EXArmorPlating', 'EXAdvancedEmitterArray', 'EXRegenPackage'}
             else
-                oACU[reftPreferredUpgrades] = {'EXImprovedEngineering', 'EXAdvancedEngineering', 'EXStealthField', 'EXExperimentalEngineering', 'EXCloakingSubsystems'}
+                oACU[reftPreferredUpgrades] = {'EXImprovedEngineering', 'EXAdvancedEngineering', 'EXStealthField', 'EXCloakingSubsystems'}
             end
         elseif EntityCategoryContains(categories.SERAPHIM, oACU.UnitId) then
             --Seraphim BlackOps ACU: Storm Cannon path + Lambda path
             if bWantCombatPath then
                 oACU[reftPreferredUpgrades] = {'EXStormCannon', 'EXL1Lambda', 'EXStormCannonII', 'EXL2Lambda', 'EXStormCannonIII'}
             else
-                oACU[reftPreferredUpgrades] = {'EXImprovedEngineering', 'EXAdvancedEngineering', 'EXL1Lambda', 'EXExperimentalEngineering', 'EXL2Lambda'}
+                oACU[reftPreferredUpgrades] = {'EXImprovedEngineering', 'EXAdvancedEngineering', 'EXL1Lambda', 'EXL2Lambda'}
             end
         end
         if bDebugMessages == true then LOG(sFunctionRef..': QUIET BlackOps ACU path selected, bWantCombatPath='..tostring(bWantCombatPath)..'; upgrades='..repru(oACU[reftPreferredUpgrades])) end
