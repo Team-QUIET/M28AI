@@ -982,14 +982,22 @@ function OnEnhancementComplete(oUnit, sEnhancement)
                     else
                         M28UnitInfo.SetUnitWeaponTargetPriorities(oUnit, M28UnitInfo.refWeaponPriorityTeleSnipeExclACU, false)
                     end
-                elseif sEnhancement == 'AdvancedEngineering' then
+                elseif sEnhancement == 'AdvancedEngineering' or sEnhancement == 'EXImprovedEngineering' then
                     oUnit[M28ACU.refiBuildTech] = 2
-                elseif sEnhancement == 'T3Engineering' then
+                elseif sEnhancement == 'T3Engineering' or sEnhancement == 'EXAdvancedEngineering' then
                     oUnit[M28ACU.refiBuildTech] = 3
-                elseif sEnhancement == 'AdvancedEngineeringRemove' then
-                    oUnit[M28ACU.refiBuildTech] = 1
-                elseif sEnhancement == 'T3EngineeringRemove' then
-                    oUnit[M28ACU.refiBuildTech] = 1
+                elseif sEnhancement == 'EXExperimentalEngineering' then
+                    oUnit[M28ACU.refiBuildTech] = 4
+                elseif sEnhancement == 'AdvancedEngineeringRemove' or sEnhancement == 'T3EngineeringRemove' or sEnhancement == 'EXImprovedEngineeringRemove' or sEnhancement == 'EXAdvancedEngineeringRemove' or sEnhancement == 'EXExperimentalEngineeringRemove' then
+                    if oUnit:HasEnhancement('EXExperimentalEngineering') then
+                        oUnit[M28ACU.refiBuildTech] = 4
+                    elseif oUnit:HasEnhancement('EXAdvancedEngineering') or oUnit:HasEnhancement('T3Engineering') then
+                        oUnit[M28ACU.refiBuildTech] = 3
+                    elseif oUnit:HasEnhancement('EXImprovedEngineering') or oUnit:HasEnhancement('AdvancedEngineering') then
+                        oUnit[M28ACU.refiBuildTech] = 2
+                    else
+                        oUnit[M28ACU.refiBuildTech] = 1
+                    end
                 elseif  sEnhancement == 'StealthGenerator' or sEnhancement == 'FAF_SelfRepairSystem' or sEnhancement == 'CloakingGenerator' then
                     if oUnit[M28Land.refoAssignedMobileStealth] then
                         oUnit[M28Land.refoAssignedMobileStealth][M28Land.refoMobileStealthTarget] = nil

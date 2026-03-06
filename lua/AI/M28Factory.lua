@@ -1136,7 +1136,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
                             local iCurSkirmishersOfTech = oFactory:GetAIBrain():GetCurrentUnits(M28UnitInfo.refCategorySkirmisher * iTechCategory)
                             local iCurDFOfTech = oFactory:GetAIBrain():GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand * iTechCategory)
 
-                            if iCurDFOfTech >= iCurSkirmishersOfTech * 8 and iCurDFOfTech >= 25 and iCurSkirmishersOfTech < 10 then
+                            if iCurDFOfTech >= iCurSkirmishersOfTech * 10 and iCurDFOfTech >= 30 and iCurSkirmishersOfTech < 4 then
                                 iBaseCategoryWanted = M28UnitInfo.refCategorySkirmisher * iTechCategory
                                 if bDebugMessages == true then LOG(sFunctionRef..': Have solid DF core (DF='..iCurDFOfTech..', Skirmishers='..iCurSkirmishersOfTech..'), can build skirmishers') end
                             else
@@ -1146,7 +1146,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
                             -- No nearby enemies, can build some skirmishers if we have enough direct-fire units
                             local iCurDFOfTech = oFactory:GetAIBrain():GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand * iTechCategory)
                             local iCurSkirmishersOfTech = oFactory:GetAIBrain():GetCurrentUnits(M28UnitInfo.refCategorySkirmisher * iTechCategory)
-                            if iCurDFOfTech >= 30 and iCurSkirmishersOfTech < 10 then
+                            if iCurDFOfTech >= 40 and iCurSkirmishersOfTech < 4 then
                                 iBaseCategoryWanted = M28UnitInfo.refCategorySkirmisher * iTechCategory
                                 if bDebugMessages == true then LOG(sFunctionRef..': No nearby enemies and have enough DF units, can build skirmishers') end
                             end
@@ -1838,13 +1838,13 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         LOG(sFunctionRef .. ': Skirmisher check: iSkirmisherCount=' .. iSkirmisherCount .. '; iDirectFireCount=' .. iDirectFireCount .. '; iEnemyGroundThreat=' .. iEnemyGroundThreat)
     end
 
-    local iMaxSkirmishers = 12
+    local iMaxSkirmishers = 6
     if iSkirmisherCount >= iMaxSkirmishers then
         bDontConsiderBuildingSkirmishers = true
         if bDebugMessages == true then LOG(sFunctionRef..': Hit skirmisher hard cap ('..iSkirmisherCount..'/'..iMaxSkirmishers..'), will prioritize direct-fire units') end
     elseif iSkirmisherCount > 0 and iDirectFireCount >= 0 then
         local iSkirmisherToDirectFireRatio = iSkirmisherCount / math.max(1, iDirectFireCount)
-        local iDesiredSkirmisherToDirectFireRatio = 0.10
+        local iDesiredSkirmisherToDirectFireRatio = 0.06
 
         -- Detect "deathball" scenario - large concentrated enemy ground force
         local iEnemyMobileDFThreat = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] or 0
@@ -1852,11 +1852,11 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 
         -- If enemy has large ground concentration (deathball), reduce skirmisher ratio even more
         if iEnemyMobileDFThreat >= 2000 or iEnemyGroundConcentration >= 1500 then
-            iDesiredSkirmisherToDirectFireRatio = 0.06 -- 1 skirmisher per 16 direct-fire units
-            if bDebugMessages == true then LOG(sFunctionRef..': Enemy deathball detected (MobileDFThreat='..iEnemyMobileDFThreat..', GroundConcentration='..iEnemyGroundConcentration..'), reducing skirmisher ratio to 0.06') end
+            iDesiredSkirmisherToDirectFireRatio = 0.04 -- 1 skirmisher per 25 direct-fire units
+            if bDebugMessages == true then LOG(sFunctionRef..': Enemy deathball detected (MobileDFThreat='..iEnemyMobileDFThreat..', GroundConcentration='..iEnemyGroundConcentration..'), reducing skirmisher ratio to 0.04') end
         elseif iEnemyMobileDFThreat >= 1000 or iEnemyGroundConcentration >= 800 then
-            iDesiredSkirmisherToDirectFireRatio = 0.08 -- 1 skirmisher per 12 direct-fire units
-            if bDebugMessages == true then LOG(sFunctionRef..': Significant enemy ground force detected, reducing skirmisher ratio to 0.08') end
+            iDesiredSkirmisherToDirectFireRatio = 0.05 -- 1 skirmisher per 20 direct-fire units
+            if bDebugMessages == true then LOG(sFunctionRef..': Significant enemy ground force detected, reducing skirmisher ratio to 0.05') end
         end
 
         -- If we have too many skirmishers relative to direct-fire units, stop building skirmishers
@@ -2579,7 +2579,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 
     --Want to prioritise sniperbots to deal with enemy land experimental (when enemy lacks fatboy/megalith) or ACU; exception in QUIET though as land experimentals can be faster
     iCurrentConditionToTry = iCurrentConditionToTry + 1
-    if (M28Utilities.bLoudModActive or EntityCategoryContains(categories.AEON + categories.SERAPHIM, oFactory.UnitId)) and not(bHaveLowMass) and (iFactoryTechLevel == 3 or tLZTeamData[M28Map.subrefLZbCoreBase]) then
+    if not(M28Utilities.bQuietModActive) and (M28Utilities.bLoudModActive or EntityCategoryContains(categories.AEON + categories.SERAPHIM, oFactory.UnitId)) and not(bHaveLowMass) and (iFactoryTechLevel == 3 or tLZTeamData[M28Map.subrefLZbCoreBase]) then
         --Don't build sniperbots if enemy has 3+ T3 mobile artillery (they hard counter sniperbots)
         local bEnemyHasT3MobileArtiCounter = false
         if iFactoryTechLevel >= 3 then
@@ -3270,7 +3270,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 
                 if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandCombat * categories.TECH2) then
                     return sBPIDToBuild
-                elseif ConsiderBuildingCategory(M28UnitInfo.refCategorySkirmisher * categories.TECH2) then
+                elseif not(bDontConsiderBuildingSkirmishers) and ConsiderBuildingCategory(M28UnitInfo.refCategorySkirmisher * categories.TECH2) then
                     return sBPIDToBuild
                 end
             end
@@ -3462,19 +3462,9 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             end
         end
 
-
         --Initial T2+ tanks if have at least 5 engis of our current tech level and dont have many tanks, and can path to enemy by land (core base only)
         local iSkirmisherCategory = M28UnitInfo.refCategorySkirmisher * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)
         if M28Utilities.bLoudModActive and iFactoryTechLevel == 2 and categories.brmt2medm then iSkirmisherCategory = iSkirmisherCategory + categories.brmt2medm end
-        --If enemy has T3 then change skirmisher category to just be normal tanks
-        if M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] >= 3 then
-            if bDebugMessages == true then LOG(sFunctionRef..': Enemy has T3 tech so will include t1 arti in our skirmisher category, totalbuildcount='..oFactory[refiTotalBuildCount]..'; LowMass='..tostring(bHaveLowMass)..'; % mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]) end
-            if iFactoryTechLevel == 2  then
-                if math.random(1,2)==1 then iSkirmisherCategory = M28UnitInfo.refCategoryIndirect else iSkirmisherCategory = M28UnitInfo.refCategoryIndirect * categories.TECH1 end
-            elseif iFactoryTechLevel == 1 then iSkirmisherCategory = M28UnitInfo.refCategoryIndirect * categories.TECH1
-            else iSkirmisherCategory = iSkirmisherCategory - categories.TECH1 - categories.TECH2
-            end
-        end
 
         --If we think enemy is turtling then dont build unless we have significantly more eco
         local bSaveMassForTurtling
@@ -3513,10 +3503,10 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             end
             if iCurIsland == iEnemyIsland and (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] <= 8000 or M28Conditions.TeamHasAirControl(iTeam)) and math.min(8 - M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount], aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel))) > math.max(1, aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMobileLand * categories.DIRECTFIRE * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel))) then
                 if bCanPathToEnemyWithLand then
-                    if iFactoryTechLevel == 2 and not(aiBrain.M28Easy) and (oFactory[refiTotalBuildCount] <= 3 or aiBrain:GetCurrentUnits(iSkirmisherCategory) < 12) and ConsiderBuildingCategory(iSkirmisherCategory) then
+                    if iFactoryTechLevel == 2 and not(aiBrain.M28Easy) and not(bDontConsiderBuildingSkirmishers) and (oFactory[refiTotalBuildCount] <= 3 or aiBrain:GetCurrentUnits(iSkirmisherCategory) < 6) and ConsiderBuildingCategory(iSkirmisherCategory) then
                         if bDebugMessages == true then LOG(sFunctionRef..': Will try building skirmisher as T2 fac on same island as enemy base') end
                         return sBPIDToBuild
-                    elseif iFactoryTechLevel == 3 and not(aiBrain.M28Easy) and oFactory[refiTotalBuildCount] >= 5 and (oFactory[refiTotalBuildCount] >= 10 or (M28Team.tTeamData[iTeam][M28Team.refiEnemyHighestMobileLandHealth] >= 2400 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 3)) and (oFactory[refiTotalBuildCount] <= 6 or aiBrain:GetCurrentUnits(iSkirmisherCategory) < 12) and ConsiderBuildingCategory(iSkirmisherCategory) then
+                    elseif iFactoryTechLevel == 3 and not(aiBrain.M28Easy) and not(bDontConsiderBuildingSkirmishers) and oFactory[refiTotalBuildCount] >= 5 and (oFactory[refiTotalBuildCount] >= 10 or (M28Team.tTeamData[iTeam][M28Team.refiEnemyHighestMobileLandHealth] >= 2400 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 3)) and (oFactory[refiTotalBuildCount] <= 6 or aiBrain:GetCurrentUnits(iSkirmisherCategory) < 6) and ConsiderBuildingCategory(iSkirmisherCategory) then
                         if bDebugMessages == true then LOG(sFunctionRef..': Will try building skirmisher as T3 fac') end
                         return sBPIDToBuild
                     elseif ConsiderBuildingCategory(M28UnitInfo.refCategoryLandCombat * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)) then
@@ -4017,7 +4007,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                         LOG(sFunctionRef .. ': Have fewer DF tanks than engineers so want to get more skirmishers or (if cant build any) DF tanks')
                     end
 
-                    if (not(tLZTeamData[M28Map.refbEnemiesInNearbyPlateau]) or iIndirectFireOfThisTech >= 8) and not(aiBrain.M28Easy) and (oFactory[refiTotalBuildCount] <= 5 or aiBrain:GetCurrentUnits(iSkirmisherCategory) < 25) and ConsiderBuildingCategory(iSkirmisherCategory) then
+                    if (not(tLZTeamData[M28Map.refbEnemiesInNearbyPlateau]) or iIndirectFireOfThisTech >= 8) and not(aiBrain.M28Easy) and not(bDontConsiderBuildingSkirmishers) and (oFactory[refiTotalBuildCount] <= 5 or aiBrain:GetCurrentUnits(iSkirmisherCategory) < 8) and ConsiderBuildingCategory(iSkirmisherCategory) then
                         return sBPIDToBuild
                     else
                         --Cant get skirmishers (or dont want to), so get indirect fire if we have none before getting normal tnaks
@@ -4615,7 +4605,9 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                 elseif bHaveHighestLZTech or (iFactoryTechLevel == aiBrain[M28Economy.refiOurHighestLandFactoryTech] - 1 and ((iFactoryTechLevel == 1 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat - categories.TECH1) <= 6) or (iFactoryTechLevel == 2 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * categories.TECH3) <= 6))) then
                     if bDebugMessages == true then LOG(sFunctionRef..': Will get tanks and skirmishers if can path by land, bCanPathToEnemyWithLand='..tostring(bCanPathToEnemyWithLand)) end
                     if bCanPathToEnemyWithLand then
-                        if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileDFLand + iSkirmisherCategory - M28UnitInfo.refCategoryLightAttackBot) then
+                        local iDFCategoryWanted = M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategoryLightAttackBot
+                        if not(bDontConsiderBuildingSkirmishers) then iDFCategoryWanted = iDFCategoryWanted + iSkirmisherCategory end
+                        if ConsiderBuildingCategory(iDFCategoryWanted) then
                             return sBPIDToBuild
                         end
                     else
@@ -4741,7 +4733,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 
         --Want factories to have a lifetime build count of indirect fire units
         iCurrentConditionToTry = iCurrentConditionToTry + 1
-        if not(bHaveLowMass) and (oFactory[refiTotalBuildCount] <= 5 or aiBrain:GetEconomyStoredRatio('MASS') >= 0.2 or aiBrain:GetEconomyStored('MASS') >= 400 or iFactoryTechLevel >= 2 or not(tLZData[M28Map.subrefLZIslandRef] == NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestFriendlyBase]))) and ((bCanPathToEnemyWithLand and M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryIndirect, false) < 5) or (not(bCanPathToEnemyWithLand) and M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryIndirect, false) < 1)) then
+        if not(bHaveLowMass) and (oFactory[refiTotalBuildCount] <= 5 or aiBrain:GetEconomyStoredRatio('MASS') >= 0.2 or aiBrain:GetEconomyStored('MASS') >= 400 or iFactoryTechLevel >= 2 or not(tLZData[M28Map.subrefLZIslandRef] == NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestFriendlyBase]))) and (bCanPathToEnemyWithLand and M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryIndirect, false) < 1) then
             if bDebugMessages == true then LOG(sFunctionRef..': Factory lifetime indirect build count is low so will get indirect') end
             if ConsiderBuildingCategory(M28UnitInfo.refCategoryIndirect) then return sBPIDToBuild end
         end

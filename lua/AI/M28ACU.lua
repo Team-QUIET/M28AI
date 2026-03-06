@@ -31,7 +31,7 @@ refiUpgradeCount = 'M28ACUUpgradeCount' --Number of upgrades the ACU has
 refbTriedAndFailedToGetBuildRateUpgrade = 'M28ACUFailBRU' --for SACUs - true if we tried to improve their build rate and failed
 refiHealthWhenStartedUpgrade = 'M28AHStU'
 reftiUpgradingHealthData = 'M28AHUpL' --[x] is the previous cycle, returns ACU health; reset when starting an upgrade
-refiBuildTech = 'M28ACUTcL' --Tech levle the ACU can build (i.e. 2 if it has t2 upgrade, 3 if it has t3 upgrade)
+refiBuildTech = 'M28ACUTcL' --Tech level the ACU can build (i.e. 2 for T2 engineering, 3 for T3 engineering, 4 for QUIET experimental engineering)
 refiTimeLastWantedToRun = 'M28ACUTimeLastWantedToRun' --gametimeseconds that last wanted to run
 reftLastRallyPointRanTo = 'M28ACULsRPn' --last rally point Acu ran to
 refbACUAvailableToDoSnipeAttack = 'M28ACUAvailableForSnipe' --true if ACU not busy doing higher priority actions
@@ -7732,9 +7732,14 @@ function ManageACU(aiBrain, oACUOverride)
         oACU[refiBuildTech] = 1
         if EntityCategoryContains(categories.SUBCOMMANDER * categories.TECH3, oACU.UnitId) or EntityCategoryContains(M28UnitInfo.refCategoryEngineer, oACU.UnitId) then
             oACU[refiBuildTech] = M28UnitInfo.GetUnitTechLevel(oACU)
-        elseif oACU.HasEnhancement then
-            if oACU:HasEnhancement('AdvancedEngineering') then oACU[refiBuildTech] = 2
-            elseif oACU:HasEnhancement('T3Engineering') then oACU[refiBuildTech] = 3
+        end
+        if oACU.HasEnhancement then
+            if oACU:HasEnhancement('EXExperimentalEngineering') then
+                oACU[refiBuildTech] = 4
+            elseif oACU:HasEnhancement('EXAdvancedEngineering') or oACU:HasEnhancement('T3Engineering') then
+                oACU[refiBuildTech] = math.max(3, oACU[refiBuildTech] or 1)
+            elseif oACU:HasEnhancement('EXImprovedEngineering') or oACU:HasEnhancement('AdvancedEngineering') then
+                oACU[refiBuildTech] = math.max(2, oACU[refiBuildTech] or 1)
             end
         end
 
@@ -7990,10 +7995,20 @@ function HaveActionForACUAsEngineer(oACU, tLZOrWZData, tLZOrWZTeamData, iPlateau
             end
             --Do we have low power? If so then build some
             if not(bGivenOrder) then
+                local bQuietT4Engineering = M28Utilities.bQuietModActive and oACU[refiBuildTech] >= 4 and tLZOrWZTeamData[M28Map.subrefLZbCoreBase] and not(M28Conditions.TeamHasLowMass(iTeam))
                 if bDebugMessages == true then LOG(sFunctionRef..': Checking if want to build power, have low power='..tostring(M28Conditions.HaveLowPower(iTeam))..'; Highest factory tech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]..'; Want more power='..tostring(M28Conditions.WantMorePower(iTeam))..'; have low mass='..tostring(M28Conditions.TeamHasLowMass(iTeam))) end
                 if M28Conditions.HaveLowPower(iTeam) or (oACU[refiBuildTech] >= M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] and M28Conditions.WantMorePower(iTeam) and not(M28Conditions.TeamHasLowMass(iTeam))) then
+                    --Prioritize T3 power so we better convert ACU buildrate into high-tech eco.
+                    if bQuietT4Engineering then
+                        local oT3PowerToAssist = M28Engineer.GetPartCompleteBuildingInZone(iTeam, iPlateauOrZero, iLandOrWaterZone, M28UnitInfo.refCategoryT3Power)
+                        bGivenOrder = true
+                        if oT3PowerToAssist then
+                            M28Orders.IssueTrackedRepair(oACU, oT3PowerToAssist, false, 'ACUAstTP', false)
+                        else
+                            ACUBuildUnit(aiBrain, oACU, M28UnitInfo.refCategoryT3Power, 35, 55, M28UnitInfo.refCategoryT3Power, nil)
+                        end
                     --If we dont have highest tech level then look to just assist power
-                    if oACU[refiBuildTech] >= aiBrain[M28Economy.refiOurHighestFactoryTechLevel] then
+                    elseif oACU[refiBuildTech] >= aiBrain[M28Economy.refiOurHighestFactoryTechLevel] then
                         ACUActionBuildPower(aiBrain, oACU)
                         bGivenOrder = true
                         if bDebugMessages == true then LOG(sFunctionRef..': We have highest tech available on acu so will build power') end
@@ -8006,8 +8021,9 @@ function HaveActionForACUAsEngineer(oACU, tLZOrWZData, tLZOrWZTeamData, iPlateau
                             if bDebugMessages == true then LOG(sFunctionRef..': Will assist pgen') end
                         end
                     end
-                    --Get experimental if T3 and dont have low power and have all t3 mexes in zone
-                elseif oACU[refiBuildTech] >= 3 and tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] >= tLZOrWZData[M28Map.subrefLZOrWZMexCount] then
+                    --Get experimental if T3 and dont have low power and have all t3 mexes in zone.
+                elseif oACU[refiBuildTech] >= 3 and (tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] >= tLZOrWZData[M28Map.subrefLZOrWZMexCount]
+                    or (bQuietT4Engineering and not(M28Conditions.HaveLowPower(iTeam)) and tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] >= math.min(2, math.max(1, tLZOrWZData[M28Map.subrefLZOrWZMexCount])))) then
                     local tbEngineersOfFaction = {}
                     tbEngineersOfFaction[M28UnitInfo.GetUnitFaction(oACU)] = true
                     local iExperimentalCategory = M28Engineer.DecideOnExperimentalToBuild(M28Engineer.refActionReclaimFriendlyUnit, aiBrain, tbEngineersOfFaction, tLZOrWZData, tLZOrWZTeamData, iPlateauOrZero, iLandOrWaterZone)
@@ -8015,7 +8031,14 @@ function HaveActionForACUAsEngineer(oACU, tLZOrWZData, tLZOrWZTeamData, iPlateau
                         if not(iExperimentalCategory == M28Engineer.refActionManageGameEnderTemplate) then
                             bGivenOrder = true
                             local oExpToAssist = M28Engineer.GetPartCompleteBuildingInZone(iTeam, iPlateauOrZero, iLandOrWaterZone, iExperimentalCategory)
-                            if oExpToAssist then
+                            if bQuietT4Engineering and not(M28Conditions.HaveLowPower(iTeam)) and oExpToAssist and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryQuantumGateway) == 0 then
+                                local oQuantumGatewayToAssist = M28Engineer.GetPartCompleteBuildingInZone(iTeam, iPlateauOrZero, iLandOrWaterZone, M28UnitInfo.refCategoryQuantumGateway)
+                                if oQuantumGatewayToAssist then
+                                    M28Orders.IssueTrackedRepair(oACU, oQuantumGatewayToAssist, false, 'ACUAstQG', false)
+                                else
+                                    ACUBuildUnit(aiBrain, oACU, M28UnitInfo.refCategoryQuantumGateway, 50, 70, M28UnitInfo.refCategoryT3Power, nil)
+                                end
+                            elseif oExpToAssist then
                                 M28Orders.IssueTrackedRepair(oACU, oExpToAssist, false, 'ACUAstEx', false)
                             else
                                 ACUBuildUnit(aiBrain, oACU, iExperimentalCategory, 50, 60, nil, nil)
@@ -8026,6 +8049,15 @@ function HaveActionForACUAsEngineer(oACU, tLZOrWZData, tLZOrWZTeamData, iPlateau
                                 bGivenOrder = true
                                 M28Orders.IssueTrackedRepair(oACU, oExpToAssist, false, 'ACUAstGEx', false)
                             end
+                        end
+                    end
+                    if not(bGivenOrder) and bQuietT4Engineering and not(M28Conditions.HaveLowPower(iTeam)) and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryQuantumGateway) == 0 then
+                        local oQuantumGatewayToAssist = M28Engineer.GetPartCompleteBuildingInZone(iTeam, iPlateauOrZero, iLandOrWaterZone, M28UnitInfo.refCategoryQuantumGateway)
+                        bGivenOrder = true
+                        if oQuantumGatewayToAssist then
+                            M28Orders.IssueTrackedRepair(oACU, oQuantumGatewayToAssist, false, 'ACUAstQG', false)
+                        else
+                            ACUBuildUnit(aiBrain, oACU, M28UnitInfo.refCategoryQuantumGateway, 50, 70, M28UnitInfo.refCategoryT3Power, nil)
                         end
                     end
                 end
