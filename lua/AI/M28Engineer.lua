@@ -22868,9 +22868,16 @@ function GiveOrderForEmergencyT2Arti(HaveActionToAssign, bHaveLowMass, bHaveLowP
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     --Only want to get for core base or minor zones iwth lots of mexes that have a positive mod distance
     if bDebugMessages == true then LOG(sFunctionRef..': iPlateau='..iPlateau..'; iLandZone='..iLandZone..'; Core base='..tostring(tLZTeamData[M28Map.subrefLZbCoreBase])..'; Mex count by tech='..repru(tLZTeamData[M28Map.subrefMexCountByTech])..'; Is team stalling mass='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass])..'; Is team stalling power='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])..'; Mod dist='..tLZTeamData[M28Map.refiModDistancePercent]..'; bHaveLowMass='..tostring(bHaveLowMass)..'; refbBaseInSafePosition='..tostring(tLZTeamData[M28Map.refbBaseInSafePosition] or false)..'; Time='..GetGameTimeSeconds()..'; Time of last T2 arti shot='..(tLZTeamData[M28Map.refiTimeOurT2ArtiLastFired] or 'nil')) end
-    if tLZTeamData[M28Map.subrefLZbCoreBase] or
-            (tLZTeamData[M28Map.subrefMexCountByTech][3] >= 1 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and tLZTeamData[M28Map.refiModDistancePercent] > 0.05) then
+    local bLegacyNonCoreEcoGate = tLZTeamData[M28Map.subrefMexCountByTech][3] >= 1 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and tLZTeamData[M28Map.refiModDistancePercent] > 0.05
+    local bLargeMapForwardZone = M28Map.iMapSize >= 1024 and (tLZTeamData[M28Map.refiModDistancePercent] or 0) >= 0.12 and (tLZTeamData[M28Map.subrefMexCountByTech][2] + tLZTeamData[M28Map.subrefMexCountByTech][3] >= 1)
+    local bForwardThreatTrigger = (tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 0) >= 600
+            or not(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftEnemyFirebasesInRange]))
+            or not(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoAllNearbyEnemyT2ArtiUnits]))
+            or tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ]
+            or tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]
+    local bLargeMapNonCoreGate = bLargeMapForwardZone and bForwardThreatTrigger and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and not(bHaveLowPower) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= math.max(6, 4 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount])
 
+    if tLZTeamData[M28Map.subrefLZbCoreBase] or bLegacyNonCoreEcoGate or bLargeMapNonCoreGate then
         local iBPWanted = 0
         local iEnemyIndirectThreatInNearbyPlateau = 0
         local iBestEnemyRange = 0
@@ -23090,7 +23097,15 @@ function GiveOrderForEmergencyT2Arti(HaveActionToAssign, bHaveLowMass, bHaveLowP
                 if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoAllNearbyEnemyT2ArtiUnits]) == false then
                     iThreatWanted = math.max(iThreatWanted, 2 * M28UnitInfo.GetMassCostOfUnits(tLZTeamData[M28Map.subreftoAllNearbyEnemyT2ArtiUnits], true))
                 end
-                if not(tLZTeamData[M28Map.subrefLZbCoreBase]) then iThreatWanted = iThreatWanted * 0.75 end
+                if not(tLZTeamData[M28Map.subrefLZbCoreBase]) then
+                    local iNonCoreThreatFactor = 0.75
+                    if bLargeMapNonCoreGate then
+                        iNonCoreThreatFactor = 0.9
+                    elseif M28Map.iMapSize >= 1024 and (tLZTeamData[M28Map.refiModDistancePercent] or 0) >= 0.18 then
+                        iNonCoreThreatFactor = 0.85
+                    end
+                    iThreatWanted = iThreatWanted * iNonCoreThreatFactor
+                end
                 if aiBrain[M28Overseer.refbPrioritiseDefence] then
                     iThreatWanted = iThreatWanted * 1.5
                 end
