@@ -2792,8 +2792,8 @@ function OnConstructed(oEngineer, oJustBuilt)
                                     end
                                 end
                             end
-                            --T2 PD - get TMD preemptively if built a number
-                        elseif EntityCategoryContains(M28UnitInfo.refCategoryPD * categories.TECH2, oJustBuilt.UnitId) then
+                            --T2+ PD - get TMD/shield support preemptively if we are building a firebase
+                        elseif EntityCategoryContains(M28UnitInfo.refCategoryT2PlusPD, oJustBuilt.UnitId) then
                             ForkThread(M28Building.ConsiderGettingPreemptiveTMD, oJustBuilt)
                         elseif EntityCategoryContains(M28UnitInfo.refCategoryPower, oJustBuilt.UnitId) then --In LOUD t2 pgen upgrades to t3 are as efficient as t3 pgens
                             local sUpgrade = oJustBuilt:GetBlueprint().General.UpgradesTo

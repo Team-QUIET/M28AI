@@ -1294,9 +1294,10 @@ function UpdateLZUnitsWantingTMDForUnitDeath(oUnit)
     oUnit[refbUnitWantsMoreTMD] = false --redundancy
 end
 
-function GetUnitWantingTMD(tLZData, tLZTeamData, iTeam, iOptionalLandZone, bReturnTMLCountAsWell, iOptionalCategoryWanted, bGetClosestUnitToOurBase)
+function GetUnitWantingTMD(tLZData, tLZTeamData, iTeam, iOptionalLandZone, bReturnTMLCountAsWell, iOptionalCategoryWanted, bGetClosestUnitToOurBase, oOptionalUnitToAvoid)
     --Gets the unit closest to the nearest enemy base that wants TMD; also refreshes the table for any dead units
     --bGetClosestUnitToOurBase - if this is true, then instead of nearest enemy base will get closest to our base
+    --oOptionalUnitToAvoid - if specified, ignores units matching this unit (or too close to it)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'GetUnitWantingTMD'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -1305,7 +1306,13 @@ function GetUnitWantingTMD(tLZData, tLZTeamData, iTeam, iOptionalLandZone, bRetu
     local tExistingTMD = EntityCategoryFilterDown(M28UnitInfo.refCategoryTMD, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
     local iExistingValidTMD = 0
     local iEnemyTotalTMLCount
-    if bDebugMessages == true then LOG(sFunctionRef..': Is table of existing TMD empty='..tostring(M28Utilities.IsTableEmpty(tExistingTMD))..'; iOptionalLandZone='..(iOptionalLandZone or 'nil')..'; oOptionalUnitToAvoid='..(oOptionalUnitToAvoid.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oOptionalUnitToAvoid) or 'nil')..'; Time='..GetGameTimeSeconds()) end
+    if bDebugMessages == true then
+        local sOptionalUnitToAvoid = 'nil'
+        if M28UnitInfo.IsUnitValid(oOptionalUnitToAvoid) then
+            sOptionalUnitToAvoid = oOptionalUnitToAvoid.UnitId..M28UnitInfo.GetUnitLifetimeCount(oOptionalUnitToAvoid)
+        end
+        LOG(sFunctionRef..': Is table of existing TMD empty='..tostring(M28Utilities.IsTableEmpty(tExistingTMD))..'; iOptionalLandZone='..(iOptionalLandZone or 'nil')..'; oOptionalUnitToAvoid='..sOptionalUnitToAvoid..'; Time='..GetGameTimeSeconds())
+    end
 
     if M28Utilities.IsTableEmpty(tExistingTMD) == false then
         iExistingValidTMD = table.getn(tExistingTMD)
@@ -6146,35 +6153,66 @@ function GetTargetsWithoutTMDCoverageBasedOnZoneMidpoint(tTMLLZTeamData, tTarget
 end
 
 function ConsiderGettingPreemptiveTMD(oPD)
-    --Called where we finish construction of T2 PD - check how many T2 PD we have in the zone, and flag all T2 PD to have TMD preemptively
+    --Called where we finish construction of T2+ PD - check how many PD we have in the zone, and flag TMD/shield support preemptively
     if M28UnitInfo.IsUnitValid(oPD) then
         local iTeam = oPD:GetAIBrain().M28Team
-        --If enemy has T3 land then dont bother
-        if M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] < 3 then
-            local tLZData, tLZTeamData = M28Map.GetLandOrWaterZoneData(oPD:GetPosition(), true, iTeam)
-            if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
-                local tFriendlyT2PD = EntityCategoryFilterDown(M28UnitInfo.refCategoryPD - categories.TECH1, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
-                if M28Utilities.IsTableEmpty(tFriendlyT2PD) == false then
-                    local iT2PDInZone = 1
-                    for iUnit, oUnit in tFriendlyT2PD do
-                        if not(oUnit.Dead) and not(oUnit == oPD) then
-                            iT2PDInZone = iT2PDInZone + 1
+        local tLZData, tLZTeamData = M28Map.GetLandOrWaterZoneData(oPD:GetPosition(), true, iTeam)
+        if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
+            local tFriendlyT2PlusPD = EntityCategoryFilterDown(M28UnitInfo.refCategoryT2PlusPD, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
+            if M28Utilities.IsTableEmpty(tFriendlyT2PlusPD) == false then
+                local iPDInZone = 0
+                local toValidPD = {}
+                for iUnit, oUnit in tFriendlyT2PlusPD do
+                    if M28UnitInfo.IsUnitValid(oUnit) then
+                        iPDInZone = iPDInZone + 1
+                        table.insert(toValidPD, oUnit)
+                    end
+                end
+                if iPDInZone > 0 then
+                    local bEnemyMobileTMLKnown = M28Conditions.IsTableOfUnitsStillValid(M28Team.tTeamData[iTeam][M28Team.reftEnemyMobileTML])
+                    local bEnemyFixedTMLKnown = M28Conditions.IsTableOfUnitsStillValid(M28Team.tTeamData[iTeam][M28Team.reftEnemyTML])
+                    local bEnemyTMLKnown = bEnemyMobileTMLKnown or bEnemyFixedTMLKnown
+                    local bLikelyEnemyTML = bEnemyTMLKnown or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] or 0) >= 2
+                    local bLongRangeThreat = (tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 0) >= 600 or M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoAllNearbyEnemyT2ArtiUnits]) == false
+                    local bGroundPressure = tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]
+                            or (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) >= 200
+                            or (tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0) >= 250
+                    local bValuableForwardZone = not(tLZTeamData[M28Map.subrefLZbCoreBase]) and (tLZTeamData[M28Map.subrefMexCountByTech][2] + tLZTeamData[M28Map.subrefMexCountByTech][3] >= 1)
+
+                    local iTMDWanted = 0
+                    if iPDInZone >= 2 and (bLikelyEnemyTML or bLongRangeThreat or bGroundPressure or bValuableForwardZone) then
+                        iTMDWanted = 1
+                        if iPDInZone >= 4 and (bLikelyEnemyTML or bLongRangeThreat or tLZTeamData[M28Map.subrefLZbCoreBase]) then
+                            iTMDWanted = 2
+                        end
+                        if iPDInZone >= 6 and (bLongRangeThreat or bEnemyTMLKnown or (tLZTeamData[M28Map.refiRadarCoverage] or 0) < 160) then
+                            iTMDWanted = 3
                         end
                     end
-                    if iT2PDInZone >= 3 and ((iT2PDInZone >= 6 and tLZTeamData[M28Map.refiRadarCoverage] < 160) or M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyMobileTML]) == false and (M28UnitInfo.IsUnitValid(M28Team.tTeamData[iTeam][M28Team.reftEnemyMobileTML][1]) or M28Conditions.IsTableOfUnitsStillValid(M28Team.tTeamData[iTeam][M28Team.reftEnemyMobileTML]))) then
-                        local iTMDWanted = math.min(3, iT2PDInZone - 2)
+                    if iTMDWanted > 0 then
                         local toPDUpdated = {}
-                        oPD[refiMinTMDWantedForUnit] = iTMDWanted --redundancy in case for some reason we havent yet recorded against the LZTeamData
-                        table.insert(toPDUpdated, oPD)
-                        for iUnit, oUnit in tFriendlyT2PD do
-                            if not(oUnit.Dead) and not(oUnit == oPD) then
-                                if (oUnit[refiMinTMDWantedForUnit] or 0) < iTMDWanted then
-                                    oUnit[refiMinTMDWantedForUnit] = iTMDWanted
-                                    table.insert(toPDUpdated, oUnit)
-                                end
+                        for iUnit, oUnit in toValidPD do
+                            if (oUnit[refiMinTMDWantedForUnit] or 0) < iTMDWanted then
+                                oUnit[refiMinTMDWantedForUnit] = iTMDWanted
+                                table.insert(toPDUpdated, oUnit)
                             end
                         end
-                        RecordIfUnitsWantTMDCoverageAgainstLandZone(iTeam, toPDUpdated, true)
+                        if M28Utilities.IsTableEmpty(toPDUpdated) == false then
+                            RecordIfUnitsWantTMDCoverageAgainstLandZone(iTeam, toPDUpdated, true)
+                        end
+                    end
+
+                    local iShieldsWanted = 0
+                    if iPDInZone >= 2 and (bLongRangeThreat or bGroundPressure or bEnemyTMLKnown or M28Team.tTeamData[iTeam][M28Team.refbDefendAgainstArti]) then
+                        iShieldsWanted = 1
+                        if iPDInZone >= 5 and (bLongRangeThreat or M28Team.tTeamData[iTeam][M28Team.refbDefendAgainstArti]) then
+                            iShieldsWanted = 2
+                        end
+                    end
+                    if iShieldsWanted > 0 then
+                        for iUnit, oUnit in toValidPD do
+                            CheckIfUnitWantsFixedShield(oUnit, false, iShieldsWanted)
+                        end
                     end
                 end
             end

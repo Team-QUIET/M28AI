@@ -12469,6 +12469,21 @@ function GetBPMinTechAndUnitForFixedShields(tLZData, tLZTeamData, iTeam, bCoreZo
                     if bDebugMessages == true then LOG(sFunctionRef..': Were going to hold off on shielding but we have AA wanting shielding and enemy has air exp') end
                     bGetShield = true
                 end
+                if not(bGetShield) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoLZUnitWantingFixedShield]) == false then
+                    local tPDWantingShield = EntityCategoryFilterDown(M28UnitInfo.refCategoryT2PlusPD, tLZTeamData[M28Map.reftoLZUnitWantingFixedShield])
+                    if M28Utilities.IsTableEmpty(tPDWantingShield) == false then
+                        local bPDUnderPressure = tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]
+                                or (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) >= 200
+                                or (tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 0) >= 600
+                                or M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoAllNearbyEnemyT2ArtiUnits]) == false
+                        local bCanAffordEmergencyShielding = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 250 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]
+                                and (not(bHaveLowMass) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 6 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount])
+                        if bPDUnderPressure and bCanAffordEmergencyShielding then
+                            bGetShield = true
+                            if bDebugMessages == true then LOG(sFunctionRef..': Override shield suppression since PD in this zone is requesting proactive shielding') end
+                        end
+                    end
+                end
             end
         end
         if bDebugMessages == true then LOG(sFunctionRef..': bGetShield='..tostring(bGetShield)) end
