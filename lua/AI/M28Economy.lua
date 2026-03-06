@@ -49,11 +49,86 @@ refiLastMassUsage = 'M28ELastMassUsage' --per tick massu sage of the unit set wh
 refiStorageMassAdjacencyBonus = 'M28EMassStorAdj' --Adjacency bonus from a mass storage
 refbSpecialUpgradeMonitor = 'M28ESpecUM' --true if special upgrade monitor (used for hydros) is active
 refbTriedIgnoringCanBuildForUpgrade = 'M28ETrNlU' --true if CanBuild returns false but the unit is meant to be able to upgrade - will do a 1-off attempt at upgrading
+refbLandEmergencyPaused = 'M28ELandEmPaused'
+
 --global variables
 tiMinEnergyPerTech = {[1]=16,[2]=55,[3]=150,[3]=150}
 bT3MexCanBeUpgraded = false
 iSpecialHQCategory = 'M28EconomyFactoryHQ' --Used as a way of choosing to pause HQ
 iSpecialSurplusUpgradeCategory = 'M28EconomySurplusUpgrade' --used as a way of choosing to pause excess upgrades
+
+local function IsLandEmergencyGreedEngineerAction(iAction)
+    return iAction == M28Engineer.refActionBuildT3MassFab
+        or iAction == M28Engineer.refActionBuildQuantumGateway
+        or iAction == M28Engineer.refActionBuildQuantumOptics
+        or iAction == M28Engineer.refActionBuildHive
+        or iAction == M28Engineer.refActionBuildT3Radar
+        or iAction == M28Engineer.refActionBuildT2Radar
+        or iAction == M28Engineer.refActionBuildT1Radar
+        or iAction == M28Engineer.refActionBuildAirStaging
+        or iAction == M28Engineer.refActionBuildAirFactory
+        or iAction == M28Engineer.refActionBuildSecondAirFactory
+        or iAction == M28Engineer.refActionBuildNavalFactory
+        or iAction == M28Engineer.refActionAssistMexUpgrade
+        or iAction == M28Engineer.refActionAssistUpgrade
+        or iAction == M28Engineer.refActionUpgradeBuilding
+        or iAction == M28Engineer.refActionBuildSecondMassStorage
+        or iAction == M28Engineer.refActionBuildMassStorage
+        or iAction == M28Engineer.refActionManageGameEnderTemplate
+        or iAction == M28Engineer.refActionBuildGameEnder
+        or iAction == M28Engineer.refActionBuildExperimental
+        or iAction == M28Engineer.refActionBuildSecondExperimental
+        or iAction == M28Engineer.refActionBuildLandExperimental
+        or iAction == M28Engineer.refActionNavalSpareAction
+end
+
+local function SetPausedForLandEmergency(oUnit, iTeam, bPauseNotUnpause)
+    if not(M28UnitInfo.IsUnitValid(oUnit)) or not(oUnit.SetPaused) then return false end
+
+    if bPauseNotUnpause then
+        if oUnit[refbLandEmergencyPaused] then return false end
+        if not(oUnit:IsPaused()) then
+            oUnit:SetPaused(true)
+        end
+        oUnit[refbLandEmergencyPaused] = true
+        if not(M28Team.tTeamData[iTeam][M28Team.subreftLandEmergencyPausedUnits]) then
+            M28Team.tTeamData[iTeam][M28Team.subreftLandEmergencyPausedUnits] = {}
+        end
+        table.insert(M28Team.tTeamData[iTeam][M28Team.subreftLandEmergencyPausedUnits], oUnit)
+        return true
+    else
+        if not(oUnit[refbLandEmergencyPaused]) then return false end
+        oUnit[refbLandEmergencyPaused] = nil
+        if M28UnitInfo.IsUnitValid(oUnit) and oUnit.SetPaused and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and not(oUnit[M28UnitInfo.refbPaused]) then
+            oUnit:SetPaused(false)
+        end
+        return true
+    end
+end
+
+local function IsEmergencySupportZoneForEconomy(iTeam, tLandEmergencyState, oUnit)
+    if not(M28UnitInfo.IsUnitValid(oUnit)) then return false end
+    local iEmergencyPlateau = tLandEmergencyState[M28Team.subrefiLandEmergencyPlateau]
+    local iEmergencyTargetLZ = tLandEmergencyState[M28Team.subrefiLandEmergencyTargetLZ]
+    if not(iEmergencyPlateau and iEmergencyTargetLZ) then return false end
+
+    local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnit:GetPosition())
+    if iPlateauOrZero == iEmergencyPlateau and iLandOrWaterZone == iEmergencyTargetLZ then
+        return true
+    end
+    if iPlateauOrZero == iEmergencyPlateau then
+        local tEmergencyLZData = M28Map.tAllPlateaus[iEmergencyPlateau][M28Map.subrefPlateauLandZones][iEmergencyTargetLZ]
+        if tEmergencyLZData and M28Utilities.IsTableEmpty(tEmergencyLZData[M28Map.subrefLZAdjacentLandZones]) == false then
+            for _, iAdjLZ in tEmergencyLZData[M28Map.subrefLZAdjacentLandZones] do
+                if iAdjLZ == iLandOrWaterZone then
+                    return true
+                end
+            end
+        end
+    end
+    local _, tLZOrWZTeamData = M28Map.GetLandOrWaterZoneData(oUnit:GetPosition(), true, iTeam)
+    return tLZOrWZTeamData and (tLZOrWZTeamData[M28Map.subrefLZbCoreBase] or tLZOrWZTeamData[M28Map.subrefLZCoreExpansion] or tLZOrWZTeamData[M28Map.subrefLZFortify])
+end
 
 tbQuietT25MexUnitIds = {
     ['uab1204'] = true,
@@ -1349,6 +1424,123 @@ function ConsiderReclaimingPower(iTeam, oPowerJustBuilt)
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 
+end
+
+function ManageLandEmergencyPausing(iTeam)
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    local sFunctionRef = 'ManageLandEmergencyPausing'
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local tTrackedUnits = M28Team.tTeamData[iTeam][M28Team.subreftLandEmergencyPausedUnits] or {}
+    local tLandEmergencyState = M28Team.GetLandEmergencyState(iTeam)
+    local bHaveHardLandEmergency = false
+    local oHardEmergencyBrain = nil
+    if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]) == false then
+        for _, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains] do
+            if M28Team.GetLandEmergencyModeForBrain(oBrain) >= 2 then
+                bHaveHardLandEmergency = true
+                oHardEmergencyBrain = oBrain
+                break
+            end
+        end
+    end
+
+    if not(bHaveHardLandEmergency) or not(tLandEmergencyState[M28Team.subrefiLandEmergencyPlateau] and tLandEmergencyState[M28Team.subrefiLandEmergencyTargetLZ]) then
+        if M28Utilities.IsTableEmpty(tTrackedUnits) == false then
+            for iUnit = table.getn(tTrackedUnits), 1, -1 do
+                SetPausedForLandEmergency(tTrackedUnits[iUnit], iTeam, false)
+                table.remove(tTrackedUnits, iUnit)
+            end
+        end
+        if M28Team.tTeamData[iTeam][M28Team.refbLandEmergencyGreedPaused] then
+            M28Team.tTeamData[iTeam][M28Team.refbLandEmergencyGreedPaused] = false
+            LOG('LandEmergencyPause: Brain='..((oHardEmergencyBrain and oHardEmergencyBrain.Nickname) or 'team')..' mode=none pausedGreed=false target=nil')
+        end
+        M28Team.tTeamData[iTeam][M28Team.subreftLandEmergencyPausedUnits] = {}
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return
+    end
+
+    local function IsUnitOnHardEmergencyBrain(oUnit)
+        return M28UnitInfo.IsUnitValid(oUnit) and M28Team.GetLandEmergencyModeForBrain(oUnit:GetAIBrain()) >= 2
+    end
+
+    local function PauseIfEligible(oUnit, bSkipSupportZones)
+        if IsUnitOnHardEmergencyBrain(oUnit) and not(oUnit:GetAIBrain()[refbBuiltParagon]) then
+            if not(bSkipSupportZones and IsEmergencySupportZoneForEconomy(iTeam, tLandEmergencyState, oUnit)) then
+                SetPausedForLandEmergency(oUnit, iTeam, true)
+            end
+        end
+    end
+
+    if M28Conditions.IsTableOfUnitsStillValid(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) then
+        for _, oMex in M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes] do
+            PauseIfEligible(oMex, true)
+        end
+    end
+    if M28Conditions.IsTableOfUnitsStillValid(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs]) then
+        for _, oFactory in M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs] do
+            PauseIfEligible(oFactory, EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oFactory.UnitId))
+        end
+    end
+    if M28Conditions.IsTableOfUnitsStillValid(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingOther]) then
+        for _, oUnit in M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingOther] do
+            PauseIfEligible(oUnit, true)
+        end
+    end
+
+    for _, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains] do
+        if not(oBrain.M28IsDefeated) and not(oBrain:IsDefeated()) and M28Team.GetLandEmergencyModeForBrain(oBrain) >= 2 then
+            local tGreedStructures = oBrain:GetListOfUnits(M28UnitInfo.refCategoryMassFab + M28UnitInfo.refCategoryEngineerStation + M28UnitInfo.refCategoryQuantumGateway + M28UnitInfo.refCategoryT3Radar, false, true)
+            if M28Utilities.IsTableEmpty(tGreedStructures) == false then
+                for _, oUnit in tGreedStructures do
+                    PauseIfEligible(oUnit, true)
+                end
+            end
+
+            local tEngineers = oBrain:GetListOfUnits(M28UnitInfo.refCategoryEngineer, false, true)
+            if M28Utilities.IsTableEmpty(tEngineers) == false then
+                for _, oEngineer in tEngineers do
+                    if IsLandEmergencyGreedEngineerAction(oEngineer[M28Engineer.refiAssignedAction]) then
+                        PauseIfEligible(oEngineer, true)
+                    end
+                end
+            end
+        end
+    end
+
+    if M28Utilities.IsTableEmpty(tTrackedUnits) == false then
+        for _, oUnit in tTrackedUnits do
+            if M28UnitInfo.IsUnitValid(oUnit) and oUnit[refbLandEmergencyPaused] then
+                local bKeepPaused = IsUnitOnHardEmergencyBrain(oUnit) and not(IsEmergencySupportZoneForEconomy(iTeam, tLandEmergencyState, oUnit))
+                if bKeepPaused and EntityCategoryContains(M28UnitInfo.refCategoryEngineer, oUnit.UnitId) then
+                    bKeepPaused = IsLandEmergencyGreedEngineerAction(oUnit[M28Engineer.refiAssignedAction]) and not(IsEmergencySupportZoneForEconomy(iTeam, tLandEmergencyState, oUnit))
+                end
+                if not(bKeepPaused) then
+                    SetPausedForLandEmergency(oUnit, iTeam, false)
+                end
+            end
+        end
+    end
+
+    local toStillPaused = {}
+    if M28Utilities.IsTableEmpty(tTrackedUnits) == false then
+        for _, oUnit in tTrackedUnits do
+            if M28UnitInfo.IsUnitValid(oUnit) and oUnit[refbLandEmergencyPaused] then
+                table.insert(toStillPaused, oUnit)
+            end
+        end
+    end
+    M28Team.tTeamData[iTeam][M28Team.subreftLandEmergencyPausedUnits] = toStillPaused
+
+    if not(M28Team.tTeamData[iTeam][M28Team.refbLandEmergencyGreedPaused]) and M28Utilities.IsTableEmpty(toStillPaused) == false then
+        M28Team.tTeamData[iTeam][M28Team.refbLandEmergencyGreedPaused] = true
+        LOG('LandEmergencyPause: Brain='..((oHardEmergencyBrain and oHardEmergencyBrain.Nickname) or 'team')..' mode=hard pausedGreed=true target=P'..tLandEmergencyState[M28Team.subrefiLandEmergencyPlateau]..'LZ'..tLandEmergencyState[M28Team.subrefiLandEmergencyTargetLZ])
+    elseif bDebugMessages == true then
+        LOG(sFunctionRef..': Hard emergency active, pausedUnits='..table.getn(toStillPaused)..'; target=P'..(tLandEmergencyState[M28Team.subrefiLandEmergencyPlateau] or 'nil')..'LZ'..(tLandEmergencyState[M28Team.subrefiLandEmergencyTargetLZ] or 'nil'))
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
 function GetCategoryAndActionsToPauseWhenStalling(iTeam, bStallingMass, bPauseNotUnpause)
@@ -2902,6 +3094,7 @@ function AllocateTeamEnergyAndMassResources(iTeam)
     if bDebugMessages == true then LOG(sFunctionRef..': Start of code, iTeam='..iTeam..'; Is table of active brains empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]))) end
 
     if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]) == false then
+
         local refiResourceEnergy = 1
         local refiResourceMass = 2
         local tDetailsOfBrainsNeedingEnergy = {}
@@ -2967,6 +3160,7 @@ function AllocateTeamEnergyAndMassResources(iTeam)
                     end
                     if bDebugMessages == true then LOG(sFunctionRef..': iCurMassSpare after limiting based on ratios='..iCurMassSpare..'; Expected value before limitation='..(oBrain:GetEconomyStored('MASS') - iAverageMassStored)) end
                 end
+
                 if iCurMassSpare < 0 then
                     --Limit mass to receive to the amount that takes us to 95% storage:
                     iCurMassSpare = math.max(iCurMassSpare, math.min(0, oBrain:GetEconomyStored('MASS') -  GetMassStorageMaximum(oBrain) * 0.95))

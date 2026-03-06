@@ -79,13 +79,6 @@ refbPrioritiseNavy = 'M28PersNavy'
 refbPrioritiseLowTech = 'M28PesLowTech'
 refbPrioritiseHighTech = 'M28PersHighTech'
 refbPrioritiseDefence = 'M28PersDef'
-refbBasePrioritiseLand = 'M28PersBaseLand'
-refbBasePrioritiseAir = 'M28PersBaseAir'
-refbBasePrioritiseNavy = 'M28PersBaseNavy'
-refbBasePrioritiseLowTech = 'M28PersBaseLowTech'
-refbBasePrioritiseHighTech = 'M28PersBaseHighTech'
-refbBasePrioritiseDefence = 'M28PersBaseDef'
-refsDynamicPersonalityRole = 'M28PersDynRole'
 --Special strategies:
 refbFirstBomber = 'M28FirstB'
 refbBomberSnipe = 'M28BombS' --true if want to try and snipe enemy ACU (intended for Cybran and sometimes Seraphim, to try with a T2 bomber snipe)

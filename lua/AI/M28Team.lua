@@ -232,11 +232,11 @@ tTeamData = {} --[x] is the aiBrain.M28Team number - stores certain team-wide in
         subrefiLandEmergencyTargetLZ = 'LandEmTargetLZ'
         subrefiLandEmergencyScore = 'LandEmScore'
         subrefiLandEmergencyLastAboveThreshold = 'LandEmLastAbove'
-        subrefiLandEmergencySupportBrainIndex = 'LandEmSupport'
-        subreftsLandEmergencyRoleByBrainIndex = 'LandEmRoles'
         subreftiLandEmergencyModeByBrainIndex = 'LandEmModes'
     refiTimeLastLandEmergencyRefresh = 'M28LandEmRefresh'
     refiTimeLastLandEmergencyLog = 'M28LandEmLog'
+    refbLandEmergencyGreedPaused = 'M28LandEmPaused'
+    subreftLandEmergencyPausedUnits = 'M28LandEmPausedUnits'
     refiLastTimeNoShieldTargetsByIsland = 'M28TeamLastTimeNoShieldTargets' --[x] is the island ref (i.e. navutils.getlabel(M28Map.refPathingTypeLand...), returns gametime seconds
     refiLastTimeNoShieldBoatTargetsByPond = 'M28TeamLastTimeNoShieldBoatTargets' --[x] is the pond ref, returns gametimeseconds
     refiLastTimeNoStealthTargetsByPlateau = 'M28TeamLastTimeNoStealthTargets' --[x] is the plateau ref, returns gametime seconds
@@ -737,12 +737,12 @@ function CreateNewTeam(aiBrain)
         [subrefiLandEmergencyTargetLZ] = nil,
         [subrefiLandEmergencyScore] = 0,
         [subrefiLandEmergencyLastAboveThreshold] = 0,
-        [subrefiLandEmergencySupportBrainIndex] = nil,
-        [subreftsLandEmergencyRoleByBrainIndex] = {},
         [subreftiLandEmergencyModeByBrainIndex] = {},
     }
     tTeamData[iTotalTeamCount][refiTimeLastLandEmergencyRefresh] = -100
     tTeamData[iTotalTeamCount][refiTimeLastLandEmergencyLog] = -100
+    tTeamData[iTotalTeamCount][refbLandEmergencyGreedPaused] = false
+    tTeamData[iTotalTeamCount][subreftLandEmergencyPausedUnits] = {}
     --Economy growth tracking initialization
     tTeamData[iTotalTeamCount][reftMassIncomeHistory] = {} --Will store snapshots as {[1]={time=X, income=Y}, ...}
     tTeamData[iTotalTeamCount][refiTimeLastEcoSnapshot] = 0
@@ -4256,6 +4256,7 @@ function TeamEconomyRefresh(iM28Team)
         ForkThread(ConsiderGettingUpgrades, iM28Team)
 
         ForkThread(M28Economy.ManageEnergyStalls, iM28Team)
+        ForkThread(M28Economy.ManageLandEmergencyPausing, iM28Team)
 
         if tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] >= 0.9 then
             if bDebugMessages == true then LOG(sFunctionRef..': Are overflowing mass so will try and manage by clearing engineers with reclaim orders') end
@@ -4289,23 +4290,14 @@ end
 local iLandEmergencyModeNone = 0
 local iLandEmergencyModeSoft = 1
 local iLandEmergencyModeHard = 2
-local iLandEmergencyActivationScore = 400
-local iLandEmergencyClearScore = 250
-local iLandEmergencyClearDuration = 20
+local iLandEmergencyActivationScore = 600
+local iLandEmergencyClearScore = 350
+local iLandEmergencyClearDuration = 45
 local iLandEmergencyRefreshInterval = 3
 local iLandEmergencyLogInterval = 30
 local iLandEmergencyHardTravelDistance = 350
 local iLandEmergencySupportRadius = 220
 local iLandEmergencyEnemyBaseMatchDistance = 20
-local iLandEmergencySupportBrainMinDistance = 320
-local ttBasePersonalityRefByLiveRef = {
-    [M28Overseer.refbPrioritiseLand] = M28Overseer.refbBasePrioritiseLand,
-    [M28Overseer.refbPrioritiseAir] = M28Overseer.refbBasePrioritiseAir,
-    [M28Overseer.refbPrioritiseNavy] = M28Overseer.refbBasePrioritiseNavy,
-    [M28Overseer.refbPrioritiseLowTech] = M28Overseer.refbBasePrioritiseLowTech,
-    [M28Overseer.refbPrioritiseHighTech] = M28Overseer.refbBasePrioritiseHighTech,
-    [M28Overseer.refbPrioritiseDefence] = M28Overseer.refbBasePrioritiseDefence,
-}
 
 local function GetBlankLandEmergencyState()
     return {
@@ -4326,12 +4318,17 @@ local function GetOrCreateLandEmergencyState(iTeam)
         return GetBlankLandEmergencyState()
     end
     if not(tTeamData[iTeam][subreftLandEmergencyState]) then
-        tTeamData[iTeam][subreftLandEmergencyState] = GetBlankLandEmergencyState()
+        tTeamData[iTeam][subreftLandEmergencyState] = {
+            [subrefiLandEmergencyEnemyBrainIndex] = nil,
+            [subreftLandEmergencyEnemyBase] = nil,
+            [subrefiLandEmergencyPlateau] = nil,
+            [subrefiLandEmergencyTargetLZ] = nil,
+            [subrefiLandEmergencyScore] = 0,
+            [subrefiLandEmergencyLastAboveThreshold] = 0,
+            [subreftiLandEmergencyModeByBrainIndex] = {},
+        }
     elseif not(tTeamData[iTeam][subreftLandEmergencyState][subreftiLandEmergencyModeByBrainIndex]) then
         tTeamData[iTeam][subreftLandEmergencyState][subreftiLandEmergencyModeByBrainIndex] = {}
-    end
-    if not(tTeamData[iTeam][subreftLandEmergencyState][subreftsLandEmergencyRoleByBrainIndex]) then
-        tTeamData[iTeam][subreftLandEmergencyState][subreftsLandEmergencyRoleByBrainIndex] = {}
     end
     return tTeamData[iTeam][subreftLandEmergencyState]
 end
@@ -4342,19 +4339,6 @@ local function GetLandEmergencyModeSummary(tiModeByBrainIndex)
         for iBrainIndex, iMode in tiModeByBrainIndex do
             if iMode > 0 then
                 table.insert(tsSummary, iBrainIndex..'='..iMode)
-            end
-        end
-        table.sort(tsSummary)
-    end
-    return '{'..table.concat(tsSummary, ',')..'}'
-end
-
-local function GetLandEmergencyRoleSummary(tsRoleByBrainIndex)
-    local tsSummary = {}
-    if M28Utilities.IsTableEmpty(tsRoleByBrainIndex) == false then
-        for iBrainIndex, sRole in tsRoleByBrainIndex do
-            if sRole then
-                table.insert(tsSummary, iBrainIndex..'='..sRole)
             end
         end
         table.sort(tsSummary)
@@ -4381,89 +4365,6 @@ function GetLandEmergencyModeForBrain(aiBrain)
     return iLandEmergencyModeNone
 end
 
-function GetLandEmergencySupportBrainIndex(iTeam)
-    return GetOrCreateLandEmergencyState(iTeam)[subrefiLandEmergencySupportBrainIndex]
-end
-
-function IsLandEmergencySupportBrain(aiBrain)
-    return aiBrain and aiBrain.M28Team and GetLandEmergencySupportBrainIndex(aiBrain.M28Team) == aiBrain:GetArmyIndex()
-end
-
-local function GetBasePersonalityFlag(aiBrain, sPersonalityRef)
-    local sBaseRef = ttBasePersonalityRefByLiveRef[sPersonalityRef]
-    if sBaseRef and aiBrain[sBaseRef] ~= nil then
-        return aiBrain[sBaseRef] == true
-    end
-    return aiBrain[sPersonalityRef] == true
-end
-
-local function SetEffectivePersonalityFlag(aiBrain, sPersonalityRef, bValue)
-    if bValue then
-        aiBrain[sPersonalityRef] = true
-    else
-        aiBrain[sPersonalityRef] = nil
-    end
-end
-
-function RefreshDynamicPersonalityState(aiBrain)
-    if not(aiBrain and aiBrain.M28AI) then return 'base' end
-
-    local tLandEmergencyState = GetOrCreateLandEmergencyState(aiBrain.M28Team)
-    local bBaseLand = GetBasePersonalityFlag(aiBrain, M28Overseer.refbPrioritiseLand)
-    local bBaseAir = GetBasePersonalityFlag(aiBrain, M28Overseer.refbPrioritiseAir)
-    local bBaseNavy = GetBasePersonalityFlag(aiBrain, M28Overseer.refbPrioritiseNavy)
-    local bBaseLowTech = GetBasePersonalityFlag(aiBrain, M28Overseer.refbPrioritiseLowTech)
-    local bBaseHighTech = GetBasePersonalityFlag(aiBrain, M28Overseer.refbPrioritiseHighTech)
-    local bBaseDefence = GetBasePersonalityFlag(aiBrain, M28Overseer.refbPrioritiseDefence)
-    local iLandEmergencyMode = GetLandEmergencyModeForBrain(aiBrain)
-    local sLandEmergencyRole = (tLandEmergencyState[subreftsLandEmergencyRoleByBrainIndex] or {})[aiBrain:GetArmyIndex()]
-    local bSupportBrain = iLandEmergencyMode > 0 and IsLandEmergencySupportBrain(aiBrain)
-    local bPreserveNavalIdentity = bBaseNavy and M28Map.iMapWaterRatio >= 0.2 and (((aiBrain[M28Economy.refiOurHighestNavalFactoryTech] or 0) >= math.max(1, aiBrain[M28Economy.refiOurHighestLandFactoryTech] or 0)) or not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]))
-    local bRushBrain = iLandEmergencyMode >= iLandEmergencyModeHard and sLandEmergencyRole == 'rush' and not(bSupportBrain) and not(bPreserveNavalIdentity)
-    local bTurtleBrain = iLandEmergencyMode >= iLandEmergencyModeHard and sLandEmergencyRole == 'turtle' and not(bSupportBrain)
-    local sDynamicRole = 'base'
-
-    local bEffectiveLand = bBaseLand
-    local bEffectiveAir = bBaseAir
-    local bEffectiveNavy = bBaseNavy
-    local bEffectiveLowTech = bBaseLowTech
-    local bEffectiveHighTech = bBaseHighTech
-    local bEffectiveDefence = bBaseDefence
-
-    if bSupportBrain then
-        sDynamicRole = 'support'
-        bEffectiveLand = false
-        bEffectiveLowTech = false
-        bEffectiveHighTech = true
-        if not(bBaseNavy) then bEffectiveAir = true end
-    elseif bTurtleBrain then
-        sDynamicRole = 'turtle'
-        bEffectiveLand = false
-        bEffectiveLowTech = false
-        bEffectiveHighTech = true
-        bEffectiveDefence = true
-    elseif bRushBrain then
-        sDynamicRole = 'rush'
-        bEffectiveLand = true
-        bEffectiveLowTech = true
-        bEffectiveHighTech = false
-        bEffectiveDefence = false
-        if not(bPreserveNavalIdentity) then
-            bEffectiveAir = false
-            bEffectiveNavy = false
-        end
-    end
-
-    SetEffectivePersonalityFlag(aiBrain, M28Overseer.refbPrioritiseLand, bEffectiveLand)
-    SetEffectivePersonalityFlag(aiBrain, M28Overseer.refbPrioritiseAir, bEffectiveAir)
-    SetEffectivePersonalityFlag(aiBrain, M28Overseer.refbPrioritiseNavy, bEffectiveNavy)
-    SetEffectivePersonalityFlag(aiBrain, M28Overseer.refbPrioritiseLowTech, bEffectiveLowTech)
-    SetEffectivePersonalityFlag(aiBrain, M28Overseer.refbPrioritiseHighTech, bEffectiveHighTech)
-    SetEffectivePersonalityFlag(aiBrain, M28Overseer.refbPrioritiseDefence, bEffectiveDefence)
-    aiBrain[M28Overseer.refsDynamicPersonalityRole] = sDynamicRole
-    return sDynamicRole
-end
-
 function UpdateLandEmergencyState(iTeam)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'UpdateLandEmergencyState'
@@ -4480,8 +4381,6 @@ function UpdateLandEmergencyState(iTeam)
     local iPrevEnemyBrainIndex = tLandEmergencyState[subrefiLandEmergencyEnemyBrainIndex]
     local iPrevTargetPlateau = tLandEmergencyState[subrefiLandEmergencyPlateau]
     local iPrevTargetLZ = tLandEmergencyState[subrefiLandEmergencyTargetLZ]
-    local iPrevSupportBrainIndex = tLandEmergencyState[subrefiLandEmergencySupportBrainIndex]
-    local tsPrevRoles = tLandEmergencyState[subreftsLandEmergencyRoleByBrainIndex] or {}
     local tiPrevModes = tLandEmergencyState[subreftiLandEmergencyModeByBrainIndex] or {}
     local bWasActive = iPrevEnemyBrainIndex ~= nil and (tLandEmergencyState[subrefiLandEmergencyScore] or 0) > 0
     local tiScoreByEnemyBrainIndex = {}
@@ -4594,9 +4493,7 @@ function UpdateLandEmergencyState(iTeam)
     local iTargetPlateau = nil
     local iTargetLZ = nil
     local tEnemyBase = nil
-    local iSupportBrainIndex = nil
     local tiModeByBrainIndex = {}
-    local tsRoleByBrainIndex = {}
 
     if bShouldKeepEmergencyActive then
         local tBestZoneForEnemy = iBestEnemyBrainIndex and ttBestZoneByEnemyBrainIndex[iBestEnemyBrainIndex] or nil
@@ -4623,10 +4520,6 @@ function UpdateLandEmergencyState(iTeam)
             local tTargetLZData = M28Map.tAllPlateaus[iTargetPlateau][M28Map.subrefPlateauLandZones][iTargetLZ]
             local tTargetMidpoint = tTargetLZData and tTargetLZData[M28Map.subrefMidpoint]
             local iTargetIsland = tTargetLZData and tTargetLZData[M28Map.subrefLZIslandRef]
-            local iBestSoftSupportScore = -100000
-            local iBestSoftSupportBrainIndex = nil
-            local iBestFallbackSupportScore = -100000
-            local iBestFallbackSupportBrainIndex = nil
             for _, oBrain in tTeamData[iTeam][subreftoFriendlyActiveM28Brains] do
                 if not(oBrain.M28IsDefeated) and not(oBrain:IsDefeated()) then
                     local iBrainMode = iLandEmergencyModeSoft
@@ -4634,8 +4527,6 @@ function UpdateLandEmergencyState(iTeam)
                     local iBrainStartPlateau, iBrainStartLZ = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tStartPosition)
                     local iBrainIsland = NavUtils.GetLabel(M28Map.refPathingTypeLand, tStartPosition)
                     local bHardMode = false
-                    local tBrainStartLZData = nil
-                    local tBrainStartLZTeamData = nil
 
                     if iBrainStartPlateau == iTargetPlateau then
                         bHardMode = true
@@ -4648,8 +4539,8 @@ function UpdateLandEmergencyState(iTeam)
                     end
 
                     if not(bHardMode) and iBrainStartPlateau > 0 and iBrainStartLZ > 0 and tTargetMidpoint then
-                        tBrainStartLZData = M28Map.tAllPlateaus[iBrainStartPlateau][M28Map.subrefPlateauLandZones][iBrainStartLZ]
-                        tBrainStartLZTeamData = tBrainStartLZData and tBrainStartLZData[M28Map.subrefLZTeamData] and tBrainStartLZData[M28Map.subrefLZTeamData][iTeam]
+                        local tBrainStartLZData = M28Map.tAllPlateaus[iBrainStartPlateau][M28Map.subrefPlateauLandZones][iBrainStartLZ]
+                        local tBrainStartLZTeamData = tBrainStartLZData and tBrainStartLZData[M28Map.subrefLZTeamData] and tBrainStartLZData[M28Map.subrefLZTeamData][iTeam]
                         if tBrainStartLZTeamData and AreLandEmergencyPositionsClose(tBrainStartLZTeamData[M28Map.reftClosestEnemyBase], tEnemyBase) then
                             if M28Utilities.GetDistanceBetweenPositions(tStartPosition, tTargetMidpoint) <= iLandEmergencySupportRadius then
                                 bHardMode = true
@@ -4659,54 +4550,6 @@ function UpdateLandEmergencyState(iTeam)
 
                     if bHardMode then iBrainMode = iLandEmergencyModeHard end
                     tiModeByBrainIndex[oBrain:GetArmyIndex()] = iBrainMode
-
-                    if not(tBrainStartLZTeamData) and iBrainStartPlateau > 0 and iBrainStartLZ > 0 then
-                        tBrainStartLZData = M28Map.tAllPlateaus[iBrainStartPlateau][M28Map.subrefPlateauLandZones][iBrainStartLZ]
-                        tBrainStartLZTeamData = tBrainStartLZData and tBrainStartLZData[M28Map.subrefLZTeamData] and tBrainStartLZData[M28Map.subrefLZTeamData][iTeam]
-                    end
-
-                    if tTargetMidpoint and tStartPosition then
-                        local iSupportScore = M28Utilities.GetDistanceBetweenPositions(tStartPosition, tTargetMidpoint)
-                        if tBrainStartLZTeamData and tBrainStartLZTeamData[M28Map.refbBaseInSafePosition] then iSupportScore = iSupportScore + 180 end
-                        if tBrainStartLZTeamData and tBrainStartLZTeamData[M28Map.subrefLZbCoreBase] then iSupportScore = iSupportScore + 60 end
-                        if GetBasePersonalityFlag(oBrain, M28Overseer.refbPrioritiseHighTech) then iSupportScore = iSupportScore + 40 end
-                        if GetBasePersonalityFlag(oBrain, M28Overseer.refbPrioritiseAir) then iSupportScore = iSupportScore + 25 end
-                        if GetBasePersonalityFlag(oBrain, M28Overseer.refbPrioritiseNavy) and M28Map.iMapWaterRatio >= 0.2 then iSupportScore = iSupportScore - 120 end
-
-                        if iBrainMode == iLandEmergencyModeSoft then
-                            if iSupportScore > iBestSoftSupportScore then
-                                iBestSoftSupportScore = iSupportScore
-                                iBestSoftSupportBrainIndex = oBrain:GetArmyIndex()
-                            end
-                        elseif tTeamData[iTeam][subrefiActiveM28BrainCount] >= 3 and iSupportScore >= iLandEmergencySupportBrainMinDistance and tBrainStartLZTeamData and tBrainStartLZTeamData[M28Map.refbBaseInSafePosition] then
-                            if iSupportScore > iBestFallbackSupportScore then
-                                iBestFallbackSupportScore = iSupportScore
-                                iBestFallbackSupportBrainIndex = oBrain:GetArmyIndex()
-                            end
-                        end
-                    end
-                end
-            end
-
-            if iBestSoftSupportBrainIndex then
-                iSupportBrainIndex = iBestSoftSupportBrainIndex
-            elseif iBestFallbackSupportBrainIndex then
-                iSupportBrainIndex = iBestFallbackSupportBrainIndex
-                tiModeByBrainIndex[iSupportBrainIndex] = iLandEmergencyModeSoft
-            end
-
-            local bKeepExistingRoles = bWasActive and iPrevEnemyBrainIndex == iBestEnemyBrainIndex and iPrevTargetPlateau == iTargetPlateau and iPrevTargetLZ == iTargetLZ
-            for iBrainIndex, iBrainMode in tiModeByBrainIndex do
-                if iBrainIndex == iSupportBrainIndex and iBrainMode > 0 then
-                    tsRoleByBrainIndex[iBrainIndex] = 'support'
-                elseif iBrainMode >= iLandEmergencyModeHard then
-                    local sBrainRole = bKeepExistingRoles and tsPrevRoles[iBrainIndex] or nil
-                    if sBrainRole ~= 'rush' and sBrainRole ~= 'turtle' then
-                        if math.random(1, 2) == 1 then sBrainRole = 'rush'
-                        else sBrainRole = 'turtle'
-                        end
-                    end
-                    tsRoleByBrainIndex[iBrainIndex] = sBrainRole
                 end
             end
         end
@@ -4718,23 +4561,11 @@ function UpdateLandEmergencyState(iTeam)
     tLandEmergencyState[subrefiLandEmergencyTargetLZ] = bShouldKeepEmergencyActive and iTargetLZ or nil
     tLandEmergencyState[subrefiLandEmergencyScore] = bShouldKeepEmergencyActive and iBestEnemyScore or 0
     tLandEmergencyState[subrefiLandEmergencyLastAboveThreshold] = iLastAboveThreshold
-    tLandEmergencyState[subrefiLandEmergencySupportBrainIndex] = bShouldKeepEmergencyActive and iSupportBrainIndex or nil
-    tLandEmergencyState[subreftsLandEmergencyRoleByBrainIndex] = bShouldKeepEmergencyActive and tsRoleByBrainIndex or {}
     tLandEmergencyState[subreftiLandEmergencyModeByBrainIndex] = bShouldKeepEmergencyActive and tiModeByBrainIndex or {}
-
-    if M28Utilities.IsTableEmpty(tTeamData[iTeam][subreftoFriendlyActiveM28Brains]) == false then
-        for _, oBrain in tTeamData[iTeam][subreftoFriendlyActiveM28Brains] do
-            RefreshDynamicPersonalityState(oBrain)
-        end
-    end
 
     local bStateChanged = bWasActive ~= bShouldKeepEmergencyActive
     if not(bStateChanged) then
         if iPrevEnemyBrainIndex ~= tLandEmergencyState[subrefiLandEmergencyEnemyBrainIndex] or iPrevTargetPlateau ~= tLandEmergencyState[subrefiLandEmergencyPlateau] or iPrevTargetLZ ~= tLandEmergencyState[subrefiLandEmergencyTargetLZ] then
-            bStateChanged = true
-        elseif iPrevSupportBrainIndex ~= tLandEmergencyState[subrefiLandEmergencySupportBrainIndex] then
-            bStateChanged = true
-        elseif GetLandEmergencyRoleSummary(tsPrevRoles) ~= GetLandEmergencyRoleSummary(tLandEmergencyState[subreftsLandEmergencyRoleByBrainIndex]) then
             bStateChanged = true
         elseif GetLandEmergencyModeSummary(tiPrevModes) ~= GetLandEmergencyModeSummary(tLandEmergencyState[subreftiLandEmergencyModeByBrainIndex]) then
             bStateChanged = true
@@ -4747,8 +4578,6 @@ function UpdateLandEmergencyState(iTeam)
             ' enemy='..(tLandEmergencyState[subrefiLandEmergencyEnemyBrainIndex] or 'nil')..
             ' target=P'..(tLandEmergencyState[subrefiLandEmergencyPlateau] or 'nil')..'LZ'..(tLandEmergencyState[subrefiLandEmergencyTargetLZ] or 'nil')..
             ' score='..math.floor(tLandEmergencyState[subrefiLandEmergencyScore] or 0)..
-            ' support='..(tLandEmergencyState[subrefiLandEmergencySupportBrainIndex] or 'nil')..
-            ' roles='..GetLandEmergencyRoleSummary(tLandEmergencyState[subreftsLandEmergencyRoleByBrainIndex])..
             ' modes='..GetLandEmergencyModeSummary(tLandEmergencyState[subreftiLandEmergencyModeByBrainIndex]))
     elseif bWasActive and not(bShouldKeepEmergencyActive) then
         LOG('LandEmergency: Team'..iTeam..' cleared score='..math.floor(iBestEnemyScore or 0))

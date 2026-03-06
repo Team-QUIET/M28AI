@@ -1102,8 +1102,6 @@ function DelayedNavyPersonalityReassess(aiBrain)
     end
     if not(bHavePondToExpandTo) then
         aiBrain[M28Overseer.refbPrioritiseNavy] = false
-        aiBrain[M28Overseer.refbBasePrioritiseNavy] = nil
-        M28Team.RefreshDynamicPersonalityState(aiBrain)
         --If this wasnt an M28Random then send a message
         local sPersonality = ScenarioInfo.ArmySetup[aiBrain.Name].AIPersonality
         if not(sPersonality == 'm28airandom' or sPersonality == 'm28airandomcheat') then
@@ -1203,13 +1201,6 @@ function AssignAIPersonalityAndRating(aiBrain)
             end
             if bDebugMessages == true then LOG(sFunctionRef..': Assigned random personality based on iRand='..iRand..' to brain='..aiBrain.Nickname) end
         end
-        aiBrain[M28Overseer.refbBasePrioritiseLand] = aiBrain[M28Overseer.refbPrioritiseLand] and true or nil
-        aiBrain[M28Overseer.refbBasePrioritiseAir] = aiBrain[M28Overseer.refbPrioritiseAir] and true or nil
-        aiBrain[M28Overseer.refbBasePrioritiseNavy] = aiBrain[M28Overseer.refbPrioritiseNavy] and true or nil
-        aiBrain[M28Overseer.refbBasePrioritiseLowTech] = aiBrain[M28Overseer.refbPrioritiseLowTech] and true or nil
-        aiBrain[M28Overseer.refbBasePrioritiseHighTech] = aiBrain[M28Overseer.refbPrioritiseHighTech] and true or nil
-        aiBrain[M28Overseer.refbBasePrioritiseDefence] = aiBrain[M28Overseer.refbPrioritiseDefence] and true or nil
-        M28Team.RefreshDynamicPersonalityState(aiBrain)
         if aiBrain[M28Overseer.refbPrioritiseNavy] then
             --dont want to go navy if map doesnt support it
             ForkThread(DelayedNavyPersonalityReassess, aiBrain)
