@@ -71,14 +71,6 @@ function GetTeamLifetimeBuildCount(iTeam, category)
     return iTotalBuild
 end
 
-function IsHardLandEmergency(aiBrain)
-    return M28Team.GetLandEmergencyModeForBrain(aiBrain) >= 2
-end
-
-function IsSoftLandEmergency(aiBrain)
-    return M28Team.GetLandEmergencyModeForBrain(aiBrain) > 0
-end
-
 function GetLifetimeBuildCount(aiBrain, category)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'GetLifetimeBuildCount'
@@ -671,7 +663,6 @@ function SafeToUpgradeUnit(oUnit)
         local tLZData = M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iLandOrWaterZone]
         if M28Utilities.IsTableEmpty(tLZData) == false then
             local tLZTeamData = tLZData[M28Map.subrefLZTeamData][oUnit:GetAIBrain().M28Team]
-            local tPriorityEnemyBase = M28Map.GetPriorityEnemyBaseLocationForLand(oUnit:GetAIBrain()) or tLZTeamData[M28Map.reftClosestEnemyBase]
             --Have we recently canceled our upgrade? If so then dont get
             if bDebugMessages == true then LOG(sFunctionRef..': Time since last cancelled='..GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiTimeLastCanceledUpgrade] or 0)) end
             if oUnit[M28UnitInfo.refiTimeLastCanceledUpgrade] then
@@ -680,12 +671,12 @@ function SafeToUpgradeUnit(oUnit)
                 if iTimeSinceLastCancelled <= 30 then
                     bCancel = true
                 elseif iTimeSinceLastCancelled <= 60 then
-                    local iDistToBase = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tPriorityEnemyBase)
+                    local iDistToBase = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tLZTeamData[M28Map.reftClosestEnemyBase])
                     if iDistToBase - (oUnit[M28UnitInfo.refiDistToEnemyBaseWhenLastCanceledUpgrade] or 0) < 50 then
                         bCancel = true
                     end
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': Considering whether to cancel due to recently cancelling upgrade, iTimeSinceLastCancelled='..iTimeSinceLastCancelled..'; Dist to enemy base='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tPriorityEnemyBase)..'; Dist when we cancelled='..(oUnit[M28UnitInfo.refiDistToEnemyBaseWhenLastCanceledUpgrade] or 0)..'; bCancel='..tostring(bCancel)) end
+                if bDebugMessages == true then LOG(sFunctionRef..': Considering whether to cancel due to recently cancelling upgrade, iTimeSinceLastCancelled='..iTimeSinceLastCancelled..'; Dist to enemy base='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tLZTeamData[M28Map.reftClosestEnemyBase])..'; Dist when we cancelled='..(oUnit[M28UnitInfo.refiDistToEnemyBaseWhenLastCanceledUpgrade] or 0)..'; bCancel='..tostring(bCancel)) end
                 if bCancel then
                     if bDebugMessages == true then LOG(sFunctionRef..': Will return false (that not safe') end
                     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -695,9 +686,9 @@ function SafeToUpgradeUnit(oUnit)
             if not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ]) then
                 bSafeZone = true
             elseif tLZTeamData[M28Map.subrefLZbCoreBase] and tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] < 150 then
-                if bDebugMessages == true then LOG(sFunctionRef..': Are in a core base so treating it as safe to upgrade as enemy lacks significant threat in this zone specificaly; however will make an exception if enemy has significant threat nearby, tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]='..tostring(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false)..'; Is table of nearest df enemies empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoNearestDFEnemies]))..'; Dist to closest enemy base='..M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], tPriorityEnemyBase)) end
+                if bDebugMessages == true then LOG(sFunctionRef..': Are in a core base so treating it as safe to upgrade as enemy lacks significant threat in this zone specificaly; however will make an exception if enemy has significant threat nearby, tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]='..tostring(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false)..'; Is table of nearest df enemies empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoNearestDFEnemies]))..'; Dist to closest enemy base='..M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], tLZTeamData[M28Map.reftClosestEnemyBase])) end
                 bSafeZone = true
-                if tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] and iPlateauOrZero > 0 and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoNearestDFEnemies]) == false and M28Map.iMapSize >= 512 and M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], tPriorityEnemyBase) >= 180 then
+                if tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] and iPlateauOrZero > 0 and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoNearestDFEnemies]) == false and M28Map.iMapSize >= 512 and M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], tLZTeamData[M28Map.reftClosestEnemyBase]) >= 180 then
                     local iTeam = oUnit:GetAIBrain().M28Team
                     local iRangeThreshold = math.max(20, oUnit[M28UnitInfo.refiCombatRange]) --i.e. a guncom ignores enemies with less range than it
                     local iThreatThreshold = 150
@@ -1701,10 +1692,10 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
     local tLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone]
     local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
     local aiBrain = ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
-    local bHardLandEmergency = IsHardLandEmergency(aiBrain)
-    local tPriorityEnemyBase = M28Map.GetPriorityEnemyBaseLocationForLand(aiBrain) or tLZTeamData[M28Map.reftClosestEnemyBase]
+
+
     local iCurIsland = NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZData[M28Map.subrefMidpoint])
-    local iEnemyIsland = NavUtils.GetLabel(M28Map.refPathingTypeLand, tPriorityEnemyBase)
+    local iEnemyIsland = NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestEnemyBase])
     if iCurIsland ~= iEnemyIsland and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.35 then
         tiGrossMassWantedPerFactoryByTech = {[1]=3.5, [2] = 3.5, [3] = 6.5}
     elseif M28Map.iMapSize <= 256 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 60 then
@@ -1816,12 +1807,6 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
     end
 
     if bDebugMessages == true then LOG(sFunctionRef..': Finished checking if close to unit cap, bDontWantDueToUnitCap='..tostring(bDontWantDueToUnitCap)..'; M28Team.tTeamData[iTeam][M28Team.refiTimeLastNearUnitCap]='..(M28Team.tTeamData[iTeam][M28Team.refiTimeLastNearUnitCap] or 'nil')..'; iAverageCurAirAndLandFactories='..iAverageCurAirAndLandFactories..'; iPlateau='..iPlateau..'; iLandZone='..iLandZone..'; Mass stored='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]) end
-
-    if bHardLandEmergency and not(bDontWantDueToUnitCap) then
-        if bDebugMessages == true then LOG(sFunctionRef..': Hard land emergency active so will bypass normal eco gating and allow more factories') end
-        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-        return true
-    end
 
     --Norush or eco slot at T2 and lower when arent overflowing mass
     if (M28Overseer.bNoRushActive and M28Overseer.iNoRushTimer - GetGameTimeSeconds() >= 30) or (tLZTeamData[M28Map.refbBaseInSafePosition] and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] < 3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.7) then
@@ -1949,13 +1934,13 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
                             if bDebugMessages == true then LOG(sFunctionRef..': Net mass='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 'nil')..'; Brain net mass='..(aiBrain[M28Economy.refiNetMassBaseIncome] or 'nil')..'; brain mass stored='..aiBrain:GetEconomyStored('MASS')..'; iAverageCurAirAndLandFactories='..(iAverageCurAirAndLandFactories or 'nil')..'; refiOurHighestFactoryTechLevel='..(aiBrain[M28Economy.refiOurHighestFactoryTechLevel] or 'nil')..'; aiBrain='..(aiBrain.Nickname or 'nil')..'; tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]='..(tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex] or 'nil')) end
                             if bIgnoreMainEcoConditions or iAverageCurAirAndLandFactories < 6 - aiBrain[M28Economy.refiOurHighestFactoryTechLevel] or (aiBrain[M28Economy.refiNetMassBaseIncome] > 0 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] > 0 and aiBrain:GetEconomyStored('MASS') >= 50) or (iAverageCurAirAndLandFactories < 8 and aiBrain[M28Economy.refiOurHighestFactoryTechLevel] == 1 and M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam] and aiBrain:GetEconomyStored('MASS') >= 150 and (aiBrain:GetEconomyStored('MASS') >= 220 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] > -0.5)) then
                                 --Just get nearest enemy base
-                                local iStartPlateau, iStartLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(tPriorityEnemyBase)
+                                local iStartPlateau, iStartLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(tLZTeamData[M28Map.reftClosestEnemyBase])
                                 if iStartPlateau == iPlateau and iStartLandZone > 0 then
                                     local iTravelDist = (M28Map.GetTravelDistanceBetweenLandZones(iPlateau, iLandZone, iStartLandZone) or 10000)
-                                    if iTravelDist <= 350 and (iTravelDist <= 225 or NavUtils.GetLabel(M28Map.refPathingTypeLand, tPriorityEnemyBase) == tLZData[M28Map.subrefLZIslandRef]) then
+                                    if iTravelDist <= 350 and (iTravelDist <= 225 or NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestEnemyBase]) == tLZData[M28Map.subrefLZIslandRef]) then
                                         bWantMoreFactories = true
                                     end
-                                    if bDebugMessages == true then LOG(sFunctionRef..': iTravelDist='..iTravelDist..'; This island='..(tLZData[M28Map.subrefLZIslandRef] or 'nil')..'; Closest enemy base island='..(NavUtils.GetLabel(M28Map.refPathingTypeLand, tPriorityEnemyBase) or 'nil')..'; bWantMoreFactories following distance based condition='..tostring(bWantMoreFactories)) end
+                                    if bDebugMessages == true then LOG(sFunctionRef..': iTravelDist='..iTravelDist..'; This island='..(tLZData[M28Map.subrefLZIslandRef] or 'nil')..'; Closest enemy base island='..(NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestEnemyBase]) or 'nil')..'; bWantMoreFactories following distance based condition='..tostring(bWantMoreFactories)) end
                                 end
                                 if bDebugMessages == true then LOG(sFunctionRef..': Finished checking if have enemy within 350 of us, bWantMoreFactories after this check='..tostring(bWantMoreFactories)) end
                             end
@@ -2341,18 +2326,7 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
         end
 
         local aiBrain = oOptionalBrainOverride or ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
-        local iLandEmergencyMode = M28Team.GetLandEmergencyModeForBrain(aiBrain)
         if bDebugMessages == true then LOG(sFunctionRef..': Near start, iLandFactoriesHave='..iLandFactoriesHave..'; Highest air fac tech='..(aiBrain[M28Economy.refiOurHighestAirFactoryTech] or 'nil')..'; bGoingSecondAir='..tostring(aiBrain[M28Economy.refbGoingSecondAir] or false)..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]..'; Focus on T1 spam='..tostring(M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam] or false)..'; oOptionalBrainOverride='..(oOptionalBrainOverride.Nickname or 'nil')..'; aiBrain='..(aiBrain.Nickname or 'nil')) end
-
-        if iLandEmergencyMode >= 2 then
-            if bDebugMessages == true then LOG(sFunctionRef..': Hard land emergency active so will prefer land factory immediately') end
-            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-            return false
-        elseif iLandEmergencyMode == 1 and iLandFactoriesHave > 0 and not(aiBrain[M28Overseer.refbPrioritiseAir]) and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] < math.max(600, M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 0) then
-            if bDebugMessages == true then LOG(sFunctionRef..': Soft land emergency active with manageable air threat so will bias toward land factory') end
-            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-            return false
-        end
 
         --Early game where ACU wants to go second air - build air fac if low on mass to avoid a case where we stall mass while trying to build 2 different factories at once
         if GetGameTimeSeconds() <= 240 then

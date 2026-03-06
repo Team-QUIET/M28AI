@@ -21767,59 +21767,6 @@ function ConsiderLandOrWaterZoneEngineerAssignment(tLZOrWZData, tLZOrWZTeamData,
             end
         end
     end
-
-    if not(bIsWaterZone) then
-        local oClosestBrain = nil
-        if tLZOrWZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex] then
-            oClosestBrain = ArmyBrains[tLZOrWZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
-        end
-        if oClosestBrain and M28Team.GetLandEmergencyModeForBrain(oClosestBrain) >= 2 then
-            local tLandEmergencyState = M28Team.GetLandEmergencyState(iTeam)
-            local iEmergencyPlateau = tLandEmergencyState[M28Team.subrefiLandEmergencyPlateau]
-            local iEmergencyTargetLZ = tLandEmergencyState[M28Team.subrefiLandEmergencyTargetLZ]
-            if iEmergencyPlateau and iEmergencyTargetLZ then
-                local bEmergencyTargetZone = (iPlateauOrPond == iEmergencyPlateau and iLandOrWaterZone == iEmergencyTargetLZ)
-                local bEmergencyAdjacentZone = false
-                if not(bEmergencyTargetZone) and iPlateauOrPond == iEmergencyPlateau then
-                    local tEmergencyLZData = M28Map.tAllPlateaus[iEmergencyPlateau][M28Map.subrefPlateauLandZones][iEmergencyTargetLZ]
-                    if tEmergencyLZData and M28Utilities.IsTableEmpty(tEmergencyLZData[M28Map.subrefLZAdjacentLandZones]) == false then
-                        for _, iAdjLZ in tEmergencyLZData[M28Map.subrefLZAdjacentLandZones] do
-                            if iAdjLZ == iLandOrWaterZone then
-                                bEmergencyAdjacentZone = true
-                                break
-                            end
-                        end
-                    end
-                end
-
-                local iEmergencyBPCap = nil
-                if not(bEmergencyTargetZone) then
-                    if bEmergencyAdjacentZone or tLZOrWZTeamData[M28Map.subrefLZbCoreBase] or tLZOrWZTeamData[M28Map.subrefLZCoreExpansion] or tLZOrWZTeamData[M28Map.subrefLZFortify] then
-                        iEmergencyBPCap = 10
-                        if tLZOrWZTeamData[M28Map.subrefLZFortify] or tLZOrWZTeamData[M28Map.subrefLZbCoreBase] then
-                            iEmergencyBPCap = 15
-                        end
-                    else
-                        iEmergencyBPCap = 0
-                    end
-                end
-
-                if iEmergencyBPCap ~= nil then
-                    for iTech = 1, 3 do
-                        if iEmergencyBPCap == 0 then
-                            tLZOrWZTeamData[M28Map.subrefTBuildPowerByTechWanted][iTech] = 0
-                        else
-                            tLZOrWZTeamData[M28Map.subrefTBuildPowerByTechWanted][iTech] = math.min(tLZOrWZTeamData[M28Map.subrefTBuildPowerByTechWanted][iTech], iEmergencyBPCap)
-                        end
-                    end
-                    if bDebugMessages == true then
-                        LOG(sFunctionRef..': Hard land emergency BP override applied for zone '..iLandOrWaterZone..'; plateau='..iPlateauOrPond..'; target='..iEmergencyTargetLZ..'; adjacent='..tostring(bEmergencyAdjacentZone)..'; cap='..iEmergencyBPCap)
-                    end
-                end
-            end
-        end
-    end
-
     if bDebugMessages == true then LOG(sFunctionRef..': Checking if zone wants BP for any tech level 1-3, tLZOrWZTeamData[M28Map.subrefTBuildPowerByTechWanted]='..repru(tLZOrWZTeamData[M28Map.subrefTBuildPowerByTechWanted])) end
     for iTech = 1, 3 do
         if tLZOrWZTeamData[M28Map.subrefTBuildPowerByTechWanted][iTech] > 0 then

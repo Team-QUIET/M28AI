@@ -11912,21 +11912,6 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 end
                 return iCount
             end
-            local oSupportBrain = ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
-            local tLandEmergencyState = oSupportBrain and M28Team.GetLandEmergencyState(iTeam) or nil
-            local iLandEmergencyMode = oSupportBrain and M28Team.GetLandEmergencyModeForBrain(oSupportBrain) or 0
-            local iLandEmergencyTargetPlateau = tLandEmergencyState and tLandEmergencyState[M28Team.subrefiLandEmergencyPlateau] or nil
-            local iLandEmergencyTargetLZ = tLandEmergencyState and tLandEmergencyState[M28Team.subrefiLandEmergencyTargetLZ] or nil
-            function GetLandEmergencySupportBonus(iCandidateLZ, iEnemyThreat)
-                if iLandEmergencyMode > 0 and iLandEmergencyTargetPlateau == iPlateau and iLandEmergencyTargetLZ == iCandidateLZ then
-                    if iLandEmergencyMode >= 2 then
-                        return math.max(1000, (iEnemyThreat or 0) * 0.75)
-                    else
-                        return math.max(400, (iEnemyThreat or 0) * 0.35)
-                    end
-                end
-                return 0
-            end
             function GetAdjustedSupportValue(iBaseValue, bSameLane, iBestSameLaneValue, iEnemyThreat, iIncomingTotal, sDebugContext)
                 local bAllowed = bSameLane
                 if not(bSameLane) then
@@ -12048,7 +12033,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         if bDebugMessages == true then LOG(sFunctionRef..': Considering whether iLandZone '..iLandZone..' wants to support adjacent LZ iAdjLZ='..iAdjLZ..'; Does it want DF support='..tostring(tAdjLZTeamData[M28Map.subrefbLZWantsDFSupport])..'; Does it want indirect support='..tostring(tAdjLZTeamData[M28Map.subrefbLZWantsIndirectSupport])..'; tbAdjacentZoneEnemiesToIgnoreByZone[iAdjLZ]='..tostring(tbAdjacentZoneEnemiesToIgnoreByZone[iAdjLZ] or false)) end
                         if (bDontCheckPlayableArea or M28Conditions.IsLocationInPlayableArea(tAdjLZData[M28Map.subrefMidpoint])) then
                             local bSameLane, iAngleDiff, iTargetAngle, bSameIsland = IsSameLane(tAdjLZData)
-                            local iCurZoneValue = (tAdjLZTeamData[M28Map.subrefLZTValue] or 0) + GetLandEmergencySupportBonus(iAdjLZ, tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)
+                            local iCurZoneValue = tAdjLZTeamData[M28Map.subrefLZTValue] or 0
                             if not(iIndirectLZToSupport) and tAdjLZTeamData[M28Map.subrefbLZWantsIndirectSupport] then
                                 local bIgnoreIF = false
                                 if tbAdjacentZoneEnemiesToIgnoreByZone[iAdjLZ] and iEnemyStructureThresholdForNegligibleEnemies and tAdjLZTeamData[M28Map.subrefThreatEnemyStructureTotalMass] < iEnemyStructureThresholdForNegligibleEnemies then
@@ -12080,7 +12065,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][iTeam]
                         if (bDontCheckPlayableArea or M28Conditions.IsLocationInPlayableArea(tAdjLZData[M28Map.subrefMidpoint])) then
                             local bSameLane, iAngleDiff, iTargetAngle, bSameIsland = IsSameLane(tAdjLZData)
-                            local iCurZoneValue = (tAdjLZTeamData[M28Map.subrefLZTValue] or 0) + GetLandEmergencySupportBonus(iAdjLZ, tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)
+                            local iCurZoneValue = tAdjLZTeamData[M28Map.subrefLZTValue] or 0
                             if not(iIndirectLZToSupport) and tAdjLZTeamData[M28Map.subrefbLZWantsIndirectSupport] then
                                 local bIgnoreIF = false
                                 if tbAdjacentZoneEnemiesToIgnoreByZone[iAdjLZ] and iEnemyStructureThresholdForNegligibleEnemies and tAdjLZTeamData[M28Map.subrefThreatEnemyStructureTotalMass] < iEnemyStructureThresholdForNegligibleEnemies then
@@ -12163,7 +12148,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     local iEcoValue = tOtherLZTeamData[M28Map.subrefThreatEnemyStructureTotalMass] or 0
                                     local iCombatThreat = tOtherLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
                                     if (iEcoValue + iCombatThreat) >= iMinEnemyValueToAttack or tOtherLZTeamData[M28Map.subrefbLZBaselinePressure] then
-                                        iCurZoneValue = (tOtherLZTeamData[M28Map.subrefLZTValue] or 0) + GetLandEmergencySupportBonus(iOtherLZ, tOtherLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)
+                                        iCurZoneValue = tOtherLZTeamData[M28Map.subrefLZTValue] or 0
                                         local bSameLane = IsSameLane(tOtherLZData)
                                         if not(iDFLZToSupport) and tOtherLZTeamData[M28Map.subrefbLZWantsDFSupport] and bSameLane and iCurZoneValue > iBestDFSameLaneValue then
                                             iBestDFSameLaneValue = iCurZoneValue
@@ -12189,7 +12174,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     local iCombatThreat = tOtherLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
 
                                     if (iEcoValue + iCombatThreat) >= iMinEnemyValueToAttack or tOtherLZTeamData[M28Map.subrefbLZBaselinePressure] then
-                                        iCurZoneValue = (tOtherLZTeamData[M28Map.subrefLZTValue] or 0) + GetLandEmergencySupportBonus(iOtherLZ, tOtherLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)
+                                        iCurZoneValue = tOtherLZTeamData[M28Map.subrefLZTValue] or 0
                                         local bSameLane, iAngleDiff, iTargetAngle, bSameIsland = IsSameLane(tOtherLZData)
                                         local iIncomingTotal = GetIncomingSupportCount(tOtherLZTeamData)
                                         local iEnemyThreat = tOtherLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
@@ -15910,19 +15895,6 @@ function ConsiderMusteringForRetreat(oUnit, iTeam, iPlateau, iLandZone, iEnemyTh
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'ConsiderMusteringForRetreat'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-
-    local iLandEmergencyMode = M28Team.GetLandEmergencyModeForBrain(oUnit:GetAIBrain())
-    if iLandEmergencyMode >= 2 then
-        local tLandEmergencyState = M28Team.GetLandEmergencyState(iTeam)
-        local iEmergencyPlateau = tLandEmergencyState[M28Team.subrefiLandEmergencyPlateau]
-        local iEmergencyTargetLZ = tLandEmergencyState[M28Team.subrefiLandEmergencyTargetLZ]
-        if iEmergencyPlateau == iPlateau and iEmergencyTargetLZ and not(iEmergencyTargetLZ == iLandZone) then
-            local tEmergencyLZTeamData = M28Map.tAllPlateaus[iEmergencyPlateau][M28Map.subrefPlateauLandZones][iEmergencyTargetLZ][M28Map.subrefLZTeamData][iTeam]
-            iLandZone = iEmergencyTargetLZ
-            iEnemyThreat = math.max(iEnemyThreat, tEmergencyLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)
-            if bDebugMessages == true then LOG(sFunctionRef..': Land emergency retargeted mustering consideration to emergency LZ '..iLandZone..'; threat='..iEnemyThreat..'; mode='..iLandEmergencyMode) end
-        end
-    end
 
     --Check if there's already active mustering for this plateau
     if M28Team.IsMusteringActive(iTeam, iPlateau) then
