@@ -10873,6 +10873,7 @@ function ConsiderEmergencyPDReassignment(oEngiGivenPDOrder, tLZData, tLZMidpoint
                 --v223 - not sure why we were only clearing flag if we started construction, so decided to clear the flag either way after 3s (which should avoid infinite loop type scenarios)
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                 WaitSeconds(3)
+                M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
                 tLZTeamData[M28Map.refbIgnoreEmergencyPDReassignmentLogic] = false
             end
         end
@@ -23779,6 +23780,11 @@ function HighValueReclaimOrder(iTeam, oWreck, tPosition)
                                     end
                                 end
                             end
+                        end
+                        if oEngineerToTryAndReclaim then
+                            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                            TrackEngineerWithHighReclaimOrder(oEngineerToTryAndReclaim, oWreck, 1000)
+                            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
                         end
                     end
                     if bDebugMessages == true then LOG(sFunctionRef..': Final iEngineersAssigned='..iEngineersAssigned) end
