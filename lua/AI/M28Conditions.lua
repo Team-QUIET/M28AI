@@ -1029,19 +1029,29 @@ function TeamHasLowMass(iTeam)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local bHaveLowMass = false
+    local iActiveBrains = math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1)
+    local iHighBuildMultiplier = (M28Team.tTeamData[iTeam][M28Team.refiHighestBrainBuildMultiplier] or 1)
     if not(M28Team.tTeamData[iTeam][M28Team.refbBuiltParagon]) then
-        if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] then bHaveLowMass = true
-        elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] <= 400 * (M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1) * (M28Team.tTeamData[iTeam][M28Team.refiHighestBrainBuildMultiplier] or 1) then --i.e. we dont ahve a paragon or crazy amount of SACUs
+        if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] then
+            local iMassStoredRatio = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0
+            local iTeamNetMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 0
+            -- Treat transient/flickering stalls as recoverable unless storage or net mass is clearly bad.
+            if iMassStoredRatio <= 0.10 or iTeamNetMass < -0.25 * iActiveBrains * iHighBuildMultiplier then bHaveLowMass = true end
+        elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] <= 400 * iActiveBrains * iHighBuildMultiplier then --i.e. we dont ahve a paragon or crazy amount of SACUs
             local iMassStoredRatio = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]
+            local iTeamNetMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 0
+            local iTeamMassStored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] or 0
+            local iTeamGrossMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0
+            local iTimeSinceMassStall = GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastMassStall] or -100)
 
-            if (iMassStoredRatio <= 0.15 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] <= 300 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) then
-                if M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] < 0.2 then bHaveLowMass = true
-                elseif iMassStoredRatio <= 0.05 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] < M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] * 0.05 then bHaveLowMass = true
-                elseif GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastMassStall] or -10) < 10 then
+            if (iMassStoredRatio <= 0.06 or iTeamMassStored <= 140 * iActiveBrains) then
+                if iTeamNetMass < -0.55 * iActiveBrains * iHighBuildMultiplier then bHaveLowMass = true
+                elseif iMassStoredRatio <= 0.02 and iTeamNetMass < math.max(-0.35 * iActiveBrains, iTeamGrossMass * 0.01) then bHaveLowMass = true
+                elseif iTimeSinceMassStall < 6 and iMassStoredRatio <= 0.04 and iTeamNetMass < -0.05 * iActiveBrains then
                     bHaveLowMass = true
                 end
             end
-        elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] < 0.01 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] < M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] * 0.01 then
+        elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] < 0.005 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] < M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] * 0.005 then
             bHaveLowMass = true
         end
     end
@@ -1074,15 +1084,24 @@ function HaveLowPower(iTeam)
 
     if bDebugMessages == true then LOG(sFunctionRef..': Time='..GetGameTimeSeconds()..', team='..iTeam..'; Net energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy]..'; M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] or false)..'; M28Team.tTeamDta[iTeam][M28Team.subrefiGrossEnergyWhenStalled]='..(M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled] or 'nil')..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]..'; M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]..'; Just built lots of power='..tostring(M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower])..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; M28Team.tTeamData[iTeam][M28Team.subrefbTooLittleEnergyForUpgrade]='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTooLittleEnergyForUpgrade])..'; Min energy per tech='..M28Economy.tiMinEnergyPerTech[M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]]..'; subrefiTeamAverageEnergyPercentStored='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored]) end
     local bHaveLowPower = false
+    local iActiveBrains = math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1)
+    local iTeamNetEnergy = M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] or 0
+    local iTeamAvgEnergyStored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] or 0
+    local iTeamAvgMassStored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0
+    local iTeamGrossEnergy = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] or 0
+    local iTeamGrossMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0
+    local iGrossEnergyWhenStalled = M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled] or 0
+    local iTimeSinceEnergyStall = GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastEnergyStall] or -100)
 
-    if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < 80000 or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < 80000 * (M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1) * (M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier] or 1) and not(M28Team.tTeamData[iTeam][M28Team.refbBuiltParagon])))
-         or (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.5) then --Paragon gives 1000000 per sec I think
+    if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < 80000 or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < 80000 * iActiveBrains * (M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier] or 1) and not(M28Team.tTeamData[iTeam][M28Team.refbBuiltParagon])))
+         or (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and iTeamAvgEnergyStored <= 0.5) then --Paragon gives 1000000 per sec I think
         if not(M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower]) then
-            if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] < 0 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.95)
-                    or M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]
-                    or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled] then
+            if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]
+                    or (iTeamNetEnergy <= -8 * iActiveBrains and iTeamAvgEnergyStored <= 0.85)
+                    or (iTeamNetEnergy < -2 * iActiveBrains and iTeamAvgEnergyStored <= 0.45)
+                    or (iTimeSinceEnergyStall <= 12 and iTeamGrossEnergy < iGrossEnergyWhenStalled * 0.92) then
                 bHaveLowPower = true
-            elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] < M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] > 0.4 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 25 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.95 then
+            elseif iTeamAvgEnergyStored < iTeamAvgMassStored and iTeamAvgMassStored > 0.5 and iTeamGrossEnergy >= 25 and iTeamAvgEnergyStored <= 0.7 and iTeamNetEnergy < -2 * iActiveBrains then
                 bHaveLowPower = true
             else
                 if M28Map.bIsLowMexMap and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] <= 2 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] > 0 then
@@ -1091,17 +1110,17 @@ function HaveLowPower(iTeam)
                 elseif M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] >= 0 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] > 1 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamEnergyStored] >= 2000*M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] >= 3 or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] >= 2 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.1) or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] > M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled] and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.3 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] > M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled] * 1.05))) then
                     --Do nothing - dont have low power
                     --Dont have much more energy than when we last stalled - sometimes treat as low power (i.e. if we have low net energy, or dont have 100% energy stored)
-                elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled] * 1.05 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.99 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] < M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] * 0.1 or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] < M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] * 0.2 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.1)) then
+                elseif iTimeSinceEnergyStall <= 25 and iTeamGrossEnergy < iGrossEnergyWhenStalled * 1.01 and (iTeamAvgEnergyStored <= 0.8 or iTeamNetEnergy < iTeamGrossEnergy * 0.03 or (iTeamNetEnergy < iTeamGrossEnergy * 0.07 and iTeamAvgMassStored >= 0.2)) then
                     bHaveLowPower = true
                     --Low power levels - apply slightly different test where it's ok to not have 100% energy
-                elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 25 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] <= 2.2 then
+                elseif iTeamGrossEnergy <= 25 or iTeamGrossMass <= 2.2 then
                     --if bDebugMessages == true then LOG(sFunctionRef..': iTeam='..iTeam..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored]='..( M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] or 'nil')..'; Lowest mass% stored='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 'nil')..'; Team net energy='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] or 'nil')) end
-                    if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= math.max(0.35, math.min(0.9, M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] * 2.5)) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] >= 0.5 or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.9 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] >= -9)) then
+                    if iTeamAvgEnergyStored >= math.max(0.3, math.min(0.85, iTeamAvgMassStored * 2.0)) and (iTeamNetEnergy >= 0 or (iTeamAvgEnergyStored >= 0.85 and iTeamNetEnergy >= -9)) then
                         --Do nothing (false)
                     else
                         bHaveLowPower = true
                     end
-                elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.15 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] < 0.5 or M28Team.tTeamData[iTeam][M28Team.subrefbTooLittleEnergyForUpgrade] or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < M28Economy.tiMinEnergyPerTech[M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]]) then
+                elseif iTeamAvgMassStored >= 0.2 and (iTeamAvgEnergyStored < 0.28 or (M28Team.tTeamData[iTeam][M28Team.subrefbTooLittleEnergyForUpgrade] and iTeamNetEnergy < -4 * iActiveBrains) or (iTeamGrossEnergy < M28Economy.tiMinEnergyPerTech[M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]] * 0.85 and iTeamAvgEnergyStored < 0.5)) then
                     bHaveLowPower = true
                 end
             end
