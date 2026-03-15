@@ -5378,8 +5378,8 @@ function SetPriorityPreferredUnitsByCategory(aiBrain)
         aiBrain[reftBlueprintPriorityOverride]['wsl0308'] = 1
 
         --Experimentals
-        aiBrain[reftBlueprintPriorityOverride]['brot3ncm'] = 1 --Eliash (Aeon shorter range DF experimental that has a shield)
-        if categories.brot3ncm then aiBrain[reftBlueprintPriorityOverride]['sal0401'] = 1 end
+        -- aiBrain[reftBlueprintPriorityOverride]['brot3ncm'] = 1 --Eliash (Aeon shorter range DF experimental that has a shield)
+        -- if categories.brot3ncm then aiBrain[reftBlueprintPriorityOverride]['sal0401'] = 1 end
 
         --Special deprioritization for units that clog production
         aiBrain[reftBlueprintPriorityOverride]['brl0307'] = -1 --overbuilt, clogging out badly needed T3 Mobile Artillery
