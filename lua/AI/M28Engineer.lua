@@ -4065,6 +4065,13 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                                 local iAhwassaCount = 0
                                 local iCurT3ArtiCount = 0 --mavor treated as 3 t3 arti
                                 local bDontGetAhwassa = M28Utilities.bLoudModActive or bDontGetAirExp --LOUD has made ahwassa lmost impossible to drop bombs, making it a very weak anti-air unit, hence dont want to build (but want via flag so if LOUD fixes ahwassa then can switch back)
+                                local iEnemyAirAAThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 0
+                                local iOurAirAAThreat = M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.subrefiOurAirAAThreat] or M28Team.tTeamData[iTeam][M28Team.subrefiOurAirAAThreat] or 0
+                                local bEnemyAirParityOrGreater = iEnemyAirAAThreat > 0 and iOurAirAAThreat <= iEnemyAirAAThreat
+                                local bEnemyPenetratorFighterThreat = (M28Team.tTeamData[iTeam][M28Team.refbEnemyHasPenetratorT3Air] or false) or (M28Team.tTeamData[iTeam][M28Team.refiEnemyPenetratorT3AirThreat] or 0) > 0
+                                local iMaxAhwassaWanted = 99 --default effectively uncapped by this safeguard
+                                if bEnemyAirParityOrGreater then iMaxAhwassaWanted = 1 end
+                                if bEnemyPenetratorFighterThreat then iMaxAhwassaWanted = 0 end
 
 
 
@@ -4073,7 +4080,8 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                                     iAhwassaCount = iAhwassaCount + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL)
                                     iCurT3ArtiCount = iCurT3ArtiCount + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryFixedT3Arti) + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryExperimentalArti) * 3
                                 end
-                                if bDebugMessages == true then LOG(sFunctionRef..': Sera builder, iGameEnderCount='..iGameEnderCount..'; iAhwassaCount='..iAhwassaCount..'; iCurT3ArtiCount='..iCurT3ArtiCount..'; Have air control='..tostring(M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbHaveAirControl])..'; iTeamLandExperimentals='..iTeamLandExperimentals..'; bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats='..tostring(bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats)..'; bDontConsiderGameEnderInMostCases='..tostring(bDontConsiderGameEnderInMostCases)..'; Constructed exp count='..M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount]..'; Ahwassa LC='..M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL)..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Dist to enemy='..M28Utilities.GetDistanceBetweenPositions(tLZOrWZData[M28Map.subrefMidpoint], tLZOrWZTeamData[M28Map.reftClosestEnemyBase])) end
+                                if iAhwassaCount >= iMaxAhwassaWanted then bDontGetAhwassa = true end
+                                if bDebugMessages == true then LOG(sFunctionRef..': Sera builder, iGameEnderCount='..iGameEnderCount..'; iAhwassaCount='..iAhwassaCount..'; iCurT3ArtiCount='..iCurT3ArtiCount..'; Have air control='..tostring(M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbHaveAirControl])..'; iTeamLandExperimentals='..iTeamLandExperimentals..'; bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats='..tostring(bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats)..'; bDontConsiderGameEnderInMostCases='..tostring(bDontConsiderGameEnderInMostCases)..'; Constructed exp count='..M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount]..'; Ahwassa LC='..M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL)..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Dist to enemy='..M28Utilities.GetDistanceBetweenPositions(tLZOrWZData[M28Map.subrefMidpoint], tLZOrWZTeamData[M28Map.reftClosestEnemyBase])..'; EnemyAirAA='..iEnemyAirAAThreat..'; OurAirAA='..iOurAirAAThreat..'; bEnemyAirParityOrGreater='..tostring(bEnemyAirParityOrGreater)..'; bEnemyPenetratorFighterThreat='..tostring(bEnemyPenetratorFighterThreat)..'; iMaxAhwassaWanted='..iMaxAhwassaWanted..'; bDontGetAhwassa='..tostring(bDontGetAhwassa)) end
                                 if aiBrain[M28Overseer.refbPrioritiseAir] then
                                     if bDontGetAhwassa then
                                         if M28Conditions.WantMoreFactories(iTeam, iPlateauOrZero, iLandOrWaterZone) then
@@ -4140,7 +4148,7 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                                                 if bDebugMessages == true then LOG(sFunctionRef..': want sera Exp nuke') end
                                             end
                                         else
-                                            if not(bDontGetAhwassa) and (bDontConsiderGameEnderInMostCases or (iAhwassaCount < 1 + iGameEnderCount * 3 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL) <= 2 + iGameEnderCount * 3)) or (bEnemyHasExperimentalShields and iAhwassaCount >= math.max(1, 2 * iEnemyLandExperimentalCount)) then
+                                            if not(bDontGetAhwassa) and ((bDontConsiderGameEnderInMostCases or (iAhwassaCount < 1 + iGameEnderCount * 3 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL) <= 2 + iGameEnderCount * 3)) or (bEnemyHasExperimentalShields and iAhwassaCount >= math.max(1, 2 * iEnemyLandExperimentalCount))) then
                                                 iCategoryWanted = M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.TRANSPORTFOCUS - categories.STRUCTURE * categories.ANTIAIR
                                                 if bDebugMessages == true then LOG(sFunctionRef..': Want ahwassa') end
                                             else
