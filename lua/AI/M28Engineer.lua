@@ -1679,6 +1679,49 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
                     break
                 end
             end
+        elseif iOptionalEngineerAction == refActionBuildEmergencyArti and EntityCategoryContains(M28UnitInfo.refCategoryFixedT2Arti + M28UnitInfo.refCategoryFixedT3Arti, sBlueprintToBuild) and tLZData and tLZTeamData then
+            --Place artillery behind the frontline PD so it sits under the PD/shield layer instead of in front.
+            local tEnemyAnchor = tLZTeamData[M28Map.reftClosestEnemyBase]
+            if M28Utilities.IsTableEmpty(tEnemyAnchor) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoNearestDFEnemies]) == false then
+                local oClosestEnemy = M28Utilities.GetNearestUnit(tLZTeamData[M28Map.reftoNearestDFEnemies], tLZData[M28Map.subrefMidpoint])
+                if oClosestEnemy then tEnemyAnchor = oClosestEnemy:GetPosition() end
+            end
+
+            if not(M28Utilities.IsTableEmpty(tEnemyAnchor)) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
+                local tFriendlyPD = EntityCategoryFilterDown(M28UnitInfo.refCategoryT2PlusPD, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
+                if M28Utilities.IsTableEmpty(tFriendlyPD) then
+                    tFriendlyPD = EntityCategoryFilterDown(M28UnitInfo.refCategoryPD, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
+                end
+
+                if M28Utilities.IsTableEmpty(tFriendlyPD) == false then
+                    local oFrontPD
+                    local iClosestDistToEnemy = 100000
+                    local iCurDistToEnemy
+                    for iPD, oPD in tFriendlyPD do
+                        if M28UnitInfo.IsUnitValid(oPD) and oPD:GetFractionComplete() >= 0.5 then
+                            iCurDistToEnemy = M28Utilities.GetDistanceBetweenPositions(oPD:GetPosition(), tEnemyAnchor)
+                            if iCurDistToEnemy < iClosestDistToEnemy then
+                                iClosestDistToEnemy = iCurDistToEnemy
+                                oFrontPD = oPD
+                            end
+                        end
+                    end
+
+                    if oFrontPD then
+                        local tFrontPDPos = oFrontPD:GetPosition()
+                        local iBehindDistance = 10
+                        if EntityCategoryContains(M28UnitInfo.refCategoryFixedT3Arti, sBlueprintToBuild) then iBehindDistance = 14 end
+                        local tBehindPD = M28Utilities.MoveInDirection(tFrontPDPos, M28Utilities.GetAngleFromAToB(tEnemyAnchor, tFrontPDPos), iBehindDistance, true, false, true)
+                        local iFrontPDPlateau = NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, tFrontPDPos)
+                        if NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, tBehindPD) == iFrontPDPlateau then
+                            tTargetLocation = tBehindPD
+                        else
+                            tTargetLocation = {tFrontPDPos[1], tFrontPDPos[2], tFrontPDPos[3]}
+                        end
+                        if bDebugMessages == true then LOG(sFunctionRef..': Emergency arti placement adjusted behind PD, oFrontPD='..oFrontPD.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFrontPD)..'; tTargetLocation='..repru(tTargetLocation)..'; Enemy anchor='..repru(tEnemyAnchor)) end
+                    end
+                end
+            end
         end
         local tWaterToBuildAwayFrom
         if bDebugMessages == true then LOG(sFunctionRef..': sBlueprintToBuild='..(sBlueprintToBuild or 'nil')..'; Location to look from='..repru(tTargetLocation)) end
@@ -16259,7 +16302,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                     if iT2ArtiCount >= 3 and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) then
                         tLocationToBuild = M28Utilities.MoveInDirection(tLZData[M28Map.subrefMidpoint], M28Utilities.GetAngleFromAToB(tLZData[M28Map.subrefMidpoint], tLZTeamData[M28Map.reftClosestEnemyBase]), 20, true, false)
                         if not(NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, tLocationToBuild) == iPlateau) then
-                            tLocationToBuild = {tLZData[M28Map.subrefMidpoint][1]. tLZData[M28Map.subrefMidpoint][2]. tLZData[M28Map.subrefMidpoint][3]}
+                            tLocationToBuild = {tLZData[M28Map.subrefMidpoint][1], tLZData[M28Map.subrefMidpoint][2], tLZData[M28Map.subrefMidpoint][3]}
                         end
                     else
                         tLocationToBuild = {tLZData[M28Map.subrefMidpoint][1], tLZData[M28Map.subrefMidpoint][2], tLZData[M28Map.subrefMidpoint][3]}
@@ -22945,11 +22988,31 @@ function GiveOrderForEmergencyT2Arti(HaveActionToAssign, bHaveLowMass, bHaveLowP
         local iBPWanted = 0
         local iEnemyIndirectThreatInNearbyPlateau = 0
         local iBestEnemyRange = 0
+        local iConstructedPDCount = M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryPD)
+        local bPDArtiTrigger = iConstructedPDCount >= 3 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 2 and (not(bHaveLowPower) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 250)
         if tLZTeamData[M28Map.refbEnemiesInNearbyPlateau] then
             iEnemyIndirectThreatInNearbyPlateau, iBestEnemyRange = M28Land.GetNearestEnemyInOtherPlateau(iPlateau, tLZData, iTeam, true)
         end
-        if bDebugMessages == true then LOG(sFunctionRef..': Considering if we want emergency T2 arti, M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech]='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech]..'; Friendly tech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Is table of pathing to other zones empty='..tostring(M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZPathingToOtherLandZones]))..'; Is tLZTeamData[M28Map.subreftEnemyFirebasesInRange] empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftEnemyFirebasesInRange]))..'; subrefbDangerousEnemiesInAdjacentWZ='..tostring(tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ] or false)) end
-        if ((tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 0) > 0 or M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftEnemyFirebasesInRange]) == false or M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoAllNearbyEnemyT2ArtiUnits]) == false or M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftoLongRangeEnemyDFUnits]) == false or (tLZTeamData[M28Map.subrefLZbCoreBase] and tLZTeamData[M28Map.subrefMexCountByTech][3] > 0 and GetGameTimeSeconds() - (tLZTeamData[M28Map.subrefiTimeOfMMLFiringNearTMDOrShield] or -100) <= 5) or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] >= 3 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 2) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 5) or (tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ] and (M28Team.tTeamData[iTeam][M28Team.refbNoAvailableTorpsForEnemies] or tLZTeamData[M28Map.subrefMexCountByTech][3] > 1 or tLZTeamData[M28Map.subrefMexCountByTech][2] >= 4) and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyNavyTech] >= 2 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 5 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) and (not(M28Overseer.bNoRushActive) or M28Overseer.iNoRushTimer - GetGameTimeSeconds() <= 180 or ((not(bHaveLowMass) or tLZTeamData[M28Map.subrefMexCountByTech][3] >= 2 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 10 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) and (not(bHaveLowPower) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 250 + 75 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) and ((tLZTeamData[M28Map.subrefMexCountByTech][1] == 0 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 12 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) and tLZTeamData[M28Map.subrefMexCountByTech][2] + tLZTeamData[M28Map.subrefMexCountByTech][3] > 0))) then
+        if bDebugMessages == true then LOG(sFunctionRef..': Considering if we want emergency T2 arti, M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech]='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech]..'; Friendly tech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Is table of pathing to other zones empty='..tostring(M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZPathingToOtherLandZones]))..'; Is tLZTeamData[M28Map.subreftEnemyFirebasesInRange] empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftEnemyFirebasesInRange]))..'; subrefbDangerousEnemiesInAdjacentWZ='..tostring(tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ] or false)..'; iConstructedPDCount='..iConstructedPDCount..'; bPDArtiTrigger='..tostring(bPDArtiTrigger)) end
+        local bNoRushArtiGate = not(M28Overseer.bNoRushActive) or M28Overseer.iNoRushTimer - GetGameTimeSeconds() <= 180
+                or (
+                    (not(bHaveLowMass) or tLZTeamData[M28Map.subrefMexCountByTech][3] >= 2 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 10 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount])
+                    and (not(bHaveLowPower) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 250 + 75 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount])
+                    and ((tLZTeamData[M28Map.subrefMexCountByTech][1] == 0 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 12 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) and tLZTeamData[M28Map.subrefMexCountByTech][2] + tLZTeamData[M28Map.subrefMexCountByTech][3] > 0)
+                )
+        local bNavyAdjThreatTrigger = tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ]
+                and (M28Team.tTeamData[iTeam][M28Team.refbNoAvailableTorpsForEnemies] or tLZTeamData[M28Map.subrefMexCountByTech][3] > 1 or tLZTeamData[M28Map.subrefMexCountByTech][2] >= 4)
+                and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyNavyTech] >= 2
+                and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 5 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]
+                and bNoRushArtiGate
+        local bLegacyArtiTrigger = (tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 0) > 0
+                or M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftEnemyFirebasesInRange]) == false
+                or M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoAllNearbyEnemyT2ArtiUnits]) == false
+                or M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftoLongRangeEnemyDFUnits]) == false
+                or (tLZTeamData[M28Map.subrefLZbCoreBase] and tLZTeamData[M28Map.subrefMexCountByTech][3] > 0 and GetGameTimeSeconds() - (tLZTeamData[M28Map.subrefiTimeOfMMLFiringNearTMDOrShield] or -100) <= 5)
+                or ((M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] >= 3 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 2) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 5)
+                or bNavyAdjThreatTrigger
+        if bPDArtiTrigger or bLegacyArtiTrigger then
             local aiBrain = ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
             local iRangeThreshold = 65
             local iEnemyLongRangeThreat = 0
@@ -23136,6 +23199,10 @@ function GiveOrderForEmergencyT2Arti(HaveActionToAssign, bHaveLowMass, bHaveLowP
                     end
                 end
                 local iThreatWanted = math.max(iEnemyLongRangeThreat * 1.5, iHighestIndividiualLongRangeThreat * 0.75, iLongRangeFurtherAwayThreat) + iNearbyEnemyFixedShieldThreat * 5 - iCurDFThreat * 0.75 - iCurIFThreat
+                if bPDArtiTrigger then
+                    --If we have committed to static PD, ensure we still want some backline T2 artillery support.
+                    iThreatWanted = math.max(iThreatWanted, math.max(1200, (iConstructedPDCount - 2) * 900))
+                end
                 if iNearbyEnemyFixedShieldThreat > 0 and iEnemyLongRangeThreat > 0 and (tLZTeamData[M28Map.subrefMexCountByTech][3] > 0 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 12 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) then
                     if iThreatWanted >= 4000 or (not(bHaveLowMass) and not(bHaveLowPower) and (tLZTeamData[M28Map.subrefMexCountByTech][3] or 0) >= math.min(4, tLZData[M28Map.subrefLZOrWZMexCount]) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 20 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) then
                         iThreatWanted = math.max(10000, iThreatWanted)
@@ -23189,6 +23256,7 @@ function GiveOrderForEmergencyT2Arti(HaveActionToAssign, bHaveLowMass, bHaveLowP
                     --Get friendly T2 arti threat
                     local iT2ArtiThreat = 0
                     local iT2ArtiCount = 0
+                    local iT3ArtiCount = 0
                     local toT2ArtiWantingShields = {}
                     local toT2ArtiWithDownedShields = {}
                     local toPartCompleteShields = {}
@@ -23241,6 +23309,14 @@ function GiveOrderForEmergencyT2Arti(HaveActionToAssign, bHaveLowMass, bHaveLowP
                             end
                         end
                     end
+                    local tT3Arti = EntityCategoryFilterDown(M28UnitInfo.refCategoryFixedT2Arti * categories.TECH3, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
+                    if M28Utilities.IsTableEmpty(tT3Arti) == false then
+                        for iArti, oArti in tT3Arti do
+                            if M28UnitInfo.IsUnitValid(oArti) and oArti:GetFractionComplete() == 1 then
+                                iT3ArtiCount = iT3ArtiCount + 1
+                            end
+                        end
+                    end
 
                     local iTimeSinceLastFired = GetGameTimeSeconds() - (tLZTeamData[M28Map.refiTimeOurT2ArtiLastFired] or 0)
 
@@ -23255,6 +23331,17 @@ function GiveOrderForEmergencyT2Arti(HaveActionToAssign, bHaveLowMass, bHaveLowP
                         if bDebugMessages == true then LOG(sFunctionRef..': Not fired t2 arti recently so reducing threat further') end
                     end
                     local iNetThreatWanted = iThreatWanted - iT2ArtiThreat
+                    local iMinT2ArtiCountWanted = 0
+                    if iT3ArtiCount >= 1 then
+                        iMinT2ArtiCountWanted = 4
+                        if iT3ArtiCount >= 2 then iMinT2ArtiCountWanted = 6 end
+                    end
+                    if iMinT2ArtiCountWanted > 0 and iT2ArtiCount < iMinT2ArtiCountWanted and (not(bHaveLowMass and bHaveLowPower) or tLZTeamData[M28Map.subrefMexCountByTech][3] > 0) then
+                        local iThreatPerArtiWanted = 700
+                        if not(bHaveLowMass) and not(bHaveLowPower) then iThreatPerArtiWanted = 900 end
+                        iNetThreatWanted = math.max(iNetThreatWanted, (iMinT2ArtiCountWanted - iT2ArtiCount) * iThreatPerArtiWanted)
+                        if bDebugMessages == true then LOG(sFunctionRef..': Increasing T2 arti demand due to in-zone T3 arti, iT3ArtiCount='..iT3ArtiCount..'; iT2ArtiCount='..iT2ArtiCount..'; iMinT2ArtiCountWanted='..iMinT2ArtiCountWanted..'; iNetThreatWanted='..iNetThreatWanted) end
+                    end
                     iBPWanted = 240 --default
                     local bAreBuildingShieldOrTML = false
                     local iTMLBPWanted = 0
@@ -23451,7 +23538,7 @@ function GiveOrderForEmergencyT2Arti(HaveActionToAssign, bHaveLowMass, bHaveLowP
                                 for iDistanceToTry = 20, 40, 10 do
                                     tLocationToBuild = M28Utilities.MoveInDirection(tLZData[M28Map.subrefMidpoint], M28Utilities.GetAngleFromAToB(tLZData[M28Map.subrefMidpoint], tLZTeamData[M28Map.reftClosestEnemyBase]), iDistanceToTry, true, false)
                                     if not(NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, tLocationToBuild) == iPlateau) and GetSurfaceHeight(tLocationToBuild[1], tLocationToBuild[3]) <= GetTerrainHeight(  tLocationToBuild[1], tLocationToBuild[3]) then
-                                        tLocationToBuild = {tLZData[M28Map.subrefMidpoint][1]. tLZData[M28Map.subrefMidpoint][2]. tLZData[M28Map.subrefMidpoint][3]}
+                                        tLocationToBuild = {tLZData[M28Map.subrefMidpoint][1], tLZData[M28Map.subrefMidpoint][2], tLZData[M28Map.subrefMidpoint][3]}
                                         break
                                     end
                                 end
