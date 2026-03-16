@@ -5378,8 +5378,26 @@ function SetPriorityPreferredUnitsByCategory(aiBrain)
         aiBrain[reftBlueprintPriorityOverride]['wsl0308'] = 1
 
         --Experimentals
-        -- aiBrain[reftBlueprintPriorityOverride]['brot3ncm'] = 1 --Eliash (Aeon shorter range DF experimental that has a shield)
-        -- if categories.brot3ncm then aiBrain[reftBlueprintPriorityOverride]['sal0401'] = 1 end
+        -- Aeon
+        aiBrain[reftBlueprintPriorityOverride]['brot3ncm'] = 1
+        aiBrain[reftBlueprintPriorityOverride]['sal0401'] = 1 
+        aiBrain[reftBlueprintPriorityOverride]['ual0401'] = 1 
+        aiBrain[reftBlueprintPriorityOverride]['wal0401'] = 1 
+        -- UEF
+        aiBrain[reftBlueprintPriorityOverride]['wel4404'] = 1 
+        aiBrain[reftBlueprintPriorityOverride]['wel0401'] = 1 
+        aiBrain[reftBlueprintPriorityOverride]['bel0402'] = 1 
+        aiBrain[reftBlueprintPriorityOverride]['brnt3shbm'] = 1 
+        aiBrain[reftBlueprintPriorityOverride]['wel0416'] = 1 
+        -- Cybran
+        aiBrain[reftBlueprintPriorityOverride]['xrl0403'] = 1 
+        aiBrain[reftBlueprintPriorityOverride]['wrl1466'] = 1 
+        aiBrain[reftBlueprintPriorityOverride]['brmt3ava'] = 1 
+        aiBrain[reftBlueprintPriorityOverride]['brl0401'] = 1 
+        -- Seraphim
+        aiBrain[reftBlueprintPriorityOverride]['xsl0401'] = 1 
+        aiBrain[reftBlueprintPriorityOverride]['bsl0401'] = 1 
+        aiBrain[reftBlueprintPriorityOverride]['brpexhvbot'] = 1 
 
         --Special deprioritization for units that clog production
         aiBrain[reftBlueprintPriorityOverride]['brl0307'] = -1 --overbuilt, clogging out badly needed T3 Mobile Artillery
@@ -5389,6 +5407,8 @@ function SetPriorityPreferredUnitsByCategory(aiBrain)
         --Units to tone down or disable
         aiBrain[reftBlueprintPriorityOverride]['bal0110'] = -1000 --T1 sniperbot
         aiBrain[reftBlueprintPriorityOverride]['sel0324'] = -1000 --mobile omni (that also has AA so gets misused as an AA unit)
+        aiBrain[reftBlueprintPriorityOverride]['bal0403'] = -1000 
+        aiBrain[reftBlueprintPriorityOverride]['ssl0404'] = -1000 
 
         --Buffed units in QUIET (able to kite)
         -- aiBrain[reftBlueprintPriorityOverride]['drl0204'] = 1 --Hoplite
