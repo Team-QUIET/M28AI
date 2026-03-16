@@ -6639,23 +6639,23 @@ function ShouldCommitMusteredArmy(iTeam, iPlateau)
 
     --Calculate required threat ratio based on tech level
     local iHighestTech = tTeamData[iTeam][subrefiHighestFriendlyLandFactoryTech] or 1
-    local iThreatRatioRequired = 1.0
+    local iThreatRatioRequired = 0.92
 
     --Use lower threshold when defending expansion zones with our mexes
     local tMexCountByTech = tTargetLZTeamData[M28Map.subrefMexCountByTech]
     if tMexCountByTech and (tMexCountByTech[1] + tMexCountByTech[2] + tMexCountByTech[3]) > 0 then
         --We have mexes in this zone, lower the threshold to defend them more aggressively
-        iThreatRatioRequired = 0.95
+        iThreatRatioRequired = 0.88
         if bDebugMessages == true then LOG(sFunctionRef..': Target zone LZ'..iTargetLZ..' has our mexes ('..tMexCountByTech[1]..'/'..tMexCountByTech[2]..'/'..tMexCountByTech[3]..'), using lower threat ratio='..iThreatRatioRequired) end
     end
 
     --Minimum unit count based on tech
-    local iMinUnitCount = 5
-    if iHighestTech >= 3 then iMinUnitCount = 3
-    elseif iHighestTech >= 2 then iMinUnitCount = 4 end
+    local iMinUnitCount = 4
+    if iHighestTech >= 3 then iMinUnitCount = 2
+    elseif iHighestTech >= 2 then iMinUnitCount = 3 end
 
     --Minimum mustering time to let more units gather
-    local iMinMusteringTime = 5
+    local iMinMusteringTime = 3
 
     local iUnitCount = table.getn(tMusterData[subreftMusteringUnits])
 
@@ -6671,12 +6671,12 @@ function ShouldCommitMusteredArmy(iTeam, iPlateau)
         sReason = 'threat threshold reached'
 
     -- 2. Current enemy threat dropped to less than half of original, and we have decent force
-    elseif iCurrentEnemyThreat < iEnemyThreat * 0.5 and iMusteredThreat >= iCurrentEnemyThreat * 1.3 and iUnitCount >= 3 then
+    elseif iCurrentEnemyThreat < iEnemyThreat * 0.5 and iMusteredThreat >= iCurrentEnemyThreat * 1.2 and iUnitCount >= 3 then
         bShouldCommit = true
         sReason = 'enemy weakened'
 
     -- 3. We have massive threat advantage (2.5x+), can attack even with fewer units
-    elseif iMusteredThreat >= iEnemyThreat * 2.5 and iUnitCount >= 2 then
+    elseif iMusteredThreat >= iEnemyThreat * 2.1 and iUnitCount >= 2 then
         bShouldCommit = true
         sReason = 'overwhelming force'
     end

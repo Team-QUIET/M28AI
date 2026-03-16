@@ -2215,8 +2215,8 @@ function HaveEnoughThreatToAttack(iPlateau, iLandZone, tLZData, tLZTeamData, iOu
 
     local iDefaultThreatRatioWanted
     if iOptionalOverrideDefaultThreatRatioWanted then iDefaultThreatRatioWanted = iOptionalOverrideDefaultThreatRatioWanted
-    elseif bOptionalUseSlightlyLowerThreatRatio then iDefaultThreatRatioWanted = 0.9
-    else iDefaultThreatRatioWanted = 0.95
+    elseif bOptionalUseSlightlyLowerThreatRatio then iDefaultThreatRatioWanted = 0.85
+    else iDefaultThreatRatioWanted = 0.90
     end
 
     if bDebugMessages == true then LOG(sFunctionRef..': Deciding if have enough combat threat to attack, iOurCombatThreat='..iOurCombatThreat..'; iEnemyCombatThreat='..iEnemyCombatThreat..'; iFirebaseThreatAdjust='..iFirebaseThreatAdjust..'; bHaveSignificantCombatCloserToFirebase='..tostring(bHaveSignificantCombatCloserToFirebase)..'; iTeam='..(iTeam or 'nil')..'; LZ value='..tLZTeamData[M28Map.subrefLZTValue]..'; Map size='..M28Map.iMapSize..'; Time='..GetGameTimeSeconds()..'; subrefLZSValue='..tLZTeamData[M28Map.subrefLZSValue]..'; tLZTeamData[M28Map.refiModDistancePercent]='..tLZTeamData[M28Map.refiModDistancePercent]) end
@@ -2224,7 +2224,7 @@ function HaveEnoughThreatToAttack(iPlateau, iLandZone, tLZData, tLZTeamData, iOu
         if bDebugMessages == true then LOG(sFunctionRef..': Have more than the default threat ratio wanted') end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         return true
-    elseif  iOurCombatThreat > iEnemyCombatThreat and ((iFirebaseThreatAdjust > 0 and bHaveSignificantCombatCloserToFirebase) or (iOurCombatThreat > (iEnemyCombatThreat + iFirebaseThreatAdjust) * 0.9 and (tLZTeamData[M28Map.subrefLZTValue] > iOurCombatThreat * 0.5 or M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefAlliedACU]) == false)) or (M28Map.iMapSize <= 256 and tLZTeamData[M28Map.refiModDistancePercent] <= 0.55 and tLZTeamData[M28Map.subrefLZSValue] > 0)) then
+    elseif  iOurCombatThreat > iEnemyCombatThreat and ((iFirebaseThreatAdjust > 0 and bHaveSignificantCombatCloserToFirebase) or (iOurCombatThreat > (iEnemyCombatThreat + iFirebaseThreatAdjust) * 0.85 and (tLZTeamData[M28Map.subrefLZTValue] > iOurCombatThreat * 0.5 or M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefAlliedACU]) == false)) or (M28Map.iMapSize <= 256 and tLZTeamData[M28Map.refiModDistancePercent] <= 0.55 and tLZTeamData[M28Map.subrefLZSValue] > 0)) then
         if bDebugMessages == true then LOG(sFunctionRef..': Have more threat than the enemy') end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         return true

@@ -5170,6 +5170,16 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
     local iAvailableCombatUnitThreat = M28UnitInfo.GetMassCostOfUnits(tAvailableCombatUnits)
     iAvailableCombatUnitThreat = iAvailableCombatUnitThreat + math.min(iAvailableCombatUnitThreat, tLZTeamData[M28Map.subrefiAvailableMobileShieldThreat])
 
+    --Aggression tuning constants for non-skirmisher land combat behavior
+    local iACUCommitThreatRatio = 1.05
+    local iPushThreatRatio = 1.12
+    local iMusterSuspendThreatRatio = 1.00
+
+    --Non-skirmisher focus set used for push/muster gating
+    local tNonSkirmisherCombatUnits = EntityCategoryFilterDown(M28UnitInfo.refCategoryLandCombat - M28UnitInfo.refCategorySkirmisher - M28UnitInfo.refCategoryAbsolver, tAvailableCombatUnits)
+    if not(tNonSkirmisherCombatUnits) then tNonSkirmisherCombatUnits = {} end
+    local iNonSkirmisherCombatThreat = M28UnitInfo.GetCombatThreatRating(tNonSkirmisherCombatUnits, false)
+
 
 
     local bHaveSignificantCombatCloserToFirebase = false
@@ -5711,6 +5721,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
     end
     local oNearestEnemyToFriendlyBase
     local bConsiderAttackingACU = false
+    local bACUCommitByThreatRatio = false
     local toEnemyACUsNearZone --will set this later on
     function GetManualAttackTargetIfWantManualAttack(oUnit, oOptionalPrimaryTarget)
         if bDebugMessages == true then LOG(sFunctionRef..': GetManualAttackTargetIfWantManualAttack - start of code') end
@@ -6321,10 +6332,10 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
             --Muster threshold: base 1.2 (need 20% advantage), reduced when defending territory
             local iModDistPercent = tLZTeamData[M28Map.refiModDistancePercent] or 50
             local iZoneValue = tLZTeamData[M28Map.subrefLZSValue] or 0
-            local iMusterMultiplier = 1.05
+            local iMusterMultiplier = 0.98
                 - (iModDistPercent < 30 and 0.15 or iModDistPercent < 50 and 0.10 or 0)
                 - (iZoneValue >= 2000 and 0.10 or iZoneValue >= 500 and 0.05 or 0)
-            iMusterMultiplier = math.max(1.0, iMusterMultiplier)
+            iMusterMultiplier = math.max(0.9, iMusterMultiplier)
 
             if iNearbyEnemyThreatForMuster * iMusterMultiplier >= iAvailableCombatUnitThreat and not(tLZTeamData[M28Map.subrefLZbCoreBase]) then
                 bShouldMusterNotAttack = true
@@ -6462,10 +6473,10 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         end
                         if bDebugMessages == true then LOG(sFunctionRef..': oClosestCombatUnitToEnemyACU='..(oClosestCombatUnitToEnemyACU.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oClosestCombatUnitToEnemyACU) or 'nil')) end
                         if oClosestCombatUnitToEnemyACU then
-                            local tFriendlyCombatNearACU = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryLandCombat, oClosestCombatUnitToEnemyACU:GetPosition(), 80, 'Ally')
+                            local tFriendlyCombatNearACU = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryLandCombat - M28UnitInfo.refCategorySkirmisher - M28UnitInfo.refCategoryAbsolver, oClosestCombatUnitToEnemyACU:GetPosition(), 80, 'Ally')
                             local iFriendlyFrontlineCombatThreat = M28UnitInfo.GetCombatThreatRating(tFriendlyCombatNearACU, true)
                             --Also consider zone's total ally DF threat + available threat + adjacent zones if frontline count seems low
-                            local iZoneTotalAllyThreat = (tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0) + iAvailableCombatUnitThreat
+                            local iZoneTotalAllyThreat = math.max(iNonSkirmisherCombatThreat, (tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0) + iAvailableCombatUnitThreat)
                             --Add adjacent zone ally DF threat
                             if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
                                 for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
@@ -6474,6 +6485,19 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                 end
                             end
                             if iZoneTotalAllyThreat > iFriendlyFrontlineCombatThreat then iFriendlyFrontlineCombatThreat = math.max(iFriendlyFrontlineCombatThreat, iZoneTotalAllyThreat * 0.7) end
+                            --Primary ACU commit gate: require 1.1x local frontline advantage vs ACU threat plus nearby escort proxy
+                            local iEnemyEscortThreatProxy = 0
+                            local tEnemyEscortNearACU = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryLandCombat - categories.COMMAND, oClosestACUToMidpoint:GetPosition(), 35, 'Enemy')
+                            if M28Utilities.IsTableEmpty(tEnemyEscortNearACU) == false then
+                                iEnemyEscortThreatProxy = M28UnitInfo.GetCombatThreatRating(tEnemyEscortNearACU, true)
+                            end
+                            local iACUCommitThreatRequired = (iMobileDFWanted + iEnemyEscortThreatProxy) * iACUCommitThreatRatio
+                            local bHaveACUIntelForCommit = tLZTeamData[M28Map.refiRadarCoverage] >= 60 or M28UnitInfo.CanSeeUnit(aiBrain, oClosestACUToMidpoint, false)
+                            if bHaveACUIntelForCommit and iFriendlyFrontlineCombatThreat >= iACUCommitThreatRequired then
+                                bACUCommitByThreatRatio = true
+                                bConsiderAttackingACU = true
+                            end
+                            if bDebugMessages == true then LOG(sFunctionRef..': ACU commit ratio check, iFriendlyFrontlineCombatThreat='..iFriendlyFrontlineCombatThreat..'; iACUCommitThreatRequired='..iACUCommitThreatRequired..'; iMobileDFWanted='..iMobileDFWanted..'; iEnemyEscortThreatProxy='..iEnemyEscortThreatProxy..'; bHaveACUIntelForCommit='..tostring(bHaveACUIntelForCommit)..'; bACUCommitByThreatRatio='..tostring(bACUCommitByThreatRatio)) end
                             if iFriendlyFrontlineCombatThreat >= iMobileDFWanted then
                                 --Check if enemy has significant force
                                 if iFriendlyFrontlineCombatThreat >= 10000 then bConsiderAttackingACU = true
@@ -7009,6 +7033,31 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
             local iOurDFAndT1ArtiCombatThreat
             local tbFriendlyACUsConsidered = {}
             local tOurDFAndT1ArtiUnits
+            local bForcePushNonSkirmisher = false
+            local bWinningEnoughToSuspendMuster = false
+            local bNonSkirmisherActivelyEngaged = false
+            local bSuspendMusterOverride = false
+            local bApplyMusterRetreatOverride = bShouldMusterNotAttack
+            function UpdateNonSkirmisherAggressionSignals()
+                --Keep local aggression gates synced to current enemy threat estimate and live engagement status
+                iNonSkirmisherCombatThreat = M28UnitInfo.GetCombatThreatRating(tNonSkirmisherCombatUnits, false)
+                local iEnemyThreatForSignals = iEnemyCombatThreat or math.max((tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0), (tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0) + (tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0))
+                bForcePushNonSkirmisher = iNonSkirmisherCombatThreat >= math.max(800, iEnemyThreatForSignals * iPushThreatRatio)
+                bWinningEnoughToSuspendMuster = iNonSkirmisherCombatThreat >= math.max(450, iEnemyThreatForSignals * iMusterSuspendThreatRatio)
+                bNonSkirmisherActivelyEngaged = false
+                if M28Utilities.IsTableEmpty(tNonSkirmisherCombatUnits) == false then
+                    for iNSUnit, oNSUnit in tNonSkirmisherCombatUnits do
+                        if M28UnitInfo.IsUnitValid(oNSUnit) and (GetGameTimeSeconds() - (oNSUnit[M28UnitInfo.refiLastWeaponEvent] or -100) <= 6
+                                or M28Conditions.CloseToEnemyUnit(oNSUnit:GetPosition(), tLZTeamData[M28Map.reftoNearestDFEnemies], 4, iTeam, true, nil, nil, oNSUnit)) then
+                            bNonSkirmisherActivelyEngaged = true
+                            break
+                        end
+                    end
+                end
+                bSuspendMusterOverride = bWinningEnoughToSuspendMuster and bNonSkirmisherActivelyEngaged
+                bApplyMusterRetreatOverride = bShouldMusterNotAttack and not(bSuspendMusterOverride)
+                if bDebugMessages == true then LOG(sFunctionRef..': Aggression signals - iNonSkirmisherCombatThreat='..(iNonSkirmisherCombatThreat or 0)..'; EnemyThreatRef='..(iEnemyThreatForSignals or 0)..'; bForcePushNonSkirmisher='..tostring(bForcePushNonSkirmisher)..'; bWinningEnoughToSuspendMuster='..tostring(bWinningEnoughToSuspendMuster)..'; bNonSkirmisherActivelyEngaged='..tostring(bNonSkirmisherActivelyEngaged)..'; bSuspendMusterOverride='..tostring(bSuspendMusterOverride)..'; bApplyMusterRetreatOverride='..tostring(bApplyMusterRetreatOverride)) end
+            end
             function IncreaseCombatThreatForACU(oACU, iFarAwayFactorOverride)
                 if not(tbFriendlyACUsConsidered[oACU.EntityId]) and M28UnitInfo.IsUnitValid(oACU) then
                     tbFriendlyACUsConsidered[oACU.EntityId] = true
@@ -7215,6 +7264,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     iEnemyCombatThreat = iEnemyCombatThreat * iThreatMultiplier
                     if bDebugMessages == true then LOG(sFunctionRef..': Medium intel confidence ('..iIntelConfidence..') - boosting enemy threat estimate by 10%') end
                 end
+                UpdateNonSkirmisherAggressionSignals()
             end
 
             if oNearestEnemyToFriendlyBase and M28Conditions.IsLocationInPlayableArea(oNearestEnemyToFriendlyBase:GetPosition()) then
@@ -7697,12 +7747,13 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 end
 
                 if bDebugMessages == true then LOG(sFunctionRef..': Finished checking if should move blocked units, bMoveBlockedNotAttackMove='..tostring(bMoveBlockedNotAttackMove)..'; iFriendlyBestMobileIndirectRange='..(iFriendlyBestMobileIndirectRange or 'nil')..';  tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal]='..(tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 'nil')..'; Enemy DF structure='..(tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0)..'; Enemy DF mobile='..(tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0)..'; tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal]='..(tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 'nil')..'; iFriendlyBestMobileDFRange='..(iFriendlyBestMobileDFRange or 'nil')..'; Enemy best DF range='..iEnemyBestDFRange..'; iFriendlyBestMobileIndirectRange='..(iFriendlyBestMobileIndirectRange or 'nil')..'; iEnemyBestStructureDFRange='..(iEnemyBestStructureDFRange or 'nil')..'; Enemy structure threat indirect='..(tLZTeamData[M28Map.subrefLZThreatEnemyStructureIndirect] or 'nil')..'; bEnemyHasNoDFUnits='..tostring(bEnemyHasNoDFUnits or false)..'; iEnemyBestDFRange='..(iEnemyBestDFRange or 'nil')..'; tLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal]='..(tLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal] or 'nil')..'; tLZTeamData[M28Map.subrefLZThreatEnemyMobileIndirectTotal]='..(tLZTeamData[M28Map.subrefLZThreatEnemyMobileIndirectTotal] or 'nil')..'; iAvailableCombatUnitThreat='..iAvailableCombatUnitThreat..'; subrefiNearbyEnemyLongRangeDFThreat='..(tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 0)..'; bAreInScenario1='..tostring(bAreInScenario1)) end
+                UpdateNonSkirmisherAggressionSignals()
                 local iShorterRangeThreat --used for fatboys to be less cautious if we have a large SR threat
                 --SCENARIO 1 - We outrange enemy DF units (mobile and fix), or have equal range but with either significantly more threat at that range, or nearest enemy lacks that range
                 --Skip Scenario 1 attacks if we should muster instead (enemy has equal or greater threat)
-                if bAreInScenario1 and bShouldMusterNotAttack then
+                if bAreInScenario1 and bApplyMusterRetreatOverride then
                     bAreInScenario1 = false --Force into Scenario 2 which will then retreat/muster
-                    if bDebugMessages == true then LOG(sFunctionRef..': Overriding Scenario 1 due to bShouldMusterNotAttack=true, will muster instead of kiting attack') end
+                    if bDebugMessages == true then LOG(sFunctionRef..': Overriding Scenario 1 due to bApplyMusterRetreatOverride=true, will muster instead of kiting attack') end
                 end
 
                 if bAreInScenario1 then
@@ -7971,6 +8022,24 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                             M28Orders.IssueTrackedMove(oUnit, oNearestEngineerToUnit:GetPosition(), math.min(4, oUnit[M28UnitInfo.refiDFRange]  * 0.5), false, 'EnMve'..iLandZone, false)
                                                         end
                                                     end
+                                                end
+                                            elseif bForcePushNonSkirmisher and (oUnit[M28UnitInfo.refiDFRange] or 0) > 0 and not(EntityCategoryContains(M28UnitInfo.refCategorySkirmisher + M28UnitInfo.refCategoryAbsolver, oUnit.UnitId)) and not(oUnit[M28UnitInfo.refbScoutCombatOverride]) then
+                                                --Push-first behavior for winning fights: non-skirmishers advance continuously instead of kiting
+                                                bUseNormalLogic = false
+                                                if not(IgnoreOrderDueToStuckUnit(oUnit)) then
+                                                    local oPushTarget = oNearestEnemyToFriendlyBase
+                                                    if bConsiderAttackingACU and M28Utilities.IsTableEmpty(toEnemyACUsNearZone) == false then
+                                                        local oClosestACUToUnit = M28Utilities.GetNearestUnit(toEnemyACUsNearZone, oUnit:GetPosition())
+                                                        if M28UnitInfo.IsUnitValid(oClosestACUToUnit) and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestACUToUnit:GetPosition()) <= M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oNearestEnemyToFriendlyBase:GetPosition()) + 50 then
+                                                            oPushTarget = oClosestACUToUnit
+                                                        end
+                                                    end
+                                                    local tPushTargetPosition = oPushTarget:GetPosition()
+                                                    if oPushTarget[M28UnitInfo.reftLastKnownPositionByTeam] and oPushTarget[M28UnitInfo.reftLastKnownPositionByTeam][iTeam] then
+                                                        tPushTargetPosition = oPushTarget[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]
+                                                    end
+                                                    M28Orders.IssueSmartMove(oUnit, tPushTargetPosition, math.max(4, (oUnit[M28UnitInfo.refiDFRange] or 10) * 0.5), false, 'NSPush'..iLandZone, false)
+                                                    if bDebugMessages == true then LOG(sFunctionRef..': Push-first advance for non-skirmisher unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' to target='..oPushTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oPushTarget)) end
                                                 end
                                             end
                                             if bUseNormalLogic then
@@ -9054,13 +9123,13 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                             else
                                                 local iOutrangedThreat = M28UnitInfo.GetCombatThreatRating(tOutrangedCombatUnits, false, false)
                                                 if bDebugMessages == true then LOG(sFunctionRef..': Our iOutrangedThreat='..iOutrangedThreat..'; iAvailableCombatUnitThreat='..iAvailableCombatUnitThreat..'; iEnemyBestDFRange='..iEnemyBestDFRange..'; iFriendlyBestMobileDFRange='..iFriendlyBestMobileDFRange..'; iEnemyBestStructureDFRange='..(iEnemyBestStructureDFRange or 'nil')..'; iFirebaseThreatAdjust='..iFirebaseThreatAdjust..'; oNearestEnemyToFriendlyBase[M28UnitInfo.refiDFRange]='..(oNearestEnemyToFriendlyBase[M28UnitInfo.refiDFRange] or 'nil')) end
-                                                if iOutrangedThreat / iAvailableCombatUnitThreat >= 0.8 then
+                                                if iOutrangedThreat / iAvailableCombatUnitThreat >= 0.7 then
                                                     bAttackWithOutrangedDFUnits = true
                                                     if bDebugMessages == true then LOG(sFunctionRef..': Our long ranged threat is only a small proportion of our total combat threat so we will attack with everything') end
                                                 elseif iEnemyBestDFRange <= 26 and iFriendlyBestMobileDFRange <= 33 and iOutrangedThreat / iAvailableCombatUnitThreat >= 0.25 and (iEnemyBestStructureDFRange or 0) == 0 and iFirebaseThreatAdjust == 0 and (oNearestEnemyToFriendlyBase[M28UnitInfo.refiDFRange] or 0) <= 26 then
                                                     bAttackWithOutrangedDFUnits = true
                                                     if bDebugMessages == true then LOG(sFunctionRef..': our and enemy ranges suggest may still be at the t1 stage so will attack as a significant part of our force is SR units, and overall we think we have enough threat to handle enemy') end
-                                                elseif iOutrangedThreat > iEnemyCombatThreat * 1.5 then
+                                                elseif iOutrangedThreat > iEnemyCombatThreat * 1.3 then
                                                     if iOutrangedThreat > iEnemyCombatThreat * 3 or (iOutrangedThreat > iEnemyCombatThreat * 2.5 and iOutrangedThreat / iAvailableCombatUnitThreat >= 0.5) then
                                                         bAttackWithOutrangedDFUnits = true
                                                     else
@@ -9099,7 +9168,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                 end
                                 --Override for if enemy ACU nearby
                                 if bDebugMessages == true then LOG(sFunctionRef..': Considering adjustment if want to attack with outranged DF units but enemy has ACU nearby, bAttackWithOutrangedDFUnits before adjust='..tostring(bAttackWithOutrangedDFUnits)..'; Is table of ACUs in zone empty='..tostring(M28Utilities.IsTableEmpty(toEnemyACUsNearZone))..'; bConsiderAttackingACU='..tostring(bConsiderAttackingACU)) end
-                                if bAttackWithOutrangedDFUnits and M28Utilities.IsTableEmpty(toEnemyACUsNearZone) == false and not(bConsiderAttackingACU) then
+                                if bAttackWithOutrangedDFUnits and M28Utilities.IsTableEmpty(toEnemyACUsNearZone) == false and not(bConsiderAttackingACU) and not(bACUCommitByThreatRatio) then
                                     --If enemy ACU is within 30 of the closest enemy unit then dont attack with outranged DF units
                                     local iDistThresholdForACU = M28Utilities.GetDistanceBetweenPositions(oNearestEnemyToFriendlyBase:GetPosition(), tLZTeamData[M28Map.reftClosestFriendlyBase]) - 30
                                     local iDistToNearestEnemyThreshold = 30
@@ -9227,10 +9296,11 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                 else
                                     --Arent attacking enemy with SR units so just want to be nearby to be ready to support
                                     --BUT if enemy is stronger (bShouldMusterNotAttack), retreat BOTH LR and SR units to rally
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Is table of units to support empty='..tostring(M28Utilities.IsTableEmpty(tUnitsToSupport))..'; bShouldMusterNotAttack='..tostring(bShouldMusterNotAttack)) end
-                                    if bShouldMusterNotAttack then
+                                    if bDebugMessages == true then LOG(sFunctionRef..': Is table of units to support empty='..tostring(M28Utilities.IsTableEmpty(tUnitsToSupport))..'; bApplyMusterRetreatOverride='..tostring(bApplyMusterRetreatOverride)) end
+                                    UpdateNonSkirmisherAggressionSignals()
+                                    if bApplyMusterRetreatOverride then
                                         --Enemy is stronger - retreat ALL units (LR and SR) to rally point
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Retreating ALL units to rally due to bShouldMusterNotAttack=true, LR count='..table.getn(tUnitsToSupport)..', SR count='..table.getn(tOutrangedCombatUnits)) end
+                                        if bDebugMessages == true then LOG(sFunctionRef..': Retreating ALL units to rally due to bApplyMusterRetreatOverride=true, LR count='..table.getn(tUnitsToSupport)..', SR count='..table.getn(tOutrangedCombatUnits)) end
                                         --Retreat LR units (may have already been given kiting orders, override them)
                                         for iLRUnit, oLRUnit in tUnitsToSupport do
                                             oLRUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
@@ -9490,10 +9560,10 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     CalculateNearbyEnemyCombatThreatFriendlyDFAndIfFriendlyACUInCombat()
                     if iOurDFAndT1ArtiCombatThreat > 0 and M28Utilities.IsTableEmpty(tOurDFAndT1ArtiUnits) == false then
                         local iOurDFAndT1ArtiUnits = table.getn(tOurDFAndT1ArtiUnits)
-                        --if we have 20% more threat, attack regardless of range
-                        if not(bAttackWithEverything) and iOurDFAndT1ArtiCombatThreat >= iEnemyCombatThreat * 1.2 and iOurDFAndT1ArtiCombatThreat >= 1000 then
+                        --if we have 10% more threat, attack regardless of range
+                        if not(bAttackWithEverything) and iOurDFAndT1ArtiCombatThreat >= iEnemyCombatThreat * 1.1 and iOurDFAndT1ArtiCombatThreat >= 1000 then
                             bAttackWithEverything = true
-                            if bDebugMessages == true then LOG(sFunctionRef..': Overwhelming threat advantage (1.2x+), attacking regardless of range. iOurDFAndT1ArtiCombatThreat='..iOurDFAndT1ArtiCombatThreat..'; iEnemyCombatThreat='..iEnemyCombatThreat) end
+                            if bDebugMessages == true then LOG(sFunctionRef..': Overwhelming threat advantage (1.1x+), attacking regardless of range. iOurDFAndT1ArtiCombatThreat='..iOurDFAndT1ArtiCombatThreat..'; iEnemyCombatThreat='..iEnemyCombatThreat) end
                         end
                         --Legacy unit count check as fallback
                         if not(bAttackWithEverything) and iOurDFAndT1ArtiUnits >= 125 and iOurDFAndT1ArtiUnits - table.getn(tLZTeamData[M28Map.subrefTEnemyUnits]) >= 50 and (M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoNearestDFEnemies]) or table.getn(tLZTeamData[M28Map.reftoNearestDFEnemies]) < iOurDFAndT1ArtiUnits * 0.25) then bAttackWithEverything = true end
@@ -9524,7 +9594,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     if bDebugMessages == true then LOG(sFunctionRef..': Have enough threat to attack, and non earby enemy firebase, so will attack with everything') end
                                 end
                                 --Extra check if enemy has ACU, to avoid feeding it mass if we only have a slight combat advantage
-                                if bAttackWithEverything and not(bConsiderAttackingACU) and M28Utilities.IsTableEmpty(toEnemyACUsNearZone) == false and iOurDFAndT1ArtiCombatThreat < math.max(iEnemyCombatThreat * 1.3, iEnemyCombatThreat + 300) and iFirebaseThreatAdjust == 0 then
+                                if bAttackWithEverything and not(bConsiderAttackingACU) and not(bACUCommitByThreatRatio) and M28Utilities.IsTableEmpty(toEnemyACUsNearZone) == false and iOurDFAndT1ArtiCombatThreat < math.max(iEnemyCombatThreat * 1.15, iEnemyCombatThreat + 300) and iFirebaseThreatAdjust == 0 then
                                     if bDebugMessages == true then LOG(sFunctionRef..': enemy has ACU so want to be more cautious, is the closest enemy an ACU='..tostring(EntityCategoryContains(categories.COMMAND, oNearestEnemyToFriendlyBase.UnitId))) end
                                     if EntityCategoryContains(categories.COMMAND, oNearestEnemyToFriendlyBase.UnitId) then
                                         if M28UnitInfo.GetUnitHealthPercent(oNearestEnemyToFriendlyBase) >= 0.3 and ((oNearestEnemyToFriendlyBase[M28ACU.refiUpgradeCount] or 0) >= 2 or M28UnitInfo.GetUnitHealthPercent(oNearestEnemyToFriendlyBase) >= 0.5) then
@@ -9605,7 +9675,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                 local tNearestEnemyLZTeamData = tNearestEnemyLZData[M28Map.subrefLZTeamData][iTeam]
                                 iEnemyCombatThreat = math.max(iEnemyCombatThreat, tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] + tNearestEnemyLZTeamData[M28Map.subrefTThreatEnemyCombatTotal])
                                 if bDebugMessages == true then LOG(sFunctionRef..': iEnemyCombatThreat after update='..iEnemyCombatThreat..'; iAvailableCombatUnitThreat='..iAvailableCombatUnitThreat..'; iFirebaseThreatAdjust='..iFirebaseThreatAdjust..'; threat of tSkirmisherDFEnemies='..M28UnitInfo.GetCombatThreatRating(tSkirmisherDFEnemies, true, false)..'; Mass value of skirmisher enemies='..M28UnitInfo.GetMassCostOfUnits(tSkirmisherDFEnemies, true)) end
-                                if iEnemyCombatThreat * 1.4 >= iAvailableCombatUnitThreat and (iFirebaseThreatAdjust == 0 or iEnemyCombatThreat >= iAvailableCombatUnitThreat) and not(bConsiderAttackingACU and oNearestEnemyToFriendlyBase.UnitId and EntityCategoryContains(categories.COMMAND, oNearestEnemyToFriendlyBase.UnitId) and M28UnitInfo.GetUnitHealthPercent(oNearestEnemyToFriendlyBase) <= 0.75) then
+                                if iEnemyCombatThreat * 1.25 >= iAvailableCombatUnitThreat and (iFirebaseThreatAdjust == 0 or iEnemyCombatThreat >= iAvailableCombatUnitThreat) and not(bConsiderAttackingACU and oNearestEnemyToFriendlyBase.UnitId and EntityCategoryContains(categories.COMMAND, oNearestEnemyToFriendlyBase.UnitId) and M28UnitInfo.GetUnitHealthPercent(oNearestEnemyToFriendlyBase) <= 0.75) then
                                     bAttackWithEverything = false
                                     if bDebugMessages == true then LOG(sFunctionRef..': Changing flag back to false due to enemy unit in a dif zone that has a significant threat in it') end
                                 end
@@ -10002,7 +10072,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             end
                         end
 
-                        if iOurDFAndT1ArtiCombatThreat < iEnemyCombatThreat * 1.4 or not(bAttackWithEverything) or (iEnemyCombatThreat >= 5000 and iOurDFAndT1ArtiCombatThreat < 7000 + math.max(0, (iEnemyCombatThreat - 15000)) * 3.5 + math.min(10000, iEnemyCombatThreat - 5000) * 2.5) then
+                        if iOurDFAndT1ArtiCombatThreat < iEnemyCombatThreat * 1.25 or not(bAttackWithEverything) or (iEnemyCombatThreat >= 5000 and iOurDFAndT1ArtiCombatThreat < 7000 + math.max(0, (iEnemyCombatThreat - 15000)) * 3.5 + math.min(10000, iEnemyCombatThreat - 5000) * 2.5) then
                             bWantReinforcements = true
                             if bDebugMessages == true then LOG(sFunctionRef..': Want reinforcements as iOurDFAndT1ArtiCombatThreat='..iOurDFAndT1ArtiCombatThreat..'; iEnemyCombatThreat='..iEnemyCombatThreat) end
                         end
@@ -10013,9 +10083,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             if bDebugMessages == true then LOG(sFunctionRef..': Will attack with everything as ACU is in trouble') end
                         end
                         if bDebugMessages == true then LOG(sFunctionRef..': We dont outrange enemy, considering if we have much more threat than them, iEnemyCombatThreat='..iEnemyCombatThreat..'; iOurDFAndT1ArtiCombatThreat='..iOurDFAndT1ArtiCombatThreat..'; bWantReinforcements='..tostring(bWantReinforcements)..'; bAttackWithEverything='..tostring(bAttackWithEverything)..'; iClosestFriendlyUnitToAnEnemyFirebase='..iClosestFriendlyUnitToAnEnemyFirebase..'; iFirebaseThreatAdjust='..iFirebaseThreatAdjust..'; bHaveACUInTroubleAndRecentlyInCombat='..tostring(bHaveACUInTroubleAndRecentlyInCombat or false)..'; tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat]='..tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat]..'; bAttackWithEverything='..tostring(bAttackWithEverything)) end
-                        --Early/mid game attack - if we have 1.05x+ threat, attack regardless of enemy range
-                        if not(bAttackWithEverything) and iOurDFAndT1ArtiCombatThreat > math.max(900, iEnemyCombatThreat * 1.05) then
-                            if bDebugMessages == true then LOG(sFunctionRef..': We have 1.2x+ threat advantage, pressing attack regardless of range. iOurDFAndT1ArtiCombatThreat='..iOurDFAndT1ArtiCombatThreat..'; iEnemyCombatThreat='..iEnemyCombatThreat) end
+                        --Early/mid game attack - if we are at least at threat parity, attack regardless of enemy range
+                        if not(bAttackWithEverything) and iOurDFAndT1ArtiCombatThreat > math.max(900, iEnemyCombatThreat * 1.00) then
+                            if bDebugMessages == true then LOG(sFunctionRef..': We have threat parity+, pressing attack regardless of range. iOurDFAndT1ArtiCombatThreat='..iOurDFAndT1ArtiCombatThreat..'; iEnemyCombatThreat='..iEnemyCombatThreat) end
                             bAttackWithEverything = true
                         end
 
@@ -10178,12 +10248,13 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
                     --Override attack decision if we should muster (enemy has equal or greater threat)
                     --This is the final check before acting on the decision - ensures we don't attack when outgunned
-                    if bAttackWithEverything and bShouldMusterNotAttack then
+                    UpdateNonSkirmisherAggressionSignals()
+                    if bAttackWithEverything and bApplyMusterRetreatOverride then
                         if iOurDFAndT1ArtiCombatThreat <= iEnemyCombatThreat * 1.05 and not(bHaveACUInTroubleAndRecentlyInCombat) then
                             bAttackWithEverything = false
                         end
                         bWantReinforcements = true
-                        if bDebugMessages == true then LOG(sFunctionRef..': Overriding bAttackWithEverything to false due to bShouldMusterNotAttack=true, will muster/retreat instead') end
+                        if bDebugMessages == true then LOG(sFunctionRef..': Overriding bAttackWithEverything to false due to bApplyMusterRetreatOverride=true, will muster/retreat instead') end
                     end
 
                     --Log the decision with additional context about target changes
@@ -10686,7 +10757,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         --This prevents piecemeal feeding and ensures armies combine for maximum strength
                         local tConsolidationPoint = nil
                         local iConsolidationZone = nil
-                        if bShouldMusterNotAttack and M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
+                        UpdateNonSkirmisherAggressionSignals()
+                        if bApplyMusterRetreatOverride and M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
                             --Find the adjacent zone with the highest friendly threat that is attacking (not mustering)
                             local iBestAdjacentThreat = 0
                             for _, iAdjZone in tLZData[M28Map.subrefLZAdjacentLandZones] do
