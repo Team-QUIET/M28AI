@@ -7118,16 +7118,6 @@ function QueueReclaimPath(oEngineer, iPriorityOverride, tLZOrWZTeamData, iPlatea
 
     if bDebugMessages == true then LOG(sFunctionRef..': Found '..table.getn(tValidReclaim)..' valid reclaim targets') end
 
-    local bLowMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.3
-    local bLowEnergy = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.5
-    local iMassMultiplier = 1
-    local iEnergyMultiplier = 0.01
-    if bLowEnergy and not(bLowMass) then
-        iEnergyMultiplier = 0.05
-    elseif bLowMass then
-        iMassMultiplier = 2
-    end
-
     local tSortedReclaim = {}
     local tRemainingReclaim = {}
     local iRemainingCount = 0
@@ -7142,15 +7132,13 @@ function QueueReclaimPath(oEngineer, iPriorityOverride, tLZOrWZTeamData, iPlatea
 
     while iRemainingCount > 0 and iSortedCount < iMaxReclaimCount do
         local iBestIdx = nil
-        local iBestScore = -999999
+        local iBestDist = nil
 
         for i = 1, iRemainingCount do
             local oReclaim = tRemainingReclaim[i]
             local iDist = math.max(1, M28Utilities.GetDistanceBetweenPositions(tCurrentPos, oReclaim.CachePosition))
-            local iReclaimValue = (oReclaim.MaxMassReclaim or 0) * iMassMultiplier + (oReclaim.MaxEnergyReclaim or 0) * iEnergyMultiplier
-            local iScore = iReclaimValue / iDist
-            if iScore > iBestScore then
-                iBestScore = iScore
+            if not(iBestDist) or iDist < iBestDist then
+                iBestDist = iDist
                 iBestIdx = i
             end
         end
