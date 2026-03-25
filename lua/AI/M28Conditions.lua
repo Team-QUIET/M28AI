@@ -1683,7 +1683,9 @@ function ZoneWantsT1Spam(tLZTeamData, iTeam)
     local bWantT1Spam = false
     if M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam] then
         bWantT1Spam = true
-    elseif IsTableOfUnitsStillValid(tLZTeamData[M28Map.subrefoNearbyEnemyLandFacs]) and GetGameTimeSeconds() <= 900 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] <= 2 then
+    elseif IsTableOfUnitsStillValid(tLZTeamData[M28Map.subrefoNearbyEnemyLandFacs]) and GetGameTimeSeconds() <= 1080 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] <= 2 then
+        bWantT1Spam = true
+    elseif GetGameTimeSeconds() <= 1200 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] <= 1 and tLZTeamData[M28Map.refiModDistancePercent] >= 0.35 and tLZTeamData[M28Map.subrefbLZWantsSupport] then
         bWantT1Spam = true
     elseif M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] < 3 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] < 3 then
         local aiBrain = ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]

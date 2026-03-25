@@ -156,8 +156,8 @@ function ShouldHaveBaselineZonePressure(tLZData, tLZTeamData, iPlateau, iLandZon
     -- Skip if pacifist area
     if tLZData[M28Map.subrefbPacifistArea] then return false end
 
-    -- Only consider after early game (first 3 minutes)
-    if GetGameTimeSeconds() < 180 then return false end
+    -- Only consider after the opening setup window
+    if GetGameTimeSeconds() < 150 then return false end
 
     local iZoneValue = tLZTeamData[M28Map.subrefLZTValue] or 0
     local iZoneStructureValue = tLZTeamData[M28Map.subrefLZSValue] or 0
@@ -167,16 +167,15 @@ function ShouldHaveBaselineZonePressure(tLZData, tLZTeamData, iPlateau, iLandZon
     -- Get mod distance - higher values = closer to enemy base
     local iModDist = tLZTeamData[M28Map.refiModDistancePercent] or 0
 
-    -- Zone must be in the forward half of the map (pushing toward enemy)
-    -- ModDist >= 0.4 means zone is at least 40% toward enemy base
-    if iModDist < 0.4 or iModDist > 0.85 then return false end
+    -- Zone must be in a forward contestable band of the map (pushing toward enemy)
+    if iModDist < 0.35 or iModDist > 0.9 then return false end
 
     -- Check if we already have enough DF coverage here
     local iCurrentDFThreat = tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0
     local iDFThreatWanted = tLZTeamData[M28Map.subrefLZDFThreatWanted] or 0
     local iCoverageThreshold
     if iDFThreatWanted > 0 then
-        iCoverageThreshold = iDFThreatWanted * 0.6
+        iCoverageThreshold = iDFThreatWanted * 0.5
     else
         local iTech = M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] or 1
         iCoverageThreshold = 200 * iTech
@@ -245,9 +244,9 @@ function ShouldHaveBaselineZonePressure(tLZData, tLZTeamData, iPlateau, iLandZon
     if not(bIsLeadingEdge) and not(bHasAdjZoneCloserToUsWithUnits) and bHasContestValue then
         -- Zone is an anchor point if:
         -- 1. It has contestable value (self or adjacent), and
-        -- 2. It's in the contestable range (40-65% toward enemy - not too far forward), and
+        -- 2. It's in the contestable range (35-70% toward enemy - not too far forward), and
         -- 3. No enemies are ahead of us with units (would be suicidal to push alone)
-        if iModDist >= 0.4 and iModDist <= 0.65 and not(bHasAdjZoneCloserToEnemyWithUnits) then
+        if iModDist >= 0.35 and iModDist <= 0.7 and not(bHasAdjZoneCloserToEnemyWithUnits) then
             bIsAnchorZone = true
         end
     end

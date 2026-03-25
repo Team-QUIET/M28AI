@@ -874,6 +874,21 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
     local tTargetLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iTargetLandZone]
     local tLZTargetTeamData = tTargetLZData[M28Map.subrefLZTeamData][iTeam]
     local bHaveLowMass = M28Conditions.TeamHasLowMass(iTeam)
+    local iTeamMassStored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] or 0
+    local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
+    local iDFThreatWanted = tLZTargetTeamData[M28Map.subrefLZDFThreatWanted] or 0
+    local iDFCoreThreshold = 0
+    if iDFThreatWanted > 0 then
+        iDFCoreThreshold = iDFThreatWanted * 0.7
+    else
+        iDFCoreThreshold = 140 * math.max(1, iFactoryTechLevel)
+    end
+    local bPrioritiseProduction = false
+    if oFactory:GetAIBrain().M28LandSubteam and M28Team.tLandSubteamData[oFactory:GetAIBrain().M28LandSubteam] then
+        bPrioritiseProduction = M28Team.tLandSubteamData[oFactory:GetAIBrain().M28LandSubteam][M28Team.refbPrioritiseProduction] or false
+    end
+    local bProductionPriorityForLZ = bPrioritiseProduction or M28Conditions.ZoneWantsT1Spam(tLZTargetTeamData, iTeam) or (tLZTargetTeamData[M28Map.subrefbLZWantsDFSupport] and iTeamMassStored < 250)
+    local bNeedMoreDFCore = bProductionPriorityForLZ and tLZTargetTeamData[M28Map.subrefbLZWantsDFSupport] and (tLZTargetTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0) < iDFCoreThreshold
     local bInSameIsland = false
     if NavUtils.GetLabel(M28Map.refPathingTypeLand, oFactory:GetPosition()) == NavUtils.GetLabel(M28Map.refPathingTypeLand, M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iTargetLandZone][M28Map.subrefMidpoint]) then
         bInSameIsland = true
@@ -1103,7 +1118,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
         end
         if not(iBaseCategoryWanted) then
             --Mobile shields
-            if bConsiderMobileShields and not(bHaveLowMass) and tLZTargetTeamData[M28Map.refbLZWantsMobileShield] and (bDontGetCombat or not(tLZTargetTeamData[M28Map.subrefbLZWantsSupport])) then
+            if bConsiderMobileShields and not(bHaveLowMass) and not(bNeedMoreDFCore) and tLZTargetTeamData[M28Map.refbLZWantsMobileShield] and (bDontGetCombat or not(tLZTargetTeamData[M28Map.subrefbLZWantsSupport])) then
                 iBaseCategoryWanted = M28UnitInfo.refCategoryMobileLandShield
                 if bInSameIsland then iBaseCategoryWanted = M28UnitInfo.refCategoryMobileLandShield
                 else iBaseCategoryWanted = iBaseCategoryWanted * M28UnitInfo.refCategoryAmphibious + iBaseCategoryWanted * categories.HOVER
@@ -1120,7 +1135,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
             if not(iBaseCategoryWanted) then
                 --Mobile stealth (unless enemy so close that combat units would be better)
                 if bDebugMessages == true then LOG(sFunctionRef..': Considering if we want mobile stealth, bConsiderMobileStealths='..tostring(bConsiderMobileStealths)..'; tLZTargetTeamData[M28Map.refbLZWantsMobileStealth]='..tostring(tLZTargetTeamData[M28Map.refbLZWantsMobileStealth])..'; tLZTargetTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]='..tostring(tLZTargetTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ])) end
-                if bConsiderMobileStealths and not(bHaveLowMass) and tLZTargetTeamData[M28Map.refbLZWantsMobileStealth] and not(tLZTargetTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) and (bDontGetCombat or not(tLZTargetTeamData[M28Map.subrefbLZWantsSupport])) then
+                if bConsiderMobileStealths and not(bHaveLowMass) and not(bNeedMoreDFCore) and tLZTargetTeamData[M28Map.refbLZWantsMobileStealth] and not(tLZTargetTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) and (bDontGetCombat or not(tLZTargetTeamData[M28Map.subrefbLZWantsSupport])) then
                     iBaseCategoryWanted = M28UnitInfo.refCategoryMobileLandStealth
                     if bInSameIsland then iBaseCategoryWanted = M28UnitInfo.refCategoryMobileLandStealth
                     else iBaseCategoryWanted = iBaseCategoryWanted * M28UnitInfo.refCategoryAmphibious + iBaseCategoryWanted * categories.HOVER
@@ -1140,7 +1155,6 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
             if not(bDontGetCombat) and tLZTargetTeamData[M28Map.subrefbLZWantsSupport] then
                 --We want DF units (but not indirect fire units)
                 if bInSameIsland then
-                    local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
                     local iTechCategory = M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)
                     if bDebugMessages == true then LOG(sFunctionRef..': We want direct fire units, iFactoryTechLevel='..iFactoryTechLevel) end
                     -- Default to direct-fire units instead of skirmishers for cases where skirmishers are not desired
@@ -1148,6 +1162,10 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
                         --Sniperbots are really bad in LOUD other than Aeon T2 sniperbot so dont want to build skirmishers in case we build them
                         iBaseCategoryWanted = M28UnitInfo.refCategoryMobileDFLand
                         if iFactoryTechLevel == 1 then iBaseCategoryWanted = iBaseCategoryWanted - M28UnitInfo.refCategoryLightAttackBot end
+                    elseif bProductionPriorityForLZ then
+                        iBaseCategoryWanted = M28UnitInfo.refCategoryMobileDFLand
+                        if iFactoryTechLevel == 1 then iBaseCategoryWanted = iBaseCategoryWanted - M28UnitInfo.refCategoryLightAttackBot end
+                        if bDebugMessages == true then LOG(sFunctionRef..': Production priority active, keeping DF preference for this target LZ') end
                     elseif bDontConsiderBuildingSkirmishers then
                         -- If we've been flagged to avoid skirmishers, build direct-fire units instead
                         iBaseCategoryWanted = M28UnitInfo.refCategoryMobileDFLand

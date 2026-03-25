@@ -632,12 +632,13 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
 
     --Nearby enemy units in other land zone if we already have a complete land factory
     local iSearchDistance = 40
+    if IsACUInPreT2PressureWindow(oACU, iTeam) then iSearchDistance = 55 end
     if M28Map.bIsCampaignMap then iSearchDistance = 36 end
     local bACUWantsToRun = DoesACUWantToRun(iPlateauOrZero, iLZOrWZ, tLZOrWZData, tLZOrWZTeamData, oACU)
     local bProceedWithLogic = true
     local iCurLandFacs = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandFactory)
     if iCurLandFacs >= 1 and iPlateauOrZero > 0 and (not(M28Map.bIsCampaignMap) or iPlateauOrZero == 0 or not(bACUWantsToRun)) and AttackNearestEnemyWithACU(iPlateauOrZero, iLZOrWZ, tLZOrWZData, tLZOrWZTeamData, oACU, iSearchDistance) then
-        if bDebugMessages == true then LOG(sFunctionRef..': ACU has enemies within 40 of it so will attack as we already have a factory complete') end
+        if bDebugMessages == true then LOG(sFunctionRef..': ACU has enemies within '..iSearchDistance..' of it so will attack as we already have a factory complete') end
         bProceedWithLogic = false
     elseif bACUWantsToRun and M28Map.bIsCampaignMap and iCurLandFacs >= 1 and tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] then
         --Retreat from nearest enemy
@@ -4387,17 +4388,19 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
 
     local iLZToMoveTo
     local iTeam = oACU:GetAIBrain().M28Team
+    local bPreT2PressureWindow = IsACUInPreT2PressureWindow(oACU, iTeam)
     local iAdjLZ
     if bDebugMessages == true then LOG(sFunctionRef..': Will consider moving to another LZ for ACU '..oACU.UnitId..M28UnitInfo.GetUnitLifetimeCount(oACU)..' owned by '..oACU:GetAIBrain().Nickname..'; Is table of pathing to other LZ empty='..tostring(M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZPathingToOtherLandZones]))) end
     local iHighValueDistanceThreshold = 175
     local iLowerPriorityDistanceThreshold = 300
-    --Increase distance if ACU has upgrade and is near-full health, and we and enemy lack T3
-    if (oACU[refiUpgradeCount] > 0 or M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] == 1) and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.95 and ((M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] < 3 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] < 3 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] < 3) or (not(M28Team.tTeamData[iTeam][M28Team.refbDangerousForACUs]) and oACU[refiUpgradeCount] >= 2 and (M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] >= 2 and not(M28Team.tTeamData[iTeam][M28Team. refbAssassinationOrSimilar])) and not(oACU:HasEnhancement('ResourceAllocation') and not(oACU:HasEnhancement('ResourceAllocationAdvanced')) and (oACU[refiUpgradeCount] >= 3 or (oACU.MyShield.GetHealth and oACU.MyShield:GetHealth() >= 4000) or oACU:GetHealth() >= 15000)))) then
-        iLowerPriorityDistanceThreshold = iLowerPriorityDistanceThreshold + 100
+    --Pure-T1 games want a more active ACU; remove these extensions once T2 is out.
+    if bPreT2PressureWindow and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.9 then
+        iHighValueDistanceThreshold = iHighValueDistanceThreshold + 25
+        iLowerPriorityDistanceThreshold = iLowerPriorityDistanceThreshold + 150
         --Increase by another 50 if we are less than half map size and all indicators are ok
         local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
         if bDebugMessages == true then LOG(sFunctionRef..': Increased lower priority distance threshold, iLowerPriorityDistanceThreshold='..iLowerPriorityDistanceThreshold..'; will consider if want to increase further, upgradecount='..oACU[refiUpgradeCount]..'; In core base='..tostring(tLZTeamData[M28Map.subrefLZbCoreBase])..'; Highest enemy ground tech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech]..'; Highest enemy air tech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech]..'; Map size='..M28Map.iMapSize) end
-        if tLZTeamData[M28Map.subrefLZbCoreBase] and oACU[refiUpgradeCount] >= 2 and iLowerPriorityDistanceThreshold < math.min(475, M28Map.iMapSize * 0.6) and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] < 3 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] < 3 and M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] >= 2 and not(M28Team.tTeamData[iTeam][M28Team. refbAssassinationOrSimilar]) then
+        if tLZTeamData[M28Map.subrefLZbCoreBase] and oACU[refiUpgradeCount] >= 1 and iLowerPriorityDistanceThreshold < math.min(500, M28Map.iMapSize * 0.65) and M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] >= 2 and not(M28Team.tTeamData[iTeam][M28Team. refbAssassinationOrSimilar]) then
             if bDebugMessages == true then LOG(sFunctionRef..': Increased lower priority dist by a further 50') end
             iLowerPriorityDistanceThreshold = iLowerPriorityDistanceThreshold + 50
         end
@@ -4546,7 +4549,7 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
                     end
                 end
 
-                --Encourage ACU to advance toward enemy, especially early game
+                --Encourage ACU to advance toward enemy, especially during the pure-T1 pressure window
                 local iHighestEnemyGroundTech = M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] or 1
                 local iOurUpgrades = oACU[refiUpgradeCount] or 0
                 local iEnemyMaxUpgrades = M28Team.GetHighestEnemyACUUpgradeCount(iTeam)
@@ -4564,9 +4567,9 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
                     if bDebugMessages == true then LOG(sFunctionRef..': Backline zone penalty, reduced iCurValue to='..iCurValue) end
                 else
                     -- Forward bonuses only apply outside backline
-                    -- 1. Early game forward momentum (T1 phase, zones 15-50%)
-                    if iHighestEnemyGroundTech <= 1 and iAdjModDist > 0.15 and iAdjModDist <= 0.5 then
-                        iForwardPushBonus = iForwardPushBonus + 300 * iAdjModDist
+                    -- 1. Early game forward momentum (pure-T1 phase, zones 15-60%)
+                    if bPreT2PressureWindow and iAdjModDist > 0.15 and iAdjModDist <= 0.6 then
+                        iForwardPushBonus = iForwardPushBonus + 450 * iAdjModDist
                     end
 
                     -- 2. Mid-map contestation (aggressive ACU behind 40% line, target zones 35-55%)
@@ -4582,7 +4585,7 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
                     if bZoneIsCloserToEnemy then
                         local iDistReduction = iDistFromCurZoneToEnemy - iDistFromAdjZoneToEnemy
                         local iDirectionalBonus = math.min(400, iDistReduction * 3)
-                        if iHighestEnemyGroundTech <= 2 then
+                        if bPreT2PressureWindow then
                             iDirectionalBonus = iDirectionalBonus * 3
                         end
                         iForwardPushBonus = iForwardPushBonus + iDirectionalBonus
@@ -7593,6 +7596,17 @@ function GetACUOrder(aiBrain, oACU)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+function IsACUInPreT2PressureWindow(oACU, iTeam)
+    local iFriendlyFactoryTech = M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] or 1
+    local iEnemyMaxTech = math.max(
+        M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] or 1,
+        M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] or 1,
+        M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyNavyTech] or 1
+    )
+    local iACUBuildTech = oACU[refiBuildTech] or 1
+    return iFriendlyFactoryTech < 2 and iACUBuildTech < 2 and iEnemyMaxTech < 2
+end
+
 function DoWeStillWantToBeAggressiveWithACU(oACU)
     --Intended for early game mostly on smaller maps to make ACU more aggressive, or teamgames where we have 3+ ACUs alive
     local sFunctionRef = 'DoWeStillWantToBeAggressiveWithACU'
@@ -7618,37 +7632,22 @@ function DoWeStillWantToBeAggressiveWithACU(oACU)
         if M28Team.tTeamData[iTeam][M28Team.refbDangerousForACUs] then
             bStillBeAggressive = false
         else
-            --If we are going all-in on T1 spam then want to be aggressive with ACU if it has a gun
             local tLZOrWZData, tLZOrWZTeamData = M28Map.GetLandOrWaterZoneData(oACU:GetPosition(), true, oACU:GetAIBrain().M28Team)
             local iEffectiveUpgradeCount = oACU[refiUpgradeCount] or 0
             if M28Utilities.bQuietModActive then iEffectiveUpgradeCount = iEffectiveUpgradeCount * 1.25 end
-            if iEffectiveUpgradeCount > 0 and M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam) and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.7 and GetGameTimeSeconds() <= 1000 and tLZOrWZTeamData[M28Map.refiModDistancePercent] < 0.6 then
-                --Will remain aggressive
-            --QUIET: Stay aggressive with 1+ upgrade regardless of other conditions (upgraded ACU is very strong)
-            elseif M28Utilities.bQuietModActive and iEffectiveUpgradeCount >= 2 and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.6 then
-                bStillBeAggressive = true
-            elseif M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] >= 3 and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.9 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] < 3 and (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] or 0) < 3 and (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] or 0) < 2 and (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyNavyTech] or 0) < 2 and not(M28Team.tTeamData[iTeam][M28Team. refbAssassinationOrSimilar]) then
-                bStillBeAggressive = true --redundancy
-            else
-                --If significant time elapsed then remove this flag
-                local iTimeThreshold = M28Utilities.bQuietModActive and (1200 + iEffectiveUpgradeCount * 450) or 900
-                if GetGameTimeSeconds() >= iTimeThreshold then
-                    bStillBeAggressive = false
-                else
-                    local iThresholdFactor = 1 + ((M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1) - 1) * 0.25
-                    if M28Utilities.bQuietModActive then iThresholdFactor = iThresholdFactor + iEffectiveUpgradeCount * 0.5 end
-                    if tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim] > 350 then iThresholdFactor = iThresholdFactor + 0.4 end
-                    if M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.3 then bStillBeAggressive = false
-                    elseif not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]) then
-                        bStillBeAggressive = false
-                    elseif M28Team.tTeamData[iTeam][M28Team.refbEnemyHasUpgradedACU] and iEffectiveUpgradeCount == 0 then
-                        bStillBeAggressive = false
-                    elseif M28Map.bIsCampaignMap then
-                        bStillBeAggressive = false
-                    elseif M28Team.tTeamData[iTeam][M28Team.refiMexCountByTech][3] > 0 or M28Conditions.GetHighestOtherTeamT3MexCount(iTeam) > 0 then
-                        bStillBeAggressive = false
-                    end
-                end
+            local bPreT2PressureWindow = IsACUInPreT2PressureWindow(oACU, iTeam)
+            if not(bPreT2PressureWindow) then
+                bStillBeAggressive = false
+            elseif M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.35 then
+                bStillBeAggressive = false
+            elseif not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]) then
+                bStillBeAggressive = false
+            elseif M28Map.bIsCampaignMap then
+                bStillBeAggressive = false
+            elseif M28Team.tTeamData[iTeam][M28Team.refiMexCountByTech][3] > 0 or M28Conditions.GetHighestOtherTeamT3MexCount(iTeam) > 0 then
+                bStillBeAggressive = false
+            elseif tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim] > 350 and iEffectiveUpgradeCount == 0 and M28UnitInfo.GetUnitHealthPercent(oACU) < 0.6 and (tLZOrWZTeamData[M28Map.refiModDistancePercent] or 0) < 0.35 then
+                bStillBeAggressive = false
             end
         end
     end
