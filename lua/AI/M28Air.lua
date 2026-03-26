@@ -1129,7 +1129,10 @@ function GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, iCategory, bRec
                             table.insert(tInUseUnits, oUnit)
                             if bDebugMessages == true then LOG(sFunctionRef..': Special micro is active or doing bomber special logic') end
                         else
-                            local tLastOrder = oUnit[M28Orders.reftiLastOrders][oUnit[M28Orders.refiOrderCount]]
+                            local tLastOrder
+                            if oUnit[M28Orders.reftiLastOrders] and (oUnit[M28Orders.refiOrderCount] or 0) > 0 then
+                                tLastOrder = oUnit[M28Orders.reftiLastOrders][oUnit[M28Orders.refiOrderCount]]
+                            end
                             local oExistingValidAttackTarget
                             if oUnit[refoStrikeDamageAssigned] then
                                 if M28UnitInfo.IsUnitValid(oUnit[refoStrikeDamageAssigned]) then oExistingValidAttackTarget = oUnit[refoStrikeDamageAssigned] end
@@ -1137,6 +1140,10 @@ function GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, iCategory, bRec
                                 if M28UnitInfo.IsUnitValid(oUnit[refoAirAACurTarget]) then oExistingValidAttackTarget = oUnit[refoAirAACurTarget] end
                             elseif tLastOrder and tLastOrder[M28Orders.subrefoOrderUnitTarget] and (tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueAttack or tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueGroundAttack) and M28UnitInfo.IsUnitValid(tLastOrder[M28Orders.subrefoOrderUnitTarget]) then
                                 oExistingValidAttackTarget = tLastOrder[M28Orders.subrefoOrderUnitTarget]
+                            end
+                            local tGroundAttackOrderPosition
+                            if tLastOrder and tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueGroundAttack then
+                                tGroundAttackOrderPosition = tLastOrder[M28Orders.subreftOrderPosition]
                             end
 
                             --Gunship projectile logic - update table/flag
@@ -1160,7 +1167,13 @@ function GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, iCategory, bRec
                                 end
                             end
 
-                            if bDebugMessages == true then LOG(sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Is unit attached='..tostring(oUnit:IsUnitState('Attached'))..'; Unit state='..M28UnitInfo.GetUnitState(oUnit)..'; reprs of tLastOrder='..reprs(tLastOrder)..'; Is oExistingValidAttackTarget valid='..tostring(M28UnitInfo.IsUnitValid(oExistingValidAttackTarget))..'; refoStrikeDamageAssigned='..(oUnit[refoStrikeDamageAssigned].UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(refoStrikeDamageAssigned) or 'nil')) end
+                            if bDebugMessages == true then
+                                local sStrikeDamageAssigned = 'nil'
+                                if M28UnitInfo.IsUnitValid(oUnit[refoStrikeDamageAssigned]) then
+                                    sStrikeDamageAssigned = oUnit[refoStrikeDamageAssigned].UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit[refoStrikeDamageAssigned])
+                                end
+                                LOG(sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Is unit attached='..tostring(oUnit:IsUnitState('Attached'))..'; Unit state='..M28UnitInfo.GetUnitState(oUnit)..'; reprs of tLastOrder='..reprs(tLastOrder)..'; Is oExistingValidAttackTarget valid='..tostring(M28UnitInfo.IsUnitValid(oExistingValidAttackTarget))..'; refoStrikeDamageAssigned='..sStrikeDamageAssigned)
+                            end
                             if oUnit:IsUnitState('Attached') then
                                 --Clear any orders it might have as it is refueling
                                 if tLastOrder and tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderRefuel then
@@ -1180,13 +1193,25 @@ function GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, iCategory, bRec
                                 oUnit.oLockedTarget = nil
                                 M28Orders.IssueTrackedClearCommands(oUnit)
                                 table.insert(tAvailableUnits, oUnit)
-                            elseif tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueGroundAttack and (tLastOrder[M28Orders.subrefoOrderUnitTarget] and not(M28UnitInfo.IsUnitValid(tLastOrder[M28Orders.subrefoOrderUnitTarget]))) then
+                            elseif tLastOrder and tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueGroundAttack and (tLastOrder[M28Orders.subrefoOrderUnitTarget] and not(M28UnitInfo.IsUnitValid(tLastOrder[M28Orders.subrefoOrderUnitTarget]))) then
                                 if bDebugMessages == true then LOG(sFunctionRef..' Unit with ground attack order was linked to target that is dead so will be made available') end
                                 table.insert(tAvailableUnits, oUnit)
-                            elseif (tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueGroundAttack and tLastOrder[M28Orders.subreftOrderPosition] and M28Utilities.GetDistanceBetweenPositions(tLastOrder[M28Orders.subreftOrderPosition], oUnit:GetPosition()) <= 90)
+                            elseif (tGroundAttackOrderPosition and M28Utilities.GetDistanceBetweenPositions(tGroundAttackOrderPosition, oUnit:GetPosition()) <= 90)
                                     or (oExistingValidAttackTarget and ( (EntityCategoryContains(M28UnitInfo.refCategoryTorpBomber, oUnit.UnitId) and (M28Map.GetWaterZoneFromPosition(oExistingValidAttackTarget:GetPosition()) or 0) > 0) or (EntityCategoryContains(M28UnitInfo.refCategoryBomber, oUnit.UnitId) and not(M28UnitInfo.IsUnitUnderwater(oExistingValidAttackTarget)))) and M28Utilities.GetDistanceBetweenPositions(oExistingValidAttackTarget:GetPosition(), oUnit:GetPosition()) <= 90) then
                                 M28Orders.UpdateRecordedOrders(oUnit)
-                                if bDebugMessages == true then LOG(sFunctionRef..': Have bomber or torp bomber with valid last attack target that is relatively nearby, dist to target='..M28Utilities.GetDistanceBetweenPositions( tLastOrder[M28Orders.subreftOrderPosition], oUnit:GetPosition())..'; angle to target='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(),  tLastOrder[M28Orders.subreftOrderPosition])..'; Unit facing direction='..M28UnitInfo.GetUnitFacingAngle(oUnit)..'; Speed='..M28UnitInfo.GetUnitSpeed(oUnit)..'; Time since last fired bomb='..GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastBombFired] or 0)..'; refiTimeBetweenBombs='..(oUnit[M28UnitInfo.refiTimeBetweenBombs] or 'nil')) end
+                                if bDebugMessages == true then
+                                    local tTargetPositionForLog = tGroundAttackOrderPosition
+                                    if M28Utilities.IsTableEmpty(tTargetPositionForLog) and M28UnitInfo.IsUnitValid(oExistingValidAttackTarget) then
+                                        tTargetPositionForLog = oExistingValidAttackTarget:GetPosition()
+                                    end
+                                    local iDistToTargetForLog = -1
+                                    local iAngleToTargetForLog = -1
+                                    if M28Utilities.IsTableEmpty(tTargetPositionForLog) == false then
+                                        iDistToTargetForLog = M28Utilities.GetDistanceBetweenPositions(tTargetPositionForLog, oUnit:GetPosition())
+                                        iAngleToTargetForLog = M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), tTargetPositionForLog)
+                                    end
+                                    LOG(sFunctionRef..': Have bomber or torp bomber with valid last attack target that is relatively nearby, dist to target='..iDistToTargetForLog..'; angle to target='..iAngleToTargetForLog..'; Unit facing direction='..M28UnitInfo.GetUnitFacingAngle(oUnit)..'; Speed='..M28UnitInfo.GetUnitSpeed(oUnit)..'; Time since last fired bomb='..GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastBombFired] or 0)..'; refiTimeBetweenBombs='..(oUnit[M28UnitInfo.refiTimeBetweenBombs] or 'nil'))
+                                end
                                 
                                 -- If excessive AA detected at target zone, abort attack
                                 if oExistingValidAttackTarget and EntityCategoryContains(M28UnitInfo.refCategoryBomber - categories.EXPERIMENTAL, oUnit.UnitId) and ShouldBomberAbortAttack(oUnit, iTeam, iAirSubteam) then
@@ -1197,7 +1222,7 @@ function GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, iCategory, bRec
                                     M28Orders.IssueTrackedClearCommands(oUnit)
                                     table.insert(tAvailableUnits, oUnit)
                                 --Ahwassa - had a rare issue where given a target that is outside its range, it flies straight towards it and never drops its bomb; based on logs of the distance it is when at full speed and the typical speed per the (unreliable) getunitspeed function, the below should hopefully catch cases where it isn't firing early enough that it is of some benefit, without badly affecting too many normal cases and causing the bomb to not fire due to the redndancy
-                                elseif oUnit.UnitId == 'xsa0402' and (oUnit[M28UnitInfo.refiBomberRange] or 0) >= 80 and M28Utilities.IsTableEmpty(tLastOrder[M28Orders.subreftOrderPosition]) == false and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tLastOrder[M28Orders.subreftOrderPosition]) <= 64 and M28UnitInfo.GetUnitSpeed(oUnit) >= 17.5 and GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastBombFired] or 0) > oUnit[M28UnitInfo.refiTimeBetweenBombs] + 2 then
+                                elseif oUnit.UnitId == 'xsa0402' and (oUnit[M28UnitInfo.refiBomberRange] or 0) >= 80 and M28Utilities.IsTableEmpty(tGroundAttackOrderPosition) == false and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tGroundAttackOrderPosition) <= 64 and M28UnitInfo.GetUnitSpeed(oUnit) >= 17.5 and GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastBombFired] or 0) > oUnit[M28UnitInfo.refiTimeBetweenBombs] + 2 then
                                     if bDebugMessages == true then LOG(sFunctionRef..': Doesnt look like ahwassa is going to drop its bomb so will treat sa available again') end
                                     table.insert(tAvailableUnits, oUnit)
                                     --Strats - if are close to the enemy target and havent fired then assume terrain prevented us
@@ -3685,7 +3710,10 @@ function AssignAirAATargets(tAvailableAirAA, tEnemyTargets, iTeam, iAirSubteam, 
         while iCurValueAssigned < iThreatToAssign do
             iCurLoopCount = iCurLoopCount + 1
             if iCurLoopCount > iMaxLoopCount then break end
+            if M28Utilities.IsTableEmpty(tAvailableAirAA) then break end
             iClosestUnitDist = 100000
+            oClosestUnit = nil
+            iClosestAARef = nil
             for iAAUnit, oAAUnit in tAvailableAirAA do
                 iCurDist = GetRoughDistanceBetweenPositions(tBasePosition, oAAUnit:GetPosition())
                 if iCurDist < iClosestUnitDist then
@@ -3694,6 +3722,7 @@ function AssignAirAATargets(tAvailableAirAA, tEnemyTargets, iTeam, iAirSubteam, 
                     iClosestAARef = iAAUnit
                 end
             end
+            if not(iClosestAARef) or not(M28UnitInfo.IsUnitValid(oClosestUnit)) then break end
             if bDebugMessages == true then
                 local iEnemyPlateauOrZero, iEnemyLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oClosestUnit:GetPosition())
                 LOG(sFunctionRef..': iClosestUnitDist='..iClosestUnitDist..'; oClosestUnit='..oClosestUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oClosestUnit)..'; will issue attack order if far away and have visibility; iEnemyPlateauOrZero='..iEnemyPlateauOrZero..'; iEnemyLandOrWaterZone='..iEnemyLandOrWaterZone..' tBasePosition='..repru(tBasePosition)..'; In playable area='..tostring(M28Conditions.IsLocationInPlayableArea(tBasePosition))..'; Can see enemy='..tostring(M28UnitInfo.CanSeeUnit(oClosestUnit:GetAIBrain(), oEnemyUnit))..'; enemy unit pos='..repru(oEnemyUnit:GetPosition())..'; terrain height='..GetTerrainHeight(oEnemyUnit:GetPosition()[1],oEnemyUnit:GetPosition()[3])..'; currentlayer='..oEnemyUnit:GetCurrentLayer())
@@ -3713,6 +3742,7 @@ function AssignAirAATargets(tAvailableAirAA, tEnemyTargets, iTeam, iAirSubteam, 
                 iThreatWanted = M28UnitInfo.GetAirThreatLevel({ oEnemyUnit }, true, true, false, true, true, true)
                 if bLastEnemiesToTarget then iThreatWanted = iThreatWanted * 3 end
                 ConsiderAttackingUnit(oEnemyUnit, iThreatWanted)
+                if M28Utilities.IsTableEmpty(tAvailableAirAA) then break end
             end
         end
     end
@@ -4561,8 +4591,23 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
             end
             tBomberEscortPoint = false
             oEscortBomber = M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontT3Bomber]
-            if not(M28UnitInfo.IsUnitValid(oEscortBomber)) and M28Utilities.IsTableEmpty(tUnavailableUnits) == false then
-                local tBombersInFlight = EntityCategoryFilterDown(M28UnitInfo.refCategoryBomber, tUnavailableUnits)
+            if not(M28UnitInfo.IsUnitValid(oEscortBomber)) then
+                local tBombersInFlight = {}
+                local tCurBombers
+                for iBrain, oBrain in M28Team.tAirSubteamData[iAirSubteam][M28Team.subreftoFriendlyM28Brains] do
+                    if oBrain.M28AI then
+                        tCurBombers = oBrain:GetListOfUnits(M28UnitInfo.refCategoryBomber - categories.EXPERIMENTAL, false, true)
+                        if M28Utilities.IsTableEmpty(tCurBombers) == false then
+                            for iBomber, oBomber in tCurBombers do
+                                if M28UnitInfo.IsUnitValid(oBomber)
+                                        and not(oBomber:IsUnitState('Attached'))
+                                        and (M28UnitInfo.IsUnitValid(oBomber[refoStrikeDamageAssigned]) or oBomber[refbBomberUsingMexHunterLogic] or (oBomber[M28UnitInfo.refiLastBombFired] and GetGameTimeSeconds() - oBomber[M28UnitInfo.refiLastBombFired] <= 20)) then
+                                    table.insert(tBombersInFlight, oBomber)
+                                end
+                            end
+                        end
+                    end
+                end
                 if M28Utilities.IsTableEmpty(tBombersInFlight) == false then
                     oEscortBomber = M28Utilities.GetNearestUnit(tBombersInFlight, M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint])
                 end
@@ -15012,7 +15057,7 @@ function PlanBomberSnipe(tAvailableBombers, oSnipeTarget, iTeam)
                         local bHaveValidAttackOrder = false
                         for iBomber, oBomber in oSnipeTarget[M28UnitInfo.toBombersPlanningSnipe] do
                             M28Orders.UpdateRecordedOrders(oBomber)
-                            if (oBomber[M28Orders.refiOrderCount] or 0) > 0 and (oBomber[M28Orders.reftiLastOrders][oBomber[M28Orders.refiOrderCount]] == M28Orders.refiOrderIssueAttack) then
+                            if (oBomber[M28Orders.refiOrderCount] or 0) > 0 and oBomber[M28Orders.reftiLastOrders] and oBomber[M28Orders.reftiLastOrders][oBomber[M28Orders.refiOrderCount]] and oBomber[M28Orders.reftiLastOrders][oBomber[M28Orders.refiOrderCount]][M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueAttack then
                                 bHaveValidAttackOrder = true
                                 break
                             end
