@@ -1243,7 +1243,23 @@ function ManageLandZoneScouts(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, 
         end
     end
 
-    if (bLandZoneContainsNonScouts or tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] <= 2 or (GetGameTimeSeconds() <= 420 and tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] <= 3000 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] < 3)) and (tLZData[M28Map.subrefLZOrWZMexCount] > 0 or tLZData[M28Map.subrefLZTotalSegmentCount] > 30) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTScoutsTravelingHere]) then
+    local bFrontlineBlindScoutWanted = false
+    local iFrontlineBlindScoutRadarThreshold = math.min(90, iIntelThresholdForPriorityScout + 25)
+    if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTScoutsTravelingHere]) and not(tLZData[M28Map.subrefbPacifistArea]) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision]) then
+        local iActiveFrontlineCombat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+        if tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]
+                and tLZTeamData[M28Map.refiRadarCoverage] < iFrontlineBlindScoutRadarThreshold
+                and (iActiveFrontlineCombat >= 90 or (bLandZoneContainsNonScouts and iActiveFrontlineCombat >= 45) or M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoUnitsWantingPriorityScouts]) == false) then
+            bFrontlineBlindScoutWanted = true
+            if GetGameTimeSeconds() - (tLZTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] or -100) >= 4 then
+                tLZTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] = GetGameTimeSeconds()
+                M28Intel.RequestPriorityScoutingForZone(iPlateau, iLandZone, iTeam, M28Intel.iArmyDestinationScoutBoost + 20)
+            end
+            if bDebugMessages == true then LOG(sFunctionRef..': Frontline combat zone lacks scout intel so will force scout demand, iActiveFrontlineCombat='..iActiveFrontlineCombat..'; Radar coverage='..(tLZTeamData[M28Map.refiRadarCoverage] or 'nil')) end
+        end
+    end
+
+    if (bFrontlineBlindScoutWanted or ((bLandZoneContainsNonScouts or tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] <= 2 or (GetGameTimeSeconds() <= 420 and tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] <= 3000 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] < 3)) and (tLZData[M28Map.subrefLZOrWZMexCount] > 0 or tLZData[M28Map.subrefLZTotalSegmentCount] > 30))) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTScoutsTravelingHere]) then
         --Want a land scout for htis land zone, unless we already have one traveling here; if we have available land scouts then will change this flag back to false
         if not(tLZData[M28Map.subrefbPacifistArea]) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision]) then
             if not(M28Map.bIsCampaignMap) or M28Conditions.IsLocationInPlayableArea(tLZData[M28Map.subrefMidpoint]) then
@@ -1560,18 +1576,52 @@ function ManageLandZoneScouts(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, 
                             --Assign to enemy base if it is in the same island
                             local iEnemyBasePlateauOrZero, iEnemyBaseLZOrWZ = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tLZTeamData[M28Map.reftClosestEnemyBase])
                             local bGoingToEnemyBase = false
+                            local bEnemyBaseWantsLandScout = false
+                            local bEnemyBaseScoutsTravelingEmpty = true
+                            local iUrgentFrontlineScoutLZ
+                            local iUrgentFrontlineScoutScore = -100000
+                            local function ConsiderUrgentFrontlineScoutTarget(iCandidateLZ, iTravelDist)
+                                local tCandidateLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iCandidateLZ]
+                                local tCandidateLZTeamData = tCandidateLZData[M28Map.subrefLZTeamData][iTeam]
+                                if not(tCandidateLZData[M28Map.subrefbPacifistArea])
+                                        and tCandidateLZData[M28Map.subrefLZIslandRef] == tLZData[M28Map.subrefLZIslandRef]
+                                        and tCandidateLZTeamData[M28Map.refbWantLandScout]
+                                        and tCandidateLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]
+                                        and tCandidateLZTeamData[M28Map.refiRadarCoverage] < iFrontlineBlindScoutRadarThreshold
+                                        and ((tCandidateLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) >= 60 or M28Utilities.IsTableEmpty(tCandidateLZTeamData[M28Map.reftoUnitsWantingPriorityScouts]) == false) then
+                                    local iScoutScore = (tCandidateLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) + ((M28Utilities.IsTableEmpty(tCandidateLZTeamData[M28Map.reftoUnitsWantingPriorityScouts]) == false) and 250 or 0) - ((iTravelDist or 0) * 3)
+                                    if GetGameTimeSeconds() - (tCandidateLZTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] or -100) <= 20 then
+                                        iScoutScore = iScoutScore + 150
+                                    end
+                                    if iScoutScore > iUrgentFrontlineScoutScore then
+                                        iUrgentFrontlineScoutScore = iScoutScore
+                                        iUrgentFrontlineScoutLZ = iCandidateLZ
+                                    end
+                                end
+                            end
+                            ConsiderUrgentFrontlineScoutTarget(iLandZone, 0)
+                            if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZPathingToOtherLandZones]) == false then
+                                for iEntry, tPathingDetails in tLZData[M28Map.subrefLZPathingToOtherLandZones] do
+                                    ConsiderUrgentFrontlineScoutTarget(tPathingDetails[M28Map.subrefLZNumber], tPathingDetails[M28Map.subrefLZTravelDist] or iEntry)
+                                end
+                            end
                             if iEnemyBasePlateauOrZero == iPlateau and iEnemyBaseLZOrWZ then
                                 local tEnemyBaseLZData = M28Map.tAllPlateaus[iEnemyBasePlateauOrZero][M28Map.subrefPlateauLandZones][iEnemyBaseLZOrWZ]
                                 local tEnemyBaseLZTeamData = tEnemyBaseLZData[M28Map.subrefLZTeamData][iTeam]
-                                if M28Utilities.IsTableEmpty(tEnemyBaseLZTeamData[M28Map.subrefTScoutsTravelingHere]) and NavUtils.GetLabel(M28Map.refPathingTypeLand,tLZTeamData[M28Map.reftClosestEnemyBase]) == tLZData[M28Map.subrefLZIslandRef] and (tEnemyBaseLZTeamData[M28Map.refbWantLandScout] or M28Utilities.IsTableEmpty(tEnemyBaseLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])) then
+                                bEnemyBaseWantsLandScout = tEnemyBaseLZTeamData[M28Map.refbWantLandScout] or false
+                                bEnemyBaseScoutsTravelingEmpty = M28Utilities.IsTableEmpty(tEnemyBaseLZTeamData[M28Map.subrefTScoutsTravelingHere])
+                                if not(iUrgentFrontlineScoutLZ) and bEnemyBaseScoutsTravelingEmpty and NavUtils.GetLabel(M28Map.refPathingTypeLand,tLZTeamData[M28Map.reftClosestEnemyBase]) == tLZData[M28Map.subrefLZIslandRef] and (bEnemyBaseWantsLandScout or M28Utilities.IsTableEmpty(tEnemyBaseLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])) then
                                     if bDebugMessages == true then LOG(sFunctionRef..': Dealing with first ever land scout so will have it prioritise enemy base for intel, iEnemyBasePlateauOrZero='..iEnemyBasePlateauOrZero..'; iEnemyBaseLZOrWZ='..iEnemyBaseLZOrWZ) end
                                     bGoingToEnemyBase = true
                                 end
                             end
-                            if bGoingToEnemyBase then
+                            if iUrgentFrontlineScoutLZ and not(iUrgentFrontlineScoutLZ == iLandZone) then
+                                if bDebugMessages == true then LOG(sFunctionRef..': First land scout will go to urgent frontline zone instead of enemy base, iUrgentFrontlineScoutLZ='..iUrgentFrontlineScoutLZ..'; Score='..iUrgentFrontlineScoutScore) end
+                                GetUnitToTravelToLandZone(oScout, iPlateau, iUrgentFrontlineScoutLZ, M28Map.subrefTScoutsTravelingHere)
+                            elseif bGoingToEnemyBase then
                                 GetUnitToTravelToLandZone(oScout, iEnemyBasePlateauOrZero, iEnemyBaseLZOrWZ, M28Map.subrefTScoutsTravelingHere)
                             else
-                                if bDebugMessages == true then LOG(sFunctionRef..': Adding scout to table of available scouts; did enemy base zone want land csout='..tostring(M28Map.tAllPlateaus[iEnemyBasePlateauOrZero][M28Map.subrefPlateauLandZones][iEnemyBaseLZOrWZ][M28Map.subrefLZTeamData][iTeam][M28Map.refbWantLandScout] or false)..'; Was table of land scouts traveling there empty='..tostring(M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iEnemyBasePlateauOrZero][M28Map.subrefPlateauLandZones][iEnemyBaseLZOrWZ][M28Map.subrefLZTeamData][M28Map.subrefTScoutsTravelingHere]))) end
+                                if bDebugMessages == true then LOG(sFunctionRef..': Adding scout to table of available scouts; did enemy base zone want land csout='..tostring(bEnemyBaseWantsLandScout)..'; Was table of land scouts traveling there empty='..tostring(bEnemyBaseScoutsTravelingEmpty)) end
                                 table.insert(tAvailableScouts, oScout)
                             end
                         else
@@ -5722,6 +5772,57 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
     local bConsiderAttackingACU = false
     local bACUCommitByThreatRatio = false
     local toEnemyACUsNearZone --will set this later on
+    local function FlagFrontlineUnitForPriorityScoutIfNeeded()
+        if M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision] or M28Utilities.IsTableEmpty(tNonSkirmisherCombatUnits) or not(M28UnitInfo.IsUnitValid(oNearestEnemyToFriendlyBase)) then return end
+        if tLZTeamData[M28Map.refiRadarCoverage] >= iIntelThresholdForPriorityScout + 20 or not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) then return end
+        if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTScoutsTravelingHere]) == false then return end
+        local oFrontlineUnit
+        local iClosestDist = 100000
+        local iCurDist
+        for iUnit, oUnit in tNonSkirmisherCombatUnits do
+            if M28UnitInfo.IsUnitValid(oUnit)
+                    and (oUnit[M28UnitInfo.refiDFRange] or 0) > 0
+                    and not(EntityCategoryContains(M28UnitInfo.refCategoryLandScout + categories.COMMAND + M28UnitInfo.refCategorySkirmisher + M28UnitInfo.refCategoryAbsolver, oUnit.UnitId))
+                    and not(M28UnitInfo.IsUnitValid(oUnit[refoAssignedLandScout])) then
+                iCurDist = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oNearestEnemyToFriendlyBase:GetPosition()) - (oUnit[M28UnitInfo.refiCombatRange] or 0)
+                if iCurDist < iClosestDist then
+                    iClosestDist = iCurDist
+                    oFrontlineUnit = oUnit
+                end
+            end
+        end
+        if M28UnitInfo.IsUnitValid(oFrontlineUnit) then
+            tLZTeamData[M28Map.refbWantLandScout] = true
+            ConsiderPriorityLandScoutFlag(oFrontlineUnit)
+            if GetGameTimeSeconds() - (tLZTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] or -100) >= 4 then
+                tLZTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] = GetGameTimeSeconds()
+                M28Intel.RequestPriorityScoutingForZone(iPlateau, iLandZone, iTeam, M28Intel.iArmyDestinationScoutBoost + 10)
+            end
+            if bDebugMessages == true then LOG(sFunctionRef..': Flagging frontline unit '..oFrontlineUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFrontlineUnit)..' for priority land scout due to low frontline intel') end
+        end
+    end
+    local function GetEnemyACUSupportThreatForPush(oACU, iSearchRadius)
+        local aiBrain = ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
+        if not(M28UnitInfo.IsUnitValid(oACU)) then return 0 end
+        local tEnemyEscort = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryLandCombat - categories.COMMAND - M28UnitInfo.refCategoryLandScout, oACU:GetPosition(), iSearchRadius or 35, 'Enemy')
+        if M28Utilities.IsTableEmpty(tEnemyEscort) then return 0 end
+        return M28UnitInfo.GetCombatThreatRating(tEnemyEscort, true)
+    end
+    local function DoesEnemyACUBlockFrontlinePush(oACU, oPrimaryEnemyTarget)
+        if not(M28UnitInfo.IsUnitValid(oACU)) then return false, 0 end
+        local iEscortThreat = GetEnemyACUSupportThreatForPush(oACU, 35)
+        local iUpgradeCount = oACU[M28ACU.refiUpgradeCount] or 0
+        local iACURange = oACU[M28UnitInfo.refiDFRange] or 0
+        local iHealthPercent = M28UnitInfo.GetUnitHealthPercent(oACU)
+        local iDistToPrimaryEnemy = 1000
+        if M28UnitInfo.IsUnitValid(oPrimaryEnemyTarget) then
+            iDistToPrimaryEnemy = M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), oPrimaryEnemyTarget:GetPosition())
+        end
+        if iEscortThreat <= 200 and iUpgradeCount <= 1 and iACURange < 26 and (iHealthPercent <= 0.7 or iDistToPrimaryEnemy > 20) then
+            return false, iEscortThreat
+        end
+        return true, iEscortThreat
+    end
     function GetManualAttackTargetIfWantManualAttack(oUnit, oOptionalPrimaryTarget)
         if bDebugMessages == true then LOG(sFunctionRef..': GetManualAttackTargetIfWantManualAttack - start of code') end
         --Returns the unit, and returns true if should move towards it instead of a manual attack order (will want to move towards it if we are in range of a dangerous unit but we cant attack it yet)
@@ -6870,6 +6971,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
             end
 
             if bDebugMessages == true then LOG(sFunctionRef..': Finished checking for nearest enemy unit, is it valid='..tostring(M28UnitInfo.IsUnitValid(oNearestEnemyToFriendlyBase))..'; Zone it is assigned to='..(oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2] or 'nil')..'; Is table of enemy units in this zone empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTEnemyUnits]))) end
+            if M28UnitInfo.IsUnitValid(oNearestEnemyToFriendlyBase) then
+                FlagFrontlineUnitForPriorityScoutIfNeeded()
+            end
             local iAdjacentDistGeneralMod = math.min(tLZData[M28Map.subrefLZMaxSegX] - tLZData[M28Map.subrefLZMinSegX], tLZData[M28Map.subrefLZMaxSegZ] - tLZData[M28Map.subrefLZMinSegZ]) * M28Map.iLandZoneSegmentSize
             if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTEnemyUnits]) then iAdjacentDistGeneralMod = iAdjacentDistGeneralMod + 25 end
             local iDistToClosestEnemyThreshold --If nil then will ignore this check
@@ -9177,8 +9281,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     end
                                     for iACU, oACU in toEnemyACUsNearZone do
                                         if bDebugMessages == true then LOG(sFunctionRef..': Dist between ACU and nearest enemy to friendly base='..M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), oNearestEnemyToFriendlyBase:GetPosition())) end
-                                        if M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), oNearestEnemyToFriendlyBase:GetPosition()) <= iDistToNearestEnemyThreshold or M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZTeamData[M28Map.reftClosestFriendlyBase]) <= iDistThresholdForACU then
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Enemy ACU is too close to nearest enemy unit so wont have our SR DF units attack') end
+                                        local bACUBlocksPush, iEscortThreat = DoesEnemyACUBlockFrontlinePush(oACU, oNearestEnemyToFriendlyBase)
+                                        if bACUBlocksPush and (M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), oNearestEnemyToFriendlyBase:GetPosition()) <= iDistToNearestEnemyThreshold or M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZTeamData[M28Map.reftClosestFriendlyBase]) <= iDistThresholdForACU) then
+                                            if bDebugMessages == true then LOG(sFunctionRef..': Enemy ACU is close enough and supported enough to suppress SR DF push, iEscortThreat='..iEscortThreat..'; UpgradeCount='..(oACU[M28ACU.refiUpgradeCount] or 0)..'; ACU DF range='..(oACU[M28UnitInfo.refiDFRange] or 0)) end
                                             bAttackWithOutrangedDFUnits = false
                                             break
                                         end
@@ -9608,8 +9713,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                             iDistToNearestEnemyThreshold = iDistToNearestEnemyThreshold - 7
                                         end
                                         for iACU, oACU in toEnemyACUsNearZone do
-                                            if M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZTeamData[M28Map.reftClosestFriendlyBase]) <= iDistThresholdForACU or M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), oNearestEnemyToFriendlyBase:GetPosition()) <= iDistToNearestEnemyThreshold and (M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.3 and ((oACU[M28ACU.refiUpgradeCount] or 0) >= 2 or M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.5)) then
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Enemy ACU is too close to nearest enemy unit so wont have our units attack') end
+                                            local bACUBlocksPush, iEscortThreat = DoesEnemyACUBlockFrontlinePush(oACU, oNearestEnemyToFriendlyBase)
+                                            if bACUBlocksPush and (M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZTeamData[M28Map.reftClosestFriendlyBase]) <= iDistThresholdForACU or M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), oNearestEnemyToFriendlyBase:GetPosition()) <= iDistToNearestEnemyThreshold and (M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.3 and ((oACU[M28ACU.refiUpgradeCount] or 0) >= 2 or M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.5))) then
+                                                if bDebugMessages == true then LOG(sFunctionRef..': Enemy ACU is close enough and supported enough to stop attack-with-everything, iEscortThreat='..iEscortThreat..'; UpgradeCount='..(oACU[M28ACU.refiUpgradeCount] or 0)..'; ACU DF range='..(oACU[M28UnitInfo.refiDFRange] or 0)) end
                                                 bAttackWithEverything = false
                                                 break
                                             end

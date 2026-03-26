@@ -923,10 +923,20 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
 
     if bDebugMessages == true then LOG(sFunctionRef..': Considering iPlateau '..iPlateau..'; iTargetLandZone='..iTargetLandZone..'; bInSameIsland='..tostring(bInSameIsland)..'; bDontConsiderBuildingMAA='..tostring(bDontConsiderBuildingMAA)..'; tLZTargetTeamData[M28Map.subrefbLZWantsIndirectSupport]='..tostring(tLZTargetTeamData[M28Map.subrefbLZWantsIndirectSupport])..'; M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]..'; tLZTargetTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]='..tLZTargetTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]..'; subrefLZThreatAllyMAA='..tLZTargetTeamData[M28Map.subrefLZThreatAllyMAA]..'; tLZTargetTeamData[M28Map.subrefLZMAAThreatWanted]='..tLZTargetTeamData[M28Map.subrefLZMAAThreatWanted]..'; tLZTargetTeamData[M28Map.subrefbLZWantsSupport]='..tostring(tLZTargetTeamData[M28Map.subrefbLZWantsSupport])..'; LZ Air to ground enemy threat='..tLZTargetTeamData[M28Map.refiEnemyAirToGroundThreat]..'; tLZTargetTeamData[M28Map.refbLZWantsMobileShield]='..tostring(tLZTargetTeamData[M28Map.refbLZWantsMobileShield])..'; tLZTargetTeamData[M28Map.refbLZWantsMobileStealth]='..tostring(tLZTargetTeamData[M28Map.refbLZWantsMobileStealth])..'; tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ]='..tostring(tLZTargetTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ])..'; bDontConsiderBuildingMAA='..tostring(bDontConsiderBuildingMAA or false)..'; bDontGetIndirect='..tostring(bDontGetIndirect or false)..'; bConsiderMobileShields='..tostring(bConsiderMobileShields)..'; tLZTeamData[M28Map.subrefLZTimeMAARetreatedFromGunships]='..(tLZTargetTeamData[M28Map.subrefLZTimeMAARetreatedFromGunships] or 'nil')) end
 
+    local bUrgentFrontlineScoutWanted = false
+    if not(bDontConsiderLandScouts) and bInSameIsland and tLZTargetTeamData[M28Map.refbWantLandScout] and M28Utilities.IsTableEmpty(tLZTargetTeamData[M28Map.subrefTScoutsTravelingHere]) then
+        local iFrontlineScoutRadarThreshold = math.min(90, M28Land.iIntelThresholdForPriorityScout + 25)
+        if tLZTargetTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]
+                and tLZTargetTeamData[M28Map.refiRadarCoverage] < iFrontlineScoutRadarThreshold
+                and ((tLZTargetTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) >= 90 or M28Utilities.IsTableEmpty(tLZTargetTeamData[M28Map.reftoUnitsWantingPriorityScouts]) == false) then
+            bUrgentFrontlineScoutWanted = true
+        end
+    end
+
     --Priority scouts
-    if not(bDontConsiderLandScouts) and tLZTargetTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] and bInSameIsland and tLZTargetTeamData[M28Map.refbWantLandScout] and M28Utilities.IsTableEmpty(tLZTargetTeamData[M28Map.subrefTScoutsTravelingHere]) and GetGameTimeSeconds() - tLZTargetTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] <= 20 then
+    if not(bDontConsiderLandScouts) and bInSameIsland and tLZTargetTeamData[M28Map.refbWantLandScout] and M28Utilities.IsTableEmpty(tLZTargetTeamData[M28Map.subrefTScoutsTravelingHere]) and (bUrgentFrontlineScoutWanted or (tLZTargetTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] and GetGameTimeSeconds() - tLZTargetTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] <= 20)) then
         iBaseCategoryWanted = M28UnitInfo.refCategoryLandScout
-        if bDebugMessages == true then LOG(sFunctionRef..': We recently failed to get a land scout for this zone so want to get one now') end
+        if bDebugMessages == true then LOG(sFunctionRef..': Priority land scout requested, bUrgentFrontlineScoutWanted='..tostring(bUrgentFrontlineScoutWanted)..'; Radar coverage='..(tLZTargetTeamData[M28Map.refiRadarCoverage] or 'nil')..'; Allied combat threat='..(tLZTargetTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 'nil')) end
     end
 
     --MAA due to units retreating from gunships recently
