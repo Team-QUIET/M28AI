@@ -891,12 +891,100 @@ function RemoveAssignedAttacker(oTarget, oOldBomber)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+function DoesBomberUseHighTechGroundAAScoring(oBomber)
+    return M28UnitInfo.IsUnitValid(oBomber) and EntityCategoryContains(M28UnitInfo.refCategoryBomber - categories.EXPERIMENTAL, oBomber.UnitId) and EntityCategoryContains(categories.TECH2 + categories.TECH3, oBomber.UnitId)
+end
+
+function GetBomberAdjustedGroundAAThreatForUnit(oBomber, oUnit)
+    if not(M28UnitInfo.IsUnitValid(oUnit)) or not(EntityCategoryContains(M28UnitInfo.refCategoryGroundAA, oUnit.UnitId)) then
+        return 0
+    end
+
+    local iBaseThreat = M28UnitInfo.GetAirThreatLevel({oUnit}, true, false, true, false, false, false)
+    if iBaseThreat <= 0 or not(DoesBomberUseHighTechGroundAAScoring(oBomber)) then
+        return iBaseThreat
+    end
+
+    if EntityCategoryContains(categories.TECH1, oUnit.UnitId) then
+        return 0
+    end
+
+    local iThreatMultiplier = 1
+    if EntityCategoryContains(categories.MOBILE * (categories.LAND + categories.NAVAL), oUnit.UnitId) then
+        if EntityCategoryContains(categories.TECH3, oUnit.UnitId) then
+            iThreatMultiplier = 4
+        else
+            iThreatMultiplier = 3.5
+        end
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryStructureAA, oUnit.UnitId) then
+        if EntityCategoryContains(categories.TECH3, oUnit.UnitId) then
+            iThreatMultiplier = 1.6
+        else
+            iThreatMultiplier = 1.35
+        end
+    elseif EntityCategoryContains(categories.TECH3, oUnit.UnitId) then
+        iThreatMultiplier = 2
+    else
+        iThreatMultiplier = 1.5
+    end
+
+    return iBaseThreat * iThreatMultiplier
+end
+
+function GetBomberAdjustedGroundAAThreat(oBomber, tEnemyUnits)
+    if M28Utilities.IsTableEmpty(tEnemyUnits) then
+        return 0
+    end
+
+    local iTotalThreat = 0
+    for iUnit, oUnit in tEnemyUnits do
+        iTotalThreat = iTotalThreat + GetBomberAdjustedGroundAAThreatForUnit(oBomber, oUnit)
+    end
+
+    return iTotalThreat
+end
+
+function GetBomberAdjustedGroundAAThreatInZone(oBomber, tLZOrWZTeamData)
+    if not(tLZOrWZTeamData) then
+        return 0
+    elseif not(DoesBomberUseHighTechGroundAAScoring(oBomber)) or M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefTEnemyUnits]) then
+        return tLZOrWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0
+    end
+
+    return GetBomberAdjustedGroundAAThreat(oBomber, tLZOrWZTeamData[M28Map.subrefTEnemyUnits])
+end
+
+function GetHighestTechBomberForGroundAAEvaluation(tBombers)
+    if M28Utilities.IsTableEmpty(tBombers) then
+        return nil
+    end
+
+    local oBestBomber
+    local iBestTech = 0
+    for iBomber, oBomber in tBombers do
+        if M28UnitInfo.IsUnitValid(oBomber) and EntityCategoryContains(M28UnitInfo.refCategoryBomber - categories.EXPERIMENTAL, oBomber.UnitId) then
+            local iTech = M28UnitInfo.GetUnitTechLevel(oBomber)
+            if iTech > iBestTech then
+                iBestTech = iTech
+                oBestBomber = oBomber
+                if iBestTech >= 3 then break end
+            end
+        end
+    end
+
+    if iBestTech >= 2 then
+        return oBestBomber
+    end
+    return nil
+end
+
 
 -- Checks if a bomber should abort its current attack due to excessive AA discovered mid-flight
 -- Returns true if bomber should abort and retreat to rally point
 function ShouldBomberAbortAttack(oBomber, iTeam, iAirSubteam)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'ShouldBomberAbortAttack'
+    local aiBrain = oBomber:GetAIBrain()
     
     -- Only check bombers that are currently attacking (have a strike target assigned)
     if not(oBomber[refoStrikeDamageAssigned]) or not(M28UnitInfo.IsUnitValid(oBomber[refoStrikeDamageAssigned])) then
@@ -942,7 +1030,8 @@ function ShouldBomberAbortAttack(oBomber, iTeam, iAirSubteam)
     end
     
     -- Check ground AA threat in target zone
-    local iGroundAAInZone = tTargetZoneTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0
+    local iGroundAAInZone = GetBomberAdjustedGroundAAThreatInZone(oBomber, tTargetZoneTeamData)
+    local iNearbyGroundAA = GetBomberAdjustedGroundAAThreat(oBomber, aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryGroundAA, tBomberPos, 85, 'Enemy'))
     local iAirAAInZone = tTargetZoneTeamData[M28Map.refiEnemyAirAAThreat] or 0
     local iOurAirAA = M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] or 0
     
@@ -952,7 +1041,17 @@ function ShouldBomberAbortAttack(oBomber, iTeam, iAirSubteam)
     local bShouldAbort = false
     local sAbortReason = ''
     
-    if iGroundAAInZone > iBomberMass * 0.5 and iGroundAAInZone > 6000 then
+    if DoesBomberUseHighTechGroundAAScoring(oBomber) then
+        local iImmediateAbortThreshold = math.max(300, iBomberMass * 0.3)
+        local iTargetZoneAbortThreshold = math.max(550, iBomberMass * 0.5)
+        if iNearbyGroundAA >= iImmediateAbortThreshold then
+            bShouldAbort = true
+            sAbortReason = 'NearbyGroundAA='..iNearbyGroundAA..' >= immediate threshold='..iImmediateAbortThreshold
+        elseif iGroundAAInZone >= iTargetZoneAbortThreshold then
+            bShouldAbort = true
+            sAbortReason = 'TargetGroundAA='..iGroundAAInZone..' >= target threshold='..iTargetZoneAbortThreshold
+        end
+    elseif iGroundAAInZone > iBomberMass * 0.5 and iGroundAAInZone > 6000 then
         bShouldAbort = true
         sAbortReason = 'GroundAA='..iGroundAAInZone..' > 50% of bomber mass='..iBomberMass
     elseif iAirAAInZone > iOurAirAA and iAirAAInZone > 1000 then
@@ -1328,24 +1427,25 @@ function GetRallyPointValueOfWaterZone(iTeam, tWZData, tWZTeamData)
     return iCurAAValue
 end
 
-function IsThereAAInZone(tLZOrWZTeamData, bIgnoreAirAA, iGroundAAThreatThreshold, iAirAAThreatThreshold, bAddEnemyGroundAAToAirAAThreat, tOptionalDetailedGroundAAPositionCheck, iIncludeForDetailedIfWithinThisDistOfBeingInRange)
+function IsThereAAInZone(tLZOrWZTeamData, bIgnoreAirAA, iGroundAAThreatThreshold, iAirAAThreatThreshold, bAddEnemyGroundAAToAirAAThreat, tOptionalDetailedGroundAAPositionCheck, iIncludeForDetailedIfWithinThisDistOfBeingInRange, oOptionalBomberForGroundAAThreat)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'IsThereAAInZone'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+    local iGroundAAThreatInZone = GetBomberAdjustedGroundAAThreatInZone(oOptionalBomberForGroundAAThreat, tLZOrWZTeamData)
 
     --Too much AirAA threat?
     if not(bIgnoreAirAA) and (iAirAAThreatThreshold or 0) > 0 and (tLZOrWZTeamData[M28Map.refiEnemyAirAAThreat] or 0) > 0 then
         if tLZOrWZTeamData[M28Map.refiEnemyAirAAThreat] >= math.max(40, (iAirAAThreatThreshold or 0) + (tLZOrWZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0) * 0.5) then
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
             return true
-        elseif bAddEnemyGroundAAToAirAAThreat and (tLZOrWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) > 0 and iAirAAThreatThreshold and tLZOrWZTeamData[M28Map.refiEnemyAirAAThreat] + tLZOrWZTeamData[M28Map.subrefiThreatEnemyGroundAA] * 3 > iAirAAThreatThreshold then
+        elseif bAddEnemyGroundAAToAirAAThreat and iGroundAAThreatInZone > 0 and iAirAAThreatThreshold and tLZOrWZTeamData[M28Map.refiEnemyAirAAThreat] + iGroundAAThreatInZone * 3 > iAirAAThreatThreshold then
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
             return true
         end
     end
     --Too much groundAA threat?
     -- -1 groundAA threat threshold means infinite
-    if ((iGroundAAThreatThreshold or 0) >= 0 and (tLZOrWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) > (iGroundAAThreatThreshold or 0)) then
+    if ((iGroundAAThreatThreshold or 0) >= 0 and iGroundAAThreatInZone > (iGroundAAThreatThreshold or 0)) then
         if tOptionalDetailedGroundAAPositionCheck then
             if not(iIncludeForDetailedIfWithinThisDistOfBeingInRange) then
                 M28Utilities.ErrorHandler('Havent specified iIncludeForDetailedIfWithinThisDistOfBeingInRange, will return true')
@@ -1355,15 +1455,16 @@ function IsThereAAInZone(tLZOrWZTeamData, bIgnoreAirAA, iGroundAAThreatThreshold
                 local toGroundAAInRange = {}
                 if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefTEnemyUnits]) == false then
                     for iUnit, oUnit in tLZOrWZTeamData[M28Map.subrefTEnemyUnits] do
-                        if not(oUnit.Dead) and (oUnit[M28UnitInfo.refiAARange] or 0) > 0 then
+                        if not(oUnit.Dead) and EntityCategoryContains(M28UnitInfo.refCategoryGroundAA, oUnit.UnitId) and (oUnit[M28UnitInfo.refiAARange] or 0) > 0 then
                             if bDebugMessages == true then LOG(sFunctionRef..': Considering AA oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Dist to detailed position check='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tOptionalDetailedGroundAAPositionCheck)..'; AA range='..oUnit[M28UnitInfo.refiAARange]..'; CLose enough='..tostring(M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tOptionalDetailedGroundAAPositionCheck) - oUnit[M28UnitInfo.refiAARange] <= iIncludeForDetailedIfWithinThisDistOfBeingInRange)) end
                             if M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tOptionalDetailedGroundAAPositionCheck) - oUnit[M28UnitInfo.refiAARange] <= iIncludeForDetailedIfWithinThisDistOfBeingInRange then
                                 table.insert(toGroundAAInRange, oUnit)
                             end
                         end
                     end
-                    if bDebugMessages == true then LOG(sFunctionRef..': Enemy groundAA in range='..M28UnitInfo.GetAirThreatLevel(toGroundAAInRange, true, false, true, false, false, false)..'; iGroundAAThreatThreshold='..iGroundAAThreatThreshold) end
-                    if M28Utilities.IsTableEmpty(toGroundAAInRange) == false and M28UnitInfo.GetAirThreatLevel(toGroundAAInRange, true, false, true, false, false, false) >= iGroundAAThreatThreshold then
+                    local iGroundAAInRange = GetBomberAdjustedGroundAAThreat(oOptionalBomberForGroundAAThreat, toGroundAAInRange)
+                    if bDebugMessages == true then LOG(sFunctionRef..': Enemy groundAA in range='..iGroundAAInRange..'; iGroundAAThreatThreshold='..iGroundAAThreatThreshold) end
+                    if M28Utilities.IsTableEmpty(toGroundAAInRange) == false and iGroundAAInRange >= iGroundAAThreatThreshold then
                         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                         return true
                     end
@@ -3661,7 +3762,7 @@ function AssignAirAATargets(tAvailableAirAA, tEnemyTargets, iTeam, iAirSubteam, 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function FindAlternativeApproachToWaterZone(iTeam, iTargetWaterZone, iStartPlateauOrZero, iStartLandOrWaterZone, iAAThreatThreshold, iAirAAThreatThreshold, iAirSubteam)
+function FindAlternativeApproachToWaterZone(iTeam, iTargetWaterZone, iStartPlateauOrZero, iStartLandOrWaterZone, iAAThreatThreshold, iAirAAThreatThreshold, iAirSubteam, oOptionalBomberForGroundAAThreat)
     --Finds an alternative approach position to a water zone when the direct path is blocked by AA
     --Returns: tAlternativePosition (or nil if no safe approach found), iSafeAngle (angle of the safe approach)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
@@ -3704,7 +3805,7 @@ function FindAlternativeApproachToWaterZone(iTeam, iTargetWaterZone, iStartPlate
         if iTestPlateau ~= nil and iTestZone ~= nil then
             --Check if the path from this test position to the target is clear
             --Use detailed check with the test position as the start midpoint
-            local bPathBlocked = DoesEnemyHaveAAThreatAlongPath(iTeam, iTestPlateau, iTestZone, 0, iTargetWaterZone, false, iAAThreatThreshold, iAirAAThreatThreshold, true, iAirSubteam, true, false, tTestPosition, false, nil, true, false, true)
+            local bPathBlocked = DoesEnemyHaveAAThreatAlongPath(iTeam, iTestPlateau, iTestZone, 0, iTargetWaterZone, false, iAAThreatThreshold, iAirAAThreatThreshold, true, iAirSubteam, true, false, tTestPosition, false, nil, true, false, true, oOptionalBomberForGroundAAThreat)
 
             if bDebugMessages == true then LOG(sFunctionRef..': Path blocked from test position='..tostring(bPathBlocked)) end
 
@@ -3725,7 +3826,7 @@ function FindAlternativeApproachToWaterZone(iTeam, iTargetWaterZone, iStartPlate
     return nil, nil
 end
 
-function FindAlternativeApproachToLandZone(iTeam, iTargetPlateau, iTargetLandZone, iStartPlateauOrZero, iStartLandOrWaterZone, iAAThreatThreshold, iAirAAThreatThreshold, iAirSubteam)
+function FindAlternativeApproachToLandZone(iTeam, iTargetPlateau, iTargetLandZone, iStartPlateauOrZero, iStartLandOrWaterZone, iAAThreatThreshold, iAirAAThreatThreshold, iAirSubteam, oOptionalBomberForGroundAAThreat)
     --Finds an alternative approach position to a land zone when the direct path is blocked by AA
     --Returns: tAlternativePosition (or nil if no safe approach found), iSafeAngle (angle of the safe approach)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
@@ -3768,7 +3869,7 @@ function FindAlternativeApproachToLandZone(iTeam, iTargetPlateau, iTargetLandZon
         if iTestPlateau ~= nil and iTestZone ~= nil then
             --Check if the path from this test position to the target is clear
             --Use detailed check with the test position as the start midpoint
-            local bPathBlocked = DoesEnemyHaveAAThreatAlongPath(iTeam, iTestPlateau, iTestZone, iTargetPlateau, iTargetLandZone, false, iAAThreatThreshold, iAirAAThreatThreshold, false, iAirSubteam, true, false, tTestPosition, false, nil, true, false, true)
+            local bPathBlocked = DoesEnemyHaveAAThreatAlongPath(iTeam, iTestPlateau, iTestZone, iTargetPlateau, iTargetLandZone, false, iAAThreatThreshold, iAirAAThreatThreshold, false, iAirSubteam, true, false, tTestPosition, false, nil, true, false, true, oOptionalBomberForGroundAAThreat)
 
             if bDebugMessages == true then LOG(sFunctionRef..': Path blocked from test position='..tostring(bPathBlocked)) end
 
@@ -3789,7 +3890,7 @@ function FindAlternativeApproachToLandZone(iTeam, iTargetPlateau, iTargetLandZon
     return nil, nil
 end
 
-function DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, iEndPlateauOrZero, iEndLandOrWaterZone, bIgnoreAirAAThreat, iGroundAAThreatThreshold, iAirAAThreatThreshold, bUsingTorpBombers, iAirSubteam, bDoDetailedCheckForAA, bReturnGroundAAThreatInstead, tOptionalStartMidpointAdjustForDetailedCheck, bReturnGroundAAUnitsAlongsideAAThreat, tOptionalEndMidpointAdjustForDetailedCheck, bOptionalIgnoreOppositeDirectionZones, bIncludeEnemyGroundAAInAirAAThreat, bAssumeWontTargetInterimAAForDetailedCheck)
+function DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, iEndPlateauOrZero, iEndLandOrWaterZone, bIgnoreAirAAThreat, iGroundAAThreatThreshold, iAirAAThreatThreshold, bUsingTorpBombers, iAirSubteam, bDoDetailedCheckForAA, bReturnGroundAAThreatInstead, tOptionalStartMidpointAdjustForDetailedCheck, bReturnGroundAAUnitsAlongsideAAThreat, tOptionalEndMidpointAdjustForDetailedCheck, bOptionalIgnoreOppositeDirectionZones, bIncludeEnemyGroundAAInAirAAThreat, bAssumeWontTargetInterimAAForDetailedCheck, oOptionalBomberForGroundAAThreat)
     --Returns true if enemy has AA threat along the path from start to end (or in an adjacent land/water zone that is close enough to the path)
 
     --iStartPlateauOrZero: 0 if water zone
@@ -3930,7 +4031,7 @@ function DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOr
                                     end
 
                                     if bReturnGroundAAThreatInstead or bAssumeWontTargetInterimAAForDetailedCheck then
-                                        iCurUnitThreat = M28UnitInfo.GetAirThreatLevel({ oUnit }, true, false, true)
+                                        iCurUnitThreat = GetBomberAdjustedGroundAAThreatForUnit(oOptionalBomberForGroundAAThreat, oUnit)
                                         --If interim AA that would normally cause us to abort, instead we should treat it as being worth double normal value since we will be ignoring it instead of attacking it
                                         if M28Utilities.IsTableEmpty(oUnit[M28Building.reftoShieldsProvidingCoverage]) == false or bAssumeWontTargetInterimAAForDetailedCheck then iCurUnitThreat = iCurUnitThreat * 2 end
                                         iGroundAAThreat = iGroundAAThreat + iCurUnitThreat
@@ -3976,7 +4077,7 @@ function DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOr
             if iOverridePositionPlateau and iOverridePositionPlateau == tPlateauAndLandZone[1] and iOverridePositionZone == tPlateauAndLandZone[2] then bSameZoneAsPositionOverride = true end
             if bDebugMessages == true then
                 if tLZData and tLZTeamData then
-                    LOG(sFunctionRef..': Considering entry '..iEntry..'; iPlateau='..tPlateauAndLandZone[1]..'; iLandZone='..tPlateauAndLandZone[2]..'; Is there AA in land zone='..tostring(IsThereAAInZone(tLZTeamData, bIgnoreAirAAThreat, iGroundAAThreatThreshold, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat))..'; LZ groundAA threat='..tLZTeamData[M28Map.subrefiThreatEnemyGroundAA]..'; tLZTeamData[M28Map.refiEnemyAirAAThreat]='..tLZTeamData[M28Map.refiEnemyAirAAThreat]..'; iAirAAThreatThreshold='..(iAirAAThreatThreshold or 0)..'; bOptionalIgnoreOppositeDirectionZones='..tostring(bOptionalIgnoreOppositeDirectionZones or false)..'; IsZoneInSimilarDirection(tLZData)='..tostring(IsZoneInSimilarDirection(tLZData) or false))
+                    LOG(sFunctionRef..': Considering entry '..iEntry..'; iPlateau='..tPlateauAndLandZone[1]..'; iLandZone='..tPlateauAndLandZone[2]..'; Is there AA in land zone='..tostring(IsThereAAInZone(tLZTeamData, bIgnoreAirAAThreat, iGroundAAThreatThreshold, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat, nil, nil, oOptionalBomberForGroundAAThreat))..'; LZ groundAA threat='..tLZTeamData[M28Map.subrefiThreatEnemyGroundAA]..'; tLZTeamData[M28Map.refiEnemyAirAAThreat]='..tLZTeamData[M28Map.refiEnemyAirAAThreat]..'; iAirAAThreatThreshold='..(iAirAAThreatThreshold or 0)..'; bOptionalIgnoreOppositeDirectionZones='..tostring(bOptionalIgnoreOppositeDirectionZones or false)..'; IsZoneInSimilarDirection(tLZData)='..tostring(IsZoneInSimilarDirection(tLZData) or false))
                 else
                     LOG(sFunctionRef..': Dont have valid LZData or teamdata for iEntry='..iEntry..'P'..(tPlateauAndLandZone[1] or 'nil')..'Z'..(tPlateauAndLandZone[2] or 'nil'))
                 end
@@ -3988,8 +4089,9 @@ function DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOr
                         DetailedCheckIfTooMuchAAInInterimZone(tLZData, tLZTeamData, tPlateauAndLandZone[1], tPlateauAndLandZone[2], bSameZoneAsPositionOverride)
                         if bDebugMessages == true then LOG(sFunctionRef..': Doing detailed check, iGroundAAThreat after checking for this zone='..iGroundAAThreat) end
                     else
-                        if (tLZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) > 0 then
-                            iGroundAAThreat = iGroundAAThreat + tLZTeamData[M28Map.subrefiThreatEnemyGroundAA]
+                        local iZoneGroundAAThreat = GetBomberAdjustedGroundAAThreatInZone(oOptionalBomberForGroundAAThreat, tLZTeamData)
+                        if iZoneGroundAAThreat > 0 then
+                            iGroundAAThreat = iGroundAAThreat + iZoneGroundAAThreat
                             if bReturnGroundAAUnitsAlongsideAAThreat then --redundancy - not currently planning on using for this, only for detailed check
                                 local tGroundAAInZone = EntityCategoryFilterDown(M28UnitInfo.refCategoryGroundAA, tLZTeamData[M28Map.subrefTEnemyUnits])
                                 if M28Utilities.IsTableEmpty(tGroundAAInZone) == false then
@@ -4003,10 +4105,10 @@ function DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOr
                         end
                     end
                 else
-                    bZoneHasTooMuchAA = IsThereAAInZone(tLZTeamData, bIgnoreAirAAThreat, iGroundAAThreatThreshold, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat)
+                    bZoneHasTooMuchAA = IsThereAAInZone(tLZTeamData, bIgnoreAirAAThreat, iGroundAAThreatThreshold, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat, nil, nil, oOptionalBomberForGroundAAThreat)
                     if bZoneHasTooMuchAA then
-                        if bDebugMessages == true then LOG(sFunctionRef..': There is too much AA in this land zone, tLZTeamData[M28Map.subrefiThreatEnemyGroundAA]='..(tLZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0)..'; tLZTeamData[M28Map.refiEnemyAirAAThreat]='..(tLZTeamData[M28Map.refiEnemyAirAAThreat] or 0)..'; tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]='..(tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0)..'; bDoDetailedCheckForAA='..tostring(bDoDetailedCheckForAA or false)..'; Is there too much AirAA threat to bother with a detailed check='..tostring(IsThereAAInZone(tLZTeamData, false, -1, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat))) end
-                        if bDoDetailedCheckForAA and (bIgnoreAirAAThreat or not(IsThereAAInZone(tLZTeamData, false, -1, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat))) then
+                        if bDebugMessages == true then LOG(sFunctionRef..': There is too much AA in this land zone, tLZTeamData[M28Map.subrefiThreatEnemyGroundAA]='..(tLZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0)..'; tLZTeamData[M28Map.refiEnemyAirAAThreat]='..(tLZTeamData[M28Map.refiEnemyAirAAThreat] or 0)..'; tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]='..(tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0)..'; bDoDetailedCheckForAA='..tostring(bDoDetailedCheckForAA or false)..'; Is there too much AirAA threat to bother with a detailed check='..tostring(IsThereAAInZone(tLZTeamData, false, -1, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat, nil, nil, oOptionalBomberForGroundAAThreat))) end
+                        if bDoDetailedCheckForAA and (bIgnoreAirAAThreat or not(IsThereAAInZone(tLZTeamData, false, -1, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat, nil, nil, oOptionalBomberForGroundAAThreat))) then
                             --There is too much groundAA (rather than AirAA) so want to do more detailed check to see if groundAA is in range
                             if bDebugMessages == true then LOG(sFunctionRef..': Too much groundAA rather than airaa, so will do more detailed check') end
                             if DetailedCheckIfTooMuchAAInInterimZone(tLZData, tLZTeamData, tPlateauAndLandZone[1], tPlateauAndLandZone[2], bSameZoneAsPositionOverride) then
@@ -4036,7 +4138,7 @@ function DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOr
             if iOverridePositionPlateau and iOverridePositionPlateau == 0 and iOverridePositionZone == iWaterZone then bSameZoneAsPositionOverride = true end
 
             if bDebugMessages == true then
-                LOG(sFunctionRef..': Checking along water zone path, iEntry='..iEntry..'; iWaterZone='..iWaterZone..'; IsThereAAInZone='..tostring(IsThereAAInZone(tWZTeamData, bIgnoreAirAAThreat, iGroundAAThreatThreshold, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat))..'; tWZTeamData groundAA='..tWZTeamData[M28Map.subrefiThreatEnemyGroundAA]..'; AirAA threat in WZ='..tWZTeamData[M28Map.refiEnemyAirAAThreat]..'; Is WZ in similar direction='..tostring( IsZoneInSimilarDirection(tWZData) or false))
+                LOG(sFunctionRef..': Checking along water zone path, iEntry='..iEntry..'; iWaterZone='..iWaterZone..'; IsThereAAInZone='..tostring(IsThereAAInZone(tWZTeamData, bIgnoreAirAAThreat, iGroundAAThreatThreshold, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat, nil, nil, oOptionalBomberForGroundAAThreat))..'; tWZTeamData groundAA='..tWZTeamData[M28Map.subrefiThreatEnemyGroundAA]..'; AirAA threat in WZ='..tWZTeamData[M28Map.refiEnemyAirAAThreat]..'; Is WZ in similar direction='..tostring( IsZoneInSimilarDirection(tWZData) or false))
                 --M28Map.DrawSpecificWaterZone(iWaterZone)
             end
             if tWZData and (not(bOptionalIgnoreOppositeDirectionZones) or IsZoneInSimilarDirection(tWZData)) then
@@ -4044,8 +4146,9 @@ function DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOr
                     if bDoDetailedCheckForAA then
                         DetailedCheckIfTooMuchAAInInterimZone(tWZData, tWZTeamData, 0, iWaterZone, bSameZoneAsPositionOverride)
                     else
-                        if (tWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) > 0 then
-                            iGroundAAThreat = iGroundAAThreat + tWZTeamData[M28Map.subrefiThreatEnemyGroundAA]
+                        local iZoneGroundAAThreat = GetBomberAdjustedGroundAAThreatInZone(oOptionalBomberForGroundAAThreat, tWZTeamData)
+                        if iZoneGroundAAThreat > 0 then
+                            iGroundAAThreat = iGroundAAThreat + iZoneGroundAAThreat
                             if bReturnGroundAAUnitsAlongsideAAThreat then --redundancy - not currently planning on using for this, only for detailed check
                                 local tGroundAAInZone = EntityCategoryFilterDown(M28UnitInfo.refCategoryGroundAA, tWZTeamData[M28Map.subrefTEnemyUnits])
                                 if M28Utilities.IsTableEmpty(tGroundAAInZone) == false then
@@ -4059,16 +4162,16 @@ function DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOr
                         end
                     end
                 else
-                    bZoneHasTooMuchAA = IsThereAAInZone(tWZTeamData, bIgnoreAirAAThreat, iGroundAAThreatThreshold, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat)
+                    bZoneHasTooMuchAA = IsThereAAInZone(tWZTeamData, bIgnoreAirAAThreat, iGroundAAThreatThreshold, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat, nil, nil, oOptionalBomberForGroundAAThreat)
                     if bZoneHasTooMuchAA then
                         --If using torp bombers check if reason for failure is due to enemy groundAA threat
-                        if bDebugMessages == true then LOG(sFunctionRef..': TOo much AA in water zone, bDoDetailedCheckForAA='..tostring(bDoDetailedCheckForAA or false)..'; bUsingTorpBombers='..tostring(bUsingTorpBombers or false)..'; bIgnoreAirAAThreat='..tostring(bIgnoreAirAAThreat or false)..'; Is there too much AirAA in the zone='..tostring(IsThereAAInZone(tWZTeamData, false, -1, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat))) end
-                        if bUsingTorpBombers and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbTooMuchGroundNavalAAForTorpBombers]) and not(tWZTeamData[M28Map.subrefbWZOnlyHoverEnemies]) and not(IsThereAAInZone(tWZTeamData, true, 100000000, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat)) then
+                        if bDebugMessages == true then LOG(sFunctionRef..': TOo much AA in water zone, bDoDetailedCheckForAA='..tostring(bDoDetailedCheckForAA or false)..'; bUsingTorpBombers='..tostring(bUsingTorpBombers or false)..'; bIgnoreAirAAThreat='..tostring(bIgnoreAirAAThreat or false)..'; Is there too much AirAA in the zone='..tostring(IsThereAAInZone(tWZTeamData, false, -1, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat, nil, nil, oOptionalBomberForGroundAAThreat))) end
+                        if bUsingTorpBombers and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbTooMuchGroundNavalAAForTorpBombers]) and not(tWZTeamData[M28Map.subrefbWZOnlyHoverEnemies]) and not(IsThereAAInZone(tWZTeamData, true, 100000000, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat, nil, nil, oOptionalBomberForGroundAAThreat)) then
                             --We are only ignoring this target because there is too much groundAA in the water zone
                             M28Team.tAirSubteamData[iAirSubteam][M28Team.refbTooMuchGroundNavalAAForTorpBombers] = true
                         end
 
-                        if bDoDetailedCheckForAA and (bIgnoreAirAAThreat or IsThereAAInZone(tWZTeamData, false, -1, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat)) then
+                        if bDoDetailedCheckForAA and (bIgnoreAirAAThreat or IsThereAAInZone(tWZTeamData, false, -1, iAirAAThreatThreshold, bIncludeEnemyGroundAAInAirAAThreat, nil, nil, oOptionalBomberForGroundAAThreat)) then
                             --There is too much groundAA (rather than AirAA) so want to do more detailed check to see if groundAA is in range
                             if DetailedCheckIfTooMuchAAInInterimZone(tWZData, tWZTeamData, 0, iWaterZone, bSameZoneAsPositionOverride) then
                                 if bDebugMessages == true then LOG(sFunctionRef..': After doing detailed check it is still not safe') end
@@ -6406,6 +6509,7 @@ function ManageBombers(iTeam, iAirSubteam)
         if bDebugMessages == true then LOG(sFunctionRef..': Finished determining start plateau and zone to use, either based on front bomber or rally, iStartPlateauToUse='..iStartPlateauToUse..'; iStartZoneToUse='..iStartZoneToUse..'; iRallyPlateauOrZero='..iRallyPlateauOrZero..'; iRallyLZOrWZ='..iRallyLZOrWZ..'; oFrontBomber='..(oFrontBomber.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oFrontBomber) or 'nil')..'; Last time bomb fired='..GetGameTimeSeconds() - (oFrontBomber[M28UnitInfo.refiLastBombFired] or 0)..'; Strike damage assignment='..(oFrontBomber[refoStrikeDamageAssigned].UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oFrontBomber[refoStrikeDamageAssigned]) or 'nil')) end
         --GetAirThreatLevel(tUnits,      bEnemyUnits, bIncludeAirToAir, bIncludeGroundToAir, bIncludeAirToGround, bIncludeNonCombatAir, bIncludeAirTorpedo, bBlueprintThreat)
         iOurBomberThreat = M28UnitInfo.GetAirThreatLevel(tAvailableBombers, false,      false,          false,              true,                   false,              false)
+        local oGroundAAEvaluationBomber = GetHighestTechBomberForGroundAAEvaluation(tAvailableBombers)
         local aiBrain
         for iBrain, oBrain in M28Team.tAirSubteamData[iAirSubteam][M28Team.subreftoFriendlyM28Brains] do
             aiBrain = oBrain
@@ -6574,6 +6678,7 @@ function ManageBombers(iTeam, iAirSubteam)
 
                 if bDebugMessages == true then LOG(sFunctionRef..': bConsiderHigherTechUnitsFirst='..tostring(bConsiderHigherTechUnitsFirst or false)..'; bHaveT3Bombers='..tostring(bHaveT3Bombers)..'; iMaxEnemyGroundAAThreat='..iMaxEnemyGroundAAThreat) end
                 local tbZoneByPlateauHasTooMuchAA = {}
+                tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero] = {}
                 if bConsiderHigherTechUnitsFirst then
                     --Consider higher priority relatively nearby targets:
                     local iHighPriorityCategories = M28UnitInfo.refCategoryMobileLand * (categories.TECH3 + categories.EXPERIMENTAL) + M28UnitInfo.refCategoryStructure * (categories.TECH3 + categories.TECH2) + M28UnitInfo.refCategoryNavalSurface - categories.TECH1
@@ -6585,10 +6690,10 @@ function ManageBombers(iTeam, iAirSubteam)
                         for iUnit, oUnit in tEnemyTargets do
                             iCurPlateauOrZero, iCurZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnit:GetPosition())
                             if iCurPlateauOrZero and iCurZone then
+                                if tbZoneByPlateauHasTooMuchAA[iCurPlateauOrZero] == nil then tbZoneByPlateauHasTooMuchAA[iCurPlateauOrZero] = {} end
                                 if tbZoneByPlateauHasTooMuchAA[iCurPlateauOrZero][iCurZone] == nil then
-                                    if tbZoneByPlateauHasTooMuchAA[iCurPlateauOrZero] == nil then tbZoneByPlateauHasTooMuchAA[iCurPlateauOrZero] = {} end
                                     --DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, iEndPlateauOrZero, iEndLandOrWaterZone, bIgnoreAirAAThreat, iGroundAAThreatThreshold, iAirAAThreatThreshold, bUsingTorpBombers, iAirSubteam, bDoDetailedCheckForAA, bReturnGroundAAThreatInstead, tOptionalStartMidpointAdjustForDetailedCheck, bReturnGroundAAUnitsAlongsideAAThreat, tOptionalEndMidpointAdjustForDetailedCheck, bOptionalIgnoreOppositeDirectionZones, bIncludeEnemyGroundAAInAirAAThreat, bAssumeWontTargetInterimAAForDetailedCheck)
-                                    tbZoneByPlateauHasTooMuchAA[iCurPlateauOrZero][iCurZone] = DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauToUse, iStartZoneToUse, iCurPlateauOrZero, iCurZone, false, iMaxEnemyGroundAAThreat * iAAPriorityThresholdFactor, iBomberPathAirAAThreshold, false, iAirSubteam, true, false, nil, false)
+                                    tbZoneByPlateauHasTooMuchAA[iCurPlateauOrZero][iCurZone] = DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauToUse, iStartZoneToUse, iCurPlateauOrZero, iCurZone, false, iMaxEnemyGroundAAThreat * iAAPriorityThresholdFactor, iBomberPathAirAAThreshold, false, iAirSubteam, true, false, nil, false, nil, nil, nil, nil, oGroundAAEvaluationBomber)
                                 end
                                 if bDebugMessages == true then LOG(sFunctionRef..': Considering priority enemy target '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' in P'..iCurPlateauOrZero..'Z'..iCurZone..'; Too much AA in this zone='..tostring(tbZoneByPlateauHasTooMuchAA[iCurPlateauOrZero][iCurZone])..'; iMaxEnemyGroundAAThreat='..iMaxEnemyGroundAAThreat..'; iAAPriorityThresholdFactor='..iAAPriorityThresholdFactor) end
                                 if not(tbZoneByPlateauHasTooMuchAA[iCurPlateauOrZero][iCurZone]) then
@@ -6598,8 +6703,8 @@ function ManageBombers(iTeam, iAirSubteam)
                                     local tLZData = M28Map.tAllPlateaus[iCurPlateauOrZero][M28Map.subrefPlateauLandZones][iCurZone]
                                     local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
                                     --Only try alternative routes if the target zone itself has low AA (worth approaching from different angle)
-                                    if (tLZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) < iMaxEnemyGroundAAThreat * 0.5 then
-                                        local tAltPosition, iSafeAngle = FindAlternativeApproachToLandZone(iTeam, iCurPlateauOrZero, iCurZone, iStartPlateauToUse, iStartZoneToUse, iMaxEnemyGroundAAThreat * iAAPriorityThresholdFactor, iBomberPathAirAAThreshold, iAirSubteam)
+                                    if GetBomberAdjustedGroundAAThreatInZone(oGroundAAEvaluationBomber, tLZTeamData) < iMaxEnemyGroundAAThreat * 0.5 then
+                                        local tAltPosition, iSafeAngle = FindAlternativeApproachToLandZone(iTeam, iCurPlateauOrZero, iCurZone, iStartPlateauToUse, iStartZoneToUse, iMaxEnemyGroundAAThreat * iAAPriorityThresholdFactor, iBomberPathAirAAThreshold, iAirSubteam, oGroundAAEvaluationBomber)
                                         if tAltPosition then
                                             if bDebugMessages == true then LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] BOMBER_LZ_ALT_ROUTE - P='..iCurPlateauOrZero..', LZ='..iCurZone..', SafeAngle='..math.floor(iSafeAngle)..', Unit='..oUnit.UnitId) end
                                             --Found alternative route - assign target with waypoint
@@ -6628,15 +6733,15 @@ function ManageBombers(iTeam, iAirSubteam)
                                         if M28Utilities.IsTableEmpty( tEnemyTargets) == false then
                                             if tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero][iAdjLZ] == nil then
                                                 if tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero] == nil then tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero] = {} end
-                                                tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero][iAdjLZ] = DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauToUse, iStartZoneToUse, iRallyPlateauOrZero, iAdjLZ, false, iMaxEnemyGroundAAThreat * iAAPriorityThresholdFactor, iBomberPathAirAAThreshold, false, iAirSubteam, true, false, nil, false)
+                                                tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero][iAdjLZ] = DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauToUse, iStartZoneToUse, iRallyPlateauOrZero, iAdjLZ, false, iMaxEnemyGroundAAThreat * iAAPriorityThresholdFactor, iBomberPathAirAAThreshold, false, iAirSubteam, true, false, nil, false, nil, nil, nil, nil, oGroundAAEvaluationBomber)
                                             end
                                             if not(tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero][iAdjLZ]) then
                                                 AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, false, true)
                                             else
                                                 --Direct path blocked - try alternative approach for adjacent land zone
                                                 local tAdjLZData = M28Map.tAllPlateaus[iRallyPlateauOrZero][M28Map.subrefPlateauLandZones][iAdjLZ]
-                                                if (tAdjLZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) < iMaxEnemyGroundAAThreat * 0.5 then
-                                                    local tAltPosition, iSafeAngle = FindAlternativeApproachToLandZone(iTeam, iRallyPlateauOrZero, iAdjLZ, iStartPlateauToUse, iStartZoneToUse, iMaxEnemyGroundAAThreat * iAAPriorityThresholdFactor, iBomberPathAirAAThreshold, iAirSubteam)
+                                                if GetBomberAdjustedGroundAAThreatInZone(oGroundAAEvaluationBomber, tAdjLZTeamData) < iMaxEnemyGroundAAThreat * 0.5 then
+                                                    local tAltPosition, iSafeAngle = FindAlternativeApproachToLandZone(iTeam, iRallyPlateauOrZero, iAdjLZ, iStartPlateauToUse, iStartZoneToUse, iMaxEnemyGroundAAThreat * iAAPriorityThresholdFactor, iBomberPathAirAAThreshold, iAirSubteam, oGroundAAEvaluationBomber)
                                                     if tAltPosition then
                                                         if bDebugMessages == true then LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] BOMBER_LZ_ALT_ROUTE - AdjP='..iRallyPlateauOrZero..', AdjLZ='..iAdjLZ..', SafeAngle='..math.floor(iSafeAngle)) end
                                                         AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, false, true, nil, nil, tAltPosition)
@@ -6665,9 +6770,8 @@ function ManageBombers(iTeam, iAirSubteam)
                                             if bDebugMessages == true then LOG(sFunctionRef..': Considering iAdjWZ='..iAdjWZ..'; is table of enemy units empty for this zone='..tostring(M28Utilities.IsTableEmpty(tAdjWZTeamData[M28Map.subrefTEnemyUnits]))) end
                                             FilterToAvailableTargets(tAdjWZTeamData[M28Map.subrefTEnemyUnits])
                                             if M28Utilities.IsTableEmpty( tEnemyTargets) == false then
-                                                if tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero][iRallyLZOrWZ] == nil then
-                                                    if tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero] == nil then tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero] = {} end
-                                                    tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero][iRallyLZOrWZ] = DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauToUse, iStartZoneToUse, 0, iAdjWZ, false, iMaxEnemyGroundAAThreat * iAAPriorityThresholdFactor, iBomberPathAirAAThreshold, false, iAirSubteam, true, false, nil, false)
+                                                if tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero][iAdjWZ] == nil then
+                                                    tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero][iAdjWZ] = DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauToUse, iStartZoneToUse, 0, iAdjWZ, false, iMaxEnemyGroundAAThreat * iAAPriorityThresholdFactor, iBomberPathAirAAThreshold, false, iAirSubteam, true, false, nil, false, nil, nil, nil, nil, oGroundAAEvaluationBomber)
                                                 end
 
                                                 if not(tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero][iAdjWZ]) then
@@ -6754,6 +6858,7 @@ function ManageBombers(iTeam, iAirSubteam)
                                     local iOtherLZOrWZ = tPathingDetails[M28Map.subrefiLandOrWaterZoneRef]
                                     if tPathingDetails[M28Map.subrefbIsWaterZone] then iOtherPlateauOrZero = 0 end
 
+                                    if iOtherPlateauOrZero and tbZoneByPlateauHasTooMuchAA[iOtherPlateauOrZero] == nil then tbZoneByPlateauHasTooMuchAA[iOtherPlateauOrZero] = {} end
                                     if iOtherLZOrWZ and not(tbZonesConsideredByPlateau[iRallyPlateauOrZero][iOtherLZOrWZ]) and not(tbZoneByPlateauHasTooMuchAA[iOtherPlateauOrZero][iOtherLZOrWZ]) then
                                         local tOtherLZOrWZTeamData
                                         if iOtherPlateauOrZero == 0 then
@@ -6790,17 +6895,18 @@ function ManageBombers(iTeam, iAirSubteam)
                                     local iCurGroundAAThreatAlongPath = 0
                                     local tAAUnitsAlongPath
                                     local bProceedWithAttack
+                                    if iOtherPlateauOrZero and tbZoneByPlateauHasTooMuchAA[iOtherPlateauOrZero] == nil then tbZoneByPlateauHasTooMuchAA[iOtherPlateauOrZero] = {} end
                                     if not(tbZonesConsideredByPlateau[iRallyPlateauOrZero][iOtherLZOrWZ]) and iOtherLZOrWZ and not(tbZoneByPlateauHasTooMuchAA[iOtherPlateauOrZero][iOtherLZOrWZ]) then
                                         local tOtherLZOrWZData
                                         local tOtherLZOrWZTeamData
                                         if iOtherPlateauOrZero == 0 then
                                             tOtherLZOrWZData = M28Map.tPondDetails[tPathingDetails[M28Map.subrefiPlateauOrPond]][M28Map.subrefPondWaterZones][iOtherLZOrWZ]
                                             tOtherLZOrWZTeamData = tOtherLZOrWZData[M28Map.subrefWZTeamData][iTeam]
-                                            iCurGroundAAThreat = (tOtherLZOrWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0)
+                                            iCurGroundAAThreat = GetBomberAdjustedGroundAAThreatInZone(oGroundAAEvaluationBomber, tOtherLZOrWZTeamData)
                                         else
                                             tOtherLZOrWZData = M28Map.tAllPlateaus[iOtherPlateauOrZero][M28Map.subrefPlateauLandZones][iOtherLZOrWZ]
                                             tOtherLZOrWZTeamData = tOtherLZOrWZData[M28Map.subrefLZTeamData][iTeam]
-                                            iCurGroundAAThreat = (tOtherLZOrWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0)
+                                            iCurGroundAAThreat = GetBomberAdjustedGroundAAThreatInZone(oGroundAAEvaluationBomber, tOtherLZOrWZTeamData)
                                         end
                                         if (tOtherLZOrWZData[M28Map.subrefLZTravelDist] or 0) > iSearchSize and ((tOtherLZOrWZTeamData[M28Map.subrefLZSValue] or 0) == 0 or (tOtherLZOrWZData[M28Map.subrefLZTravelDist] or 0) > iSearchSize + 25) then
                                             if bDebugMessages == true then LOG(sFunctionRef..': Stopping loop as P'..iOtherPlateauOrZero..'Z'..iOtherLZOrWZ..';  is outside search size') end
@@ -6828,7 +6934,7 @@ function ManageBombers(iTeam, iAirSubteam)
                                                 if bDebugMessages == true then LOG(sFunctionRef..': Considering iOtherPlateauOrZero='..(iOtherPlateauOrZero or 'nil')..'; iOtherLZOrWZ='..(iOtherLZOrWZ or 'nil')..', based on iRallyPlateauOrZero='..iRallyPlateauOrZero..'Z'..iRallyLZOrWZ..'; dist='..(tPathingDetails[M28Map.subrefiDistance] or 'nil')..'; iSearchSize='..(iSearchSize or 'nil')..'; Does it have enemy units='..tostring(M28Utilities.IsTableEmpty(tOtherLZOrWZTeamData[M28Map.subrefTEnemyUnits]))..'; Is table of targets empty='..tostring(M28Utilities.IsTableEmpty( tEnemyTargets))) end
                                                 if M28Utilities.IsTableEmpty( tEnemyTargets) == false then
                                                     --DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, iEndPlateauOrZero, iEndLandOrWaterZone, bIgnoreAirAAThreat,                                          iGroundAAThreatThreshold, iAirAAThreatThreshold, bUsingTorpBombers, iAirSubteam, bDoDetailedCheckForAA, bReturnGroundAAThreatInstead, tOptionalStartMidpointAdjustForDetailedCheck, bReturnGroundAAUnitsAlongsideAAThreat, tOptionalEndMidpointAdjustForDetailedCheck)
-                                                    iCurGroundAAThreatAlongPath, tAAUnitsAlongPath = DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauToUse, iStartZoneToUse,           iOtherPlateauOrZero, iOtherLZOrWZ, false, iMaxEnemyGroundAAThreat, iBomberPathAirAAThreshold, false, iAirSubteam, true, true, nil, true)
+                                                    iCurGroundAAThreatAlongPath, tAAUnitsAlongPath = DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauToUse, iStartZoneToUse,           iOtherPlateauOrZero, iOtherLZOrWZ, false, iMaxEnemyGroundAAThreat, iBomberPathAirAAThreshold, false, iAirSubteam, true, true, nil, true, nil, nil, nil, nil, oGroundAAEvaluationBomber)
                                                     if bDebugMessages == true then LOG(sFunctionRef..': Assigning bomber targets for iOtherLZOrWZ='..iOtherLZOrWZ..'; iCurGroundAAThreatAlongPath='..iCurGroundAAThreatAlongPath..'; iMaxEnemyGroundAAThreat='..iMaxEnemyGroundAAThreat) end
                                                     bProceedWithAttack = false
                                                     if iCurGroundAAThreatAlongPath < iMaxEnemyGroundAAThreat then
@@ -6837,8 +6943,8 @@ function ManageBombers(iTeam, iAirSubteam)
                                                         if oClosestEnemyToRally then
                                                             local tNearbyEnemyGroundAA = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryGroundAA, oClosestEnemyToRally:GetPosition(), 80, 'Enemy')
                                                             if M28Utilities.IsTableEmpty(tNearbyEnemyGroundAA) == false then
-                                                                if bDebugMessages == true then LOG(sFunctionRef..': Enemy GroundAA threat using getunitsaroundpoint='..M28UnitInfo.GetAirThreatLevel(tNearbyEnemyGroundAA, true, false, true, false, false, false)..'; iMaxEnemyGroundAAThreat='..iMaxEnemyGroundAAThreat) end
-                                                                if M28UnitInfo.GetAirThreatLevel(tNearbyEnemyGroundAA, true, false, true, false, false, false) >= iMaxEnemyGroundAAThreat then
+                                                                if bDebugMessages == true then LOG(sFunctionRef..': Enemy GroundAA threat using getunitsaroundpoint='..GetBomberAdjustedGroundAAThreat(oGroundAAEvaluationBomber, tNearbyEnemyGroundAA)..'; iMaxEnemyGroundAAThreat='..iMaxEnemyGroundAAThreat) end
+                                                                if GetBomberAdjustedGroundAAThreat(oGroundAAEvaluationBomber, tNearbyEnemyGroundAA) >= iMaxEnemyGroundAAThreat then
                                                                     bProceedWithAttack = false
                                                                 else
                                                                     if bDebugMessages == true then LOG(sFunctionRef..': will add nearby enemy groundAA to targets') end
@@ -15068,14 +15174,15 @@ function AttackTargetForMexHuntingBomber(oBomber, bCalledFromOnBombFired, oOptio
                 tLZOrWZData = M28Map.tAllPlateaus[iEndPlateauOrZero][M28Map.subrefPlateauLandZones][iEndLandOrWaterZone]
                 tLZOrWZTeamData = tLZOrWZData[M28Map.subrefLZTeamData][iTeam]
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': Considering P'..iEndPlateauOrZero..'Z'..iEndLandOrWaterZone..'; Enemy groundAA in this zone='..(tLZOrWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 'nil')..'; Is table of enemy units empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefTEnemyUnits]))) end
-            if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefTEnemyUnits]) == false and tLZOrWZTeamData[M28Map.subrefiThreatEnemyGroundAA] <= 3000 then
+            local iZoneGroundAAThreat = GetBomberAdjustedGroundAAThreatInZone(oBomber, tLZOrWZTeamData)
+            if bDebugMessages == true then LOG(sFunctionRef..': Considering P'..iEndPlateauOrZero..'Z'..iEndLandOrWaterZone..'; Enemy groundAA in this zone='..(tLZOrWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 'nil')..'; Bomber-adjusted groundAA='..iZoneGroundAAThreat..'; Is table of enemy units empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefTEnemyUnits]))) end
+            if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefTEnemyUnits]) == false and iZoneGroundAAThreat <= 3000 then
                 if bDontCheckForPacifism or not(tLZOrWZTeamData[M28Map.subrefbPacifistArea]) then
                     local tUnitsOfInterest = EntityCategoryFilterDown(iMexHunterCategories, tLZOrWZTeamData[M28Map.subrefTEnemyUnits])
-                    if bDebugMessages == true then LOG(sFunctionRef..': Is tUnitsOfInterest empty='..tostring(M28Utilities.IsTableEmpty(tUnitsOfInterest))..'; Does enemy have groundAA along path='..tostring(DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, iEndPlateauOrZero, iEndLandOrWaterZone, true, iGroundAAThreshold, 100000, false, iAirSubteam, true, false, oBomber:GetPosition(),                      false,                                      nil,                                  nil,                                nil,                                bIsThisTheSecondCycle))..'; Does enemy have too much AirAA along path='..tostring(DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, iEndPlateauOrZero, iEndLandOrWaterZone, false, 1000000, iAirAAThreshold, false, iAirSubteam, true, false, oBomber:GetPosition(), false, nil))..'; Does enemy have too much threat (combined)='..tostring(DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, iEndPlateauOrZero, iEndLandOrWaterZone, false, iGroundAAThreshold, iGroundAAThreshold, false, iAirSubteam, true, false, oBomber:GetPosition(),                      false,                                      nil,                                  nil,                                nil,                                bIsThisTheSecondCycle))) end
+                    if bDebugMessages == true then LOG(sFunctionRef..': Is tUnitsOfInterest empty='..tostring(M28Utilities.IsTableEmpty(tUnitsOfInterest))..'; Does enemy have groundAA along path='..tostring(DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, iEndPlateauOrZero, iEndLandOrWaterZone, true, iGroundAAThreshold, 100000, false, iAirSubteam, true, false, oBomber:GetPosition(), false, nil, nil, nil, bIsThisTheSecondCycle, oBomber))..'; Does enemy have too much AirAA along path='..tostring(DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, iEndPlateauOrZero, iEndLandOrWaterZone, false, 1000000, iAirAAThreshold, false, iAirSubteam, true, false, oBomber:GetPosition(), false, nil, nil, nil, nil, oBomber))..'; Does enemy have too much threat (combined)='..tostring(DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, iEndPlateauOrZero, iEndLandOrWaterZone, false, iGroundAAThreshold, iGroundAAThreshold, false, iAirSubteam, true, false, oBomber:GetPosition(), false, nil, nil, nil, bIsThisTheSecondCycle, oBomber))) end
                     if M28Utilities.IsTableEmpty(tUnitsOfInterest) == false then
                         --DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, iEndPlateauOrZero, iEndLandOrWaterZone, bIgnoreAirAAThreat, iGroundAAThreatThreshold, iAirAAThreatThreshold, bUsingTorpBombers, iAirSubteam, bDoDetailedCheckForAA, bReturnGroundAAThreatInstead, tOptionalStartMidpointAdjustForDetailedCheck, bReturnGroundAAUnitsAlongsideAAThreat, tOptionalEndMidpointAdjustForDetailedCheck, bOptionalIgnoreOppositeDirectionZones, bIncludeEnemyGroundAAInAirAAThreat, bAssumeWontTargetInterimAAForDetailedCheck)
-                        if not(DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, iEndPlateauOrZero, iEndLandOrWaterZone, false,             iGroundAAThreshold,   iAirAAThreshold,                    false,          iAirSubteam,    true,               false,                          oBomber:GetPosition(),                      false,                                      nil,                                  nil,                                nil,                                bIsThisTheSecondCycle)) then
+                        if not(DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, iEndPlateauOrZero, iEndLandOrWaterZone, false,             iGroundAAThreshold,   iAirAAThreshold,                    false,          iAirSubteam,    true,               false,                          oBomber:GetPosition(),                      false,                                      nil,                                  nil,                                nil,                                bIsThisTheSecondCycle, oBomber)) then
                             --Pick the closest target that we can kill
                             iClosestDistToBomber = 10000
                             if oClosestLowerPriorityTarget then bCheckForAltTarget = false else bCheckForAltTarget = true end
