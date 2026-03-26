@@ -6633,6 +6633,14 @@ function ManageBombers(iTeam, iAirSubteam)
                 --Consider adjacent zones if are on a land zone, and the rally point is closer to our base than the enemy
                 local tbZonesConsideredByPlateau = {}
                 tbZonesConsideredByPlateau[iRallyPlateauOrZero] = {}
+                tbZonesConsideredByPlateau[0] = tbZonesConsideredByPlateau[0] or {}
+                local function HaveWeConsideredBomberZone(iPlateauOrZero, iLandOrWaterZone)
+                    return tbZonesConsideredByPlateau[iPlateauOrZero] and tbZonesConsideredByPlateau[iPlateauOrZero][iLandOrWaterZone]
+                end
+                local function MarkBomberZoneConsidered(iPlateauOrZero, iLandOrWaterZone)
+                    if tbZonesConsideredByPlateau[iPlateauOrZero] == nil then tbZonesConsideredByPlateau[iPlateauOrZero] = {} end
+                    tbZonesConsideredByPlateau[iPlateauOrZero][iLandOrWaterZone] = true
+                end
                 local iMaxEnemyGroundAAThreat
                 if M28Team.tTeamData[iTeam][M28Team.refiTimeLastNearUnitCap] then
                     iMaxEnemyGroundAAThreat = math.min(1500, M28Team.tTeamData[iTeam][M28Team.subrefiOurT1ToT3BomberThreat] * 0.2)
@@ -6725,7 +6733,7 @@ function ManageBombers(iTeam, iAirSubteam)
                         if (tRallyLZOrWZData[M28Map.refiModDistancePercent] or 0) <= 0.4 then
                             if M28Utilities.IsTableEmpty(tRallyLZOrWZData[M28Map.subrefLZAdjacentLandZones]) == false then
                                 for _, iAdjLZ in tRallyLZOrWZData[M28Map.subrefLZAdjacentLandZones] do
-                                    tbZonesConsideredByPlateau[iRallyPlateauOrZero][iAdjLZ] = true
+                                    MarkBomberZoneConsidered(iRallyPlateauOrZero, iAdjLZ)
                                     local tAdjLZTeamData
                                     if not(tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero][iAdjLZ]) then
                                         tAdjLZTeamData = M28Map.tAllPlateaus[iRallyPlateauOrZero][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
@@ -6765,16 +6773,18 @@ function ManageBombers(iTeam, iAirSubteam)
 
                                     for iEntry, tSubtable in tRallyLZOrWZData[M28Map.subrefAdjacentWaterZones] do
                                         local iAdjWZ = tSubtable[M28Map.subrefAWZRef]
-                                        if not(tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero][iAdjWZ]) then
+                                        MarkBomberZoneConsidered(0, iAdjWZ)
+                                        if tbZoneByPlateauHasTooMuchAA[0] == nil then tbZoneByPlateauHasTooMuchAA[0] = {} end
+                                        if not(tbZoneByPlateauHasTooMuchAA[0][iAdjWZ]) then
                                             local tAdjWZTeamData = M28Map.tPondDetails[M28Map.tiPondByWaterZone[iAdjWZ]][M28Map.subrefPondWaterZones][iAdjWZ][M28Map.subrefWZTeamData][iTeam]
                                             if bDebugMessages == true then LOG(sFunctionRef..': Considering iAdjWZ='..iAdjWZ..'; is table of enemy units empty for this zone='..tostring(M28Utilities.IsTableEmpty(tAdjWZTeamData[M28Map.subrefTEnemyUnits]))) end
                                             FilterToAvailableTargets(tAdjWZTeamData[M28Map.subrefTEnemyUnits])
                                             if M28Utilities.IsTableEmpty( tEnemyTargets) == false then
-                                                if tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero][iAdjWZ] == nil then
-                                                    tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero][iAdjWZ] = DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauToUse, iStartZoneToUse, 0, iAdjWZ, false, iMaxEnemyGroundAAThreat * iAAPriorityThresholdFactor, iBomberPathAirAAThreshold, false, iAirSubteam, true, false, nil, false, nil, nil, nil, nil, oGroundAAEvaluationBomber)
+                                                if tbZoneByPlateauHasTooMuchAA[0][iAdjWZ] == nil then
+                                                    tbZoneByPlateauHasTooMuchAA[0][iAdjWZ] = DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauToUse, iStartZoneToUse, 0, iAdjWZ, false, iMaxEnemyGroundAAThreat * iAAPriorityThresholdFactor, iBomberPathAirAAThreshold, false, iAirSubteam, true, false, nil, false, nil, nil, nil, nil, oGroundAAEvaluationBomber)
                                                 end
 
-                                                if not(tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero][iAdjWZ]) then
+                                                if not(tbZoneByPlateauHasTooMuchAA[0][iAdjWZ]) then
                                                     AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, false, true)
                                                 end
                                                 tEnemyTargets = {}
@@ -6859,7 +6869,7 @@ function ManageBombers(iTeam, iAirSubteam)
                                     if tPathingDetails[M28Map.subrefbIsWaterZone] then iOtherPlateauOrZero = 0 end
 
                                     if iOtherPlateauOrZero and tbZoneByPlateauHasTooMuchAA[iOtherPlateauOrZero] == nil then tbZoneByPlateauHasTooMuchAA[iOtherPlateauOrZero] = {} end
-                                    if iOtherLZOrWZ and not(tbZonesConsideredByPlateau[iRallyPlateauOrZero][iOtherLZOrWZ]) and not(tbZoneByPlateauHasTooMuchAA[iOtherPlateauOrZero][iOtherLZOrWZ]) then
+                                    if iOtherLZOrWZ and not(HaveWeConsideredBomberZone(iOtherPlateauOrZero, iOtherLZOrWZ)) and not(tbZoneByPlateauHasTooMuchAA[iOtherPlateauOrZero][iOtherLZOrWZ]) then
                                         local tOtherLZOrWZTeamData
                                         if iOtherPlateauOrZero == 0 then
                                             local tOtherLZOrWZData = M28Map.tPondDetails[tPathingDetails[M28Map.subrefiPlateauOrPond]][M28Map.subrefPondWaterZones][iOtherLZOrWZ]
@@ -6896,7 +6906,7 @@ function ManageBombers(iTeam, iAirSubteam)
                                     local tAAUnitsAlongPath
                                     local bProceedWithAttack
                                     if iOtherPlateauOrZero and tbZoneByPlateauHasTooMuchAA[iOtherPlateauOrZero] == nil then tbZoneByPlateauHasTooMuchAA[iOtherPlateauOrZero] = {} end
-                                    if not(tbZonesConsideredByPlateau[iRallyPlateauOrZero][iOtherLZOrWZ]) and iOtherLZOrWZ and not(tbZoneByPlateauHasTooMuchAA[iOtherPlateauOrZero][iOtherLZOrWZ]) then
+                                    if not(HaveWeConsideredBomberZone(iOtherPlateauOrZero, iOtherLZOrWZ)) and iOtherLZOrWZ and not(tbZoneByPlateauHasTooMuchAA[iOtherPlateauOrZero][iOtherLZOrWZ]) then
                                         local tOtherLZOrWZData
                                         local tOtherLZOrWZTeamData
                                         if iOtherPlateauOrZero == 0 then
@@ -15167,7 +15177,7 @@ function AttackTargetForMexHuntingBomber(oBomber, bCalledFromOnBombFired, oOptio
         iClosestDistForAltTarget = 10000
         function ConsiderZoneForPotentialTargets(iEndPlateauOrZero, iEndLandOrWaterZone, iMexHunterCategories)
             local tLZOrWZData, tLZOrWZTeamData
-            if iStartPlateauOrZero == 0 then
+            if iEndPlateauOrZero == 0 then
                 tLZOrWZData = M28Map.tPondDetails[M28Map.tiPondByWaterZone[iEndLandOrWaterZone]][M28Map.subrefPondWaterZones][iEndLandOrWaterZone]
                 tLZOrWZTeamData = tLZOrWZData[M28Map.subrefWZTeamData][iTeam]
             else
@@ -15450,7 +15460,7 @@ function EnemyNavalEngineerBomber(oBomber)
         local iWaterZone = oBomber[refiBomberTargetNavalEngiWZ]
         local tEnemyBaseWZData = M28Map.tPondDetails[M28Map.tiPondByWaterZone[iWaterZone]][M28Map.subrefPondWaterZones][iWaterZone]
         local tEnemyBaseWZTeamData = tEnemyBaseWZData[M28Map.subrefWZTeamData][iTeam]
-        if M28Utilities.IsTableEmpty(tEnemyBaseWZTeamData[M28Map.subrefTEnemyUnits]) == false and (tEnemyBaseWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) <= 1000 or (tEnemyBaseWZTeamData[M28Map.subrefThreatEnemyShield] or 0) >= 100 then
+        if M28Utilities.IsTableEmpty(tEnemyBaseWZTeamData[M28Map.subrefTEnemyUnits]) == false and ((tEnemyBaseWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) <= 1000 or (tEnemyBaseWZTeamData[M28Map.subrefThreatEnemyShield] or 0) >= 100) then
             --Get closest naval fac in this WZ as our initial destination
             local toEnemyFactories = EntityCategoryFilterDown(M28UnitInfo.refCategoryNavalFactory, tEnemyBaseWZTeamData[M28Map.subrefTEnemyUnits])
             if M28Utilities.IsTableEmpty(toEnemyFactories) == false then
