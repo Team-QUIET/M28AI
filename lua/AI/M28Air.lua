@@ -4957,6 +4957,145 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                 end
             end
 
+            local aiEscortThreatBrain = M28Team.GetFirstActiveM28Brain(iTeam)
+            local iUrgentEscortGroundAAThreatThreshold = math.max(250, math.min(750, iAvailableAndInCombatAirAAThreat * 0.1))
+            local iUrgentEscortGroundAASearchRadius = 75
+            local function GetUrgentEscortThreatSearchRadius(oProtectedUnit)
+                if EntityCategoryContains(M28UnitInfo.refCategoryBomber - categories.EXPERIMENTAL, oProtectedUnit.UnitId) then
+                    if EntityCategoryContains(categories.TECH3, oProtectedUnit.UnitId) then
+                        return 145
+                    end
+                    return 130
+                elseif EntityCategoryContains(M28UnitInfo.refCategoryTorpBomber, oProtectedUnit.UnitId) then
+                    return 135
+                elseif EntityCategoryContains(M28UnitInfo.refCategoryGunship + M28UnitInfo.refCategoryCzar + M28UnitInfo.refCategoryRestorer, oProtectedUnit.UnitId) then
+                    return 120
+                end
+                return 115
+            end
+            local function GetUrgentEscortMobileHighTechGroundAAThreat(tPosition)
+                if not(aiEscortThreatBrain) or M28Utilities.IsTableEmpty(tPosition) then
+                    return 0
+                end
+                local tNearbyEnemyGroundAA = aiEscortThreatBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryGroundAA * categories.MOBILE * (categories.LAND + categories.NAVAL) * (categories.TECH2 + categories.TECH3), tPosition, iUrgentEscortGroundAASearchRadius, 'Enemy')
+                if M28Utilities.IsTableEmpty(tNearbyEnemyGroundAA) then
+                    return 0
+                end
+
+                local iTotalThreat = 0
+                local iCurThreat
+                for iUnit, oUnit in tNearbyEnemyGroundAA do
+                    if M28UnitInfo.IsUnitValid(oUnit) and (oUnit[M28UnitInfo.refiAARange] or 0) > 0 then
+                        iCurThreat = M28UnitInfo.GetAirThreatLevel({oUnit}, true, false, true, false, false, false)
+                        if iCurThreat > 0 then
+                            if EntityCategoryContains(categories.TECH3, oUnit.UnitId) then
+                                iCurThreat = iCurThreat * 3
+                            else
+                                iCurThreat = iCurThreat * 2
+                            end
+                            if EntityCategoryContains(categories.NAVAL * categories.MOBILE, oUnit.UnitId) then
+                                iCurThreat = iCurThreat * 1.15
+                            end
+                            iTotalThreat = iTotalThreat + iCurThreat
+                        end
+                    end
+                end
+                return iTotalThreat
+            end
+            local function AddProtectedAirUnitForUrgentEscort(tProtectedAirUnits, tsProtectedAirUnitRefs, oUnit)
+                if M28UnitInfo.IsUnitValid(oUnit)
+                        and oUnit.EntityId
+                        and not(tsProtectedAirUnitRefs[oUnit.EntityId])
+                        and EntityCategoryContains(M28UnitInfo.refCategoryBomber + M28UnitInfo.refCategoryTorpBomber + M28UnitInfo.refCategoryGunship + M28UnitInfo.refCategoryCzar + M28UnitInfo.refCategoryRestorer, oUnit.UnitId) then
+                    table.insert(tProtectedAirUnits, oUnit)
+                    tsProtectedAirUnitRefs[oUnit.EntityId] = true
+                end
+            end
+            local function GetUrgentEnemyAirThreatsForProtectedUnit(oProtectedUnit, tsUrgentEnemyAirRefs)
+                local tUrgentEnemyAirTargets = {}
+                if not(M28UnitInfo.IsUnitValid(oProtectedUnit)) then
+                    return tUrgentEnemyAirTargets
+                end
+
+                local tProtectedPos = oProtectedUnit:GetPosition()
+                local iThreatRadius = GetUrgentEscortThreatSearchRadius(oProtectedUnit)
+                local iSearchRadius = iThreatRadius + 25
+                local aiSearchBrain = oProtectedUnit:GetAIBrain() or aiEscortThreatBrain
+                if not(aiSearchBrain) then
+                    return tUrgentEnemyAirTargets
+                end
+
+                local tNearbyEnemyAir = aiSearchBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryAirNonScout + M28UnitInfo.refCategoryCzar + M28UnitInfo.refCategoryRestorer, tProtectedPos, iSearchRadius, 'Enemy')
+                if M28Utilities.IsTableEmpty(tNearbyEnemyAir) then
+                    return tUrgentEnemyAirTargets
+                end
+
+                local iCurDist
+                local iNearbyMobileHighTechGroundAA
+                local tEnemyPos
+                for iUnit, oEnemyUnit in tNearbyEnemyAir do
+                    if M28UnitInfo.IsUnitValid(oEnemyUnit) and oEnemyUnit.EntityId and not(tsUrgentEnemyAirRefs[oEnemyUnit.EntityId]) and not(oEnemyUnit:IsUnitState('Attached')) then
+                        tEnemyPos = oEnemyUnit:GetPosition()
+                        if oEnemyUnit:IsUnitState('Moving') or oEnemyUnit:IsUnitState('Attacking') or tEnemyPos[2] - GetSurfaceHeight(tEnemyPos[1], tEnemyPos[3]) > 1 then
+                            iCurDist = M28Utilities.GetDistanceBetweenPositions(tProtectedPos, tEnemyPos)
+                            if iCurDist <= iThreatRadius or (oEnemyUnit:IsUnitState('Attacking') and iCurDist <= iSearchRadius) then
+                                iNearbyMobileHighTechGroundAA = GetUrgentEscortMobileHighTechGroundAAThreat(tEnemyPos)
+                                if iNearbyMobileHighTechGroundAA < iUrgentEscortGroundAAThreatThreshold then
+                                    table.insert(tUrgentEnemyAirTargets, oEnemyUnit)
+                                    tsUrgentEnemyAirRefs[oEnemyUnit.EntityId] = true
+                                    if bDebugMessages == true then
+                                        LOG(sFunctionRef..': Added urgent escort peel target '..oEnemyUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEnemyUnit)..' threatening '..oProtectedUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oProtectedUnit)..'; Dist='..iCurDist..'; NearbyMobileHighTechGroundAA='..iNearbyMobileHighTechGroundAA..'; Threshold='..iUrgentEscortGroundAAThreatThreshold)
+                                    end
+                                elseif bDebugMessages == true then
+                                    LOG(sFunctionRef..': Skipping urgent escort peel target '..oEnemyUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEnemyUnit)..' as nearby mobile T2/T3 groundAA='..iNearbyMobileHighTechGroundAA..' exceeds threshold='..iUrgentEscortGroundAAThreatThreshold)
+                                end
+                            end
+                        end
+                    end
+                end
+                return tUrgentEnemyAirTargets
+            end
+            local function ConsiderUrgentEscortThreats()
+                if M28Utilities.IsTableEmpty(tAvailableAirAA) then
+                    return
+                end
+
+                local tProtectedAirUnits = {}
+                local tsProtectedAirUnitRefs = {}
+                local tsUrgentEnemyAirRefs = {}
+                local tEscortPoint, oActiveEscortBomber = GetActiveBomberEscortPoint()
+                AddProtectedAirUnitForUrgentEscort(tProtectedAirUnits, tsProtectedAirUnitRefs, oActiveEscortBomber)
+                AddProtectedAirUnitForUrgentEscort(tProtectedAirUnits, tsProtectedAirUnitRefs, M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontT3Bomber])
+                AddProtectedAirUnitForUrgentEscort(tProtectedAirUnits, tsProtectedAirUnitRefs, M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber])
+                AddProtectedAirUnitForUrgentEscort(tProtectedAirUnits, tsProtectedAirUnitRefs, M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship])
+                if M28Utilities.IsTableEmpty(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftACUExpAndPriorityDefenceOnSubteam]) == false then
+                    for iUnit, oUnit in M28Team.tAirSubteamData[iAirSubteam][M28Team.reftACUExpAndPriorityDefenceOnSubteam] do
+                        AddProtectedAirUnitForUrgentEscort(tProtectedAirUnits, tsProtectedAirUnitRefs, oUnit)
+                    end
+                end
+
+                if M28Utilities.IsTableEmpty(tProtectedAirUnits) then
+                    return
+                end
+
+                local tUrgentEnemyAirTargets
+                local tAssignmentStartPoint
+                for iUnit, oProtectedUnit in tProtectedAirUnits do
+                    tUrgentEnemyAirTargets = GetUrgentEnemyAirThreatsForProtectedUnit(oProtectedUnit, tsUrgentEnemyAirRefs)
+                    if M28Utilities.IsTableEmpty(tUrgentEnemyAirTargets) == false then
+                        tAssignmentStartPoint = oProtectedUnit:GetPosition()
+                        if oActiveEscortBomber == oProtectedUnit and M28Utilities.IsTableEmpty(tEscortPoint) == false then
+                            tAssignmentStartPoint = tEscortPoint
+                        end
+                        AssignAirAATargets(tAvailableAirAA, tUrgentEnemyAirTargets, iTeam, iAirSubteam, tExistingThreatAssignedByUnitRef, false, tAssignmentStartPoint)
+                        if M28Utilities.IsTableEmpty(tAvailableAirAA) then
+                            break
+                        end
+                    end
+                end
+            end
+            ConsiderUrgentEscortThreats()
+
             --Determine what threats to avoid for priority units
             local bAvoidLargeEnemyAirAA = false
             local iAirAAAvoidThreshold
