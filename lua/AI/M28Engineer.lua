@@ -208,6 +208,10 @@ iMaxMexBuildPathEngineers = 15 --Maximum number of engineers that can be doing m
 tTeamMexBuildPathEngineers = {} --[iTeam] = table of engineers with mex build path
 tTeamAssignedMexLocations = {} --[iTeam] = table of mex locations already assigned; key is location string, value is engineer
 
+function IsEngineerOnMexBuildPath(oEngineer)
+    return oEngineer[refiAssignedAction] == refActionMexBuildPath or oEngineer[refiAssignedAction] == refActionExpandToLandZone
+end
+
 function GetValidAssignedMexEngineer(iTeam, sLocKey)
     --Returns assigned engineer if still valid/on mex path; clears stale assignments
     if not(tTeamAssignedMexLocations[iTeam]) then return nil end
@@ -217,7 +221,7 @@ function GetValidAssignedMexEngineer(iTeam, sLocKey)
             tTeamAssignedMexLocations[iTeam][sLocKey] = nil
             return nil
         end
-        local bIsMexAction = oAssigned[refiAssignedAction] == refActionMexBuildPath or oAssigned[refiAssignedAction] == refActionExpandToLandZone
+        local bIsMexAction = IsEngineerOnMexBuildPath(oAssigned)
         if not(bIsMexAction) and not(oAssigned[refbHasMexBuildPath]) then
             tTeamAssignedMexLocations[iTeam][sLocKey] = nil
             return nil
@@ -7255,12 +7259,55 @@ function QueueReclaimPath(oEngineer, iPriorityOverride, tLZOrWZTeamData, iPlatea
     return bGivenOrder
 end
 
+function IsMexBuildPathLocationStillOutstanding(tMexLocation)
+    local tLZOrWZData
+    local iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(tMexLocation)
+
+    if (iLandZone or 0) > 0 and iPlateau > 0 then
+        tLZOrWZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone]
+    else
+        local iWaterZone = M28Map.GetWaterZoneFromPosition(tMexLocation)
+        local iPond = M28Map.tiPondByWaterZone[iWaterZone]
+        if iWaterZone > 0 and iPond > 0 then
+            tLZOrWZData = M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones][iWaterZone]
+        end
+    end
+
+    if not(tLZOrWZData) or M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subrefMexUnbuiltLocations]) then
+        return false
+    end
+
+    local sLocKey = tostring(tMexLocation[1])..','..tostring(tMexLocation[3])
+    for _, tUnbuiltMex in tLZOrWZData[M28Map.subrefMexUnbuiltLocations] do
+        if sLocKey == tostring(tUnbuiltMex[1])..','..tostring(tUnbuiltMex[3]) then
+            return true
+        end
+    end
+
+    return false
+end
+
+function GetOutstandingMexBuildPathCount(oEngineer)
+    if M28Utilities.IsTableEmpty(oEngineer[reftAssignedMexBuildPath]) then
+        return 0
+    end
+
+    local iOutstandingCount = 0
+    for _, tMexLocation in oEngineer[reftAssignedMexBuildPath] do
+        if IsMexBuildPathLocationStillOutstanding(tMexLocation) then
+            iOutstandingCount = iOutstandingCount + 1
+        end
+    end
+
+    return iOutstandingCount
+end
+
 function GetMexBuildPathEngineerCount(iTeam)
     --Returns the number of engineers currently doing mex build path for this team
     if not(tTeamMexBuildPathEngineers[iTeam]) then return 0 end
     local iCount = 0
     for iEngi, oEngi in tTeamMexBuildPathEngineers[iTeam] do
-        if M28UnitInfo.IsUnitValid(oEngi) and oEngi[refiAssignedAction] == refActionMexBuildPath then
+        if M28UnitInfo.IsUnitValid(oEngi) and oEngi[refbHasMexBuildPath] and IsEngineerOnMexBuildPath(oEngi) then
             iCount = iCount + 1
         end
     end
@@ -7307,84 +7354,90 @@ function MonitorMexBuildPathEngineer(oEngineer, iTeam)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'MonitorMexBuildPathEngineer'
     local iIdleCheckCount = 0 --Count consecutive idle checks to avoid premature exit
+    local bReleaseEngineer = false
 
-    --Check for both MexBuildPath and ExpandToLandZone actions
-    local function IsMexBuildAction(oEng)
-        return oEng[refiAssignedAction] == refActionMexBuildPath or oEng[refiAssignedAction] == refActionExpandToLandZone
-    end
-
-    while M28UnitInfo.IsUnitValid(oEngineer) and IsMexBuildAction(oEngineer) do
+    while M28UnitInfo.IsUnitValid(oEngineer) and IsEngineerOnMexBuildPath(oEngineer) do
         WaitTicks(20) --Check every 2 seconds
 
-        --Check if engineer is done building (idle or has different action)
         if M28UnitInfo.IsUnitValid(oEngineer) then
+            local iOutstandingMexCount = GetOutstandingMexBuildPathCount(oEngineer)
+            if iOutstandingMexCount == 0 and not(oEngineer:IsUnitState('Building')) then
+                if bDebugMessages == true then LOG(sFunctionRef..': Engineer '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' has no outstanding mex path work and is no longer building, so will release it') end
+                bReleaseEngineer = true
+                break
+            end
+
             if not(oEngineer:IsUnitState('Building')) and not(oEngineer:IsUnitState('Moving')) and not(oEngineer:IsUnitState('Reclaiming')) then
-                --Engineer might be briefly idle between commands, wait for a few checks before concluding it's done
                 iIdleCheckCount = iIdleCheckCount + 1
                 if bDebugMessages == true then LOG(sFunctionRef..': Engineer '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' not building/moving/reclaiming, iIdleCheckCount='..iIdleCheckCount) end
                 if iIdleCheckCount >= 2 then
-                    --Engineer has been idle for 2 consecutive checks (~4 seconds), likely done
                     if bDebugMessages == true then LOG(sFunctionRef..': Engineer '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' appears done with mex build path after '..iIdleCheckCount..' idle checks') end
+                    bReleaseEngineer = true
                     break
                 end
             else
-                --Reset idle count if engineer is actively working
                 iIdleCheckCount = 0
             end
         end
     end
 
-    --Clean up tracking and make engineer available for reassignment
-    if bDebugMessages == true then LOG(sFunctionRef..': Cleaning up mex build path tracking for engineer') end
-
-    --Fully clear engineer tracking so they become available for new tasks
     if M28UnitInfo.IsUnitValid(oEngineer) then
-        --QUIET: Save the original home zone BEFORE calling ClearEngineerTracking (which clears it)
-        local tOriginalHome = oEngineer[reftOriginalHomeZone]
-        local iHomePlateau, iHomeLZ
-        if tOriginalHome then
-            iHomePlateau = tOriginalHome[1]
-            iHomeLZ = tOriginalHome[2]
-        end
+        if bReleaseEngineer then
+            if bDebugMessages == true then LOG(sFunctionRef..': Cleaning up mex build path tracking for engineer') end
 
-        --ClearEngineerTracking handles all cleanup including mex path tracking (and clears reftOriginalHomeZone)
-        ClearEngineerTracking(oEngineer)
+            --QUIET: Save the original home zone BEFORE calling ClearEngineerTracking (which clears it)
+            local tOriginalHome = oEngineer[reftOriginalHomeZone]
+            local iHomePlateau, iHomeLZ
+            if tOriginalHome then
+                iHomePlateau = tOriginalHome[1]
+                iHomeLZ = tOriginalHome[2]
+            end
 
-        --QUIET: Return engineer to its original home zone (saved when expansion started)
-        --This ensures the engineer goes back to its core base zone, not stays in the minor expansion zone
-        if iHomePlateau and iHomeLZ then
-            --Get current zone tracking
-            local tAssigned = oEngineer[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam]
-            if tAssigned and tAssigned[iTeam] then
-                local iCurTrackedPlateau = tAssigned[iTeam][1]
-                local iCurTrackedLZ = tAssigned[iTeam][2]
+            --Clear any stale queued reclaim/move orders so the engineer can re-enter the normal job pool.
+            M28Orders.IssueTrackedClearCommands(oEngineer)
 
-                --If engineer is tracked to a different zone than home, move it back
-                if iCurTrackedPlateau ~= iHomePlateau or iCurTrackedLZ ~= iHomeLZ then
-                    --Remove from current zone's unit list
-                    local tCurLZTeamData = M28Map.tAllPlateaus[iCurTrackedPlateau][M28Map.subrefPlateauLandZones][iCurTrackedLZ][M28Map.subrefLZTeamData][iTeam]
-                    if M28Utilities.IsTableEmpty(tCurLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
-                        for iUnit, oUnit in tCurLZTeamData[M28Map.subreftoLZOrWZAlliedUnits] do
-                            if oUnit == oEngineer then
-                                table.remove(tCurLZTeamData[M28Map.subreftoLZOrWZAlliedUnits], iUnit)
-                                break
+            --ClearEngineerTracking handles all cleanup including mex path tracking (and clears reftOriginalHomeZone)
+            ClearEngineerTracking(oEngineer)
+
+            --QUIET: Return engineer to its original home zone (saved when expansion started)
+            --This ensures the engineer goes back to its core base zone, not stays in the minor expansion zone
+            if iHomePlateau and iHomeLZ then
+                --Get current zone tracking
+                local tAssigned = oEngineer[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam]
+                if tAssigned and tAssigned[iTeam] then
+                    local iCurTrackedPlateau = tAssigned[iTeam][1]
+                    local iCurTrackedLZ = tAssigned[iTeam][2]
+
+                    --If engineer is tracked to a different zone than home, move it back
+                    if iCurTrackedPlateau ~= iHomePlateau or iCurTrackedLZ ~= iHomeLZ then
+                        --Remove from current zone's unit list
+                        local tCurLZTeamData = M28Map.tAllPlateaus[iCurTrackedPlateau][M28Map.subrefPlateauLandZones][iCurTrackedLZ][M28Map.subrefLZTeamData][iTeam]
+                        if M28Utilities.IsTableEmpty(tCurLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
+                            for iUnit, oUnit in tCurLZTeamData[M28Map.subreftoLZOrWZAlliedUnits] do
+                                if oUnit == oEngineer then
+                                    table.remove(tCurLZTeamData[M28Map.subreftoLZOrWZAlliedUnits], iUnit)
+                                    break
+                                end
                             end
                         end
-                    end
-                    --Add to home zone's unit list
-                    local tHomeLZTeamData = M28Map.tAllPlateaus[iHomePlateau][M28Map.subrefPlateauLandZones][iHomeLZ][M28Map.subrefLZTeamData][iTeam]
-                    table.insert(tHomeLZTeamData[M28Map.subreftoLZOrWZAlliedUnits], oEngineer)
-                    --Update the engineer's assigned zone back to home
-                    oEngineer[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam] = {iHomePlateau, iHomeLZ}
+                        --Add to home zone's unit list
+                        local tHomeLZTeamData = M28Map.tAllPlateaus[iHomePlateau][M28Map.subrefPlateauLandZones][iHomeLZ][M28Map.subrefLZTeamData][iTeam]
+                        table.insert(tHomeLZTeamData[M28Map.subreftoLZOrWZAlliedUnits], oEngineer)
+                        --Update the engineer's assigned zone back to home
+                        oEngineer[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam] = {iHomePlateau, iHomeLZ}
 
-                    --Actually issue a move order to send the engineer back to its home zone
-                    local tHomeZoneData = M28Map.tAllPlateaus[iHomePlateau][M28Map.subrefPlateauLandZones][iHomeLZ]
-                    if tHomeZoneData and tHomeZoneData[M28Map.subrefMidpoint] then
-                        local tHomeMidpoint = tHomeZoneData[M28Map.subrefMidpoint]
-                        M28Orders.IssueTrackedMove(oEngineer, tHomeMidpoint, false, 'ReturnToHomeZone', false)
+                        --Actually issue a move order to send the engineer back to its home zone
+                        local tHomeZoneData = M28Map.tAllPlateaus[iHomePlateau][M28Map.subrefPlateauLandZones][iHomeLZ]
+                        if tHomeZoneData and tHomeZoneData[M28Map.subrefMidpoint] then
+                            local tHomeMidpoint = tHomeZoneData[M28Map.subrefMidpoint]
+                            M28Orders.IssueTrackedMove(oEngineer, tHomeMidpoint, false, 'ReturnToHomeZone', false)
+                        end
                     end
                 end
             end
+        elseif oEngineer[refbHasMexBuildPath] and not(IsEngineerOnMexBuildPath(oEngineer)) then
+            if bDebugMessages == true then LOG(sFunctionRef..': Engineer changed action before mex-path monitor released it, so will only clear mex path bookkeeping') end
+            ClearMexBuildPathTracking(oEngineer, iTeam)
         end
     else
         --Engineer died, just clean up the mex location assignments
