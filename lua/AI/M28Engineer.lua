@@ -7075,6 +7075,7 @@ function QueueReclaimPath(oEngineer, iPriorityOverride, tLZOrWZTeamData, iPlatea
 
     local iMinReclaimValue = (iMinIndividualValueOverride or M28Map.iLowestMassThreshold)
     local sReclaimValueRef = bWantEnergyNotMass and 'MaxEnergyReclaim' or 'MaxMassReclaim'
+    local iMeaningfulMassThreshold = math.max(iMinReclaimValue, M28Map.iSignificantMassThreshold or 10)
 
     --Get all reclaim in the zone within a reasonable search area
     local tEngiPos = oEngineer:GetPosition()
@@ -7129,17 +7130,44 @@ function QueueReclaimPath(oEngineer, iPriorityOverride, tLZOrWZTeamData, iPlatea
     local tCurrentPos = {tEngiPos[1], tEngiPos[2], tEngiPos[3]}
     local iSortedCount = 0
     local iMaxDistBetweenRocks = 80
+    local bUseMassAnchor = not(bWantEnergyNotMass)
+
+    if bWantEnergyNotMass then
+        for i = 1, iRemainingCount do
+            if (tRemainingReclaim[i].MaxMassReclaim or 0) >= iMeaningfulMassThreshold then
+                bUseMassAnchor = true
+                break
+            end
+        end
+    end
 
     while iRemainingCount > 0 and iSortedCount < iMaxReclaimCount do
         local iBestIdx = nil
         local iBestDist = nil
+        local iBestMassValue = nil
 
-        for i = 1, iRemainingCount do
-            local oReclaim = tRemainingReclaim[i]
-            local iDist = math.max(1, M28Utilities.GetDistanceBetweenPositions(tCurrentPos, oReclaim.CachePosition))
-            if not(iBestDist) or iDist < iBestDist then
-                iBestDist = iDist
-                iBestIdx = i
+        if iSortedCount == 0 and bUseMassAnchor then
+            -- Start on the best local mass target, then keep the rest of the path nearest-neighbor.
+            for i = 1, iRemainingCount do
+                local oReclaim = tRemainingReclaim[i]
+                local iMassValue = oReclaim.MaxMassReclaim or 0
+                local iDist = math.max(1, M28Utilities.GetDistanceBetweenPositions(tCurrentPos, oReclaim.CachePosition))
+                if iMassValue > 0 and ((not(iBestMassValue)) or iMassValue > iBestMassValue or (iMassValue == iBestMassValue and iDist < iBestDist)) then
+                    iBestMassValue = iMassValue
+                    iBestDist = iDist
+                    iBestIdx = i
+                end
+            end
+        end
+
+        if not(iBestIdx) then
+            for i = 1, iRemainingCount do
+                local oReclaim = tRemainingReclaim[i]
+                local iDist = math.max(1, M28Utilities.GetDistanceBetweenPositions(tCurrentPos, oReclaim.CachePosition))
+                if not(iBestDist) or iDist < iBestDist then
+                    iBestDist = iDist
+                    iBestIdx = i
+                end
             end
         end
 
