@@ -60,6 +60,25 @@ refoPrimaryACU = 'M28PrimACU' --ACU unit for the brain; recorded against aibrain
 refbACUHasBeenGivenABuildOrderRecently = 'M28ACUBuildR' --true if ACU has been given a build order recently
 refbACUSnipeModeActive = 'M28ACUSnipA' --true if are trying to kill enemy ACU (via all-in ACU push)
 
+local function GetReducedUpgradeWeightForACUStrength(oACU)
+    local iUpgradeCount = oACU[refiUpgradeCount] or 0
+    if iUpgradeCount <= 0 then
+        return 0
+    elseif iUpgradeCount == 1 then
+        return 0.35
+    elseif iUpgradeCount == 2 then
+        return 0.85
+    else
+        return 1.1 + 0.3 * (iUpgradeCount - 2)
+    end
+end
+
+local function HasMeaningfulUpgradeLeadForACUStrength(oACU, iTeam, iRequiredHealthPercent, iMinimumUpgradeLead)
+    local iOurUpgrades = oACU[refiUpgradeCount] or 0
+    local iEnemyMaxUpgrades = M28Team.GetHighestEnemyACUUpgradeCount(iTeam) or 0
+    return iOurUpgrades >= 2 and iOurUpgrades - iEnemyMaxUpgrades >= (iMinimumUpgradeLead or 1) and M28UnitInfo.GetUnitHealthPercent(oACU) >= (iRequiredHealthPercent or 0.9)
+end
+
 function ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearchForAdjacencyAndUnderConstruction, iMaxAreaToSearchForBuildLocation, iOptionalAdjacencyCategory, iOptionalCategoryBuiltUnitCanBuild, tOptionalSearchLocation)
     local sFunctionRef = 'ACUBuildUnit'
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
@@ -641,7 +660,9 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
 
     --Nearby enemy units in other land zone if we already have a complete land factory
     local iSearchDistance = 40
-    if IsACUInPreT2PressureWindow(oACU, iTeam) then iSearchDistance = 55 end
+    if IsT2PlusOnFieldForACUAggression(oACU, iTeam) then iSearchDistance = 28
+    elseif IsACUInPreT2PressureWindow(oACU, iTeam) then iSearchDistance = 55
+    end
     if M28Map.bIsCampaignMap then iSearchDistance = 36 end
     local bACUWantsToRun = DoesACUWantToRun(iPlateauOrZero, iLZOrWZ, tLZOrWZData, tLZOrWZTeamData, oACU)
     local bProceedWithLogic = true
@@ -2547,8 +2568,8 @@ function DoesACUWantToRun(iPlateau, iLandZone, tLZData, tLZTeamData, oACU)
         --20km type map - be more cautious in assassination
         --Large map caution check - but allow upgraded ACU with advantage to push further
     elseif tLZTeamData[M28Map.refiModDistancePercent] >= 0.5 and M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar] and GetGameTimeSeconds() >= 1000 and M28Map.iMapSize >= 756
-            --Exception: Upgraded ACU with upgrade advantage and good health can push to 70% instead of 50%
-            and not((oACU[refiUpgradeCount] or 0) >= 1 and (oACU[refiUpgradeCount] or 0) > M28Team.GetHighestEnemyACUUpgradeCount(iTeam) and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.8 and tLZTeamData[M28Map.refiModDistancePercent] < 0.7) then
+            --Exception: Only a meaningfully upgraded, healthy ACU with a real upgrade lead can push a little deeper
+            and not(HasMeaningfulUpgradeLeadForACUStrength(oACU, iTeam, 0.9, 1) and tLZTeamData[M28Map.refiModDistancePercent] < 0.6) then
         if bDebugMessages == true then LOG(sFunctionRef..': Large map, cant afford to lose ACU, so will be cautious and stay relatively near base') end
         bWantToRun = true
     else
@@ -2649,7 +2670,7 @@ function DoesACUWantToRun(iPlateau, iLandZone, tLZData, tLZTeamData, oACU)
 
                             --Check for upgrade advantage - ACU with more upgrades than enemy should be more aggressive
                             local iUpgradeAdvantage = (oACU[refiUpgradeCount] or 0) - M28Team.GetHighestEnemyACUUpgradeCount(iTeam)
-                            local bHasUpgradeAdvantage = iUpgradeAdvantage >= 1 and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.75
+                            local bHasUpgradeAdvantage = HasMeaningfulUpgradeLeadForACUStrength(oACU, iTeam, 0.92, 1)
                             local iEnemyCombatTotal = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
                             local iCombinedAllyThreatWithACU = iNearbyAllyThreat + iACUThreat
                             local bHasArmySupport = iNearbyAllyThreat >= 800 and (
@@ -2659,7 +2680,7 @@ function DoesACUWantToRun(iPlateau, iLandZone, tLZData, tLZTeamData, oACU)
                             )
                             if bDebugMessages == true then LOG(sFunctionRef..': Checking dangerous for ACUs. bHasArmySupport='..tostring(bHasArmySupport)..'; iNearbyAllyThreat='..iNearbyAllyThreat..'; iACUThreat='..iACUThreat..'; iCombinedAllyThreatWithACU='..iCombinedAllyThreatWithACU..'; EnemyCombatTotal='..iEnemyCombatTotal..'; bHasUpgradeAdvantage='..tostring(bHasUpgradeAdvantage)..'; refbDangerousForACUs='..tostring(M28Team.tTeamData[iTeam][M28Team.refbDangerousForACUs] or false)) end
                             if M28Team.tTeamData[iTeam][M28Team.refbDangerousForACUs] and (GetGameTimeSeconds() > 1260 or not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) or (iACUThreat < 3500 and (iACUThreat < 1700 or oACU[refiUpgradeCount] < 3 or M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar] or M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0 or iHealthPercent < 0.9 or M28UnitInfo.GetUnitMaxHealthIncludingShield(oACU) < 20000 or (oACU.MyShield.GetHealth and (iHealthPercent < 0.98 or M28UnitInfo.GetUnitHealthAndShieldPercent(oACU) <= 0.95)))))
-                                    and not(bHasUpgradeAdvantage and tLZTeamData[M28Map.refiModDistancePercent] < 0.65)
+                                    and not(bHasUpgradeAdvantage and tLZTeamData[M28Map.refiModDistancePercent] < 0.55)
                                     and not(bHasArmySupport) then
                                 if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) then
                                     if bDebugMessages == true then LOG(sFunctionRef..': No adjacent land zones and dangerous for ACU so want to run') end
@@ -2674,10 +2695,13 @@ function DoesACUWantToRun(iPlateau, iLandZone, tLZData, tLZTeamData, oACU)
                             end
                             if not(bWantToRun) then
                                 --Run if non-full share or last ACU, are past 15m in-game, mod dist is >=0.4, and we are far from base
-                                local iEffectiveUpgradeCount = oACU[refiUpgradeCount] or 0
-                                if M28Utilities.bQuietModActive then iEffectiveUpgradeCount = iEffectiveUpgradeCount * 1.25 end
-                                --ACU with more upgrades than enemy can push further
-                                local iUpgradeAdvantageBonus = math.max(0, iUpgradeAdvantage) * 0.08
+                                local iEffectiveUpgradeCount = GetReducedUpgradeWeightForACUStrength(oACU)
+                                if M28Utilities.bQuietModActive then iEffectiveUpgradeCount = iEffectiveUpgradeCount * 1.1 end
+                                --ACU with a real upgrade lead can push slightly further, but much less than before
+                                local iUpgradeAdvantageBonus = 0
+                                if bHasUpgradeAdvantage then
+                                    iUpgradeAdvantageBonus = math.min(0.04, math.max(0.02, math.max(0, iUpgradeAdvantage) * 0.02))
+                                end
                                 if bDebugMessages == true then LOG(sFunctionRef..': Considering if want to run when in assassination, moddist%='..(tLZTeamData[M28Map.refiModDistancePercent] or 'nil')..'; Upgrade count='..(oACU[refiUpgradeCount] or 'nil')..'; iEffectiveUpgradeCount='..iEffectiveUpgradeCount..'; iUpgradeAdvantage='..iUpgradeAdvantage..'; iUpgradeAdvantageBonus='..iUpgradeAdvantageBonus..'; oACU='..(oACU.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oACU) or 'nil')..' owned by '..oACU:GetAIBrain().Nickname..'; iPercentageToFriendlyBase='..(iPercentageToFriendlyBase or 'nil')..'; iDistToFriendlyBase='..(iDistToFriendlyBase or 'nil')..'; M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]='..(M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] or 'nil')..'; M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech]='..(M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] or 'nil')..'; M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech]='..(M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] or 'nil')..'; Assassination='..tostring(M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar] or false)..'; Brain gross mass='..(oACU:GetAIBrain()[M28Economy.refiGrossMassBaseIncome] or 'nil')) end
                                 if tLZTeamData[M28Map.refiModDistancePercent] >= 0.35 + 0.04*iEffectiveUpgradeCount + iUpgradeAdvantageBonus and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.toActiveSnipeTargets]) and iPercentageToFriendlyBase >= 0.35 and iDistToFriendlyBase >= (200 + 75 * iEffectiveUpgradeCount) and (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 3 or M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] >= 3 or M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3 or (GetGameTimeSeconds() >= 900 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] > 1)) and (not(M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar]) or oACU:GetAIBrain()[M28Economy.refiGrossMassBaseIncome] >= 25)
                                         --Exception - if enemy isnt at t3 land yet, and we have a mobile shield assigned to guncom ACU with full health
@@ -2953,14 +2977,11 @@ function DoesACUWantToRun(iPlateau, iLandZone, tLZData, tLZTeamData, oACU)
                                                 else iACUFactor = 0.6
                                                 end
                                             end
-                                            --Increase ACU factor if we have gun and good health, and enemy lacks T3 land/high health units
+                                            --Slightly increase ACU factor if we have a real upgrade lead, strong health, and enemy lacks higher-tech punish
                                             if bDebugMessages == true then LOG(sFunctionRef..': ACU health%='..M28UnitInfo.GetUnitHealthPercent(oACU)..'; Highest enemy ground tech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech]..'; Highest enemy air tech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech]..'; Air to gorund threat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]) end
-                                            if M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.8 and (oACU[refiUpgradeCount] or 0) >= 1 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] < 3 and  M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] < 3 and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] <= 1500 then
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Guncom with decent health and enemy doesnt have T3 land or air or significant air to ground threat so increasing factor') end
-                                                iACUFactor = iACUFactor * 1.1
-                                                if iPercentageToFriendlyBase <= 0.45 then
-                                                    iACUFactor = iACUFactor * 1.1
-                                                end
+                                            if HasMeaningfulUpgradeLeadForACUStrength(oACU, iTeam, 0.9, 1) and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] < 3 and  M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] < 3 and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] <= 1500 then
+                                                if bDebugMessages == true then LOG(sFunctionRef..': Healthy upgraded ACU with a real lead and no high-tech punish on field, so applying a small factor increase') end
+                                                iACUFactor = iACUFactor * 1.05
                                             end
 
                                             --Decrease ACU factor if we have high mass income and are in assassination and dont have many upgrades
@@ -4007,7 +4028,8 @@ function AttackNearestEnemyWithACU(iPlateau, iLandZone, tLZData, tLZTeamData, oA
                         if bDebugMessages == true then LOG(sFunctionRef..': Considering if we want to do a kiting retreat, iStraightLineDist='..iStraightLineDist..'; iMaxDistToBeInRange='..iMaxDistToBeInRange..'; Our DF range='..(oACU[M28UnitInfo.refiDFRange] or 'nil')..'; ACU health%='..(iOurACUHealthPercent or 'nil')..'; iNearbyMobileEnemyDFThreat='..iNearbyMobileEnemyDFThreat..'; tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal]='..(tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 'nil')) end
                         bWantKitingRetreat = true
                         --Exception - we have >= enemy range, and the threat of enemy units within our range + 5 isn't that great, and the mobile threat of enemy units isn't that great
-                        local iAdjacentThreatThreshold = 1500 + oACU[refiUpgradeCount] * 750
+                        local iReducedUpgradeWeight = GetReducedUpgradeWeightForACUStrength(oACU)
+                        local iAdjacentThreatThreshold = 1500 + iReducedUpgradeWeight * 400
                         if not(M28Team.tTeamData[iTeam][M28Team. refbAssassinationOrSimilar]) then
                             iAdjacentThreatThreshold = iAdjacentThreatThreshold * 3
                         end
@@ -4016,10 +4038,10 @@ function AttackNearestEnemyWithACU(iPlateau, iLandZone, tLZData, tLZTeamData, oA
                         if iACUInZone > 1 then
                             iAdjacentThreatThreshold = iAdjacentThreatThreshold * (1 + (iACUInZone -1) * 0.6)
                         end
-                        local iEnemyThreatThresholdForDetailedCheck = 1750 + oACU[refiUpgradeCount] * 750
+                        local iEnemyThreatThresholdForDetailedCheck = 1750 + iReducedUpgradeWeight * 400
 
                         if iOurACUHealthPercent >= 0.95 then
-                            iEnemyThreatThresholdForDetailedCheck = iEnemyThreatThresholdForDetailedCheck + 500 + 250 * oACU[refiUpgradeCount]
+                            iEnemyThreatThresholdForDetailedCheck = iEnemyThreatThresholdForDetailedCheck + 350 + 100 * iReducedUpgradeWeight
                         end
 
                         if bDebugMessages == true then LOG(sFunctionRef..': Considering if we want to ignore kiting retreat and advance due to low enemy threat, iNearbyMobileEnemyDFThreat (which is mobile DF in this and adjacent zones)='..iNearbyMobileEnemyDFThreat..'; iAdjacentThreatThreshold='..iAdjacentThreatThreshold..'; iACUInZone='..iACUInZone..'; iEnemyThreatThresholdForDetailedCheck='..iEnemyThreatThresholdForDetailedCheck) end
@@ -4085,10 +4107,10 @@ function AttackNearestEnemyWithACU(iPlateau, iLandZone, tLZData, tLZTeamData, oA
                                     AddNearbyCombatThreat(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam])
                                 end
                             end
-                            if iEnemyT1ArtiAndDFThreatCloseToOurRange <= 200 + 100 * oACU[refiUpgradeCount] and iEnemyT1ArtiAndDFThreatCloseToOurRange + iEnemyMobileThreatSlightlyFurtherAway <= 600 + oACU[refiUpgradeCount] * 300 then
+                            if iEnemyT1ArtiAndDFThreatCloseToOurRange <= 200 + 50 * iReducedUpgradeWeight and iEnemyT1ArtiAndDFThreatCloseToOurRange + iEnemyMobileThreatSlightlyFurtherAway <= 600 + iReducedUpgradeWeight * 150 then
                                 bWantKitingRetreat = false
                                 if bDebugMessages == true then LOG(sFunctionRef..': Dont want to do king retreat after all') end
-                            elseif oACU[refiUpgradeCount] >= 2 and (oACU[refiUpgradeCount] >= 3 or not(EntityCategoryContains(categories.AEON, oACU.UnitId))) and iOurACUHealthPercent >= 0.95 and iEnemyT1ArtiAndDFThreatCloseToOurRange <= 1800 and iEnemyT1ArtiAndDFThreatCloseToOurRange + iEnemyMobileThreatSlightlyFurtherAway <= 2700 and iEnemyT1PDInRangeOfUs == 0 and (iEnemyT1ArtiAndDFThreatCloseToOurRange + iEnemyMobileThreatSlightlyFurtherAway <= 1900 or iEnemyNearbyT2PlusPDThreat + iEnemyFurtherAwayLRPDThreat >= 800) then
+                            elseif HasMeaningfulUpgradeLeadForACUStrength(oACU, iTeam, 0.98, 1) and (oACU[refiUpgradeCount] or 0) >= 3 and iEnemyT1ArtiAndDFThreatCloseToOurRange <= 1400 and iEnemyT1ArtiAndDFThreatCloseToOurRange + iEnemyMobileThreatSlightlyFurtherAway <= 2200 and iEnemyT1PDInRangeOfUs == 0 and (iEnemyT1ArtiAndDFThreatCloseToOurRange + iEnemyMobileThreatSlightlyFurtherAway <= 1600 or iEnemyNearbyT2PlusPDThreat + iEnemyFurtherAwayLRPDThreat >= 800) then
                                 bWantKitingRetreat = false
                                 if bDebugMessages == true then LOG(sFunctionRef..': We have high health and are heavily upgraded so want to press a bit more either due to enemy threat not being massive, or because neemy threat includes PD which we could always run from') end
                                 --if shot is blocked for the closest enemy unit then dont kite
@@ -4435,6 +4457,7 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
     local iLZToMoveTo
     local iTeam = oACU:GetAIBrain().M28Team
     local bPreT2PressureWindow = IsACUInPreT2PressureWindow(oACU, iTeam)
+    local bT2PlusOnFieldForAggression = IsT2PlusOnFieldForACUAggression(oACU, iTeam)
     local iAdjLZ
     if bDebugMessages == true then LOG(sFunctionRef..': Will consider moving to another LZ for ACU '..oACU.UnitId..M28UnitInfo.GetUnitLifetimeCount(oACU)..' owned by '..oACU:GetAIBrain().Nickname..'; Is table of pathing to other LZ empty='..tostring(M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZPathingToOtherLandZones]))) end
     local iHighValueDistanceThreshold = 175
@@ -4450,6 +4473,9 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
             if bDebugMessages == true then LOG(sFunctionRef..': Increased lower priority dist by a further 50') end
             iLowerPriorityDistanceThreshold = iLowerPriorityDistanceThreshold + 50
         end
+    elseif bT2PlusOnFieldForAggression then
+        iHighValueDistanceThreshold = math.max(120, iHighValueDistanceThreshold - 35)
+        iLowerPriorityDistanceThreshold = math.max(180, iLowerPriorityDistanceThreshold - 90)
     end
     local iLastPathedZoneTravelDist
     local iRecentLandZoneRef
@@ -4500,7 +4526,7 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
                 if tAdjLZTeamData[M28Map.subrefbLZWantsDFSupport] then
                     iCurValue = tAdjLZTeamData[M28Map.subrefLZTValue]
                     if iAdjLZ == iRecentLandZoneRef then iCurValue = iCurValue * 1.05 + 25 end
-                    if (tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) < 50 + 100 * oACU[refiUpgradeCount] then
+                    if (tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) < 50 + 60 * GetReducedUpgradeWeightForACUStrength(oACU) then
                         iCurValue = iCurValue * 0.7
                         if bDebugMessages == true then LOG(sFunctionRef..': Reducing value of going to this zone as small enemy combat threat') end
                     end
@@ -4597,9 +4623,7 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
 
                 --Encourage ACU to advance toward enemy, especially during the pure-T1 pressure window
                 local iHighestEnemyGroundTech = M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] or 1
-                local iOurUpgrades = oACU[refiUpgradeCount] or 0
-                local iEnemyMaxUpgrades = M28Team.GetHighestEnemyACUUpgradeCount(iTeam)
-                local bHasUpgradeAdvantage = iOurUpgrades >= 1 and iOurUpgrades >= iEnemyMaxUpgrades
+                local bHasUpgradeAdvantage = HasMeaningfulUpgradeLeadForACUStrength(oACU, iTeam, 0.95, 1)
                 local iDistFromCurZoneToEnemy = M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], tLZTeamData[M28Map.reftClosestEnemyBase])
                 local iDistFromAdjZoneToEnemy = M28Utilities.GetDistanceBetweenPositions(tAdjLZData[M28Map.subrefMidpoint], tAdjLZTeamData[M28Map.reftClosestEnemyBase])
                 local bZoneIsCloserToEnemy = iDistFromAdjZoneToEnemy < iDistFromCurZoneToEnemy
@@ -4636,9 +4660,9 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
                         end
                         iForwardPushBonus = iForwardPushBonus + iDirectionalBonus
 
-                        -- 4. Upgrade advantage momentum (healthy upgraded ACU maintains pressure)
-                        if bHasUpgradeAdvantage and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.9 then
-                            iForwardPushBonus = iForwardPushBonus + (iCurModDist < 0.45 and 350 or 200)
+                        -- 4. Meaningful upgrade lead gives only a modest forward bonus
+                        if bHasUpgradeAdvantage and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.95 then
+                            iForwardPushBonus = iForwardPushBonus + (iCurModDist < 0.45 and 180 or 90)
                         end
                     end
 
@@ -7642,6 +7666,40 @@ function GetACUOrder(aiBrain, oACU)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+function IsT2PlusOnFieldForACUAggression(oACU, iTeam)
+    local aiBrain = oACU:GetAIBrain()
+    local iFriendlyT2PlusFieldCount = M28Conditions.GetCurrentM28UnitsOfCategoryInTeam(
+        (M28UnitInfo.refCategoryLandCombat - categories.TECH1)
+        + M28UnitInfo.refCategoryIndirectT2Plus
+        + M28UnitInfo.refCategoryT2PlusPD
+        + (M28UnitInfo.refCategoryMAA - categories.TECH1)
+        + (M28UnitInfo.refCategoryMobileLandShield - categories.TECH1)
+        + (M28UnitInfo.refCategoryAirToGround - categories.TECH1)
+        + (M28UnitInfo.refCategoryMobileNavalSurface - categories.TECH1)
+        + (M28UnitInfo.refCategorySubmarine - categories.TECH1)
+        + (M28UnitInfo.refCategoryNavalAA * categories.MOBILE - categories.TECH1),
+        iTeam
+    )
+    if iFriendlyT2PlusFieldCount > 0 then
+        return true
+    end
+
+    local tNearbyEnemyT2Plus = aiBrain:GetUnitsAroundPoint(
+        (M28UnitInfo.refCategoryLandCombat - categories.TECH1)
+        + M28UnitInfo.refCategoryIndirectT2Plus
+        + M28UnitInfo.refCategoryT2PlusPD
+        + (M28UnitInfo.refCategoryMAA - categories.TECH1)
+        + (M28UnitInfo.refCategoryAirToGround - categories.TECH1)
+        + (M28UnitInfo.refCategoryMobileNavalSurface - categories.TECH1)
+        + (M28UnitInfo.refCategorySubmarine - categories.TECH1)
+        + (M28UnitInfo.refCategoryNavalAA * categories.MOBILE - categories.TECH1),
+        oACU:GetPosition(),
+        180,
+        'Enemy'
+    )
+    return M28Utilities.IsTableEmpty(tNearbyEnemyT2Plus) == false
+end
+
 function IsACUInPreT2PressureWindow(oACU, iTeam)
     local iFriendlyFactoryTech = M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] or 1
     local iEnemyMaxTech = math.max(
@@ -7650,7 +7708,7 @@ function IsACUInPreT2PressureWindow(oACU, iTeam)
         M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyNavyTech] or 1
     )
     local iACUBuildTech = oACU[refiBuildTech] or 1
-    return iFriendlyFactoryTech < 2 and iACUBuildTech < 2 and iEnemyMaxTech < 2
+    return iFriendlyFactoryTech < 2 and iACUBuildTech < 2 and iEnemyMaxTech < 2 and not(IsT2PlusOnFieldForACUAggression(oACU, iTeam))
 end
 
 function DoWeStillWantToBeAggressiveWithACU(oACU)
@@ -7682,7 +7740,9 @@ function DoWeStillWantToBeAggressiveWithACU(oACU)
             local iEffectiveUpgradeCount = oACU[refiUpgradeCount] or 0
             if M28Utilities.bQuietModActive then iEffectiveUpgradeCount = iEffectiveUpgradeCount * 1.25 end
             local bPreT2PressureWindow = IsACUInPreT2PressureWindow(oACU, iTeam)
-            if not(bPreT2PressureWindow) then
+            if IsT2PlusOnFieldForACUAggression(oACU, iTeam) then
+                bStillBeAggressive = false
+            elseif not(bPreT2PressureWindow) then
                 bStillBeAggressive = false
             elseif M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.35 then
                 bStillBeAggressive = false
