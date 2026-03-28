@@ -51,13 +51,13 @@ refiTimeLastBuiltLandScoutForUnit = 'M28LndTmLstBultLS' --Gametimeseconds that w
 iIntelThresholdForPriorityScout = 50 --I.e. if have less than this radar coverage in a zone, then a skirmisher will consider flagging to ask for a priority scout
 
 --Support distribution tuning
-iLandSupportIncomingPenalty = 0.35
+iLandSupportIncomingPenalty = 0.2
 iLandSupportLaneAngleDegrees = 35
 iLandSupportLaneAngleDegreesMid = 20
 iLandSupportLaneRearAxisModDistMax = 0.35
 iLandSupportLaneBaseMatchDist = 10
-iLandSupportLaneEmergencyValueMultiplier = 1.5
-iLandSupportLaneEmergencyThreatMin = 800
+iLandSupportLaneEmergencyValueMultiplier = 1.25
+iLandSupportLaneEmergencyThreatMin = 500
 iLandSupportFarPathStepMax = 2
 iLandSupportFarPathStepMaxCrossLane = 1
 iLandSupportFarPathCloserPercent = 0.10
@@ -5221,8 +5221,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
     --Aggression tuning constants for non-skirmisher land combat behavior
     local iACUCommitThreatRatio = 1.05
-    local iPushThreatRatio = 1.12
-    local iMusterSuspendThreatRatio = 1.00
+    local iPushThreatRatio = 1.04
+    local iMusterSuspendThreatRatio = 0.90
 
     --Non-skirmisher focus set used for push/muster gating
     local tNonSkirmisherCombatUnits = EntityCategoryFilterDown(M28UnitInfo.refCategoryLandCombat - M28UnitInfo.refCategorySkirmisher - M28UnitInfo.refCategoryAbsolver, tAvailableCombatUnits)
@@ -7145,8 +7145,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 --Keep local aggression gates synced to current enemy threat estimate and live engagement status
                 iNonSkirmisherCombatThreat = M28UnitInfo.GetCombatThreatRating(tNonSkirmisherCombatUnits, false)
                 local iEnemyThreatForSignals = iEnemyCombatThreat or math.max((tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0), (tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0) + (tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0))
-                bForcePushNonSkirmisher = iNonSkirmisherCombatThreat >= math.max(800, iEnemyThreatForSignals * iPushThreatRatio)
-                bWinningEnoughToSuspendMuster = iNonSkirmisherCombatThreat >= math.max(450, iEnemyThreatForSignals * iMusterSuspendThreatRatio)
+                local bFrontlinePressureZone = (tLZTeamData[M28Map.subrefbLZWantsDFSupport] or false) and (tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false)
+                bForcePushNonSkirmisher = iNonSkirmisherCombatThreat >= math.max(650, iEnemyThreatForSignals * iPushThreatRatio)
+                bWinningEnoughToSuspendMuster = iNonSkirmisherCombatThreat >= math.max(350, iEnemyThreatForSignals * iMusterSuspendThreatRatio)
                 bNonSkirmisherActivelyEngaged = false
                 if M28Utilities.IsTableEmpty(tNonSkirmisherCombatUnits) == false then
                     for iNSUnit, oNSUnit in tNonSkirmisherCombatUnits do
@@ -7157,7 +7158,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         end
                     end
                 end
-                bSuspendMusterOverride = bWinningEnoughToSuspendMuster and bNonSkirmisherActivelyEngaged
+                bSuspendMusterOverride = bForcePushNonSkirmisher or (bWinningEnoughToSuspendMuster and (bNonSkirmisherActivelyEngaged or bFrontlinePressureZone))
                 bApplyMusterRetreatOverride = bShouldMusterNotAttack and not(bSuspendMusterOverride)
                 if bDebugMessages == true then LOG(sFunctionRef..': Aggression signals - iNonSkirmisherCombatThreat='..(iNonSkirmisherCombatThreat or 0)..'; EnemyThreatRef='..(iEnemyThreatForSignals or 0)..'; bForcePushNonSkirmisher='..tostring(bForcePushNonSkirmisher)..'; bWinningEnoughToSuspendMuster='..tostring(bWinningEnoughToSuspendMuster)..'; bNonSkirmisherActivelyEngaged='..tostring(bNonSkirmisherActivelyEngaged)..'; bSuspendMusterOverride='..tostring(bSuspendMusterOverride)..'; bApplyMusterRetreatOverride='..tostring(bApplyMusterRetreatOverride)) end
             end
@@ -10355,11 +10356,14 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     --This is the final check before acting on the decision - ensures we don't attack when outgunned
                     UpdateNonSkirmisherAggressionSignals()
                     if bAttackWithEverything and bApplyMusterRetreatOverride then
-                        if iOurDFAndT1ArtiCombatThreat <= iEnemyCombatThreat * 1.05 and not(bHaveACUInTroubleAndRecentlyInCombat) then
+                        local bFrontlineMusterException = bForcePushNonSkirmisher or ((tLZTeamData[M28Map.subrefbLZWantsDFSupport] or false)
+                                and iOurDFAndT1ArtiCombatThreat >= math.max(450, iEnemyCombatThreat * 0.92)
+                                and (((tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0) == 0) or iOurDFAndT1ArtiCombatThreat >= iEnemyCombatThreat))
+                        if not(bFrontlineMusterException) and iOurDFAndT1ArtiCombatThreat <= iEnemyCombatThreat * 1.02 and not(bHaveACUInTroubleAndRecentlyInCombat) then
                             bAttackWithEverything = false
                         end
                         bWantReinforcements = true
-                        if bDebugMessages == true then LOG(sFunctionRef..': Overriding bAttackWithEverything to false due to bApplyMusterRetreatOverride=true, will muster/retreat instead') end
+                        if bDebugMessages == true then LOG(sFunctionRef..': Overriding bAttackWithEverything due to bApplyMusterRetreatOverride=true; bFrontlineMusterException='..tostring(bFrontlineMusterException)..'; will retreat='..tostring(not(bFrontlineMusterException) and iOurDFAndT1ArtiCombatThreat <= iEnemyCombatThreat * 1.02)) end
                     end
 
                     --Log the decision with additional context about target changes
@@ -10863,7 +10867,14 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         local tConsolidationPoint = nil
                         local iConsolidationZone = nil
                         UpdateNonSkirmisherAggressionSignals()
-                        if bApplyMusterRetreatOverride and M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
+                        local bFrontlinePushStillPreferred = bForcePushNonSkirmisher
+                        if not(bFrontlinePushStillPreferred) and (tLZTeamData[M28Map.subrefbLZWantsDFSupport] or false) then
+                            bFrontlinePushStillPreferred = iAvailableCombatUnitThreat >= math.max(400, (iEnemyCombatThreat or 0) * 0.9)
+                        end
+                        if not(bFrontlinePushStillPreferred) and (tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0) > 0 then
+                            bFrontlinePushStillPreferred = iAvailableCombatUnitThreat >= math.max(700, (iEnemyCombatThreat or 0) * 0.95)
+                        end
+                        if bApplyMusterRetreatOverride and not(bFrontlinePushStillPreferred) and M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
                             --Find the adjacent zone with the highest friendly threat that is attacking (not mustering)
                             local iBestAdjacentThreat = 0
                             for _, iAdjZone in tLZData[M28Map.subrefLZAdjacentLandZones] do
@@ -10894,6 +10905,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                 tRallyPoint = {tConsolidationPoint[1], tConsolidationPoint[2], tConsolidationPoint[3]}
                                 sRetreatMessage = 'ConsArmy'
                             end
+                        elseif bDebugMessages == true and bApplyMusterRetreatOverride and bFrontlinePushStillPreferred then
+                            LOG(sFunctionRef..': Skipping ConsArmy consolidation because current frontline still wants a push, iAvailableCombatUnitThreat='..iAvailableCombatUnitThreat..'; iEnemyCombatThreat='..(iEnemyCombatThreat or 0)..'; EnemyPDThreat='..(tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0))
                         end
 
                         --Rescue ACU - move slightly infront of ACU relative to our closest base instead of retreating
@@ -12091,9 +12104,18 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 end
                 return iCount
             end
-            function GetAdjustedSupportValue(iBaseValue, bSameLane, iBestSameLaneValue, iEnemyThreat, iIncomingTotal, sDebugContext)
-                local bAllowed = bSameLane
-                if not(bSameLane) then
+            function ShouldForceFrontlineSupport(tTargetLZData, tTargetLZTeamData, bSameLane, iEnemyThreat)
+                if bSameLane or not(tTargetLZData) or not(tTargetLZTeamData) then return false end
+                if not(tTargetLZTeamData[M28Map.subrefbLZWantsDFSupport]) or not(tTargetLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) then return false end
+                if (tTargetLZTeamData[M28Map.refiModDistancePercent] or 0) + 0.05 < (tLZTeamData[M28Map.refiModDistancePercent] or 0) then return false end
+                local iTargetPDThreat = tTargetLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0
+                if iEnemyThreat < 200 and iTargetPDThreat < 60 then return false end
+                if iAvailableCombatUnitThreat < math.max(300, iEnemyThreat * 0.6, iTargetPDThreat * 0.9) then return false end
+                return true
+            end
+            function GetAdjustedSupportValue(iBaseValue, bSameLane, iBestSameLaneValue, iEnemyThreat, iIncomingTotal, sDebugContext, bFrontlineOverride)
+                local bAllowed = bSameLane or bFrontlineOverride
+                if not(bSameLane) and not(bFrontlineOverride) then
                     if iBestSameLaneValue > 0 then
                         local bEmergencyValue = iBaseValue >= iBestSameLaneValue * iLandSupportLaneEmergencyValueMultiplier
                         local bEmergencyThreat = iEnemyThreat >= iLandSupportLaneEmergencyThreatMin
@@ -12109,13 +12131,21 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     end
                 end
                 if not(bAllowed) then return nil end
-                local iPenalty = 1 / (1 + (iIncomingTotal * iLandSupportIncomingPenalty))
+                local iEffectiveIncoming = iIncomingTotal
+                local iIncomingPenaltyMultiplier = 1
+                if bFrontlineOverride then
+                    iEffectiveIncoming = math.max(0, iIncomingTotal - 1)
+                    iIncomingPenaltyMultiplier = 0.5
+                end
+                local iPenalty = 1 / (1 + (iEffectiveIncoming * iLandSupportIncomingPenalty * iIncomingPenaltyMultiplier))
                 local iAdjustedValue = iBaseValue * iPenalty
                 if not(bSameLane) then
-                    iAdjustedValue = iAdjustedValue * 0.5
+                    if bFrontlineOverride then iAdjustedValue = iAdjustedValue * 1.1
+                    else iAdjustedValue = iAdjustedValue * 0.5
+                    end
                 end
                 if bSupportDebugLog then
-                    LOG('LandSupportDebug: '..(sDebugContext or '[Support]')..' Adjusted base='..math.floor(iBaseValue)..'; incoming='..iIncomingTotal..'; penalty='..string.format('%.2f', iPenalty)..'; adjusted='..math.floor(iAdjustedValue)..'; sameLane='..tostring(bSameLane))
+                    LOG('LandSupportDebug: '..(sDebugContext or '[Support]')..' Adjusted base='..math.floor(iBaseValue)..'; incoming='..iIncomingTotal..'; effIncoming='..iEffectiveIncoming..'; penalty='..string.format('%.2f', iPenalty)..'; adjusted='..math.floor(iAdjustedValue)..'; sameLane='..tostring(bSameLane)..'; frontlineOverride='..tostring(bFrontlineOverride))
                 end
                 return iAdjustedValue
             end
@@ -12275,7 +12305,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                 local iEnemyThreat = tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
                                 local sSupportContext = '[P'..iPlateau..'-LZ'..iLandZone..'->AdjLZ'..iAdjLZ..' DF]'
                                 LogLaneAngleDebug(sSupportContext, bSameLane, iAngleDiff, iTargetAngle, bSameIsland)
-                                local iAdjusted = GetAdjustedSupportValue(iCurZoneValue, bSameLane, iBestAdjDFSameLaneValue, iEnemyThreat, iIncomingTotal, sSupportContext)
+                                local bFrontlineOverride = ShouldForceFrontlineSupport(tAdjLZData, tAdjLZTeamData, bSameLane, iEnemyThreat)
+                                local iAdjusted = GetAdjustedSupportValue(iCurZoneValue, bSameLane, iBestAdjDFSameLaneValue, iEnemyThreat, iIncomingTotal, sSupportContext, bFrontlineOverride)
                                 if iAdjusted and iAdjusted > iBestAdjDFValue then
                                     iBestAdjDFValue = iAdjusted
                                     iBestAdjDFRef = iAdjLZ
@@ -12365,7 +12396,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                             end
                                             local sSupportContext = '[P'..iPlateau..'-LZ'..iLandZone..'->LZ'..iOtherLZ..' DF]'
                                             LogLaneAngleDebug(sSupportContext, bSameLane, iAngleDiff, iTargetAngle, bSameIsland)
-                                            local iAdjusted = GetAdjustedSupportValue(iCurZoneValue, bSameLane, iBestDFSameLaneValue, iEnemyThreat, iIncomingTotal, sSupportContext)
+                                            local bFrontlineOverride = ShouldForceFrontlineSupport(tOtherLZData, tOtherLZTeamData, bSameLane, iEnemyThreat)
+                                            local iAdjusted = GetAdjustedSupportValue(iCurZoneValue, bSameLane, iBestDFSameLaneValue, iEnemyThreat, iIncomingTotal, sSupportContext, bFrontlineOverride)
                                             if bDebugMessages == true then
                                                 LOG(sFunctionRef..': Considering DF support for iOtherLZ '..iOtherLZ..'; BaseValue='..math.floor(iCurZoneValue)..'; Adjusted='..math.floor(iAdjusted or -1)..'; Best='..math.floor(iBestDFZoneValue)..'; BestZone='..(iClosestDFLZRef or 'nil'))
                                             end

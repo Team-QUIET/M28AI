@@ -6312,6 +6312,12 @@ function ShouldCommitStagedReinforcements(iTeam, iPlateau, iLandZone, iEnemyThre
     if iStagedThreat >= iMinThreshold then
         bShouldCommit = true
         if bDebugMessages == true then LOG(sFunctionRef..': Committing - threshold reached') end
+    elseif iTimeStaging >= 6 and iStagedThreat >= iMinThreshold * 0.65 then
+        bShouldCommit = true
+        if bDebugMessages == true then LOG(sFunctionRef..': Committing - timed fallback reached (6s / 65% threshold)') end
+    elseif iTimeStaging >= 12 and iStagedThreat >= iMinThreshold * 0.4 then
+        bShouldCommit = true
+        if bDebugMessages == true then LOG(sFunctionRef..': Committing - timed fallback reached (12s / 40% threshold)') end
     end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
