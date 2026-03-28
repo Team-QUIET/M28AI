@@ -13729,6 +13729,16 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     local aiBrain = ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
     local bSaveMassForMML, bWantT3LandForRavagers = M28Conditions.SaveMassForMMLOrMobileT3ArtiForFirebase(tLZData, tLZTeamData, iPlateau, iTeam, bHaveLowMass)
     local bPrioritiseProduction = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refbPrioritiseProduction]
+    local iResourceMod = aiBrain[M28Economy.refiBrainResourceMultiplier] or M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier] or 1
+    local iOpeningFirstMexGrossEnergyFloor = 4 * iResourceMod
+    local iOpeningFurtherMexEnergyStoredFloor = 500
+    local iOpeningMassCrashStoredFloor = 5
+    local iOpeningMassCrashNetFloor = -0.2 * iResourceMod
+    local iOpeningEnergyEmergencyStoredFloor = 250
+    local iOpeningMexTarget = math.min(5, tLZData[M28Map.subrefLZOrWZMexCount] or 0)
+    local iOpeningEngineerHydroMexTarget = math.min(2, iOpeningMexTarget)
+    local iTeamActiveBrains = math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1)
+    local bNoT2PlusPowerYet = M28Conditions.GetCurrentM28UnitsOfCategoryInTeam(M28UnitInfo.refCategoryPower - categories.TECH1, iTeam) == 0
 
     if not(M28UnitInfo.bDontConsiderCombinedArmy) and M28Team.tTeamData[iTeam][M28Team.refbContainsPureM28AndSharedM28] and tLZTeamData[M28Map.subrefLZSValue] > 30 then
         local tMexesInZone = EntityCategoryFilterDown(M28UnitInfo.refCategoryMex, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
@@ -13906,6 +13916,20 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     end
 
     if bDebugMessages == true then LOG(sFunctionRef..': iMinTechLevelForPower='..iMinTechLevelForPower..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]) end
+    local iCurrentMexCount = (tLZTeamData[M28Map.subrefMexCountByTech][1] or 0) + (tLZTeamData[M28Map.subrefMexCountByTech][2] or 0) + (tLZTeamData[M28Map.subrefMexCountByTech][3] or 0)
+    local iCurrentPowerCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryPower)
+    local bCoreOpeningPhase = GetGameTimeSeconds() <= 240 and tLZTeamData[M28Map.subrefLZbCoreBase] and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] <= 1
+    local bOpeningMassCrash = aiBrain:GetEconomyStored('MASS') <= iOpeningMassCrashStoredFloor and aiBrain[M28Economy.refiNetMassBaseIncome] <= iOpeningMassCrashNetFloor
+    local bOpeningEnergyEmergency = aiBrain[M28Economy.refiGrossEnergyBaseIncome] < iOpeningFirstMexGrossEnergyFloor or aiBrain:GetEconomyStored('ENERGY') < iOpeningEnergyEmergencyStoredFloor
+    local bDelayOpeningExtraPower = bCoreOpeningPhase and iCurrentPowerCount >= 1 and iCurrentMexCount < iOpeningMexTarget and bOpeningMassCrash and not(bOpeningEnergyEmergency)
+
+    --Early hydro handoff for normal 4-5 mex starts: let engineers take the hydro once mexes and the first pgen are secured.
+    iCurPriority = iCurPriority + 1
+    if bCoreOpeningPhase and iCurrentPowerCount >= 1 and iCurrentMexCount >= iOpeningEngineerHydroMexTarget and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= iOpeningFirstMexGrossEnergyFloor and aiBrain:GetEconomyStored('ENERGY') >= iOpeningFurtherMexEnergyStoredFloor and M28Utilities.IsTableEmpty(tLZData[M28Map.subrefHydroUnbuiltLocations]) == false then
+        if bDebugMessages == true then LOG(sFunctionRef..': Early opening hydro handoff - mexes and first pgen are secured so engineers should start the hydro now, iCurrentMexCount='..iCurrentMexCount..'; iOpeningEngineerHydroMexTarget='..iOpeningEngineerHydroMexTarget..'; Gross E='..aiBrain[M28Economy.refiGrossEnergyBaseIncome]..'; Stored E='..aiBrain:GetEconomyStored('ENERGY')) end
+        HaveActionToAssign(refActionBuildHydro, 1, 10)
+    end
+
     --Active gameender template - want to always have 1 engi on duty as highest priority to avoid having orders cancelled
     iCurPriority = iCurPriority + 1
     if not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and M28Conditions.HaveActiveGameEnderTemplateLogic(tLZTeamData) then
@@ -14220,7 +14244,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     --Start of game or low power - build hydro if one nearby, otherwise build pgen
     iCurPriority = iCurPriority + 1
     if bDebugMessages == true then LOG(sFunctionRef..': Low power at start of game builder, Z='..iLandZone..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Is table of hydro locations empty='..tostring(M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefHydroLocations]))..'; Is table of unbuilt locations empty='..tostring(M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefHydroUnbuiltLocations]))..'; bHaveLowPower='..tostring(bHaveLowPower)..'; bHaveLowMass='..tostring(bHaveLowMass)..'; bWantMorePower='..tostring(bWantMorePower)..'; Net energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy]) end
-    if M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < 200 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < 10 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] * M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier] then
+    if not(bDelayOpeningExtraPower) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < 200 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < 10 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] * M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier] then
         if M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefHydroLocations]) == false then
             --Norush check
             if bDebugMessages == true then LOG(sFunctionRef..': CHecking if hydro prevented by norush, M28Overseer.bNoRushActive='..tostring(M28Overseer.bNoRushActive or false)..'; M28Conditions.NoRushPreventingHydroOrMex(tLZData)='..tostring(M28Conditions.NoRushPreventingHydroOrMex(tLZData) or false)) end
@@ -14278,7 +14302,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                 HaveActionToAssign(refActionBuildHydro, 1, iBPWanted)
             end
             --Make sure we have 1 power of the cur tech level provided dont have low mass
-        elseif (not(bHaveLowMass) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 0.5 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= math.max(0.2, 0.15 + 10 * M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]))) and (bHaveLowPower and ((not(bHaveLowMass) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 20 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 30 or GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastEnergyStall] or -100) <= 10)) or (not(bHaveLowMass) and bWantMorePower and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 2 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < (30 * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] + 160 * math.max(0, (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] - 2))) * M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier]) then
+        elseif not(bDelayOpeningExtraPower) and (not(bHaveLowMass) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 0.5 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= math.max(0.2, 0.15 + 10 * M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]))) and (bHaveLowPower and ((not(bHaveLowMass) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 20 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 30 or GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastEnergyStall] or -100) <= 10)) or (not(bHaveLowMass) and bWantMorePower and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 2 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < (30 * M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] + 160 * math.max(0, (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] - 2))) * M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier]) then
             --Exception if recently built power and have nearby enemies (so can e.g. do things like PD)
             if iNearbyEnemyAirToGroundThreat == 0 and (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) == 0 and not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) and not(bHaveLowMass) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.35 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 3 then
                 iBPWanted = 4 * tiBPByTech[iMinTechLevelForPower]
@@ -14302,6 +14326,15 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
             HaveActionToAssign(refActionBuildPower, iMinTechLevelForPower, iBPWanted)
 
         end
+    end
+
+    --If we are still on T1/T2 eco with no higher-tech power, keep letting engineers recover with T1 pgens after the opener.
+    iCurPriority = iCurPriority + 1
+    if not(bDelayOpeningExtraPower) and not(bEngineersRecentlyRunFromEnemy) and GetGameTimeSeconds() >= 180 and bNoT2PlusPowerYet and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] <= 2 and (bHaveLowPower or (bWantMorePower and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 110 * iTeamActiveBrains * iResourceMod)) and not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and (not(bHaveLowMass) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 3.5 * iTeamActiveBrains or tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 1000 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 35) then
+        iBPWanted = 10
+        if tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 2000 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 5 * iTeamActiveBrains then iBPWanted = 15 end
+        if bDebugMessages == true then LOG(sFunctionRef..': Low-tech T1 power stabiliser: keeping engineers able to add more T1 pgens after the opener, iBPWanted='..iBPWanted..'; bHaveLowPower='..tostring(bHaveLowPower)..'; bWantMorePower='..tostring(bWantMorePower)..'; Team gross energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Team gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Significant reclaim='..(tLZData[M28Map.subrefTotalSignificantMassReclaim] or 0)) end
+        HaveActionToAssign(refActionBuildPower, 1, iBPWanted)
     end
 
     --Mass storage if we have none (e.g. for snadbox games where lose ACU)
@@ -19287,9 +19320,9 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
 
     --Early game power (for maps where want to scale up power really fast) where also lots of reclaim in the zone, and we have low power, and dont ahve low mass
     iCurPriority = iCurPriority + 1
-    if not(bEngineersRecentlyRunFromEnemy) and tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 1000 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] <= 2 and tLZTeamData[M28Map.refiModDistancePercent] <= 0.2 and bHaveLowPower and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and not(bHaveLowMass) then
+    if not(bEngineersRecentlyRunFromEnemy) and tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 1000 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] <= 2 and tLZTeamData[M28Map.refiModDistancePercent] <= 0.2 and bHaveLowPower and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and (not(bHaveLowMass) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 3.5 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 2000 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 35) then
         --Build T1 power even if have t2 tech in some cases
-        if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] == 1 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.7 and aiBrain[M28Economy.refiGrossEnergyBaseIncome] <= 125 then
+        if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] == 1 or (M28Conditions.GetCurrentM28UnitsOfCategoryInTeam(M28UnitInfo.refCategoryPower - categories.TECH1, iTeam) == 0 and aiBrain[M28Economy.refiGrossEnergyBaseIncome] <= 150 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.25 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 35 or tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 2000 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 4 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount])) then
             HaveActionToAssign(refActionBuildPower, 1, 15)
             --Build t2 pgens in rarer scenarios
         elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 and tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 3000 and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 160 then
