@@ -2343,6 +2343,8 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     iCurrentConditionToTry = iCurrentConditionToTry + 1
     if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoTransportsWaitingForUnits]) == false and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftLZEnemyAirUnits]) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTEnemyUnits]) and ((tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 0) == 0 or iFactoryTechLevel == 1) then
         local bTransportWaitingForEngi = false
+        local iCombatUnitTechWanted
+        local iCombatUnitCategoryWanted
         local iCombatUnitsWanted = 0
         for iTransport, oTransport in tLZTeamData[M28Map.reftoTransportsWaitingForUnits] do
             if (oTransport[M28Air.refiEngisWanted] or 0) > 0 or not(oTransport[M28Air.refbCombatDrop]) then
@@ -2352,7 +2354,10 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                 iCombatUnitsWanted = iCombatUnitsWanted + (oTransport[M28Air.refiCombatUnitsWanted] or 0)
             end
         end
-        if bDebugMessages == true then LOG(sFunctionRef..': Want engineers or t1 arti as have transport waiting for them, bTransportWaitingForEngi='..tostring(bTransportWaitingForEngi or false)..'; tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat]='..(tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 'nil')) end
+        if not(bTransportWaitingForEngi) then
+            iCombatUnitTechWanted, iCombatUnitCategoryWanted, iCombatUnitsWanted = M28Air.GetCombatDropTechAndCategoryWantedForZone(iTeam, tLZTeamData)
+        end
+        if bDebugMessages == true then LOG(sFunctionRef..': Want engineers or transport combat units, bTransportWaitingForEngi='..tostring(bTransportWaitingForEngi or false)..'; iCombatUnitTechWanted='..(iCombatUnitTechWanted or 'nil')..'; iCombatUnitsWanted='..iCombatUnitsWanted..'; tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat]='..(tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 'nil')) end
         if bTransportWaitingForEngi then
             --If have enemies in an adjacent zone then only have half our factories building engineers
             if tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] then
@@ -2366,13 +2371,12 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                 if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end
             end
 
-        else
-            --Avoid overbuilding t1 arti too much - will allow slight overbuild though to cover the risk of t1 arti being killed for unrelated reason and delaying the transport too much
-            local iT1ArtiInZone = M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryIndirect * categories.TECH1)
-            local iT1ArtiUnderConstruction = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryIndirect * categories.TECH1, false)
-            local iMaxT1ArtiForTransport = math.max(6, iCombatUnitsWanted + 2) --Allow iCombatUnitsWanted + small buffer, minimum 6
-            if bDebugMessages == true then LOG(sFunctionRef..': Transport arti check: iT1ArtiInZone='..iT1ArtiInZone..'; iT1ArtiUnderConstruction='..iT1ArtiUnderConstruction..'; iMaxT1ArtiForTransport='..iMaxT1ArtiForTransport..'; iCombatUnitsWanted='..iCombatUnitsWanted) end
-            if iCombatUnitsWanted > 0 and (iT1ArtiInZone + iT1ArtiUnderConstruction) < iMaxT1ArtiForTransport and (M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoCombatUnitsLoadingOntoTransport]) or table.getn(tLZTeamData[M28Map.reftoCombatUnitsLoadingOntoTransport]) <= iCombatUnitsWanted) then
+        elseif iCombatUnitsWanted > 0 and iCombatUnitTechWanted and iCombatUnitCategoryWanted and iFactoryTechLevel >= iCombatUnitTechWanted then
+            local iCombatUnitsInZone = M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, iCombatUnitCategoryWanted)
+            local iCombatUnitsUnderConstruction = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, iCombatUnitCategoryWanted, false)
+            local iMaxCombatUnitsForTransport = math.max((iCombatUnitTechWanted >= 2 and 4 or 6), iCombatUnitsWanted + 1)
+            if bDebugMessages == true then LOG(sFunctionRef..': Transport combat unit check: iCombatUnitsInZone='..iCombatUnitsInZone..'; iCombatUnitsUnderConstruction='..iCombatUnitsUnderConstruction..'; iMaxCombatUnitsForTransport='..iMaxCombatUnitsForTransport..'; iCombatUnitsWanted='..iCombatUnitsWanted..'; iCombatUnitTechWanted='..iCombatUnitTechWanted) end
+            if (iCombatUnitsInZone + iCombatUnitsUnderConstruction) < iMaxCombatUnitsForTransport and (M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoCombatUnitsLoadingOntoTransport]) or table.getn(tLZTeamData[M28Map.reftoCombatUnitsLoadingOntoTransport]) <= iCombatUnitsWanted + 1) then
                 --Exception - we lack 2 engis of this tech level or better in the zone and want more BP, in which case build engis first
                 local iEngiCategoryToCheck = M28UnitInfo.refCategoryEngineer
                 if iFactoryTechLevel == 2 then iEngiCategoryToCheck = iEngiCategoryToCheck - categories.TECH1
@@ -2383,9 +2387,9 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                     iEngisWanted = 3
                     if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 then iEngisWanted = 4 end
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': Arti or engi builder, we want arti but first checking we have built a basic number of engineers for this zone, or factory has built lots of units already, oFactory[refiTotalBuildCount]='..oFactory[refiTotalBuildCount]..'; Engis of cat in this zone='..M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, iEngiCategoryToCheck)..'; iEngisWanted='..iEngisWanted) end
+                if bDebugMessages == true then LOG(sFunctionRef..': Transport combat unit or engi builder, oFactory[refiTotalBuildCount]='..oFactory[refiTotalBuildCount]..'; Engis of cat in this zone='..M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, iEngiCategoryToCheck)..'; iEngisWanted='..iEngisWanted..'; Wanted category='..reprs(iCombatUnitCategoryWanted)) end
                 if oFactory[refiTotalBuildCount] < 10 and tLZTeamData[M28Map.subrefTbWantBP] and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, iEngiCategoryToCheck) < iEngisWanted and ConsiderBuildingCategory(iEngiCategoryToCheck) then return sBPIDToBuild
-                elseif ConsiderBuildingCategory(M28UnitInfo.refCategoryIndirect * categories.TECH1) then return sBPIDToBuild end
+                elseif ConsiderBuildingCategory(iCombatUnitCategoryWanted) then return sBPIDToBuild end
             end
         end
     end
@@ -6493,33 +6497,41 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
                         iCurTransports = iCurTransports + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryTransport)
                     end
 
-                    local iDifIslandDropLocations = 0
-                    local iSameIslandDropLocations = 0
-                    if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftTransportIslandDropShortlist]) == false then iDifIslandDropLocations = table.getn(M28Team.tTeamData[iTeam][M28Team.reftTransportIslandDropShortlist]) end
-                    if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftTransportFarAwaySameIslandPlateauLandZoneDropShortlist]) == false then iSameIslandDropLocations = table.getn(M28Team.tTeamData[iTeam][M28Team.reftTransportFarAwaySameIslandPlateauLandZoneDropShortlist]) end
-                    local iTransportsWanted = 1
-                    if M28Team.tTeamData[iTeam][M28Team.refbEnemyBaseInCombatDropShortlist] and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftTransportCombatPlateauLandZoneDropShortlist]) == false and table.getn(M28Team.tTeamData[iTeam][M28Team.reftTransportCombatPlateauLandZoneDropShortlist]) > 1 then
-                        iTransportsWanted = 2
-                    elseif iDifIslandDropLocations + iSameIslandDropLocations >= 3 and M28Map.iMapSize >= 750 then --i.e. 20k (1024) or larger most of the time
-                        iTransportsWanted = math.max(1, iDifIslandDropLocations / 2 + math.min(2, iSameIslandDropLocations / 8))
-                        if iTransportsWanted == 1 and (iDifIslandDropLocations + iSameIslandDropLocations) >= 6 and M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] >= 2 then
-                            iTransportsWanted = 2
+                    local iTransportsWanted, iPreferredTransportTech, iCombatDropLocations, iDifIslandDropLocations, iSameIslandDropLocations, iHighTechEngiDropLocations = M28Air.GetTransportDemandForDrops(iTeam)
+                    local iExistingCombatCargoInZone = 0
+                    if tLZTeamData[M28Map.subrefLZbCoreBase] and (iCombatDropLocations > 0 or iSameIslandDropLocations > 0 or M28Team.tTeamData[iTeam][M28Team.refbEnemyBaseInCombatDropShortlist]) then
+                        iExistingCombatCargoInZone = M28Air.GetAvailableCombatDropPickupCountInZone(iTeam, tLZTeamData)
+                        if iExistingCombatCargoInZone >= 6 then
+                            iTransportsWanted = math.max(iTransportsWanted, 2)
+                            if iExistingCombatCargoInZone >= 10 then iTransportsWanted = math.max(iTransportsWanted, 3) end
+                            if iExistingCombatCargoInZone >= 8 and iFactoryTechLevel >= 2 then iPreferredTransportTech = math.max(iPreferredTransportTech, 2) end
+                            if iExistingCombatCargoInZone >= 12 and iFactoryTechLevel >= 3 then iPreferredTransportTech = math.max(iPreferredTransportTech, 3) end
                         end
                     end
+                    if bDebugMessages == true then LOG(sFunctionRef..': iCurTransports='..iCurTransports..'; iDifIslandDropLocations='..iDifIslandDropLocations..'; iSameIslandDropLocations='..iSameIslandDropLocations..'; iCombatDropLocations='..iCombatDropLocations..'; iHighTechEngiDropLocations='..iHighTechEngiDropLocations..'; iTransportsWanted='..iTransportsWanted..'; iPreferredTransportTech='..iPreferredTransportTech..'; iExistingCombatCargoInZone='..iExistingCombatCargoInZone) end
 
-                    if bDebugMessages == true then LOG(sFunctionRef..': iCurTransports='..iCurTransports..'; iDifIslandDropLocations='..iDifIslandDropLocations..'; iSameIslandDropLocations='..iSameIslandDropLocations..'; iTransportsWanted='..iTransportsWanted) end
+                    local iTransportBuildRetryDelay = 150
+                    if iCombatDropLocations > 0 then iTransportBuildRetryDelay = 75
+                    elseif iTransportsWanted >= 2 then iTransportBuildRetryDelay = 105
+                    end
+                    if iExistingCombatCargoInZone >= 6 then iTransportBuildRetryDelay = math.min(iTransportBuildRetryDelay, 60) end
 
-                    if iCurTransports < iTransportsWanted and ((iFactoryTechLevel <= 2 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTransport) <= iTransportsWanted + 1) or (M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] and GetGameTimeSeconds() - (M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] or -100) >= 180) or (GetGameTimeSeconds() - (M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] or -100) >= 300) or (iCurTransports == 0 and M28Team.tTeamData[iTeam][M28Team.refbEnemyBaseInCombatDropShortlist] and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTransport) <= 5)) then
+                    if iCurTransports < iTransportsWanted and ((iFactoryTechLevel <= 2 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTransport) <= iTransportsWanted + 2) or (M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] and GetGameTimeSeconds() - (M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] or -100) >= iTransportBuildRetryDelay) or (GetGameTimeSeconds() - (M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] or -100) >= iTransportBuildRetryDelay * 2) or (iCurTransports == 0 and M28Team.tTeamData[iTeam][M28Team.refbEnemyBaseInCombatDropShortlist] and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTransport) <= 5)) then
                         local iAlreadyBuilding = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryTransport, false)
                         if bDebugMessages == true then LOG(sFunctionRef..': iAlreadyBuilding='..iAlreadyBuilding) end
                         if iAlreadyBuilding == 0 then
                             if bDebugMessages == true then LOG(sFunctionRef..': Will try and build a transport as a relatively high priority, iCurrentConditionToTry='..iCurrentConditionToTry) end
-                            local iCategoryWanted = M28UnitInfo.refCategoryTransport - categories.TECH3 - categories.EXPERIMENTAL
-                            if iFactoryTechLevel == 2 and ((oFactory[refiTotalBuildCount] or 0) < 10 or M28Team.tAirSubteamData[iAirSubteam][M28Team.refbNoAvailableTorpsForEnemies]) then
-                                iCategoryWanted =  M28UnitInfo.refCategoryTransport * categories.TECH1
-                            end
                             M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] = GetGameTimeSeconds()
-                            if ConsiderBuildingCategory(iCategoryWanted) then return sBPIDToBuild end
+                            local iCategoryWanted = nil
+                            local iTechToTry = math.min(iFactoryTechLevel, iPreferredTransportTech)
+                            if iTechToTry >= 3 then iCategoryWanted = M28UnitInfo.refCategoryTransport * categories.TECH3
+                            elseif iTechToTry == 2 then iCategoryWanted = M28UnitInfo.refCategoryTransport * categories.TECH2
+                            else iCategoryWanted = M28UnitInfo.refCategoryTransport * categories.TECH1
+                            end
+                            if ConsiderBuildingCategory(iCategoryWanted) then return sBPIDToBuild
+                            elseif iTechToTry >= 3 and ConsiderBuildingCategory(M28UnitInfo.refCategoryTransport * categories.TECH2) then return sBPIDToBuild
+                            elseif iTechToTry >= 2 and ConsiderBuildingCategory(M28UnitInfo.refCategoryTransport * categories.TECH1) then return sBPIDToBuild
+                            end
                         end
                     end
                 end
@@ -7252,17 +7264,41 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
                 --Transport if locations to drop
                 iCurrentConditionToTry = iCurrentConditionToTry + 1
                 if bDebugMessages == true then LOG(sFunctionRef..': Considering transport builder, is island drop shortlist empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftTransportIslandDropShortlist]))..'; M28Team.tTeamData[iTeam][M28Team.reftTransportFarAwaySameIslandPlateauLandZoneDropShortlist] empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftTransportFarAwaySameIslandPlateauLandZoneDropShortlist]))..'; refiTimeOfLastTransportCombatShortlistUpdate empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastTransportCombatShortlistUpdate]))..'; refiTimeOfLastTransportCombatShortlistUpdate='..(M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] or -100)..'; Cur transports='..aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryTransport)..'; reftiHighTechEngiDropPlateauAndZones empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftiHighTechEngiDropPlateauAndZones]))) end
-                if (M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftTransportIslandDropShortlist]) == false or M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftTransportFarAwaySameIslandPlateauLandZoneDropShortlist]) == false or M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftiHighTechEngiDropPlateauAndZones]) == false) or (M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastTransportCombatShortlistUpdate]) == false and (GetGameTimeSeconds() - (M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] or -300) >= 300 or (M28Team.tTeamData[iTeam][M28Team.refbEnemyBaseInCombatDropShortlist] and GetGameTimeSeconds() - (M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport]) >= 120)) and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryTransport) == 0) then
-                    if GetGameTimeSeconds() - (M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] or -100) >= 120 then
+                local iTransportsWanted, iPreferredTransportTech, iCombatDropLocations = M28Air.GetTransportDemandForDrops(iTeam)
+                if iTransportsWanted > 0 then
+                    local iCurTransports = 0
+                    for iBrain, oBrain in M28Team.tAirSubteamData[iAirSubteam][M28Team.subreftoFriendlyM28Brains] do
+                        iCurTransports = iCurTransports + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryTransport)
+                    end
+                    local iExistingCombatCargoInZone = 0
+                    if tLZTeamData[M28Map.subrefLZbCoreBase] and iCombatDropLocations > 0 then
+                        iExistingCombatCargoInZone = M28Air.GetAvailableCombatDropPickupCountInZone(iTeam, tLZTeamData)
+                        if iExistingCombatCargoInZone >= 6 then
+                            iTransportsWanted = math.max(iTransportsWanted, 2)
+                            if iExistingCombatCargoInZone >= 8 and iFactoryTechLevel >= 2 then iPreferredTransportTech = math.max(iPreferredTransportTech, 2) end
+                            if iExistingCombatCargoInZone >= 12 and iFactoryTechLevel >= 3 then iPreferredTransportTech = math.max(iPreferredTransportTech, 3) end
+                        end
+                    end
+                    local iTransportBuildRetryDelay = 120
+                    if iCombatDropLocations > 0 then iTransportBuildRetryDelay = 60
+                    elseif iTransportsWanted >= 2 then iTransportBuildRetryDelay = 90
+                    end
+                    if iExistingCombatCargoInZone >= 6 then iTransportBuildRetryDelay = math.min(iTransportBuildRetryDelay, 45) end
+                    if iCurTransports < iTransportsWanted and GetGameTimeSeconds() - (M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] or -100) >= iTransportBuildRetryDelay then
                         local iAlreadyBuilding = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryTransport, false)
                         if iAlreadyBuilding == 0 then
                             M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] = GetGameTimeSeconds()
-                            local iCategoryWanted = M28UnitInfo.refCategoryTransport - categories.TECH3 - categories.EXPERIMENTAL
-                            if iFactoryTechLevel == 2 and ((oFactory[refiTotalBuildCount] or 0) < 10 or M28Team.tAirSubteamData[iAirSubteam][M28Team.refbNoAvailableTorpsForEnemies]) then
-                                iCategoryWanted =  M28UnitInfo.refCategoryTransport * categories.TECH1
+                            local iCategoryWanted = nil
+                            local iTechToTry = math.min(iFactoryTechLevel, iPreferredTransportTech)
+                            if iTechToTry >= 3 then iCategoryWanted = M28UnitInfo.refCategoryTransport * categories.TECH3
+                            elseif iTechToTry == 2 then iCategoryWanted = M28UnitInfo.refCategoryTransport * categories.TECH2
+                            else iCategoryWanted = M28UnitInfo.refCategoryTransport * categories.TECH1
                             end
                             if bDebugMessages == true then LOG(sFunctionRef..':lower priority transport builder, iCurrentConditionToTry='..iCurrentConditionToTry) end
-                            if ConsiderBuildingCategory(iCategoryWanted) then return sBPIDToBuild end
+                            if ConsiderBuildingCategory(iCategoryWanted) then return sBPIDToBuild
+                            elseif iTechToTry >= 3 and ConsiderBuildingCategory(M28UnitInfo.refCategoryTransport * categories.TECH2) then return sBPIDToBuild
+                            elseif iTechToTry >= 2 and ConsiderBuildingCategory(M28UnitInfo.refCategoryTransport * categories.TECH1) then return sBPIDToBuild
+                            end
                         end
                     end
                 end

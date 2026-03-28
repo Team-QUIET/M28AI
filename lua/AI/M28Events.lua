@@ -2877,16 +2877,11 @@ function OnConstructed(oEngineer, oJustBuilt)
                             ForkThread(M28Building.ConsiderGiftingPowerToTeammateForAdjacency, oJustBuilt)
                         end
                         --Clear engineers that just built this
-                    elseif EntityCategoryContains(M28UnitInfo.refCategoryIndirect * categories.TECH1, oJustBuilt.UnitId) then
-                        --Check if we have transports wanting combat drops
+                    elseif EntityCategoryContains(M28UnitInfo.refCategoryLandCombat - M28UnitInfo.refCategoryLandScout - M28UnitInfo.refCategoryMAA, oJustBuilt.UnitId) then
+                        --Check if we have transports wanting combat drops and the unit is suitable cargo
                         local tLZData, tLZTeamData = M28Map.GetLandOrWaterZoneData(oJustBuilt:GetPosition(), true, oJustBuilt:GetAIBrain().M28Team)
-                        if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoTransportsWaitingForUnits]) == false then
-                            for iTransport, oTransport in tLZTeamData[M28Map.reftoTransportsWaitingForUnits] do
-                                if (oTransport[M28Air.refiCombatUnitsWanted] or 0) > 0 then
-                                    ForkThread(M28Air.LoadCombatUnitOntoTransport, oJustBuilt)
-                                    break
-                                end
-                            end
+                        if tLZTeamData and M28Air.IsCombatDropLoadCandidateForZone(oJustBuilt:GetAIBrain().M28Team, tLZTeamData, oJustBuilt) then
+                            ForkThread(M28Air.LoadCombatUnitOntoTransport, oJustBuilt)
                         end
                     elseif EntityCategoryContains(M28UnitInfo.refCategoryLandCombat * categories.TECH3 + M28UnitInfo.refCategoryIndirectT3, oJustBuilt.UnitId) then
                         if not(M28Team.tTeamData[iTeam][M28Team.refbBuiltLotsOfT3Combat]) then
