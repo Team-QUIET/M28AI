@@ -3596,18 +3596,28 @@ function GetSafeHQUpgrade(iM28Team, bOnlyConsiderLandFactory)
 
     local toSafeUnitsToUpgrade = {}
     local tPotentialUnits
+    local function BrainShouldDelayAirTech(oBrain)
+        local iPlateau, iLandZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(M28Map.GetPlayerStartPosition(oBrain))
+        if iPlateau and iPlateau > 0 and iLandZone then
+            local tLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone]
+            local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iM28Team]
+            return M28Conditions.ShouldDelayAirTechForLandPressure(oBrain, tLZData, tLZTeamData, iM28Team)
+        end
+        return false
+    end
 
     --First identify any players that have a T1 land or air HQ
     for iBrain, oBrain in tTeamData[iM28Team][subreftoFriendlyActiveM28Brains] do
+        local bDelayAirTechForLandPressure = BrainShouldDelayAirTech(oBrain)
         if bDebugMessages == true then LOG(sFunctionRef..': Considering brain '..oBrain.Nickname..'; Highest air fac tech='..oBrain[M28Economy.refiOurHighestAirFactoryTech]..'; Highest land fac tech='..oBrain[M28Economy.refiOurHighestLandFactoryTech]..'; bOnlyConsiderLandFactory='..tostring(bOnlyConsiderLandFactory or false)) end
-        if oBrain[M28Economy.refiOurHighestAirFactoryTech] == 1 and (not(bOnlyConsiderLandFactory) or oBrain[M28Overseer.refbPrioritiseAir]) and (not(oBrain[M28Overseer.refbPrioritiseLand]) or oBrain[M28Economy.refiOurHighestLandFactoryTech] > 2) then
+        if oBrain[M28Economy.refiOurHighestAirFactoryTech] == 1 and not(bDelayAirTechForLandPressure) and (not(bOnlyConsiderLandFactory) or oBrain[M28Overseer.refbPrioritiseAir]) and (not(oBrain[M28Overseer.refbPrioritiseLand]) or oBrain[M28Economy.refiOurHighestLandFactoryTech] > 2) then
             if not(DoesBrainHaveActiveHQUpgradesOfCategory(oBrain, M28UnitInfo.refCategoryAirHQ)) then
                 --Check we dont already have an active upgrade
                 tPotentialUnits = oBrain:GetListOfUnits(M28UnitInfo.refCategoryAirHQ * categories.TECH1, false, true)
                 AddPotentialUnitsToShortlist(toSafeUnitsToUpgrade, tPotentialUnits)
             end
         end
-        if oBrain[M28Economy.refiOurHighestLandFactoryTech] == 1 and (not(oBrain[M28Overseer.refbPrioritiseAir]) or oBrain[M28Economy.refiOurHighestAirFactoryTech] > 2) and (not(oBrain[M28Overseer.refbPrioritiseNavy] or oBrain[M28Economy.refiOurHighestNavalFactoryTech] >= 2 or oBrain[M28Economy.refiOurHighestAirFactoryTech] >= 3)) then
+        if oBrain[M28Economy.refiOurHighestLandFactoryTech] == 1 and ((not(oBrain[M28Overseer.refbPrioritiseAir]) or oBrain[M28Economy.refiOurHighestAirFactoryTech] > 2) or bDelayAirTechForLandPressure) and (not(oBrain[M28Overseer.refbPrioritiseNavy] or oBrain[M28Economy.refiOurHighestNavalFactoryTech] >= 2 or oBrain[M28Economy.refiOurHighestAirFactoryTech] >= 3)) then
             if bDebugMessages == true then LOG(sFunctionRef..': Does brain have active Land HQ upgrades='..tostring(DoesBrainHaveActiveHQUpgradesOfCategory(oBrain, M28UnitInfo.refCategoryLandHQ))) end
             if not(DoesBrainHaveActiveHQUpgradesOfCategory(oBrain, M28UnitInfo.refCategoryLandHQ)) then
                 tPotentialUnits = oBrain:GetListOfUnits(M28UnitInfo.refCategoryLandHQ * categories.TECH1, false, true)
@@ -3621,7 +3631,8 @@ function GetSafeHQUpgrade(iM28Team, bOnlyConsiderLandFactory)
         --Get T2 upgrades if all our land and air are at T2
         if not(tTeamData[iM28Team][refbFocusOnT1Spam]) then
             for iBrain, oBrain in tTeamData[iM28Team][subreftoFriendlyActiveM28Brains] do
-                if oBrain[M28Economy.refiOurHighestAirFactoryTech] == 2 and (not(bOnlyConsiderLandFactory) or oBrain[M28Overseer.refbPrioritiseAir]) and (not(oBrain[M28Overseer.refbPrioritiseLand]) or oBrain[M28Economy.refiOurHighestLandFactoryTech] > 2) then
+                local bDelayAirTechForLandPressure = BrainShouldDelayAirTech(oBrain)
+                if oBrain[M28Economy.refiOurHighestAirFactoryTech] == 2 and not(bDelayAirTechForLandPressure) and (not(bOnlyConsiderLandFactory) or oBrain[M28Overseer.refbPrioritiseAir]) and (not(oBrain[M28Overseer.refbPrioritiseLand]) or oBrain[M28Economy.refiOurHighestLandFactoryTech] > 2) then
                     if not(DoesBrainHaveActiveHQUpgradesOfCategory(oBrain, M28UnitInfo.refCategoryAirHQ)) then
                         --If we need torp bombers then be less likely to upgrade
                         tPotentialUnits = oBrain:GetListOfUnits(M28UnitInfo.refCategoryAirHQ * categories.TECH2, false, true)
@@ -3637,7 +3648,7 @@ function GetSafeHQUpgrade(iM28Team, bOnlyConsiderLandFactory)
                         end
                     end
                 end
-                if oBrain[M28Economy.refiOurHighestLandFactoryTech] == 2 and (not(oBrain[M28Overseer.refbPrioritiseAir]) or (oBrain[M28Economy.refiOurHighestAirFactoryTech] > 2 and (M28Utilities.IsTableEmpty(toSafeUnitsToUpgrade) or oBrain[M28Economy.refiOurHighestLandFactoryTech] == 2))) and (not(oBrain[M28Overseer.refbPrioritiseNavy] or oBrain[M28Economy.refiOurHighestNavalFactoryTech] >= 3)) then
+                if oBrain[M28Economy.refiOurHighestLandFactoryTech] == 2 and ((not(oBrain[M28Overseer.refbPrioritiseAir]) or (oBrain[M28Economy.refiOurHighestAirFactoryTech] > 2 and (M28Utilities.IsTableEmpty(toSafeUnitsToUpgrade) or oBrain[M28Economy.refiOurHighestLandFactoryTech] == 2))) or bDelayAirTechForLandPressure) and (not(oBrain[M28Overseer.refbPrioritiseNavy] or oBrain[M28Economy.refiOurHighestNavalFactoryTech] >= 3)) then
                     if not(DoesBrainHaveActiveHQUpgradesOfCategory(oBrain, M28UnitInfo.refCategoryLandHQ)) then
                         tPotentialUnits = oBrain:GetListOfUnits(M28UnitInfo.refCategoryLandHQ * categories.TECH2, false, true)
                         if M28Utilities.IsTableEmpty(tPotentialUnits) == false then

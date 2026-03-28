@@ -1679,6 +1679,90 @@ function ShouldPrioritizeEmergencyAA(iTeam)
     return true
 end
 
+function WantToKeepLowerTechLandProduction(tLZTeamData, iTeam, iFactoryTechLevel, oOptionalBrainOverride)
+    if iFactoryTechLevel >= 3 then return false end
+
+    local aiBrain = oOptionalBrainOverride or ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
+    if not(aiBrain) then return false end
+
+    local iHighestLandTech = M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] or 0
+    local iTimeFirstHigherTech
+    local iContinuationWindow
+    local iHigherTechCombatLifetimeCount = 0
+    local iHigherTechCombatThreshold
+
+    if iFactoryTechLevel == 1 then
+        if iHighestLandTech < 2 then return false end
+        iTimeFirstHigherTech = M28Team.tTeamData[iTeam][M28Team.refiTimeFirstT2LandFactory]
+        iContinuationWindow = M28Factory.GetLandFactoryThrottleDelay(1) + 60
+        iHigherTechCombatLifetimeCount = GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat - categories.TECH1)
+        iHigherTechCombatThreshold = 14
+    else
+        if iHighestLandTech < 3 then return false end
+        iTimeFirstHigherTech = M28Team.tTeamData[iTeam][M28Team.refiTimeFirstT3LandFactory]
+        iContinuationWindow = M28Factory.GetLandFactoryThrottleDelay(2) + 45
+        iHigherTechCombatLifetimeCount = GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * categories.TECH3)
+        iHigherTechCombatThreshold = 10
+    end
+
+    if not(iTimeFirstHigherTech) or GetGameTimeSeconds() - iTimeFirstHigherTech > iContinuationWindow then
+        return false
+    end
+
+    local iEnemyZoneThreat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+    local iAllyZoneThreat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+    local bZoneUnderPressure = tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]
+            and ((tLZTeamData[M28Map.subrefbLZWantsSupport] or false)
+                or (tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or false)
+                or iEnemyZoneThreat >= math.max(120, iAllyZoneThreat * 0.65)
+                or (tLZTeamData[M28Map.refiModDistancePercent] or 0) >= 0.25)
+
+    local iEnemyNearOurSide = 0
+    local iAllyNearOurSide = 0
+    if aiBrain.M28LandSubteam and M28Team.tLandSubteamData[aiBrain.M28LandSubteam] then
+        iEnemyNearOurSide = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] or 0
+        iAllyNearOurSide = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide] or 0
+    end
+    local bNearSidePressure = aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]
+            and iEnemyNearOurSide >= math.max(250 * iFactoryTechLevel, iAllyNearOurSide * 0.7)
+
+    local bStillRampingHigherTech = iHigherTechCombatLifetimeCount <= iHigherTechCombatThreshold
+    return bZoneUnderPressure or bNearSidePressure or bStillRampingHigherTech
+end
+
+function ShouldDelayAirTechForLandPressure(aiBrain, tLZData, tLZTeamData, iTeam)
+    if not(aiBrain) then return false end
+
+    local iEnemyZoneThreat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+    local iAllyZoneThreat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+    local bContestedZone = tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]
+            and ((tLZTeamData[M28Map.subrefbLZWantsSupport] or false)
+                or (tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or false)
+                or iEnemyZoneThreat >= math.max(100, iAllyZoneThreat * 0.9)
+                or (tLZTeamData[M28Map.refiModDistancePercent] or 0) >= 0.2)
+
+    local iEnemyNearOurSide = 0
+    local iAllyNearOurSide = 0
+    if aiBrain.M28LandSubteam and M28Team.tLandSubteamData[aiBrain.M28LandSubteam] then
+        iEnemyNearOurSide = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] or 0
+        iAllyNearOurSide = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide] or 0
+    end
+    local bNearSidePressure = aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]
+            and iEnemyNearOurSide >= math.max(300, iAllyNearOurSide * 0.8)
+
+    local bSevereAirEmergency = TeamIsFarBehindOnAir(iTeam)
+            or ((M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0) >= math.max(2500, iEnemyZoneThreat * 1.5)
+                and not(TeamHasAirControl(iTeam))
+                and (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] or 0) < 3)
+
+    local bNeedAirForNavy = aiBrain[M28Overseer.refbPrioritiseNavy]
+            and aiBrain.M28AirSubteam
+            and M28Team.tAirSubteamData[aiBrain.M28AirSubteam]
+            and M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbNoAvailableTorpsForEnemies]
+
+    return (bContestedZone or bNearSidePressure) and not(bSevereAirEmergency or bNeedAirForNavy)
+end
+
 function ZoneWantsT1Spam(tLZTeamData, iTeam)
     local bWantT1Spam = false
     if M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam] then
@@ -1686,6 +1770,8 @@ function ZoneWantsT1Spam(tLZTeamData, iTeam)
     elseif IsTableOfUnitsStillValid(tLZTeamData[M28Map.subrefoNearbyEnemyLandFacs]) and GetGameTimeSeconds() <= 1080 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] <= 2 then
         bWantT1Spam = true
     elseif GetGameTimeSeconds() <= 1200 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] <= 1 and tLZTeamData[M28Map.refiModDistancePercent] >= 0.35 and tLZTeamData[M28Map.subrefbLZWantsSupport] then
+        bWantT1Spam = true
+    elseif WantToKeepLowerTechLandProduction(tLZTeamData, iTeam, 1) then
         bWantT1Spam = true
     elseif M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] < 3 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] < 3 then
         local aiBrain = ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
@@ -1695,7 +1781,8 @@ function ZoneWantsT1Spam(tLZTeamData, iTeam)
     end
     if bWantT1Spam then
         local aiBrain = ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
-        if aiBrain[M28Overseer.refbPrioritiseHighTech] or aiBrain[M28Overseer.refbPrioritiseNavy] or aiBrain[M28Overseer.refbPrioritiseDefence] or aiBrain[M28Overseer.refbPrioritiseAir] then
+        local bLowerTechContinuationActive = WantToKeepLowerTechLandProduction(tLZTeamData, iTeam, 1, aiBrain)
+        if aiBrain[M28Overseer.refbPrioritiseHighTech] or aiBrain[M28Overseer.refbPrioritiseNavy] or aiBrain[M28Overseer.refbPrioritiseDefence] or (aiBrain[M28Overseer.refbPrioritiseAir] and not(bLowerTechContinuationActive)) then
             bWantT1Spam = false
         end
     end
@@ -2401,6 +2488,12 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                 return false
             end
+        end
+
+        if ShouldDelayAirTechForLandPressure(aiBrain, tLZData, tLZTeamData, iTeam) then
+            if bDebugMessages == true then LOG(sFunctionRef..': Land front still contested so will delay more air factories and stay on land production') end
+            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+            return false
         end
 
         --Air personality - get air; land personality - get land if have air
