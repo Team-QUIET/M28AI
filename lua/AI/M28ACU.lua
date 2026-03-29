@@ -79,6 +79,125 @@ local function HasMeaningfulUpgradeLeadForACUStrength(oACU, iTeam, iRequiredHeal
     return iOurUpgrades >= 2 and iOurUpgrades - iEnemyMaxUpgrades >= (iMinimumUpgradeLead or 1) and M28UnitInfo.GetUnitHealthPercent(oACU) >= (iRequiredHealthPercent or 0.9)
 end
 
+local function GetBestFriendlyArmyAnchorForACURetreat(oACU, iTeam, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oOptionalPrimaryEnemy)
+    if iPlateauOrZero <= 0 or iLandOrWaterZone <= 0 or not(tLZOrWZData[M28Map.subrefLZPathingToOtherLandZones]) then
+        return nil, -100000
+    end
+
+    local iACUThreat = oACU[M28UnitInfo.refiDFMassThreatOverride] or M28UnitInfo.GetCombatThreatRating({oACU}, false) or 0
+    local iCurrentModDist = tLZOrWZTeamData[M28Map.refiModDistancePercent] or 0
+    local tPrimaryEnemyPosition
+    if M28UnitInfo.IsUnitValid(oOptionalPrimaryEnemy) then
+        tPrimaryEnemyPosition = oOptionalPrimaryEnemy:GetPosition()
+    end
+
+    local function ScoreZoneAsArmyAnchor(tZoneData, tZoneTeamData, iTravelDist)
+        local iAllyMobileThreat = tZoneTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0
+        local iAllyCombatThreat = tZoneTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+        local iEnemyCombatThreat = tZoneTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+        local bCoreBase = tZoneTeamData[M28Map.subrefLZbCoreBase] or tZoneTeamData[M28Map.subrefWZbCoreBase]
+        if iAllyMobileThreat < 300 and iAllyCombatThreat < 700 and not(bCoreBase) then
+            return nil, -100000
+        end
+
+        local iScore = iAllyMobileThreat * 0.45 + iAllyCombatThreat * 0.08
+        if tZoneTeamData[M28Map.subrefbLZWantsDFSupport] then iScore = iScore + 220 end
+        if tZoneTeamData[M28Map.refbACUInTrouble] then iScore = iScore + 200 end
+        if bCoreBase then iScore = iScore + 280 end
+        iScore = iScore - iEnemyCombatThreat * 0.7 - iTravelDist * 2.2
+        if tZoneTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] and iEnemyCombatThreat > iAllyMobileThreat + iACUThreat * 0.35 then
+            iScore = iScore - 450
+        end
+        if (tZoneTeamData[M28Map.refiModDistancePercent] or 0) > iCurrentModDist + 0.08 and iEnemyCombatThreat > iAllyMobileThreat then
+            iScore = iScore - 250
+        end
+        if tPrimaryEnemyPosition and not(bCoreBase) and M28Utilities.GetDistanceBetweenPositions(tZoneData[M28Map.subrefMidpoint], tPrimaryEnemyPosition) + 2 < M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tPrimaryEnemyPosition) then
+            iScore = iScore - 350
+        end
+
+        local tAnchorPosition = tZoneData[M28Map.subrefMidpoint]
+        if M28Utilities.IsTableEmpty(tZoneTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
+            local tCombatUnits = EntityCategoryFilterDown(M28UnitInfo.refCategoryLandCombat - M28UnitInfo.refCategoryLandScout - M28UnitInfo.refCategoryEngineer, tZoneTeamData[M28Map.subreftoLZOrWZAlliedUnits])
+            if M28Utilities.IsTableEmpty(tCombatUnits) == false then
+                local oAnchorUnit = M28Utilities.GetNearestUnit(tCombatUnits, oACU:GetPosition())
+                if M28UnitInfo.IsUnitValid(oAnchorUnit) then
+                    tAnchorPosition = oAnchorUnit:GetPosition()
+                    iScore = iScore + 120
+                end
+            end
+        end
+        return {tAnchorPosition[1], tAnchorPosition[2], tAnchorPosition[3]}, iScore
+    end
+
+    local tBestAnchor
+    local iBestScore = -100000
+    local tCurrentAnchor, iCurrentScore = ScoreZoneAsArmyAnchor(tLZOrWZData, tLZOrWZTeamData, 0)
+    if iCurrentScore > iBestScore then
+        tBestAnchor = tCurrentAnchor
+        iBestScore = iCurrentScore
+    end
+
+    local iTravelThreshold = 180
+    if M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.65 then iTravelThreshold = 130 end
+    for _, tPathData in tLZOrWZData[M28Map.subrefLZPathingToOtherLandZones] do
+        if tPathData[M28Map.subrefLZTravelDist] > iTravelThreshold then break end
+        local iAdjLZ = tPathData[M28Map.subrefLZNumber]
+        local tAdjLZData = M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iAdjLZ]
+        local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][iTeam]
+        local tCurAnchor, iCurScore = ScoreZoneAsArmyAnchor(tAdjLZData, tAdjLZTeamData, tPathData[M28Map.subrefLZTravelDist])
+        if iCurScore > iBestScore then
+            tBestAnchor = tCurAnchor
+            iBestScore = iCurScore
+        end
+    end
+    return tBestAnchor, iBestScore
+end
+
+local function ResolveACURetreatPoint(oACU, iTeam, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, tDefaultRallyPoint, oOptionalPrimaryEnemy, bPreferBase)
+    local tClosestFriendlyBase = tLZOrWZTeamData[M28Map.reftClosestFriendlyBase]
+    if M28Utilities.IsTableEmpty(tDefaultRallyPoint) then
+        if M28Conditions.BaseIsSafeToRetreatTo(tClosestFriendlyBase, iTeam) then
+            return {tClosestFriendlyBase[1], tClosestFriendlyBase[2], tClosestFriendlyBase[3]}, 'BaseFallback', true
+        end
+        return nil, 'NoRetreatPoint', true
+    end
+
+    local tResolvedPoint = {tDefaultRallyPoint[1], tDefaultRallyPoint[2], tDefaultRallyPoint[3]}
+    local iACUThreat = oACU[M28UnitInfo.refiDFMassThreatOverride] or M28UnitInfo.GetCombatThreatRating({oACU}, false) or 0
+    local iHealthPercent = M28UnitInfo.GetUnitHealthPercent(oACU)
+    local bDefaultUnsafe = false
+
+    local tDefaultZoneData, tDefaultZoneTeamData = M28Map.GetLandOrWaterZoneData(tResolvedPoint, true, iTeam)
+    if tDefaultZoneTeamData then
+        local iDefaultEnemyThreat = tDefaultZoneTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+        local iDefaultAllyCombat = tDefaultZoneTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+        local iDefaultAllyMobile = tDefaultZoneTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0
+        local bDefaultCoreBase = tDefaultZoneTeamData[M28Map.subrefLZbCoreBase] or tDefaultZoneTeamData[M28Map.subrefWZbCoreBase]
+        if not(bDefaultCoreBase) and iDefaultEnemyThreat > math.max(600, iDefaultAllyCombat + iACUThreat * 0.25) then
+            bDefaultUnsafe = true
+        end
+        if iDefaultAllyMobile < 250 and iDefaultAllyCombat < 450 and M28Utilities.GetDistanceBetweenPositions(tResolvedPoint, tClosestFriendlyBase) >= 55 and not(bDefaultCoreBase) then
+            bDefaultUnsafe = true
+        end
+    end
+    if M28UnitInfo.IsUnitValid(oOptionalPrimaryEnemy) and M28Utilities.GetDistanceBetweenPositions(tResolvedPoint, oOptionalPrimaryEnemy:GetPosition()) + 4 < M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), oOptionalPrimaryEnemy:GetPosition()) then
+        bDefaultUnsafe = true
+    end
+
+    if (bPreferBase or iHealthPercent <= 0.55) and M28Conditions.BaseIsSafeToRetreatTo(tClosestFriendlyBase, iTeam) then
+        return {tClosestFriendlyBase[1], tClosestFriendlyBase[2], tClosestFriendlyBase[3]}, 'BaseLowHealth', true
+    end
+
+    local tArmyAnchor, iArmyAnchorScore = GetBestFriendlyArmyAnchorForACURetreat(oACU, iTeam, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oOptionalPrimaryEnemy)
+    if tArmyAnchor and iHealthPercent > 0.45 and (bDefaultUnsafe or iArmyAnchorScore >= 420) then
+        return tArmyAnchor, 'ArmyAnchor', bDefaultUnsafe
+    end
+    if bDefaultUnsafe and M28Conditions.BaseIsSafeToRetreatTo(tClosestFriendlyBase, iTeam) then
+        return {tClosestFriendlyBase[1], tClosestFriendlyBase[2], tClosestFriendlyBase[3]}, 'BaseUnsafeRally', true
+    end
+    return tResolvedPoint, 'Default', bDefaultUnsafe
+end
+
 function ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearchForAdjacencyAndUnderConstruction, iMaxAreaToSearchForBuildLocation, iOptionalAdjacencyCategory, iOptionalCategoryBuiltUnitCanBuild, tOptionalSearchLocation)
     local sFunctionRef = 'ACUBuildUnit'
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
@@ -2632,8 +2751,17 @@ function DoesACUWantToRun(iPlateau, iLandZone, tLZData, tLZTeamData, oACU)
                 end
             end
             if bDebugMessages == true then LOG(sFunctionRef..': iACUThreat='..(iACUThreat or 'nil')..'; LZ enemy combat total='..(tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 'nil')..'; bOneEnemyACUInSameLZ='..tostring(bAgainstEnemyACUAndMightWin or false)..'; tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal]='..(tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 'nil')..'; tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal]='..(tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 'nil')..'; iNearbyAllyThreat='..iNearbyAllyThreat..'; iDistToFriendlyBase='..iDistToFriendlyBase..'; tLZTeamData[M28Map.refiModDistancePercent]='..tLZTeamData[M28Map.refiModDistancePercent]) end
+            local bDetachedFromArmyInDangerousFight = false
+            if iPlateau > 0 and (tLZTeamData[M28Map.refiModDistancePercent] or 0) >= 0.2 and not(bAgainstEnemyACUAndMightWin) and not(HasMeaningfulUpgradeLeadForACUStrength(oACU, iTeam, 0.95, 1)) then
+                local iEnemyLocalThreat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+                if iEnemyLocalThreat >= math.max(600, iACUThreat * 0.65) and iNearbyAllyThreat < math.max(350, iEnemyLocalThreat * 0.45) and M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.97 then
+                    bDetachedFromArmyInDangerousFight = true
+                    bWantToRun = true
+                    if bDebugMessages == true then LOG(sFunctionRef..': ACU is detached from army support in a stronger local fight so want to run, iEnemyLocalThreat='..iEnemyLocalThreat..'; iNearbyAllyThreat='..iNearbyAllyThreat..'; iACUThreat='..iACUThreat) end
+                end
+            end
             --Only run due to low ACU threat if there are actual threatening enemy in the zone AND we don't have sufficient nearby allies
-            if (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) >= 350 and (iACUThreat <= 550 or (iACUThreat <= 650 and (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) >= 80)) and (not(bAgainstEnemyACUAndMightWin) or (oACU[refbUseACUAggressively] and (iACUThreat + iNearbyAllyThreat + 250 < (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0))))
+            if not(bWantToRun) and (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) >= 350 and (iACUThreat <= 550 or (iACUThreat <= 650 and (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) >= 80)) and (not(bAgainstEnemyACUAndMightWin) or (oACU[refbUseACUAggressively] and (iACUThreat + iNearbyAllyThreat + 250 < (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0))))
                     --Don't run if we have significant friendly forces in nearby zones coming to help
                     and (iACUThreat + iNearbyAllyThreat < (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) * 0.8) then
                 if bDebugMessages == true then LOG(sFunctionRef..': ACU has low threat and enemies present so want to run') end
@@ -4208,6 +4336,10 @@ function AttackNearestEnemyWithACU(iPlateau, iLandZone, tLZData, tLZTeamData, oA
                             if bDebugMessages == true then LOG(sFunctionRef..': Will move to nearest rally point') end
                             tRallyPoint = M28Land.GetNearestLandRallyPoint(tLZData, oACU:GetAIBrain().M28Team, iPlateau, iLandZone, 2, true)
                         end
+                        local tResolvedKitingRetreatPoint = ResolveACURetreatPoint(oACU, iTeam, iPlateau, iLandZone, tLZData, tLZTeamData, tRallyPoint, oEnemyToTarget, iOurACUHealthPercent <= 0.55)
+                        if tResolvedKitingRetreatPoint then
+                            tRallyPoint = tResolvedKitingRetreatPoint
+                        end
                         M28Orders.IssueTrackedMove(oACU, tRallyPoint, 6, false, 'ACUKit', false)
                     else
                         --If near to enemy ACU that we outrange then stay within visual range of it
@@ -4670,8 +4802,12 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
                     iCurValue = iCurValue + iArmyCallBonus
                     if bDebugMessages == true then LOG(sFunctionRef..': Army support-call bonus='..iArmyCallBonus..'; iEnemyACUThreat='..iEnemyACUThreat..'; iClosestEnemyACUDist='..iClosestEnemyACUDist..'; new iCurValue='..iCurValue) end
                 elseif oACU[refbUseACUAggressively] and iAllyMobileThreat < 250 and tAdjLZTeamData[M28Map.subrefbLZWantsDFSupport] and not(tAdjLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) then
-                    iCurValue = iCurValue * 0.8
+                    iCurValue = iCurValue * 0.55
                     if bDebugMessages == true then LOG(sFunctionRef..': Reducing unsupported aggressive ACU move value to keep ACU with the army, iCurValue='..iCurValue) end
+                end
+                if oACU[refbUseACUAggressively] and iEnemyCombatThreat > iAllyMobileThreat + iACUCombatThreat * 0.25 and iAllyMobileThreat < math.max(700, iEnemyCombatThreat * 0.55) then
+                    iCurValue = iCurValue * 0.35
+                    if bDebugMessages == true then LOG(sFunctionRef..': Heavy penalty for unsupported ACU move into stronger zone, iEnemyCombatThreat='..iEnemyCombatThreat..'; iAllyMobileThreat='..iAllyMobileThreat..'; iACUCombatThreat='..iACUCombatThreat..'; iCurValue='..iCurValue) end
                 end
 
                 --Encourage ACU to advance toward enemy, especially during the pure-T1 pressure window
@@ -7157,6 +7293,20 @@ function GetACUOrder(aiBrain, oACU)
 
 
                             --If we are already in the zone for the rally point and it has unbuilt mexes or significant reclaim then want to consider getting them; otherwise go to nearest friendly base
+                            if not(bHaveNearbyExperimentalOrder) then
+                                local oPrimaryRetreatEnemy
+                                if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]) == false then
+                                    oPrimaryRetreatEnemy = M28Utilities.GetNearestUnit(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies], oACU:GetPosition())
+                                end
+                                local tResolvedRallyPoint, sResolvedRetreatPointRef = ResolveACURetreatPoint(oACU, iTeam, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, tRallyPoint, oPrimaryRetreatEnemy, M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.5 or M28Team.tTeamData[iTeam][M28Team.refbDangerousForACUs])
+                                if tResolvedRallyPoint then
+                                    tRallyPoint = tResolvedRallyPoint
+                                    if sResolvedRetreatPointRef ~= 'Default' then
+                                        bConsiderMexesAndReclaim = false
+                                        if bDebugMessages == true then LOG(sFunctionRef..': Resolved retreat point to '..sResolvedRetreatPointRef..', tRallyPoint='..repru(tRallyPoint)) end
+                                    end
+                                end
+                            end
                             if not(bHaveNearbyExperimentalOrder) and (not(bConsiderMexesAndReclaim) or (not(ConsiderBuildingMex(tLZOrWZData, tLZOrWZTeamData, oACU, 15)) and not(ConsiderNearbyReclaimForACUOrEngineer(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU, M28UnitInfo.GetUnitHealthPercent(oACU) < 0.75, 20)))) then
 
                                 --Consider using old rally point if new one is further from base and <60s since we have retreated
