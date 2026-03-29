@@ -10339,79 +10339,76 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         end
                     end
 
-                    if bDebugMessages == true then LOG(sFunctionRef..': Dont outrange enemy, bAttackWithEverything='..tostring(bAttackWithEverything)..'; Is table of ACUs in the LZ empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefAlliedACU]))) end
-                    local bUpdateNearestUnit = false
-                    local bCheckIfNearestUnitVisible = bUpdateNearestUnit
-                    if not(bUpdateNearestUnit) and M28Utilities.GetDistanceBetweenPositions(oNearestEnemyToFriendlyBase:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]) >= 10 then
-                        bCheckIfNearestUnitVisible = true
-                    end
-
-                    --Finalize decision and update coordination state
-                    local iTargetZoneForDecision = oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2] or nil
-
-                    --Record our current target for next cycle
-                    local iLastTargetZone = tLZTeamData[M28Map.subrefiLandZoneLastTargetZone]
-                    local bTargetChanged = (iLastTargetZone ~= iTargetZoneForDecision) and bAttackWithEverything
-                    if bAttackWithEverything and iTargetZoneForDecision then
-                        tLZTeamData[M28Map.subrefiLandZoneLastTargetZone] = iTargetZoneForDecision
-                        tLZTeamData[M28Map.subrefiLandZoneLastTargetTime] = GetGameTimeSeconds()
-                    elseif not(bAttackWithEverything) then
-                        --Only clear on explicit retreat decision
-                        tLZTeamData[M28Map.subrefiLandZoneLastTargetZone] = nil
-                        tLZTeamData[M28Map.subrefiLandZoneLastTargetTime] = nil
-                    end
-
-                    --Override attack decision if we should muster (enemy has equal or greater threat)
-                    --This is the final check before acting on the decision - ensures we don't attack when outgunned
-                    UpdateNonSkirmisherAggressionSignals()
-                    if bAttackWithEverything and bApplyMusterRetreatOverride and not(bDisableFrontlineRetreatLogic) then
-                        local bFrontlineMusterException = bForcePushNonSkirmisher or ((tLZTeamData[M28Map.subrefbLZWantsDFSupport] or false)
-                                and iOurDFAndT1ArtiCombatThreat >= math.max(450, iEnemyCombatThreat * 0.92)
-                                and (((tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0) == 0) or iOurDFAndT1ArtiCombatThreat >= iEnemyCombatThreat))
-                        if not(bFrontlineMusterException) and iOurDFAndT1ArtiCombatThreat <= iEnemyCombatThreat * 1.02 and not(bHaveACUInTroubleAndRecentlyInCombat) then
-                            bAttackWithEverything = false
+                    local function FinalizeScenario2DecisionState(bAttackWithEverythingLocal, bConsolidateAtMidpointLocal, bOnlyAttackWithUnitsInThisZoneLocal)
+                        if bDebugMessages == true then LOG(sFunctionRef..': Dont outrange enemy, bAttackWithEverything='..tostring(bAttackWithEverythingLocal)..'; Is table of ACUs in the LZ empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefAlliedACU]))) end
+                        local bUpdateNearestUnitLocal = false
+                        local bCheckIfNearestUnitVisibleLocal = bUpdateNearestUnitLocal
+                        if not(bUpdateNearestUnitLocal) and M28Utilities.GetDistanceBetweenPositions(oNearestEnemyToFriendlyBase:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]) >= 10 then
+                            bCheckIfNearestUnitVisibleLocal = true
                         end
-                        bWantReinforcements = true
-                        if bDebugMessages == true then LOG(sFunctionRef..': Overriding bAttackWithEverything due to bApplyMusterRetreatOverride=true; bFrontlineMusterException='..tostring(bFrontlineMusterException)..'; will retreat='..tostring(not(bFrontlineMusterException) and iOurDFAndT1ArtiCombatThreat <= iEnemyCombatThreat * 1.02)) end
-                    elseif bAttackWithEverything and bDisableFrontlineRetreatLogic then
-                        bWantReinforcements = true
-                    end
-                    if not(bAttackWithEverything) and bDisableFrontlineRetreatLogic and not(bHaveACUInTroubleAndRecentlyInCombat) then
-                        bAttackWithEverything = true
-                        bOnlyAttackWithUnitsInThisZone = true
-                        bWantReinforcements = true
-                        if bDebugMessages == true then LOG(sFunctionRef..': Forcing frontline push and skipping generic retreat logic because bDisableFrontlineRetreatLogic=true') end
-                    end
 
-                    --Log the decision with additional context about target changes
-                    if bDebugMessages == true then
-                        local sDecision = bAttackWithEverything and 'ATTACK' or 'RETREAT'
-                        local sTargetInfo = iTargetZoneForDecision and ('LZ'..iTargetZoneForDecision) or 'nil'
-                        local sTargetChange = ''
-                        if bTargetChanged and iLastTargetZone then
-                            sTargetChange = ' (was LZ'..iLastTargetZone..')'
+                        local iTargetZoneForDecision = oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2] or nil
+                        local iLastTargetZone = tLZTeamData[M28Map.subrefiLandZoneLastTargetZone]
+                        local bTargetChanged = (iLastTargetZone ~= iTargetZoneForDecision) and bAttackWithEverythingLocal
+                        if bAttackWithEverythingLocal and iTargetZoneForDecision then
+                            tLZTeamData[M28Map.subrefiLandZoneLastTargetZone] = iTargetZoneForDecision
+                            tLZTeamData[M28Map.subrefiLandZoneLastTargetTime] = GetGameTimeSeconds()
+                        elseif not(bAttackWithEverythingLocal) then
+                            tLZTeamData[M28Map.subrefiLandZoneLastTargetZone] = nil
+                            tLZTeamData[M28Map.subrefiLandZoneLastTargetTime] = nil
                         end
-                        LOG('CrossZoneCoord: [P'..iPlateau..'-LZ'..iLandZone..'] Decision='..sDecision..', Our='..math.floor(iOurDFAndT1ArtiCombatThreat or 0)..', Enemy='..math.floor(iEnemyCombatThreat or 0)..', Target='..sTargetInfo..sTargetChange..', Time='..GetGameTimeSeconds())
-                    end
 
-                    --Update cross-zone coordination target based on decision
-                    if bAttackWithEverything then
-                        if iTargetZoneForDecision and iTargetZoneForDecision ~= iLandZone and oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][1] == iPlateau then
-                            if tLZTeamData[M28Map.subreftiWaterZoneTargetedByOurSurfaceCombat] then M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, false, nil, nil, true) end
-                            RecordDFLandZoneTarget(iTargetZoneForDecision, M28Map.subrefiLZTAttackingUnit)
-                        elseif oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedWaterZoneByTeam][iTeam] then
-                            RecordDFLandZoneTarget(nil)
-                            M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, false, oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedWaterZoneByTeam][iTeam], M28Map.subrefiLZOrWZTAttackingUnit, true)
+                        UpdateNonSkirmisherAggressionSignals()
+                        if bAttackWithEverythingLocal and bApplyMusterRetreatOverride and not(bDisableFrontlineRetreatLogic) then
+                            local bFrontlineMusterException = bForcePushNonSkirmisher or ((tLZTeamData[M28Map.subrefbLZWantsDFSupport] or false)
+                                    and iOurDFAndT1ArtiCombatThreat >= math.max(450, iEnemyCombatThreat * 0.92)
+                                    and (((tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0) == 0) or iOurDFAndT1ArtiCombatThreat >= iEnemyCombatThreat))
+                            if not(bFrontlineMusterException) and iOurDFAndT1ArtiCombatThreat <= iEnemyCombatThreat * 1.02 and not(bHaveACUInTroubleAndRecentlyInCombat) then
+                                bAttackWithEverythingLocal = false
+                            end
+                            bWantReinforcements = true
+                            if bDebugMessages == true then LOG(sFunctionRef..': Overriding bAttackWithEverything due to bApplyMusterRetreatOverride=true; bFrontlineMusterException='..tostring(bFrontlineMusterException)..'; will retreat='..tostring(not(bFrontlineMusterException) and iOurDFAndT1ArtiCombatThreat <= iEnemyCombatThreat * 1.02)) end
+                        elseif bAttackWithEverythingLocal and bDisableFrontlineRetreatLogic then
+                            bWantReinforcements = true
+                        end
+                        if not(bAttackWithEverythingLocal) and bDisableFrontlineRetreatLogic and not(bHaveACUInTroubleAndRecentlyInCombat) then
+                            bAttackWithEverythingLocal = true
+                            bOnlyAttackWithUnitsInThisZoneLocal = true
+                            bWantReinforcements = true
+                            if bDebugMessages == true then LOG(sFunctionRef..': Forcing frontline push and skipping generic retreat logic because bDisableFrontlineRetreatLogic=true') end
+                        end
+
+                        if bDebugMessages == true then
+                            local sDecision = bAttackWithEverythingLocal and 'ATTACK' or 'RETREAT'
+                            local sTargetInfo = iTargetZoneForDecision and ('LZ'..iTargetZoneForDecision) or 'nil'
+                            local sTargetChange = ''
+                            if bTargetChanged and iLastTargetZone then
+                                sTargetChange = ' (was LZ'..iLastTargetZone..')'
+                            end
+                            LOG('CrossZoneCoord: [P'..iPlateau..'-LZ'..iLandZone..'] Decision='..sDecision..', Our='..math.floor(iOurDFAndT1ArtiCombatThreat or 0)..', Enemy='..math.floor(iEnemyCombatThreat or 0)..', Target='..sTargetInfo..sTargetChange..', Time='..GetGameTimeSeconds())
+                        end
+
+                        if bAttackWithEverythingLocal then
+                            if iTargetZoneForDecision and iTargetZoneForDecision ~= iLandZone and oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][1] == iPlateau then
+                                if tLZTeamData[M28Map.subreftiWaterZoneTargetedByOurSurfaceCombat] then M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, false, nil, nil, true) end
+                                RecordDFLandZoneTarget(iTargetZoneForDecision, M28Map.subrefiLZTAttackingUnit)
+                            elseif oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedWaterZoneByTeam][iTeam] then
+                                RecordDFLandZoneTarget(nil)
+                                M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, false, oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedWaterZoneByTeam][iTeam], M28Map.subrefiLZOrWZTAttackingUnit, true)
+                            else
+                                RecordDFLandZoneTarget(nil)
+                                if tLZTeamData[M28Map.subreftiWaterZoneTargetedByOurSurfaceCombat] then M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, false, nil, nil, true) end
+                            end
                         else
                             RecordDFLandZoneTarget(nil)
                             if tLZTeamData[M28Map.subreftiWaterZoneTargetedByOurSurfaceCombat] then M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, false, nil, nil, true) end
+                            if tLZTeamData[M28Map.subreftiWaterZoneTargetedByOurSubmersibleCombat] then M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, true, nil, nil, true) end
                         end
-                    else
-                        --Retreating - clear our attack target (only on explicit retreat)
-                        RecordDFLandZoneTarget(nil)
-                        if tLZTeamData[M28Map.subreftiWaterZoneTargetedByOurSurfaceCombat] then M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, false, nil, nil, true) end
-                        if tLZTeamData[M28Map.subreftiWaterZoneTargetedByOurSubmersibleCombat] then M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, true, nil, nil, true) end
+
+                        return bAttackWithEverythingLocal, bConsolidateAtMidpointLocal, bOnlyAttackWithUnitsInThisZoneLocal, bUpdateNearestUnitLocal, bCheckIfNearestUnitVisibleLocal
                     end
+                    local bUpdateNearestUnit, bCheckIfNearestUnitVisible
+                    bAttackWithEverything, bConsolidateAtMidpoint, bOnlyAttackWithUnitsInThisZone, bUpdateNearestUnit, bCheckIfNearestUnitVisible = FinalizeScenario2DecisionState(bAttackWithEverything, bConsolidateAtMidpoint, bOnlyAttackWithUnitsInThisZone)
 
                     if bAttackWithEverything then
                         local bMoveToStopPDConstruction = false
