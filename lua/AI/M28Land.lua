@@ -8718,36 +8718,29 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                                 M28Orders.IssueSmartMove(oUnit, oClosestEnemyForAttack:GetPosition(), false, 'KMnA'..iLandZone, false)
                                                             end
                                                         elseif bNearestEnemyNeedsManualAttack then
+                                                            local tManualRetreatTarget = tRallyPoint
+                                                            local sManualRetreatOrderRef = 'KRetrU'..iLandZone
+                                                            local sManualAttackMoveOrderRef = 'UnderWARC'
+                                                            local sManualAttackOrderRef = 'UnderWARB'
                                                             if EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oUnit.UnitId) then
-                                                                if M28Utilities.GetDistanceBetweenPositions(tAmphibiousRallyPoint, oUnit:GetPosition()) <= 10 then
-                                                                    local oTargetToManuallyAttack, bMoveNotManualAttack = GetManualAttackTargetIfWantManualAttack(oUnit)
-                                                                    if not( oTargetToManuallyAttack) then oTargetToManuallyAttack = oNearestEnemyToFriendlyBase end
-                                                                    if bMoveNotManualAttack then
-                                                                        M28Orders.IssueSmartMove(oUnit, oTargetToManuallyAttack:GetPosition(), 2, false, 'UnderWARM', false)
-                                                                    else
-                                                                        DoManualAttack(oUnit, oTargetToManuallyAttack, 'UnderWARA')
-                                                                    end
-                                                                    --M28Orders.IssueTrackedAttack(oUnit, oTargetToManuallyAttack, false, 'UnderWARA', false)
+                                                                tManualRetreatTarget = tAmphibiousRallyPoint
+                                                                sManualRetreatOrderRef = 'AKRetrU'..iLandZone
+                                                                sManualAttackMoveOrderRef = 'UnderWARM'
+                                                                sManualAttackOrderRef = 'UnderWARA'
+                                                            end
+                                                            if M28Utilities.GetDistanceBetweenPositions(tManualRetreatTarget, oUnit:GetPosition()) <= 10 then
+                                                                local oTargetToManuallyAttack, bMoveNotManualAttack = GetManualAttackTargetIfWantManualAttack(oUnit)
+                                                                if not(oTargetToManuallyAttack) then oTargetToManuallyAttack = oNearestEnemyToFriendlyBase end
+                                                                if bMoveNotManualAttack then
+                                                                    M28Orders.IssueSmartMove(oUnit, oTargetToManuallyAttack:GetPosition(), 2, false, sManualAttackMoveOrderRef, false)
                                                                 else
-                                                                    oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
-                                                                    ForkThread(BackupUnitTowardsRallyIfAvailable, oUnit, tAmphibiousRallyPoint, tLZData[M28Map.subrefLZIslandRef], 'AKRetrU'..iLandZone)
-                                                                    --M28Orders.IssueSmartMove(oUnit, tAmphibiousRallyPoint, 6, false, 'AKRetrU'..iLandZone)
+                                                                    DoManualAttack(oUnit, oTargetToManuallyAttack, sManualAttackOrderRef)
                                                                 end
                                                             else
-                                                                if M28Utilities.GetDistanceBetweenPositions(tRallyPoint, oUnit:GetPosition()) <= 10 then
-                                                                    local oTargetToManuallyAttack, bMoveNotManualAttack = GetManualAttackTargetIfWantManualAttack(oUnit)
-                                                                    if not(oTargetToManuallyAttack) then oTargetToManuallyAttack = oNearestEnemyToFriendlyBase end
-                                                                    if bMoveNotManualAttack then M28Orders.IssueSmartMove(oUnit, oTargetToManuallyAttack:GetPosition(), 2, false, 'UnderWARC', false)
-                                                                    else
-                                                                        DoManualAttack(oUnit, oTargetToManuallyAttack, 'UnderWARB')
-                                                                    end
-                                                                    --M28Orders.IssueTrackedAttack(oUnit, oTargetToManuallyAttack, false, 'UnderWARB', false)
-                                                                else
-                                                                    oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
-                                                                    ForkThread(BackupUnitTowardsRallyIfAvailable, oUnit, tRallyPoint, tLZData[M28Map.subrefLZIslandRef],'KRetrU'..iLandZone)
-                                                                    --M28Orders.IssueTrackedMove(oUnit, tRallyPoint, 6, false, 'KRetrU'..iLandZone)
-                                                                end
+                                                                oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
+                                                                ForkThread(BackupUnitTowardsRallyIfAvailable, oUnit, tManualRetreatTarget, tLZData[M28Map.subrefLZIslandRef], sManualRetreatOrderRef)
                                                             end
+                                                            --M28Orders.IssueTrackedAttack(oUnit, oTargetToManuallyAttack, false, 'UnderWAR*', false)
                                                         elseif EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oUnit.UnitId) then
                                                             --If the angle towards the rally point is similar to the angle towards the enemy then instead run from the nearest enemy
                                                             if bDebugMessages == true then LOG(sFunctionRef..': Will either backup to rally point, or away from nearest enemy, is M28UnitInfo.IsUnitValid(oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck] valid='..tostring(M28UnitInfo.IsUnitValid(oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck])))
@@ -8755,31 +8748,33 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                                     LOG(sFunctionRef..': Angle from closest enemy to unit='..M28Utilities.GetAngleFromAToB(oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]:GetPosition(), oUnit:GetPosition())..'; Angle to rally from unit='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), tAmphibiousRallyPoint)..'; dif for closest enemy to unit; vs unit to rally='..M28Utilities.GetAngleDifference(M28Utilities.GetAngleFromAToB(oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]:GetPosition(), oUnit:GetPosition()), M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), tAmphibiousRallyPoint)))
                                                                 end
                                                             end
+                                                            local tResolvedBackupTarget = tAmphibiousRallyPoint
+                                                            local iResolvedBackupPathingRef = tLZData[M28Map.subrefLZIslandRef]
+                                                            local sResolvedBackupOrderRef = 'AKRetr'..iLandZone
+                                                            local bResolvedUseHoverPlateauRef = false
+                                                            local iResolvedDefaultDist
                                                             --If retreating in opposite direction to nearest enemy would take us a significantly different angle to the rally point then retreat in opposite direction; however if there woudl't be much dif (i.e. within 45 degrees, so 90 degrees overall) then just go to the rally point instead of the opposite direction
                                                             if M28UnitInfo.IsUnitValid(oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]) and M28Utilities.GetAngleDifference(M28Utilities.GetAngleFromAToB(oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]:GetPosition(), oUnit:GetPosition()), M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), tAmphibiousRallyPoint)) > 45 then
                                                                 if bDebugMessages == true then LOG(sFunctionRef..': Will try and go to temporary retreat location by moving in opposite direction to nearest enemy unit, since going to the rally would take us a signif dif angle') end
-                                                                oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
                                                                 local iBackupDist = (oUnit:GetBlueprint().Physics.BackUpDistance or 0)
                                                                 local tTemporaryRetreatLocation = M28Utilities.MoveInDirection(oUnit:GetPosition(), M28Utilities.GetAngleFromAToB(oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]:GetPosition(), oUnit:GetPosition()), (iBackupDist or 9) - 1, true, false, M28Map.bIsCampaignMap)
+                                                                iResolvedBackupPathingRef = iPlateau
+                                                                bResolvedUseHoverPlateauRef = true
+                                                                iResolvedDefaultDist = math.min(iBackupDist, 9)
                                                                 if M28Utilities.IsTableEmpty(tTemporaryRetreatLocation) == false and NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, tTemporaryRetreatLocation) == iPlateau then
-                                                                    oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
-                                                                    ForkThread(BackupUnitTowardsRallyIfAvailable, oUnit, tTemporaryRetreatLocation, iPlateau, 'AKRetNE'..iLandZone, true, math.min(iBackupDist, 9))
-                                                                    --M28Orders.IssueTrackedMove(oUnit, tTemporaryRetreatLocation, 6, false, 'AKRetNE'..iLandZone)
+                                                                    tResolvedBackupTarget = tTemporaryRetreatLocation
+                                                                    sResolvedBackupOrderRef = 'AKRetNE'..iLandZone
                                                                 else
                                                                     if bDebugMessages == true then LOG(sFunctionRef..': If we moved ino pposite direction to enemy unit it wouldnt be that different to going to rally point so will go to rally point') end
-                                                                    ForkThread(BackupUnitTowardsRallyIfAvailable, oUnit, tAmphibiousRallyPoint, iPlateau, 'AKRetFA', true, math.min(iBackupDist, 9))
-                                                                    oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
-                                                                    --M28Orders.IssueTrackedMove(oUnit, tAmphibiousRallyPoint, 6, false, 'AKRetFA'..iLandZone)
+                                                                    sResolvedBackupOrderRef = 'AKRetFA'
                                                                 end
                                                             else
                                                                 --Not much dif in angle so will just go to the rally point
-                                                                oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
                                                                 if bDebugMessages == true then LOG(sFunctionRef..': Will try and backup to amphibious rally point, tAmphibiousRallyPoint='..repru(tAmphibiousRallyPoint)..'; Unit position='..repru(oUnit:GetPosition())) end
-                                                                ForkThread(BackupUnitTowardsRallyIfAvailable, oUnit, tAmphibiousRallyPoint, tLZData[M28Map.subrefLZIslandRef], 'AKRetr'..iLandZone)
-                                                                --M28Orders.IssueTrackedMove(oUnit, tAmphibiousRallyPoint, 6, false, 'AKRetr'..iLandZone)
                                                             end
-
-
+                                                            oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
+                                                            ForkThread(BackupUnitTowardsRallyIfAvailable, oUnit, tResolvedBackupTarget, iResolvedBackupPathingRef, sResolvedBackupOrderRef, bResolvedUseHoverPlateauRef, iResolvedDefaultDist)
+                                                            --M28Orders.IssueTrackedMove(oUnit, tAmphibiousRallyPoint/tTemporaryRetreatLocation, 6, false, 'AKRet*', false)
                                                         else
                                                             if EntityCategoryContains(M28UnitInfo.refCategorySkirmisher + M28UnitInfo.refCategoryAbsolver, oUnit.UnitId) or oUnit[M28UnitInfo.refbScoutCombatOverride] then iAngleThresholdForRally = 100 else iAngleThresholdForRally = 70 end
                                                             if bDebugMessages == true then
@@ -10498,13 +10493,14 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                     end
                                                 else
                                                     --Retreat temporarily from enemy units
+                                                    oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
+                                                    local tScenario2RetreatTarget = tRallyPoint
+                                                    local sScenario2RetreatOrderRef = 'I2KRetr'..iLandZone
                                                     if EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oUnit.UnitId) then
-                                                        oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
-                                                        M28Orders.IssueSmartMove(oUnit, tAmphibiousRallyPoint, 6, false, 'AI2KRetr'..iLandZone, false, true)
-                                                    else
-                                                        oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
-                                                        M28Orders.IssueSmartMove(oUnit, tRallyPoint, 6, false, 'I2KRetr'..iLandZone, false, true)
+                                                        tScenario2RetreatTarget = tAmphibiousRallyPoint
+                                                        sScenario2RetreatOrderRef = 'AI2KRetr'..iLandZone
                                                     end
+                                                    M28Orders.IssueSmartMove(oUnit, tScenario2RetreatTarget, 6, false, sScenario2RetreatOrderRef, false, true)
                                                 end
                                             end
                                         else
@@ -10521,13 +10517,14 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                             M28Orders.IssueSmartMove(oUnit, oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'SKAMve'..iLandZone)
                                         else
                                             --Enemy has DF units and they are already in our range so retreat
+                                            oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
+                                            local tScenario2SkirmisherRetreatTarget = tRallyPoint
+                                            local sScenario2SkirmisherRetreatOrderRef = 'SKRetr'..iLandZone
                                             if EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oUnit.UnitId) then
-                                                oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
-                                                M28Orders.IssueSmartMove(oUnit, tAmphibiousRallyPoint, 6, false, 'ASKRetr'..iLandZone, false, true)
-                                            else
-                                                oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
-                                                M28Orders.IssueSmartMove(oUnit, tRallyPoint, 6, false, 'SKRetr'..iLandZone, false, true)
+                                                tScenario2SkirmisherRetreatTarget = tAmphibiousRallyPoint
+                                                sScenario2SkirmisherRetreatOrderRef = 'ASKRetr'..iLandZone
                                             end
+                                            M28Orders.IssueSmartMove(oUnit, tScenario2SkirmisherRetreatTarget, 6, false, sScenario2SkirmisherRetreatOrderRef, false, true)
 
                                         end
                                     else
@@ -10675,11 +10672,11 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
                                                                 if bRetreatingNow then
                                                                     oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
+                                                                    local tScenario2ExperimentalRetreatTarget = tRallyPoint
                                                                     if EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oUnit.UnitId) then
-                                                                        M28Orders.IssueSmartMove(oUnit, tAmphibiousRallyPoint, 6, false, 'Sc4Ret'..iLandZone, false, true)
-                                                                    else
-                                                                        M28Orders.IssueSmartMove(oUnit, tRallyPoint, 6, false, 'Sc4Ret'..iLandZone, false, true)
+                                                                        tScenario2ExperimentalRetreatTarget = tAmphibiousRallyPoint
                                                                     end
+                                                                    M28Orders.IssueSmartMove(oUnit, tScenario2ExperimentalRetreatTarget, 6, false, 'Sc4Ret'..iLandZone, false, true)
                                                                 else
                                                                     --Want to try and find nearby enemy high value units
                                                                     local iSearchHigherThreshold = 50
@@ -13162,8 +13159,52 @@ function RetreatOtherUnits(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, tOt
     local iCurTime = math.floor(GetGameTimeSeconds())
     local bConsiderKitingRetreat = tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]
     local oNearestEnemyCombatToRallyPoint
+    local function ResolveDefaultOtherUnitRetreat(oUnit)
+        local tRetreatTarget = tRallyPoint
+        local sRetreatOrderRef = 'OtRet'
+        if EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oUnit.UnitId) then
+            tRetreatTarget = tAmphibiousRallyPoint
+            sRetreatOrderRef = 'AOtRet'
+        end
+        return tRetreatTarget, sRetreatOrderRef
+    end
+    local function ResolveSpecialHeavyRetreat(oUnit, oNearestEnemyCombat)
+        local tRetreatTarget = tAmphibiousRallyPoint
+        local iRetreatPathingRef
+        local sRetreatOrderRef = 'FMNoERetr'
+        local bUseBackupThread = false
+        local bUseHoverPlateauRef = false
+        local iDefaultDistOverride
+        if oNearestEnemyCombat then
+            local iCurDist = M28Utilities.GetDistanceBetweenPositions(oNearestEnemyCombat:GetPosition(), oUnit:GetPosition())
+            if iCurDist <= oUnit[M28UnitInfo.refiCombatRange] and iCurDist >= math.max(10, (oUnit[M28UnitInfo.refiCombatRange] or 0) - 5) then
+                local iBackupDist = (oUnit:GetBlueprint().Physics.BackUpDistance or 0)
+                if iBackupDist > 3 then
+                    local iAngleToNearestEnemy = M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oNearestEnemyCombat:GetPosition())
+                    local iAngleToRally = M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), tAmphibiousRallyPoint)
+                    if not(M28Utilities.GetAngleDifference(iAngleToNearestEnemy, iAngleToRally) >= 145) then
+                        local tPotentialRetreatLocation = M28Utilities.MoveInDirection(oUnit:GetPosition(), iAngleToNearestEnemy - 180, iBackupDist - 3, true, nil, M28Map.bIsCampaignMap)
+                        if M28Utilities.IsTableEmpty(tPotentialRetreatLocation) == false and NavUtils.GetLabel(M28Map.refPathingTypeHover, tPotentialRetreatLocation) == iPlateau then
+                            tRetreatTarget = {tPotentialRetreatLocation[1], tPotentialRetreatLocation[2], tPotentialRetreatLocation[3]}
+                        end
+                    end
+                    iRetreatPathingRef = iPlateau
+                    sRetreatOrderRef = 'SpFBlsRetr'
+                    bUseBackupThread = true
+                    bUseHoverPlateauRef = true
+                    iDefaultDistOverride = math.min(9, iBackupDist)
+                end
+            end
+        end
+        return bUseBackupThread, tRetreatTarget, iRetreatPathingRef, sRetreatOrderRef, bUseHoverPlateauRef, iDefaultDistOverride
+    end
     for iUnit, oUnit in tOtherUnitsToRetreat do
         oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
+        local tResolvedRetreatTarget, sResolvedRetreatOrderRef = ResolveDefaultOtherUnitRetreat(oUnit)
+        local bUseBackupThreadRetreat = false
+        local iResolvedRetreatPathingRef
+        local bResolvedUseHoverPlateauRef = false
+        local iResolvedDefaultDist
         --Fatboy (and megalith although wouldnt expect megalith to use this function) - consider retreating slowly instead of running around, and also retreating in opposite direction to the nearest enemy (instead of going to the rally point)
         if bDebugMessages == true then LOG(sFunctionRef..': Considering retreating unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; bConsiderKitingRetreat='..tostring(bConsiderKitingRetreat or false)..'; Combat range='..(oUnit[M28UnitInfo.refiCombatRange] or 0)..'; Is a fatboy/mega='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryFatboy + M28UnitInfo.refCategoryMegalith, oUnit.UnitId))) end
         if bConsiderKitingRetreat and (oUnit[M28UnitInfo.refiCombatRange] or 0) > 30 and EntityCategoryContains(M28UnitInfo.refCategoryFatboy + M28UnitInfo.refCategoryMegalith, oUnit.UnitId) then
@@ -13171,36 +13212,14 @@ function RetreatOtherUnits(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, tOt
                 oNearestEnemyCombatToRallyPoint = M28Utilities.GetNearestUnit(tLZTeamData[M28Map.reftoNearestDFEnemies], tAmphibiousRallyPoint)
             end
             if bDebugMessages == true then LOG(sFunctionRef..': oNearestEnemyCombatToRallyPoint='..(oNearestEnemyCombatToRallyPoint.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oNearestEnemyCombatToRallyPoint) or 'nil')) end
-            local bDoneKitingRetreat = false
-            if oNearestEnemyCombatToRallyPoint then
-                local iCurDist = M28Utilities.GetDistanceBetweenPositions(oNearestEnemyCombatToRallyPoint:GetPosition(), oUnit:GetPosition())
-                if iCurDist <= oUnit[M28UnitInfo.refiCombatRange] and iCurDist >= math.max(10, (oUnit[M28UnitInfo.refiCombatRange] or 0) - 5) then
-                    --Want to consider retreating
-                    local iBackupDist = (oUnit:GetBlueprint().Physics.BackUpDistance or 0)
-                    if iBackupDist > 3 then
-                        local iAngleToNearestEnemy = M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oNearestEnemyCombatToRallyPoint:GetPosition())
-                        local iAngleToRally = M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), tAmphibiousRallyPoint)
-                        local tRetreatLocationToUse = {tAmphibiousRallyPoint[1], tAmphibiousRallyPoint[2], tAmphibiousRallyPoint[3]}
-                        if not(M28Utilities.GetAngleDifference(iAngleToNearestEnemy, iAngleToRally) >= 145) then --i.e. 70 degree section where will go with rally point instead of opposite direction
-                            local tPotentialRetreatLocation = M28Utilities.MoveInDirection(oUnit:GetPosition(), iAngleToNearestEnemy - 180, iBackupDist - 3, true, nil, M28Map.bIsCampaignMap)
-                            if M28Utilities.IsTableEmpty(tPotentialRetreatLocation) == false and NavUtils.GetLabel(M28Map.refPathingTypeHover, tPotentialRetreatLocation) == iPlateau then
-                                tRetreatLocationToUse = {tPotentialRetreatLocation[1], tPotentialRetreatLocation[2], tPotentialRetreatLocation[3]}
-                            end
-                        end
-                        if bDebugMessages == true then LOG(sFunctionRef..': Will try backing up for fatboy or similar unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; tRetreatLocationToUse='..repru(tRetreatLocationToUse)..'; oNearestEnemyCombatToRallyPoint='..oNearestEnemyCombatToRallyPoint.UnitId..M28UnitInfo.GetUnitLifetimeCount(oNearestEnemyCombatToRallyPoint)) end
-                        bDoneKitingRetreat = true
-                        ForkThread(BackupUnitTowardsRallyIfAvailable, oUnit, tRetreatLocationToUse, iPlateau, 'SpFBlsRetr', true, math.min(9, iBackupDist))
-                        --M28Orders.IssueTrackedMove(oUnit, tRetreatLocationToUse, 3, false, 'SpFBlsRetr')
-                    end
-                end
-            end
-            if not(bDoneKitingRetreat) then
-                M28Orders.IssueTrackedMove(oUnit, tAmphibiousRallyPoint, 10, false, 'FMNoERetr')
-            end
-        elseif EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oUnit.UnitId) then
-            M28Orders.IssueTrackedMove(oUnit, tAmphibiousRallyPoint, 10, false, 'AOtRet')
+            bUseBackupThreadRetreat, tResolvedRetreatTarget, iResolvedRetreatPathingRef, sResolvedRetreatOrderRef, bResolvedUseHoverPlateauRef, iResolvedDefaultDist = ResolveSpecialHeavyRetreat(oUnit, oNearestEnemyCombatToRallyPoint)
+            if bDebugMessages == true then LOG(sFunctionRef..': Resolved heavy retreat for '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; bUseBackupThreadRetreat='..tostring(bUseBackupThreadRetreat)..'; tResolvedRetreatTarget='..repru(tResolvedRetreatTarget)..'; sResolvedRetreatOrderRef='..sResolvedRetreatOrderRef) end
+        end
+        if bUseBackupThreadRetreat then
+            ForkThread(BackupUnitTowardsRallyIfAvailable, oUnit, tResolvedRetreatTarget, iResolvedRetreatPathingRef, sResolvedRetreatOrderRef, bResolvedUseHoverPlateauRef, iResolvedDefaultDist)
+            --M28Orders.IssueTrackedMove(oUnit, tResolvedRetreatTarget, 3, false, sResolvedRetreatOrderRef)
         else
-            M28Orders.IssueTrackedMove(oUnit, tRallyPoint, 10, false, 'OtRet', false)
+            M28Orders.IssueTrackedMove(oUnit, tResolvedRetreatTarget, 10, false, sResolvedRetreatOrderRef, false)
         end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
