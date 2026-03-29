@@ -198,6 +198,311 @@ local function ResolveACURetreatPoint(oACU, iTeam, iPlateauOrZero, iLandOrWaterZ
     return tResolvedPoint, 'Default', bDefaultUnsafe
 end
 
+local function GetACURetreatDecisionState(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
+    local bWantCoreBase = DoesACUWantToReturnToCoreBase(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
+    local bRawWantRun = DoesACUWantToRun(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
+    return {
+        bWantCoreBase = bWantCoreBase,
+        bWantRun = bWantCoreBase or bRawWantRun,
+        bRawWantRun = bRawWantRun,
+    }
+end
+
+local function GetACUPositionToRunFromNearestEnemy(oACU, iTeam, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData)
+    local tPositionToRunTo
+    local oClosestEnemy
+    local iClosestEnemy = 1000
+    local iCurDist
+    if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]) == false then
+        for _, oEnemy in tLZOrWZTeamData[M28Map.reftoNearestDFEnemies] do
+            if M28UnitInfo.IsUnitValid(oEnemy) then
+                iCurDist = M28Utilities.GetDistanceBetweenPositions(oEnemy:GetPosition(), oACU:GetPosition()) - (oEnemy[M28UnitInfo.refiDFRange] or 0)
+                if iCurDist < iClosestEnemy then
+                    iClosestEnemy = iCurDist
+                    oClosestEnemy = oEnemy
+                end
+            end
+        end
+    end
+    local tPositionToRunFrom = tLZOrWZTeamData[M28Map.reftClosestEnemyBase]
+    if oClosestEnemy then
+        tPositionToRunFrom = oClosestEnemy:GetPosition()
+    end
+    local iAngleToMove = M28Utilities.GetAngleFromAToB(tPositionToRunFrom, oACU:GetPosition())
+    for iDistToMove = 20, 10, -5 do
+        tPositionToRunTo = M28Utilities.MoveInDirection(oACU:GetPosition(), iAngleToMove, iDistToMove, true, true, M28Map.bIsCampaignMap)
+        if M28Utilities.IsTableEmpty(tPositionToRunTo) == false and NavUtils.GetLabel(M28Map.refPathingTypeHover, tPositionToRunTo) == iPlateauOrZero then
+            break
+        else
+            tPositionToRunTo = nil
+        end
+    end
+    if not(tPositionToRunTo) then
+        if iPlateauOrZero > 0 and iLandOrWaterZone > 0 then
+            tPositionToRunTo = M28Land.GetNearestLandRallyPoint(tLZOrWZData, iTeam, iPlateauOrZero, iLandOrWaterZone, 2, true)
+        else
+            tPositionToRunTo = M28Map.GetPlayerStartPosition(oACU:GetAIBrain())
+        end
+    end
+    return tPositionToRunTo
+end
+
+local function GetACUStandardRetreatRallyPointAndMexPreference(oACU, iTeam, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData)
+    local tRallyPoint
+    local bConsiderMexesAndReclaim = false
+
+    if tLZOrWZTeamData[M28Map.subrefLZbCoreBase] and M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]) == false and (M28UnitInfo.GetUnitHealthPercent(oACU) < 0.9 or M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar]) then
+        tRallyPoint = GetACUPositionToRunFromNearestEnemy(oACU, iTeam, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData)
+    elseif iLandOrWaterZone > 0 and iPlateauOrZero > 0 then
+        tRallyPoint = M28Land.GetNearestLandRallyPoint(tLZOrWZData, iTeam, iPlateauOrZero, iLandOrWaterZone, 2, true)
+        if M28Utilities.IsTableEmpty(tRallyPoint) == false and M28Utilities.GetDistanceBetweenPositions(tRallyPoint, tLZOrWZTeamData[M28Map.reftClosestFriendlyBase]) >= 50 then
+            local iDistToBase = M28Utilities.GetDistanceBetweenPositions(tLZOrWZData[M28Map.subrefMidpoint], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])
+            if iDistToBase <= 250 and tLZOrWZTeamData[M28Map.refiModDistancePercent] <= 0.6 and M28Utilities.GetAngleDifference(M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tRallyPoint), M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])) >= 35 then
+                if M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.8 then
+                    bConsiderMexesAndReclaim = true
+                end
+                if M28Conditions.BaseIsSafeToRetreatTo(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase], iTeam) then
+                    tRallyPoint = {tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][1], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][2], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][3]}
+                end
+            else
+                local tRallyLZData, tRallyLZTeamData = M28Map.GetLandOrWaterZoneData(tRallyPoint, true, iTeam)
+                if tRallyLZTeamData and not(tRallyLZTeamData[M28Map.subrefLZbCoreBase]) then
+                    local iRallyThreat = tRallyLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+                    if tRallyLZTeamData == tLZOrWZTeamData then
+                        iRallyThreat = iRallyThreat - M28UnitInfo.GetCombatThreatRating({oACU}, false, false, false, false, false, false, false, false)
+                    end
+                    if iRallyThreat <= 500 and (not(tRallyLZTeamData[M28Map.subrefLZCoreExpansion]) or tRallyLZTeamData[M28Map.subrefLZSValue] < 220) then
+                        if M28Utilities.GetDistanceBetweenPositions(tRallyLZTeamData[M28Map.reftClosestFriendlyBase], tRallyLZData[M28Map.subrefMidpoint]) > M28Utilities.GetDistanceBetweenPositions(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase], oACU:GetPosition()) then
+                            bConsiderMexesAndReclaim = false
+                            local iClosestBasePlateauOrZero = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])
+                            if iClosestBasePlateauOrZero == iPlateauOrZero and M28Conditions.BaseIsSafeToRetreatTo(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase], iTeam) then
+                                tRallyPoint = {tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][1], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][2], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][3]}
+                            end
+                        end
+                    elseif tRallyLZData == tLZOrWZData and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.5 and iRallyThreat < 100 then
+                        bConsiderMexesAndReclaim = true
+                    end
+                end
+            end
+        end
+
+        if bConsiderMexesAndReclaim then
+            local iCurEnemyDist
+            if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]) == false then
+                for _, oEnemy in tLZOrWZTeamData[M28Map.reftoNearestDFEnemies] do
+                    if M28UnitInfo.IsUnitValid(oEnemy) then
+                        iCurEnemyDist = M28Utilities.GetDistanceBetweenPositions(oEnemy:GetPosition(), oACU:GetPosition())
+                        if iCurEnemyDist < math.max((oACU[M28UnitInfo.refiDFRange] or 0), oEnemy[M28UnitInfo.refiDFRange] or 0) then
+                            bConsiderMexesAndReclaim = false
+                            break
+                        end
+                    end
+                end
+            end
+            if bConsiderMexesAndReclaim and M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefoNearbyEnemyLongRangeDFThreats]) == false then
+                for _, oEnemy in tLZOrWZTeamData[M28Map.subrefoNearbyEnemyLongRangeDFThreats] do
+                    if M28UnitInfo.IsUnitValid(oEnemy) then
+                        iCurEnemyDist = M28Utilities.GetDistanceBetweenPositions(oEnemy:GetPosition(), oACU:GetPosition())
+                        if iCurEnemyDist < math.max((oACU[M28UnitInfo.refiDFRange] or 0), oEnemy[M28UnitInfo.refiDFRange] or 0) + 5 then
+                            bConsiderMexesAndReclaim = false
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    else
+        tRallyPoint = M28Map.GetPlayerStartPosition(oACU:GetAIBrain())
+    end
+
+    if M28Utilities.IsTableEmpty(tRallyPoint) then
+        tRallyPoint = M28Map.GetPlayerStartPosition(oACU:GetAIBrain())
+    end
+    return tRallyPoint, bConsiderMexesAndReclaim
+end
+
+local function IssueACURetreatOrder(oACU, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, bWantCoreBase, tOptionalArgs)
+    local sFunctionRef = 'IssueACURetreatOrder'
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local aiBrain = oACU:GetAIBrain()
+    local iTeam = aiBrain.M28Team
+    local tArgs = tOptionalArgs or {}
+    local bDisableMexesAndReclaim = tArgs.bDisableMexesAndReclaim or false
+    local bDisableAttackMove = tArgs.bDisableAttackMove or false
+    local bOverrideMicroOrder = tArgs.bOverrideMicroOrder or false
+    local sMoveOrderRef = tArgs.sMoveOrderRef or 'RunRP'
+    local sAttackMoveOrderRef = tArgs.sAttackMoveOrderRef or 'RunARP'
+
+    ConsiderIfACUNeedsEmergencySupport(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
+    oACU[refiTimeLastWantedToRun] = GetGameTimeSeconds()
+
+    if bWantCoreBase then
+        if tLZOrWZTeamData[M28Map.subrefLZbCoreBase] and M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]) == false then
+            if not(ConsiderRunningToGETemplate(oACU, tLZOrWZData, tLZOrWZTeamData, iPlateauOrZero)) then
+                local tCoreRallyPoint = GetACUPositionToRunFromNearestEnemy(oACU, iTeam, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData)
+                if M28Utilities.IsTableEmpty(tCoreRallyPoint) == false then
+                    M28Orders.IssueTrackedMove(oACU, tCoreRallyPoint, 5, false, (tArgs.sCoreBaseUnderFireOrderRef or 'RunNrEcb'), bOverrideMicroOrder)
+                end
+            end
+            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+            return true
+        end
+
+        if not(ConsiderRunningToGETemplate(oACU, tLZOrWZData, tLZOrWZTeamData, iPlateauOrZero)) then
+            if not(ConsiderRunningToNearestShield(oACU, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrZero, iLandOrWaterZone)) then
+                ReturnACUToCoreBase(oACU, tLZOrWZData, tLZOrWZTeamData, aiBrain, iTeam, iPlateauOrZero, iLandOrWaterZone)
+            end
+        end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return true
+    end
+
+    if ConsiderRunningToGETemplate(oACU, tLZOrWZData, tLZOrWZTeamData, iPlateauOrZero) then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return true
+    end
+
+    local tRallyPoint, bConsiderMexesAndReclaim = GetACUStandardRetreatRallyPointAndMexPreference(oACU, iTeam, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData)
+    if bDisableMexesAndReclaim then
+        bConsiderMexesAndReclaim = false
+    end
+
+    if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]) == false then
+        local iClosestEnemyExp = 165
+        if (tLZOrWZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) >= 20000 then iClosestEnemyExp = 140 end
+        local oClosestEnemyExp
+        local iCurDist
+        for _, oExp in M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals] do
+            if M28UnitInfo.IsUnitValid(oExp) then
+                iCurDist = M28Utilities.GetDistanceBetweenPositions(oExp:GetPosition(), oACU:GetPosition())
+                if iCurDist < iClosestEnemyExp then
+                    iClosestEnemyExp = iCurDist
+                    oClosestEnemyExp = oExp
+                end
+            end
+        end
+
+        if oClosestEnemyExp then
+            if iClosestEnemyExp > math.max((oACU[M28UnitInfo.refiDFRange] or 0), (oClosestEnemyExp[M28UnitInfo.refiDFRange] or 0) + 2) then
+                local iRallyPointDist = M28Utilities.GetDistanceBetweenPositions(oClosestEnemyExp:GetPosition(), tRallyPoint)
+                local iAngleFromACUToExp = M28Utilities.GetAngleFromAToB(oACU:GetPosition(), oClosestEnemyExp:GetPosition())
+                local iAngleToRally = M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tRallyPoint)
+                local iAngleDif = M28Utilities.GetAngleDifference(iAngleFromACUToExp, iAngleToRally)
+                if (iRallyPointDist <= 30 + iClosestEnemyExp and (M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tRallyPoint) <= 30 or iAngleDif <= 110))
+                        or (iAngleDif <= 130 and iClosestEnemyExp <= 95) then
+                    local tAltRallyPoint = M28Utilities.MoveInDirection(oACU:GetPosition(), iAngleFromACUToExp - 180, 15, true, true, true)
+                    if M28Utilities.IsTableEmpty(tAltRallyPoint) == false and NavUtils.GetLabel(M28Map.refPathingTypeHover, tAltRallyPoint) == NavUtils.GetLabel(M28Map.refPathingTypeHover, oACU:GetPosition()) then
+                        M28Orders.IssueTrackedMove(oACU, tAltRallyPoint, 5, false, 'RunExp')
+                        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                        return true
+                    end
+                elseif iAngleDif <= 150 and iClosestEnemyExp <= 105 then
+                    local iInitialAngleWanted = iAngleFromACUToExp - 180
+                    local iAngleMod = M28Utilities.GetAngleDifference(iAngleToRally, iInitialAngleWanted) * 0.5
+                    if iInitialAngleWanted > iAngleToRally then
+                        if iInitialAngleWanted < iAngleToRally + 180 then
+                            iAngleMod = iAngleMod * -1
+                        end
+                    elseif iInitialAngleWanted + 180 < iAngleToRally then
+                        iAngleMod = iAngleMod * -1
+                    end
+                    local tAltRallyPoint = M28Utilities.MoveInDirection(oACU:GetPosition(), iInitialAngleWanted + iAngleMod, 15, true, true, true)
+                    if M28Utilities.IsTableEmpty(tAltRallyPoint) == false and NavUtils.GetLabel(M28Map.refPathingTypeHover, tAltRallyPoint) == NavUtils.GetLabel(M28Map.refPathingTypeHover, oACU:GetPosition()) then
+                        M28Orders.IssueTrackedMove(oACU, tAltRallyPoint, 5, false, 'RunExp')
+                        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                        return true
+                    end
+                end
+            else
+                if ConsiderRunningToNearestShield(oACU, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrZero, iLandOrWaterZone) then
+                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                    return true
+                elseif iClosestEnemyExp <= (oACU[M28UnitInfo.refiDFRange] or 0) + 17 and M28Conditions.CanUnitUseOvercharge(aiBrain, oACU, tLZOrWZTeamData) then
+                    M28Orders.IssueTrackedMove(oACU, oClosestEnemyExp:GetPosition(), 5, false, 'RnAtkExp')
+                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                    return true
+                end
+            end
+        end
+    end
+
+    local oPrimaryRetreatEnemy
+    if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]) == false then
+        oPrimaryRetreatEnemy = M28Utilities.GetNearestUnit(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies], oACU:GetPosition())
+    end
+    local tResolvedRallyPoint, sResolvedRetreatPointRef = ResolveACURetreatPoint(
+        oACU,
+        iTeam,
+        iPlateauOrZero,
+        iLandOrWaterZone,
+        tLZOrWZData,
+        tLZOrWZTeamData,
+        tRallyPoint,
+        oPrimaryRetreatEnemy,
+        M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.5 or M28Team.tTeamData[iTeam][M28Team.refbDangerousForACUs]
+    )
+    if tResolvedRallyPoint then
+        tRallyPoint = tResolvedRallyPoint
+        if sResolvedRetreatPointRef ~= 'Default' then
+            bConsiderMexesAndReclaim = false
+        end
+    end
+
+    if bConsiderMexesAndReclaim and (ConsiderBuildingMex(tLZOrWZData, tLZOrWZTeamData, oACU, 15) or ConsiderNearbyReclaimForACUOrEngineer(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU, M28UnitInfo.GetUnitHealthPercent(oACU) < 0.75, 20)) then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return true
+    end
+
+    if oACU[reftLastRallyPointRanTo] and oACU[refiTimeLastWantedToRun] and GetGameTimeSeconds() - oACU[refiTimeLastWantedToRun] <= 60 then
+        local iCurDistToBase = M28Utilities.GetDistanceBetweenPositions(tRallyPoint, tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])
+        local iPreviousDistToBase = M28Utilities.GetDistanceBetweenPositions(oACU[reftLastRallyPointRanTo], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])
+        if iCurDistToBase - 5 > iPreviousDistToBase then
+            local _, tOldRallyLZTeamData = M28Map.GetLandOrWaterZoneData(oACU[reftLastRallyPointRanTo], true, iTeam)
+            if tOldRallyLZTeamData and not(tOldRallyLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) then
+                tRallyPoint = {oACU[reftLastRallyPointRanTo][1], oACU[reftLastRallyPointRanTo][2], oACU[reftLastRallyPointRanTo][3]}
+            end
+        end
+    end
+    if M28Team.tTeamData[iTeam][M28Team.refbDangerousForACUs] and M28Conditions.BaseIsSafeToRetreatTo(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase], iTeam) then
+        tRallyPoint = {tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][1], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][2], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][3]}
+    end
+
+    local bFactoryInWay = false
+    if M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tRallyPoint) <= 25 then
+        bFactoryInWay = M28Conditions.IsPositionInWayOfFactory(tRallyPoint)
+    end
+    if bFactoryInWay then
+        local iAngleFromEnemyBase = M28Utilities.GetAngleFromAToB(tLZOrWZTeamData[M28Map.reftClosestEnemyBase], tRallyPoint)
+        local tPositionToRunTo
+        local iPlateauWanted
+        if iPlateauOrZero == 0 then iPlateauWanted = NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, oACU:GetPosition())
+        else iPlateauWanted = iPlateauOrZero end
+
+        for iDist = 4, 24, 4 do
+            tPositionToRunTo = M28Utilities.MoveInDirection(tRallyPoint, iAngleFromEnemyBase, iDist, true, true, M28Map.bIsCampaignMap)
+            if tPositionToRunTo and NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, tPositionToRunTo) == iPlateauWanted then
+                bFactoryInWay = M28Conditions.IsPositionInWayOfFactory(tPositionToRunTo)
+                if not(bFactoryInWay) then break end
+            end
+        end
+        if not(bFactoryInWay) then
+            tRallyPoint = {tPositionToRunTo[1], tPositionToRunTo[2], tPositionToRunTo[3]}
+        end
+    end
+
+    if not(bDisableAttackMove) and not(M28Team.tTeamData[iTeam][M28Team.refbDangerousForACUs]) and iPlateauOrZero > 0 and M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]) == false and M28Conditions.GiveAttackMoveAsWeaponStuck(oACU) and M28Conditions.CloseToEnemyUnit(oACU:GetPosition(), tLZOrWZTeamData[M28Map.reftoNearestDFEnemies], oACU[M28UnitInfo.refiCombatRange], iTeam, false, nil, nil, nil, nil, nil) then
+        M28Orders.IssueTrackedAttackMove(oACU, tRallyPoint, 5, false, sAttackMoveOrderRef)
+    else
+        M28Orders.IssueTrackedMove(oACU, tRallyPoint, 5, false, sMoveOrderRef, bOverrideMicroOrder)
+    end
+    oACU[reftLastRallyPointRanTo] = {tRallyPoint[1], tRallyPoint[2], tRallyPoint[3]}
+    if bDebugMessages == true then LOG(sFunctionRef..': Issued retreat order, bWantCoreBase='..tostring(bWantCoreBase)..'; Rally point='..repru(tRallyPoint)..'; Move order ref='..sMoveOrderRef..'; Consider mex and reclaim='..tostring(bConsiderMexesAndReclaim)) end
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return true
+end
+
 function ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearchForAdjacencyAndUnderConstruction, iMaxAreaToSearchForBuildLocation, iOptionalAdjacencyCategory, iOptionalCategoryBuiltUnitCanBuild, tOptionalSearchLocation)
     local sFunctionRef = 'ACUBuildUnit'
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
@@ -6650,6 +6955,7 @@ function GetACUOrder(aiBrain, oACU)
 
     --Check for mobile shields
     CheckForNearbyMobileShieldToRequisition(oACU, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrZero)
+    local tRetreatDecision = GetACURetreatDecisionState(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
 
     --Is the ACU busy with something?
     if oACU:IsUnitState('Upgrading') then
@@ -6659,11 +6965,11 @@ function GetACUOrder(aiBrain, oACU)
         if not(oACU[refbDoingInitialBuildOrder]) then
             if bDebugMessages == true then LOG(sFunctionRef..': ACU is upgrading') end
             local bCanceledUpgrade = false
-            if DoesACUWantToReturnToCoreBase(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU) then
+            if tRetreatDecision.bWantCoreBase then
                 if bDebugMessages == true then LOG(sFunctionRef..': ACU wants to run to core base, considering if need emergency support and, if ACU health is low, will consider cancelling, ACU health%='..M28UnitInfo.GetUnitHealthPercent(oACU)..'; use acu aggressively='..tostring(oACU[refbUseACUAggressively] or false)..'; ACU expected to die before completing='..tostring(ACUExpectedToDieBeforeCompletingUpgrade(oACU))) end
                 ConsiderIfACUNeedsEmergencySupport(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
                 --Are we in a different LZ to core base, and have enemy threat or are on <60% health with less health than our upgrade progress?
-                if not(tLZOrWZTeamData[M28Map.subrefWZbContainsUnderwaterStart]) and (not(tLZOrWZTeamData[M28Map.subrefLZbCoreBase]) or (M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.99 and tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] and M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZOrWZData[M28Map.subrefMidpoint]) >= 35 and DoesACUWantToRun(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU))) then
+                if not(tLZOrWZTeamData[M28Map.subrefWZbContainsUnderwaterStart]) and (not(tLZOrWZTeamData[M28Map.subrefLZbCoreBase]) or (M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.99 and tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] and M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZOrWZData[M28Map.subrefMidpoint]) >= 35 and tRetreatDecision.bRawWantRun)) then
                     local iACUHealthPercent = M28UnitInfo.GetUnitHealthPercent(oACU)
 
                     if (iACUHealthPercent <= 0.99 and ((1 - iACUHealthPercent) + 0.1 > oACU:GetWorkProgress()) or M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar]) or ACUExpectedToDieBeforeCompletingUpgrade(oACU)  then
@@ -6672,7 +6978,7 @@ function GetACUOrder(aiBrain, oACU)
                         if not(M28Conditions.SafeToUpgradeUnit(oACU)) then
                             --Cancel upgrade
                             if bDebugMessages == true then LOG(sFunctionRef..': Want to cancel ACU upgrade') end
-                            M28Orders.IssueTrackedMove(oACU, M28Map.GetPlayerStartPosition(oACU:GetAIBrain()), 5, false, 'CURun')
+                            IssueACURetreatOrder(oACU, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, true, {bDisableMexesAndReclaim = true, bDisableAttackMove = true, sMoveOrderRef = 'CURun', sCoreBaseUnderFireOrderRef = 'CURun'})
                             bCanceledUpgrade = true
                         end
                     end
@@ -6702,14 +7008,14 @@ function GetACUOrder(aiBrain, oACU)
                 end
                 if oClosestExp then
                     --Just return to base, as normal 'no-upgrade' logic will kick in next cycle
-                    M28Orders.IssueTrackedMove(oACU, M28Map.GetPlayerStartPosition(oACU:GetAIBrain()), 5, false, 'CUExRun')
+                    IssueACURetreatOrder(oACU, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, true, {bDisableMexesAndReclaim = true, bDisableAttackMove = true, sMoveOrderRef = 'CUExRun', sCoreBaseUnderFireOrderRef = 'CUExRun'})
                     if bDebugMessages == true then LOG(sFunctionRef..': will cancel upgrade and reun to base') end
                     bCanceledUpgrade = true
                 end
             end
 
             if bDebugMessages == true then LOG(sFunctionRef..': bCanceledUpgrade='..tostring(bCanceledUpgrade or false)) end
-            if not(bCanceledUpgrade) and tLZOrWZTeamData[M28Map.subrefLZbCoreBase] and not(tLZOrWZTeamData[M28Map.subrefWZbContainsUnderwaterStart]) and M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.7 and tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] and M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZOrWZData[M28Map.subrefMidpoint]) >= 35 and DoesACUWantToRun(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU) then
+            if not(bCanceledUpgrade) and tLZOrWZTeamData[M28Map.subrefLZbCoreBase] and not(tLZOrWZTeamData[M28Map.subrefWZbContainsUnderwaterStart]) and M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.7 and tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] and M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZOrWZData[M28Map.subrefMidpoint]) >= 35 and tRetreatDecision.bRawWantRun then
                 local iACUHealthPercent = M28UnitInfo.GetUnitHealthPercent(oACU)
                 if iACUHealthPercent < 0.6 and (1 - iACUHealthPercent) + math.max(0.1, math.min(0.4, 1 - iACUHealthPercent)) > oACU:GetWorkProgress() and ((1 - iACUHealthPercent) + 0.1 > oACU:GetWorkProgress() or ACUExpectedToDieBeforeCompletingUpgrade(oACU)) then
                     --Do we no longer consider this location safe?
@@ -6717,7 +7023,7 @@ function GetACUOrder(aiBrain, oACU)
                     if not(M28Conditions.SafeToUpgradeUnit(oACU)) and M28Utilities.GetDistanceBetweenPositions(M28Map.GetPlayerStartPosition(oACU:GetAIBrain()), oACU:GetPosition()) >= 35 then
                         --Cancel upgrade
                         if bDebugMessages == true then LOG(sFunctionRef..': Want to cancel ACU upgrade') end
-                        M28Orders.IssueTrackedMove(oACU, M28Map.GetPlayerStartPosition(oACU:GetAIBrain()), 5, false, 'CURun')
+                        IssueACURetreatOrder(oACU, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, true, {bDisableMexesAndReclaim = true, bDisableAttackMove = true, sMoveOrderRef = 'CURun', sCoreBaseUnderFireOrderRef = 'CURun'})
                         bCanceledUpgrade = true
                     end
                 end
@@ -6742,9 +7048,8 @@ function GetACUOrder(aiBrain, oACU)
         if bDebugMessages == true then LOG(sFunctionRef..': ACU has special micro active, Time remaining='..(oACU[M28UnitInfo.refiGameTimeToResetMicroActive] or 0) - GetGameTimeSeconds()) end
         if RunFromEnemyTeleport(oACU, iTeam, tLZOrWZData) then
             if bDebugMessages == true then LOG(sFunctionRef..': Are running from a nearby enemy teleport attempt') end
-        elseif DoesACUWantToRun(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU) then
+        elseif tRetreatDecision.bWantRun then
             if bDebugMessages == true then LOG(sFunctionRef..': have flagged that acu wants to run, iPlateauOrZero='..iPlateauOrZero..'; Enemy DF structure threat='..(tLZOrWZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0)..'; ACU health%='..M28UnitInfo.GetUnitHealthPercent(oACU)..'; Is table of enemy units empty='..tostring( M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefTEnemyUnits]))) end
-            ConsiderIfACUNeedsEmergencySupport(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
             if iPlateauOrZero > 0 and M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.8 then
                 local oNearestPD
                 local iClosestDistUntilInRange = 10000
@@ -6775,17 +7080,10 @@ function GetACUOrder(aiBrain, oACU)
                 end
                 if bDebugMessages == true then LOG(sFunctionRef..'; Considering ignoring special micro, iClosestDistUntilInRange='..iClosestDistUntilInRange..'; oNearestPD='..(oNearestPD.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oNearestPD) or 'nil')) end
                 if iClosestDistUntilInRange <= 1 and oNearestPD then
-                    --We want to run
-                    local tRallyPoint = M28Land.GetNearestLandRallyPoint(tLZOrWZData, iTeam, iPlateauOrZero, iLandOrWaterZone, 2, true)
-                    if M28Utilities.IsTableEmpty(tRallyPoint) == false then
-                        if bDebugMessages == true then LOG(sFunctionRef..': Angle to rally point tRallyPoint='..M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tRallyPoint)..'; Angle to nearest enemy PD='..M28Utilities.GetAngleFromAToB(oACU:GetPosition(), oNearestPD:GetPosition())) end
-                        if M28Utilities.GetAngleDifference(M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tRallyPoint), M28Utilities.GetAngleFromAToB(oACU:GetPosition(), oNearestPD:GetPosition())) > 90 then
-                            if bDebugMessages == true then LOG(sFunctionRef..': Will consider running to shield or rally point') end
-                            if not(ConsiderRunningToNearestShield(oACU, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrZero, iLandOrWaterZone)) then
-                                if bDebugMessages == true then LOG(sFunctionRef..': Will override micro logic and retreat') end
-                                M28Orders.IssueTrackedMove(oACU, tRallyPoint, 5, false, 'ACUIgnMRetr', true)
-                            end
-                        end
+                    local tRallyPoint = GetACUPositionToRunFromNearestEnemy(oACU, iTeam, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData)
+                    if M28Utilities.IsTableEmpty(tRallyPoint) == false and M28Utilities.GetAngleDifference(M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tRallyPoint), M28Utilities.GetAngleFromAToB(oACU:GetPosition(), oNearestPD:GetPosition())) > 90 then
+                        if bDebugMessages == true then LOG(sFunctionRef..': Will override special micro with shared retreat order') end
+                        IssueACURetreatOrder(oACU, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, false, {bDisableMexesAndReclaim = true, bDisableAttackMove = true, bOverrideMicroOrder = true, sMoveOrderRef = 'ACUIgnMRetr'})
                     end
                 end
             end
@@ -6800,13 +7098,9 @@ function GetACUOrder(aiBrain, oACU)
         oACU[refbACUHasBeenGivenABuildOrderRecently] = false
         local bProceedWithLogic = true
         if oACU[refbDoingInitialBuildOrder] then
-            if not(tLZOrWZTeamData[M28Map.subrefLZbCoreBase]) and GetGameTimeSeconds() >= 20 and DoesACUWantToReturnToCoreBase(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU) and (not(M28Map.bIsCampaignMap) or aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryFactory) > 0) then
-                ConsiderIfACUNeedsEmergencySupport(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
+            if not(tLZOrWZTeamData[M28Map.subrefLZbCoreBase]) and GetGameTimeSeconds() >= 20 and tRetreatDecision.bWantCoreBase and (not(M28Map.bIsCampaignMap) or aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryFactory) > 0) then
                 if bDebugMessages == true then LOG(sFunctionRef..': Want to return to core base (or core zone with shield)') end
-                if not(ConsiderRunningToNearestShield(oACU, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrZero, iLandOrWaterZone)) then
-                    ReturnACUToCoreBase(oACU, tLZOrWZData, tLZOrWZTeamData, aiBrain, iTeam, iPlateauOrZero, iLandOrWaterZone)
-                    if bDebugMessages == true then LOG(sFunctionRef..': Will go to core base') end
-                end
+                IssueACURetreatOrder(oACU, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, true, {bDisableMexesAndReclaim = true, bDisableAttackMove = true})
                 bProceedWithLogic = false
 
             elseif M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefTEnemyUnits]) then
@@ -6863,7 +7157,7 @@ function GetACUOrder(aiBrain, oACU)
                             end
                         end
                     end
-                    if oNearestFactory and iClosestDist >= 10 and DoesACUWantToRun(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU) then
+                    if oNearestFactory and iClosestDist >= 10 and tRetreatDecision.bWantRun then
                         M28Orders.IssueTrackedMove(oACU, oNearestFactory:GetPosition(), 3, false, 'ACUCampFacR', false)
                         bCampaignRetreatInstead = true
                         bProceedWithLogic = false
@@ -6959,7 +7253,7 @@ function GetACUOrder(aiBrain, oACU)
             --Special case - rebuilding destroyed base (relevant for teamgame) - if ACU at core base, and has no factories, then build a factory
             --Cant just use factory count in case we have plateaus/islands that have factories on them
             if bDebugMessages == true then LOG(sFunctionRef..': Considerinb brain '..aiBrain.Nickname..' at time '..GetGameTimeSeconds()..'; Current factories='..aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryFactory)..'; In core LZ='..tostring(tLZOrWZTeamData[M28Map.subrefLZbCoreBase])..'; Enemies in this LZ='..tostring(tLZOrWZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ])..'; aiBrain[M28Economy.refiOurHighestAirFactoryTech]='..(aiBrain[M28Economy.refiOurHighestAirFactoryTech] or 'nil')..'; brain mass %='..aiBrain:GetEconomyStoredRatio('MASS')..'; Brain energy%='..aiBrain:GetEconomyStoredRatio('ENERGY')..'; Gross energy='..aiBrain[M28Economy.refiGrossEnergyBaseIncome]..'; gross mass='..aiBrain[M28Economy.refiGrossMassBaseIncome]..'; iPlateauOrZero='..(iPlateauOrZero or 'nil')..'; tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]='..tostring((tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false))..'; aiBrain[M28Economy.refiOurHighestLandFactoryTech]='..(aiBrain[M28Economy.refiOurHighestLandFactoryTech] or 'nil')..'; aiBrain[M28Economy.refiNetMassBaseIncome]='..aiBrain[M28Economy.refiNetMassBaseIncome]..'; Energy % stored='..aiBrain:GetEconomyStoredRatio('ENERGY')..'; LZ S value='..(tLZOrWZTeamData[M28Map.subrefLZSValue] or 'nil')..'; Time last built at facotry based on refiTimeLastBuiltAtFactory='..GetGameTimeSeconds() - (tLZOrWZTeamData[M28Map.refiTimeLastBuiltAtFactory] or 0)) end
-            if (iPlateauOrZero > 0 and not(tLZOrWZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and (tLZOrWZTeamData[M28Map.subrefLZbCoreBase] or not(tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]))) and (M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]) or not(DoesACUWantToRun(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU))) then
+            if (iPlateauOrZero > 0 and not(tLZOrWZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and (tLZOrWZTeamData[M28Map.subrefLZbCoreBase] or not(tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]))) and (M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]) or not(tRetreatDecision.bWantRun)) then
                 --Consider getting another factory if either have none of a particular type, or we are close to overflowing
                 local bWantAnotherFactory
                 local iFactoryCategoryToGet = M28UnitInfo.refCategoryLandFactory
@@ -7059,307 +7353,19 @@ function GetACUOrder(aiBrain, oACU)
                     if bDebugMessages == true then LOG(sFunctionRef..': ACU is proceeding with a telesnipe action') end
                 else
                     oACU[refbACUAvailableToDoSnipeAttack] = true
-                    if bDebugMessages == true then LOG(sFunctionRef..': Checking if ACU wants to run, Does it want to return to core base='..tostring(DoesACUWantToReturnToCoreBase(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU) or false)..'; ACU unit state='..M28UnitInfo.GetUnitState(oACU)..'; Is this core base='..tostring(tLZOrWZTeamData[M28Map.subrefLZbCoreBase] or false)..'; Dist to midpoint='..M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZOrWZData[M28Map.subrefMidpoint])..'; Does ACU want to run='..tostring(DoesACUWantToRun(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU) or false)..'; Is Enemy snipe target table empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.toActiveSnipeTargets]))..'; oACU[refbACUSnipeModeActive]='..tostring(oACU[refbACUSnipeModeActive] or false)..'; Enemy team mass income='..M28Conditions.GetEnemyTeamActualMassIncome(iTeam)..'; Our team mass income='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]) end
-                    function GetPositionToRunFromNearestEnemy()
-                        local tPositionToRunTo
-                        local oClosestEnemy, iCurDist
-                        local iClosestEnemy = 1000
-                        for iEnemy, oEnemy in tLZOrWZTeamData[M28Map.reftoNearestDFEnemies] do
-                            if not(oEnemy.Dead) then
-                                iCurDist = M28Utilities.GetDistanceBetweenPositions(oEnemy:GetPosition(), oACU:GetPosition()) - (oEnemy[M28UnitInfo.refiDFRange] or 0)
-                                if iCurDist < iClosestEnemy then
-                                    iClosestEnemy = iCurDist
-                                    oClosestEnemy = oEnemy
-                                end
-                            end
-                        end
-                        local tPositionToRunFrom
-                        if oClosestEnemy then tPositionToRunFrom = oClosestEnemy:GetPosition() else tPositionToRunFrom = tLZOrWZTeamData[M28Map.reftClosestEnemyBase] end
-                        local iAngleToMove = M28Utilities.GetAngleFromAToB(tPositionToRunFrom, oACU:GetPosition())
-                        for iDistToMove = 20, 10, -5 do
-                            tPositionToRunTo = M28Utilities.MoveInDirection(oACU:GetPosition(), iAngleToMove, iDistToMove, true, true, M28Map.bIsCampaignMap)
-                            if M28Utilities.IsTableEmpty(tPositionToRunTo) == false and NavUtils.GetLabel(M28Map.refPathingTypeHover, tPositionToRunTo) == iPlateauOrZero then
-                                break
-                            else
-                                tPositionToRunTo = nil
-                            end
-                        end
-                        if not(tPositionToRunTo) then tPositionToRunTo = M28Land.GetNearestLandRallyPoint(tLZOrWZData, iTeam, iPlateauOrZero, iLandOrWaterZone, 2, true) end
-                        return tPositionToRunTo
-                    end
+                    if bDebugMessages == true then LOG(sFunctionRef..': Checking if ACU wants to run, Does it want to return to core base='..tostring(tRetreatDecision.bWantCoreBase or false)..'; ACU unit state='..M28UnitInfo.GetUnitState(oACU)..'; Is this core base='..tostring(tLZOrWZTeamData[M28Map.subrefLZbCoreBase] or false)..'; Dist to midpoint='..M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZOrWZData[M28Map.subrefMidpoint])..'; Does ACU want to run='..tostring(tRetreatDecision.bWantRun or false)..'; Is Enemy snipe target table empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.toActiveSnipeTargets]))..'; oACU[refbACUSnipeModeActive]='..tostring(oACU[refbACUSnipeModeActive] or false)..'; Enemy team mass income='..M28Conditions.GetEnemyTeamActualMassIncome(iTeam)..'; Our team mass income='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]) end
                     --Potential snipe target if we are in range of an enemy ACU and it is low enough health that we can just go for a kill
                     if oACU[refbACUSnipeModeActive] or DoesACUWantToSuicideIntoEnemyACU(oACU, iTeam, iPlateauOrZero, iLandOrWaterZone, tLZOrWZTeamData) then
                         if bDebugMessages == true then LOG(sFunctionRef..': Will try and kill enemy ACU (via special micro logic)') end
-                    elseif not(oACU:IsUnitState('Building')) and DoesACUWantToReturnToCoreBase(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU) then
-                        if  tLZOrWZTeamData[M28Map.subrefLZbCoreBase] and M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]) == false then
-                            if not(ConsiderRunningToGETemplate(oACU, tLZOrWZData, tLZOrWZTeamData, iPlateauOrZero)) then
-                                local tRallyPoint = GetPositionToRunFromNearestEnemy()
-                                if bDebugMessages == true then LOG(sFunctionRef..': Will run from enarest enemy as are in core base') end
-                                M28Orders.IssueTrackedMove(oACU, tRallyPoint, 5, false, 'RunNrEcb')
-                            end
-                        else
-                            ConsiderIfACUNeedsEmergencySupport(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
-                            if not(ConsiderRunningToGETemplate(oACU, tLZOrWZData, tLZOrWZTeamData, iPlateauOrZero)) then
-                                if bDebugMessages == true then LOG(sFunctionRef..': ACU more than 10 from core base midpoint so will retreat there, ACU dist to this midpoint='..M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZOrWZData[M28Map.subrefMidpoint])..'; Is this core base='..tostring(tLZOrWZTeamData[M28Map.subrefLZbCoreBase])) end
-                                if not(ConsiderRunningToNearestShield(oACU, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrZero, iLandOrWaterZone)) then
-                                    ReturnACUToCoreBase(oACU, tLZOrWZData, tLZOrWZTeamData, aiBrain, iTeam, iPlateauOrZero, iLandOrWaterZone)
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Going to core base') end
-                                end
-                            elseif bDebugMessages == true then LOG(sFunctionRef..': Will run to GE template')
-                            end
-                        end
-                    elseif DoesACUWantToRun(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU) and
+                    elseif not(oACU:IsUnitState('Building')) and tRetreatDecision.bWantCoreBase then
+                        IssueACURetreatOrder(oACU, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, true, {bDisableMexesAndReclaim = true, bDisableAttackMove = true})
+                    elseif tRetreatDecision.bWantRun and
                             (not(tLZOrWZTeamData[M28Map.subrefLZbCoreBase]) or M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.7
                                     or (M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar] and (M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] >= 2 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 1.3 * M28Conditions.GetEnemyTeamActualMassIncome(iTeam)))
                                     or (M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]) == false and M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] >= 5000 and M28Conditions.CloseToEnemyUnit(oACU:GetPosition(), M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals], 80, iTeam, true, nil, nil, nil, nil, nil)))
 
                     then --and M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZOrWZData[M28Map.subrefMidpoint]) <= 10) then
-                        local tRallyPoint
-                        local bConsiderMexesAndReclaim = false
-                        if not(ConsiderRunningToGETemplate(oACU, tLZOrWZData, tLZOrWZTeamData, iPlateauOrZero)) then
-                            ConsiderIfACUNeedsEmergencySupport(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
-                            oACU[refiTimeLastWantedToRun] = GetGameTimeSeconds()
-
-                            --If are in core zone then run from nearest enemy
-                            if bDebugMessages == true then LOG(sFunctionRef..': Is table of nearest DF enemies empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]))..'; Core base='..tostring(tLZOrWZTeamData[M28Map.subrefLZbCoreBase])) end
-                            if tLZOrWZTeamData[M28Map.subrefLZbCoreBase] and M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]) == false and (M28UnitInfo.GetUnitHealthPercent(oACU) < 0.9 or M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar]) then
-                                tRallyPoint = GetPositionToRunFromNearestEnemy()
-                                if bDebugMessages == true then LOG(sFunctionRef..'; Rally point is based on running from the nearest enemy, angle to rally point='..M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tRallyPoint)) end
-                            else
-                                --Retreat to nearest rally (unless we arent in a land zone in which case head towards core base)
-
-                                if iLandOrWaterZone > 0 and iPlateauOrZero > 0 then
-                                    --Are we on a different island to our base, and want to move back there?
-
-                                    tRallyPoint = M28Land.GetNearestLandRallyPoint(tLZOrWZData, iTeam, iPlateauOrZero, iLandOrWaterZone, 2, true)
-                                    --If the rally point takes us further away from the closest friendly base, and is more than 50 from the closest friendly base, then head towards the base (exception if rally point is a core base or is a location with friendly PD and/or factories or significantly friendly combat)
-                                    if bDebugMessages == true then LOG(sFunctionRef..': tRallyPoint='..repru(tRallyPoint)..' for P'..iPlateauOrZero..'Z'..iLandOrWaterZone..'; ACU position='..repru(oACU:GetPosition())..'; ACU angle to rally='..M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tRallyPoint)..'; Dist from rally to closest friendly base='..M28Utilities.GetDistanceBetweenPositions(tRallyPoint, tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])) end
-                                    if M28Utilities.GetDistanceBetweenPositions(tRallyPoint, tLZOrWZTeamData[M28Map.reftClosestFriendlyBase]) >= 50 then
-                                        local iDistToBase = M28Utilities.GetDistanceBetweenPositions(tLZOrWZData[M28Map.subrefMidpoint], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Will switch to running to base if base relatively close and rally point a dif angle, iDistToBase='..iDistToBase..'; Mod dist%='..tLZOrWZTeamData[M28Map.refiModDistancePercent]..'; Angle dif='..M28Utilities.GetAngleDifference(M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tRallyPoint), M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tLZOrWZTeamData[M28Map.reftClosestFriendlyBase]))) end
-                                        if iDistToBase <= 250 and tLZOrWZTeamData[M28Map.refiModDistancePercent] <= 0.6 and M28Utilities.GetAngleDifference(M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tRallyPoint), M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])) >= 35 then
-                                            if M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.8 then bConsiderMexesAndReclaim = true end
-
-                                            --Consider friendly base if it isnt dangerous
-                                            if M28Conditions.BaseIsSafeToRetreatTo(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase], iTeam) then
-                                                tRallyPoint = {tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][1], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][2], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][3]}
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Will have ACU retreat to closest friendly base, angle to closest friendly base='..M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tRallyPoint)) end
-                                            end
-                                        else
-
-                                            local tRallyLZData, tRallyLZTeamData = M28Map.GetLandOrWaterZoneData(tRallyPoint, true, iTeam)
-
-                                            if not(tRallyLZTeamData[M28Map.subrefLZbCoreBase]) then
-                                                local iRallyThreat = (tRallyLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0)
-                                                if tRallyLZTeamData == tLZOrWZTeamData then iRallyThreat = iRallyThreat - M28UnitInfo.GetCombatThreatRating({oACU}, false, false, false, false, false, false, false, false) end
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Rally point is more than 50 from closest friendly base, checking if threat is too low, iRallyThreat='..iRallyThreat..'; Is rally in a core expansion='..tostring(tRallyLZTeamData[M28Map.subrefLZCoreExpansion])) end
-                                                if iRallyThreat <= 500 and (not(tRallyLZTeamData[M28Map.subrefLZCoreExpansion]) or tRallyLZTeamData[M28Map.subrefLZSValue] < 220) then --Only consider core expansion if it has significant structure value, e.g. similar to having 1 land factory
-                                                    if bDebugMessages == true then LOG(sFunctionRef..': Dist from rally to closest base='..M28Utilities.GetDistanceBetweenPositions(tRallyLZTeamData[M28Map.reftClosestFriendlyBase], tRallyLZData[M28Map.subrefMidpoint])..'; Dist from ACU to closest base='..M28Utilities.GetDistanceBetweenPositions(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase], oACU:GetPosition())) end
-                                                    if M28Utilities.GetDistanceBetweenPositions(tRallyLZTeamData[M28Map.reftClosestFriendlyBase], tRallyLZData[M28Map.subrefMidpoint]) > M28Utilities.GetDistanceBetweenPositions(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase], oACU:GetPosition()) then
-                                                        bConsiderMexesAndReclaim = false
-                                                        --Is our closest friendly base in the same plateau?
-                                                        local iClosestBasePlateauOrZero, iClosestBaseLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])
-                                                        if iClosestBasePlateauOrZero == iPlateauOrZero and M28Conditions.BaseIsSafeToRetreatTo(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase], iTeam)  then
-                                                            tRallyPoint = {tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][1], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][2], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][3]}
-                                                            if bDebugMessages == true then LOG(sFunctionRef..': Changed rally point to be the closest friendly base, angle to this='..M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tRallyPoint)) end
-                                                        end
-                                                    end
-                                                else
-                                                    if bDebugMessages == true then LOG(sFunctionRef..': Checking if rally LZ is same as ACU LZ, are they equal='..tostring(tRallyLZData == tLZOrWZData)) end
-                                                    if tRallyLZData == tLZOrWZData then
-                                                        if bDebugMessages == true then LOG(sFunctionRef..': ACU health%='..M28UnitInfo.GetUnitHealthPercent(oACU)..'; iRallyThreat='..iRallyThreat) end
-                                                        if M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.5 and iRallyThreat < 100 then
-                                                            if bDebugMessages == true then LOG(sFunctionRef..': Want to consider mexes and reclaim') end
-                                                            bConsiderMexesAndReclaim= true
-                                                        end
-                                                    end
-                                                end
-                                            end
-                                        end
-                                        if bConsiderMexesAndReclaim then
-                                            --If have DF enemies in our range or their range then dont consider reclaim
-                                            local iCurEnemyDist
-                                            if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]) == false then
-                                                for iEnemy, oEnemy in tLZOrWZTeamData[M28Map.reftoNearestDFEnemies] do
-                                                    if M28UnitInfo.IsUnitValid(oEnemy) then
-                                                        iCurEnemyDist = M28Utilities.GetDistanceBetweenPositions(oEnemy:GetPosition(), oACU:GetPosition())
-                                                        if iCurEnemyDist < math.max((oACU[M28UnitInfo.refiDFRange] or 0), oEnemy[M28UnitInfo.refiDFRange] or 0) then
-                                                            if bDebugMessages == true then LOG(sFunctionRef..': Enemy '..oEnemy.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEnemy)..' is only '..iCurEnemyDist..' away from us so wont consider mex building or reclaim after all') end
-                                                            bConsiderMexesAndReclaim = false
-                                                            break
-                                                        end
-                                                    end
-                                                end
-                                            end
-                                            if bConsiderMexesAndReclaim and M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefoNearbyEnemyLongRangeDFThreats]) == false then
-                                                for iEnemy, oEnemy in tLZOrWZTeamData[M28Map.subrefoNearbyEnemyLongRangeDFThreats] do
-                                                    if M28UnitInfo.IsUnitValid(oEnemy) then
-                                                        iCurEnemyDist = M28Utilities.GetDistanceBetweenPositions(oEnemy:GetPosition(), oACU:GetPosition())
-                                                        if iCurEnemyDist < math.max((oACU[M28UnitInfo.refiDFRange] or 0), oEnemy[M28UnitInfo.refiDFRange] or 0) + 5 then
-                                                            if bDebugMessages == true then LOG(sFunctionRef..': Enemy '..oEnemy.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEnemy)..' is only '..iCurEnemyDist..' away from us so wont consider mex building or reclaim after all') end
-                                                            bConsiderMexesAndReclaim = false
-                                                            break
-                                                        end
-                                                    end
-                                                end
-                                            end
-                                        end
-                                    end
-                                    --[[GetTravelDistanceBetweenPositions(tStart, tEnd, sPathing)
-                                    local iTravelDistFromRallyToClosestFriendlyBase
-
-                                     = M28Utilities.GetTravelDist--]]
-
-
-                                else
-                                    tRallyPoint = M28Map.GetPlayerStartPosition(oACU:GetAIBrain())
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Will retreat to ACU start position, angle to this='..M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tRallyPoint)) end
-                                end
-                            end
-
-                            --If enemy has nearby exp then run in opposite direction (rather tahn going to rally point) if rally point isn't much further away from the exp, unless we are already in range of the EXP (since we might as well then consider overcharging it)
-                            local bHaveNearbyExperimentalOrder = false
-                            if bDebugMessages == true then LOG(sFunctionRef..': Is table of enemy land exp empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]))) end
-                            if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]) == false then
-                                local iClosestEnemyExp = 165
-                                if tLZOrWZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] >= 20000 then iClosestEnemyExp = 140 end
-                                local oClosestEnemyExp, iCurDist
-                                for iExp, oExp in M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals] do
-                                    if M28UnitInfo.IsUnitValid(oExp) then
-                                        iCurDist = M28Utilities.GetDistanceBetweenPositions(oExp:GetPosition(), oACU:GetPosition())
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Considering enemy land exp '..oExp.UnitId..M28UnitInfo.GetUnitLifetimeCount(oExp)..'; iCurDist='..iCurDist..'; Unit range='..(oExp[M28UnitInfo.refiDFRange] or 0)) end
-                                        if iCurDist < iClosestEnemyExp then
-                                            iClosestEnemyExp = iCurDist
-                                            oClosestEnemyExp = oExp
-                                        end
-                                    end
-                                end
-                                --If enemy has land exp near us but we arent already in range of it then run in the opopsite direction
-                                if oClosestEnemyExp then
-                                    if iClosestEnemyExp > math.max((oACU[M28UnitInfo.refiDFRange] or 0), (oClosestEnemyExp[M28UnitInfo.refiDFRange] or 0) + 2) then
-                                        --Is the rally point taking us further away from this?
-                                        local iRallyPointDist = M28Utilities.GetDistanceBetweenPositions(oClosestEnemyExp:GetPosition(), tRallyPoint)
-                                        local iAngleFromACUToExp = M28Utilities.GetAngleFromAToB(oACU:GetPosition(), oClosestEnemyExp:GetPosition())
-                                        local iAngleToRally = M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tRallyPoint)
-                                        local iAngleDif = M28Utilities.GetAngleDifference(iAngleFromACUToExp, iAngleToRally)
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Considering if we want ACU to run from enemy EXP, oClosestEnemyExp='..oClosestEnemyExp.UnitId..M28UnitInfo.GetUnitLifetimeCount(oClosestEnemyExp)..'; iClosestEnemyExp='..iClosestEnemyExp..'; iAngleFromACUToExp='..iAngleFromACUToExp..'; iRallyPointDist='..iRallyPointDist..'; Angle to rally='..M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tRallyPoint)..'; Dist to rally='..M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tRallyPoint)..'; iAngleDif='..iAngleDif) end
-                                        if (iRallyPointDist <= 30 + iClosestEnemyExp and (M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tRallyPoint) <= 30 or iAngleDif <= 110))
-                                                or (iAngleDif <= 130 and iClosestEnemyExp <= 95) then
-                                            local tAltRallyPoint = M28Utilities.MoveInDirection(oACU:GetPosition(), iAngleFromACUToExp-180, 15, true, true, true)
-                                            if M28Utilities.IsTableEmpty(tAltRallyPoint) == false and NavUtils.GetLabel(M28Map.refPathingTypeHover, tAltRallyPoint) == NavUtils.GetLabel(M28Map.refPathingTypeHover, oACU:GetPosition()) then
-                                                bHaveNearbyExperimentalOrder = true
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Will run to alt rally point') end
-                                                M28Orders.IssueTrackedMove(oACU, tAltRallyPoint, 5, false, 'RunExp')
-                                            end
-                                        elseif iAngleDif <= 150 and iClosestEnemyExp <= 105 then
-                                            --Go halfway between opposite direction to enemy Exp, and the angle to rally point
-                                            local iInitialAngleWanted = iAngleFromACUToExp-180
-                                            local iAngleMod =  M28Utilities.GetAngleDifference(iAngleToRally, iInitialAngleWanted) * 0.5
-                                            if iInitialAngleWanted > iAngleToRally then
-                                                if iInitialAngleWanted < iAngleToRally + 180 then
-                                                    --Want to decrease by iAngleMod as we are larger but not so much so that we should reduce angle
-                                                    iAngleMod = iAngleMod * -1
-                                                else
-                                                    --Increase by angle - we are larger, and by so much that incresing makes us get closer
-                                                end
-                                            else
-                                                if iInitialAngleWanted + 180 < iAngleToRally then
-                                                    iAngleMod = iAngleMod * -1
-                                                end
-                                            end
-                                            if bDebugMessages == true then LOG(sFunctionRef..': iInitialAngleWanted='..iInitialAngleWanted..'; iAngleMod='..iAngleMod) end
-                                            local tAltRallyPoint = M28Utilities.MoveInDirection(oACU:GetPosition(), iInitialAngleWanted + iAngleMod, 15, true, true, true)
-                                            if M28Utilities.IsTableEmpty(tAltRallyPoint) == false and NavUtils.GetLabel(M28Map.refPathingTypeHover, tAltRallyPoint) == NavUtils.GetLabel(M28Map.refPathingTypeHover, oACU:GetPosition()) then
-                                                bHaveNearbyExperimentalOrder = true
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Will run to alternative rally point inbetween opposite direction to exp and cur rally point') end
-                                                M28Orders.IssueTrackedMove(oACU, tAltRallyPoint, 5, false, 'RunExp')
-                                            end
-                                        end
-                                    else
-                                        if not(ConsiderRunningToNearestShield(oACU, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrZero, iLandOrWaterZone)) then
-                                            bHaveNearbyExperimentalOrder = true
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Will run to nearby shield') end
-                                        else
-                                            if iClosestEnemyExp <= (oACU[M28UnitInfo.refiDFRange] or 0) + 17 and M28Conditions.CanUnitUseOvercharge(oACU:GetAIBrain(), oACU, tLZOrWZTeamData) then --e.g. up against ythotha, gc or monkeylord - want to try and get in range to overcharge since we are now in range
-                                                --We dont have nearby shield to retreat to, and are in range of the enemy EXP, but we can overcharge it
-                                                bHaveNearbyExperimentalOrder = true
-                                                M28Orders.IssueTrackedMove(oACU, oClosestEnemyExp:GetPosition(), 5, false, 'RnAtkExp')
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Will attack Exp in case we can overcharge it') end
-                                            end
-                                        end
-                                    end
-                                end
-                            end
-
-
-                            --If we are already in the zone for the rally point and it has unbuilt mexes or significant reclaim then want to consider getting them; otherwise go to nearest friendly base
-                            if not(bHaveNearbyExperimentalOrder) then
-                                local oPrimaryRetreatEnemy
-                                if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]) == false then
-                                    oPrimaryRetreatEnemy = M28Utilities.GetNearestUnit(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies], oACU:GetPosition())
-                                end
-                                local tResolvedRallyPoint, sResolvedRetreatPointRef = ResolveACURetreatPoint(oACU, iTeam, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, tRallyPoint, oPrimaryRetreatEnemy, M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.5 or M28Team.tTeamData[iTeam][M28Team.refbDangerousForACUs])
-                                if tResolvedRallyPoint then
-                                    tRallyPoint = tResolvedRallyPoint
-                                    if sResolvedRetreatPointRef ~= 'Default' then
-                                        bConsiderMexesAndReclaim = false
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Resolved retreat point to '..sResolvedRetreatPointRef..', tRallyPoint='..repru(tRallyPoint)) end
-                                    end
-                                end
-                            end
-                            if not(bHaveNearbyExperimentalOrder) and (not(bConsiderMexesAndReclaim) or (not(ConsiderBuildingMex(tLZOrWZData, tLZOrWZTeamData, oACU, 15)) and not(ConsiderNearbyReclaimForACUOrEngineer(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU, M28UnitInfo.GetUnitHealthPercent(oACU) < 0.75, 20)))) then
-
-                                --Consider using old rally point if new one is further from base and <60s since we have retreated
-                                if oACU[reftLastRallyPointRanTo] and oACU[refiTimeLastWantedToRun] and GetGameTimeSeconds() - oACU[refiTimeLastWantedToRun] <= 60 then
-                                    local iCurDistToBase = M28Utilities.GetDistanceBetweenPositions(tRallyPoint, tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])
-                                    local iPreviousDistToBase = M28Utilities.GetDistanceBetweenPositions(oACU[reftLastRallyPointRanTo], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Considering using old rally point if its closer to our base than current rally point, iCurDistToBase='..iCurDistToBase..'; iPreviousDistToBase='..iPreviousDistToBase) end
-                                    if iCurDistToBase - 5 > iPreviousDistToBase then
-                                        local tOldRallyLZData, tOldRallyLZTeamData = M28Map.GetLandOrWaterZoneData(oACU[reftLastRallyPointRanTo], true, iTeam)
-                                        if tOldRallyLZTeamData and not(tOldRallyLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) then
-                                            tRallyPoint = {oACU[reftLastRallyPointRanTo][1], oACU[reftLastRallyPointRanTo][2], oACU[reftLastRallyPointRanTo][3]}
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Switching to old rally point') end
-                                        end
-                                    end
-                                end
-                                if M28Team.tTeamData[iTeam][M28Team.refbDangerousForACUs] and M28Conditions.BaseIsSafeToRetreatTo(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase], iTeam) then
-                                    tRallyPoint = {tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][1], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][2], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][3]}
-                                end
-                                local bFactoryInWay = false
-                                if M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tRallyPoint) <= 25 then
-                                    bFactoryInWay = M28Conditions.IsPositionInWayOfFactory(tRallyPoint)
-                                end
-                                if bDebugMessages == true then LOG(sFunctionRef..': Will retreat to base unless would be blocking a factory, bFactoryInWay='..tostring(bFactoryInWay)) end
-                                if bFactoryInWay then
-                                    local iAngleFromEnemyBase = M28Utilities.GetAngleFromAToB(tLZOrWZTeamData[M28Map.reftClosestEnemyBase], tRallyPoint)
-                                    local tPositionToRunTo
-                                    local iPlateauWanted
-                                    if iPlateauOrZero == 0 then iPlateauWanted = NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, oACU:GetPosition())
-                                    else iPlateauWanted = iPlateauOrZero end
-
-                                    for iDist = 4, 24, 4 do
-                                        tPositionToRunTo = M28Utilities.MoveInDirection(tRallyPoint, iAngleFromEnemyBase, iDist, true, true, M28Map.bIsCampaignMap)
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Trying to find position on same plateau not blocked by factory, iDist='..iDist..'; Plateau of tPositionToRunTo='..(NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, tPositionToRunTo) or 'nil')..'; iPlateauWanted='..(iPlateauWanted or 'nil')..'; Is it in way of  factory='..tostring(M28Conditions.IsPositionInWayOfFactory(tPositionToRunTo) or false)) end
-                                        if tPositionToRunTo and NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, tPositionToRunTo) == iPlateauWanted then
-                                            bFactoryInWay = M28Conditions.IsPositionInWayOfFactory(tPositionToRunTo)
-                                            if not(bFactoryInWay) then break end
-                                        end
-                                    end
-                                    if bDebugMessages == true then LOG(sFunctionRef..': bFactoryInWay after trying to find alternative location='..tostring(bFactoryInWay)) end
-                                    if not(bFactoryInWay) then tRallyPoint = {tPositionToRunTo[1], tPositionToRunTo[2], tPositionToRunTo[3]} end
-                                end
-
-
-                                if not(M28Team.tTeamData[iTeam][M28Team.refbDangerousForACUs]) and iPlateauOrZero > 0 and M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]) == false and M28Conditions.GiveAttackMoveAsWeaponStuck(oACU) and M28Conditions.CloseToEnemyUnit(oACU:GetPosition(), tLZOrWZTeamData[M28Map.reftoNearestDFEnemies], oACU[M28UnitInfo.refiCombatRange], iTeam, false, nil, nil, nil, nil, nil) then
-                                    M28Orders.IssueTrackedAttackMove(oACU, tRallyPoint, 5, false, 'RunARP')
-                                else
-                                    M28Orders.IssueTrackedMove(oACU, tRallyPoint, 5, false, 'RunRP')
-                                end
-                                oACU[reftLastRallyPointRanTo] = {tRallyPoint[1], tRallyPoint[2], tRallyPoint[3]}
-                                if bDebugMessages == true then LOG(sFunctionRef..': Telling ACU to run; aACU orders after this='..reprs(oACU[M28Orders.reftiLastOrders])..'; Is micro active='..tostring(oACU[M28UnitInfo.refbSpecialMicroActive])..'; Nearest land rally point='..repru(M28Land.GetNearestLandRallyPoint(tLZOrWZData, iTeam, iPlateauOrZero, iLandOrWaterZone, 2, true))..'; P'..iPlateauOrZero..'Z'..iLandOrWaterZone..'; Rally point='..repru(tRallyPoint)..'; Nearest friendly base='..repru(M28Map.GetPlayerStartPosition(oACU:GetAIBrain()))..'; Dist from rally point to friendly base='..M28Utilities.GetDistanceBetweenPositions(tRallyPoint, M28Map.GetPlayerStartPosition(oACU:GetAIBrain()))..'; Dist from ACU to rally point='..M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tRallyPoint)) end
-                            end
-                        elseif bDebugMessages == true then LOG(sFunctionRef..': Will run to GE template')
-                        end
+                        IssueACURetreatOrder(oACU, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, false)
                     else
                         --ACU is being used as an engineer?
                         if oACU[refiBuildTech] > 1 and ((oACU[refiBuildTech] >= aiBrain[M28Economy.refiOurHighestFactoryTechLevel] and ((oACU[refiBuildTech] > aiBrain[M28Economy.refiOurHighestFactoryTechLevel] and M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies])) or not(tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]))) or (oACU[M28UnitInfo.refiDFRange] or 0) <= 24) and HaveActionForACUAsEngineer(oACU, tLZOrWZData, tLZOrWZTeamData, iPlateauOrZero, iLandOrWaterZone) then
@@ -7401,9 +7407,8 @@ function GetACUOrder(aiBrain, oACU)
                                                     end
                                                 else
                                                     --Retreat
-                                                    local tRallyPoint = M28Land.GetNearestLandRallyPoint(tLZOrWZData, oACU:GetAIBrain().M28Team, iPlateauOrZero, iLandOrWaterZone, 2)
-                                                    if bDebugMessages == true then LOG(sFunctionRef..': Not safe to get priority upgrade so want to retreat until it is, going to nearest land rally point, P'..iPlateauOrZero..'Z'..iLandOrWaterZone..'; tRallyPoint='..repru(tRallyPoint)..'; ACU position='..repru(oACU:GetPosition())..'; Angle to this='..M28Utilities.GetAngleFromAToB(oACU:GetPosition(), tRallyPoint)) end
-                                                    M28Orders.IssueTrackedMove(oACU, tRallyPoint, 5, false, 'R4UeNg')
+                                                    if bDebugMessages == true then LOG(sFunctionRef..': Not safe to get priority upgrade so want to retreat until it is, P'..iPlateauOrZero..'Z'..iLandOrWaterZone..'; ACU position='..repru(oACU:GetPosition())) end
+                                                    IssueACURetreatOrder(oACU, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, false, {bDisableMexesAndReclaim = true, bDisableAttackMove = true, sMoveOrderRef = 'R4UeNg'})
                                                 end
                                             end
                                         end
