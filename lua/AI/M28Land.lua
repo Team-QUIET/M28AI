@@ -5027,6 +5027,44 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
             end
         end
     end
+    local function GetNearestEnemyVisibilityRefreshState(oNearestEnemyUnit)
+        local bUpdateNearestUnitLocal = false
+        local bCheckIfNearestUnitVisibleLocal = false
+        if oNearestEnemyUnit and oNearestEnemyUnit[M28UnitInfo.reftLastKnownPositionByTeam] and oNearestEnemyUnit[M28UnitInfo.reftLastKnownPositionByTeam][iTeam] and M28Utilities.GetDistanceBetweenPositions(oNearestEnemyUnit:GetPosition(), oNearestEnemyUnit[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]) >= 10 then
+            bCheckIfNearestUnitVisibleLocal = true
+        end
+        return bUpdateNearestUnitLocal, bCheckIfNearestUnitVisibleLocal
+    end
+    local function ShouldRefreshNearestEnemyVisibilityFromUnit(oUnit, oNearestEnemyUnit, bCheckIfNearestUnitVisibleLocal, bUpdateNearestUnitLocal)
+        return bCheckIfNearestUnitVisibleLocal and not(bUpdateNearestUnitLocal) and oNearestEnemyUnit and oNearestEnemyUnit[M28UnitInfo.reftLastKnownPositionByTeam] and oNearestEnemyUnit[M28UnitInfo.reftLastKnownPositionByTeam][iTeam] and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oNearestEnemyUnit[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]) <= 18
+    end
+    local function GetPDConstructionPressureSignals(iAvailableCombatUnitThreatLocal, iEnemyCombatThreatInZoneLocal, iEnemyCombatThreatAdjacentLocal, tEnemyEngineersLocal, tEnemyUnitsLocal, iEngineerMoveThreatCap, iPDPressureThreatCap, bRequireNoPDForEngineerMove)
+        local bMoveToStopPDConstructionLocal = false
+        local bMoveTowardsEngineersLocal = false
+        if M28Utilities.IsTableEmpty(tEnemyEngineersLocal) == false and iEnemyCombatThreatInZoneLocal <= 100 and (iAvailableCombatUnitThreatLocal or 0) >= math.min(40, iEnemyCombatThreatInZoneLocal * 3) and iEnemyCombatThreatAdjacentLocal <= 500 and ((not(iPDPressureThreatCap)) or iAvailableCombatUnitThreatLocal <= iPDPressureThreatCap) then
+            local tEnemyPD = EntityCategoryFilterDown(M28UnitInfo.refCategoryPD, tEnemyUnitsLocal)
+            local bHasEnemyPD = not(M28Utilities.IsTableEmpty(tEnemyPD))
+            if bHasEnemyPD then
+                local bAllPDIncomplete = true
+                for _, oPD in tEnemyPD do
+                    if oPD:GetFractionComplete() == 1 then
+                        bAllPDIncomplete = false
+                        break
+                    end
+                end
+                if bAllPDIncomplete then
+                    local iPDThreat = M28UnitInfo.GetCombatThreatRating(tEnemyPD, true)
+                    if (iAvailableCombatUnitThreatLocal or 0) > 2 * iEnemyCombatThreatInZoneLocal - iPDThreat and (iAvailableCombatUnitThreatLocal or 0) >= iEnemyCombatThreatAdjacentLocal then
+                        bMoveToStopPDConstructionLocal = true
+                    end
+                end
+            end
+            if iEngineerMoveThreatCap and (iAvailableCombatUnitThreatLocal or 0) <= iEngineerMoveThreatCap and (not(bRequireNoPDForEngineerMove) or not(bHasEnemyPD)) then
+                bMoveTowardsEngineersLocal = true
+            end
+        end
+        return bMoveToStopPDConstructionLocal, bMoveTowardsEngineersLocal
+    end
     local function GetLaneBandForLZ(tLZDataLocal, tLaneBandsLocal)
         if not(tLaneBandsLocal and tLZDataLocal and tLZDataLocal[M28Map.subrefMidpoint]) then return nil, nil end
         local iProj = (tLZDataLocal[M28Map.subrefMidpoint][1] * tLaneBandsLocal.iLatX) + (tLZDataLocal[M28Map.subrefMidpoint][3] * tLaneBandsLocal.iLatZ)
@@ -7969,10 +8007,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
                     if bDebugMessages == true then LOG(sFunctionRef..' Finished deciding if IF units should attack nearest significant enemy, bIFAttackNearestSignificantEnemy='..tostring(bIFAttackNearestSignificantEnemy)..'; Indirect total for this zone='..tLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal]..'; iOurDFAndT1ArtiCombatThreat='..(iOurDFAndT1ArtiCombatThreat or 'nil')..'; iEnemyCombatThreat if calculated='..(iEnemyCombatThreat or 'nil')..'; Nearest enemy mass value='..oNearestEnemyToFriendlyBase[M28UnitInfo.refiUnitMassCost]..'; UnitId='..oNearestEnemyToFriendlyBase.UnitId..'; oNearestEnemyToFriendlyBase DF range='..(oNearestEnemyToFriendlyBase[M28UnitInfo.refiDFRange] or 'nil')..'; Combat range='..(oNearestEnemyToFriendlyBase[M28UnitInfo.refiCombatRange] or 'nil')..'; Is toAdjacentEnemyMexes empty='..tostring(M28Utilities.IsTableEmpty(toAdjacentEnemyMexes))) end
 
-
-                    local bUpdateNearestUnit = false
-                    local bCheckIfNearestUnitVisible = false
-                    if M28Utilities.GetDistanceBetweenPositions(oNearestEnemyToFriendlyBase:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]) >= 10 then bCheckIfNearestUnitVisible = true end
+                    local bUpdateNearestUnit, bCheckIfNearestUnitVisible = GetNearestEnemyVisibilityRefreshState(oNearestEnemyToFriendlyBase)
                     if oNearestEnemyToFriendlyBase[M28UnitInfo.refiCombatRange] >= 10 then
                         if bDebugMessages == true then LOG(sFunctionRef..': Adding nearest enemy unit '..oNearestEnemyToFriendlyBase.UnitId..M28UnitInfo.GetUnitLifetimeCount(oNearestEnemyToFriendlyBase)..' to skirmisher enemies') end
                         table.insert(tSkirmisherDFEnemies, oNearestEnemyToFriendlyBase)
@@ -7981,37 +8016,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             if bDebugMessages == true then LOG(sFunctionRef..': Also adding enemy against tSkirmisherEnemyT3MobileArti') end
                         end
                     end
-                    local bMoveToStopPDConstruction = false
-                    local bMoveTowardsEngineers = false
+                    local bMoveToStopPDConstruction, bMoveTowardsEngineers = GetPDConstructionPressureSignals(iAvailableCombatUnitThreat, tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal], GetEnemyCombatThreatInAdjacentZones(), tEnemyEngineers, tLZTeamData[M28Map.subrefTEnemyUnits], 300, 1500, true)
                     if bDebugMessages == true then LOG(sFunctionRef..': In scenario 1, checking if enemy engineers, Is table of enemy engineers empty='..tostring(M28Utilities.IsTableEmpty(tEnemyEngineers))..'; enemy combat='..(tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 'nil')..'; iAvailableCombatUnitThreat='..iAvailableCombatUnitThreat) end
-                    if M28Utilities.IsTableEmpty(tEnemyEngineers) == false and tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] <= 100 and (iAvailableCombatUnitThreat or 0) >= math.min(40, tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] * 3) and iAvailableCombatUnitThreat <= 1500 and GetEnemyCombatThreatInAdjacentZones() <= 500  then
-                        local tEnemyPD = EntityCategoryFilterDown(M28UnitInfo.refCategoryPD, tLZTeamData[M28Map.subrefTEnemyUnits])
-                        if bDebugMessages == true then LOG(sFunctionRef..': Is table of enemy PD empty='..tostring(M28Utilities.IsTableEmpty(tEnemyPD))) end
-                        if M28Utilities.IsTableEmpty(tEnemyPD) == false then
-                            bMoveToStopPDConstruction = true
-                            for iPD, oPD in tEnemyPD do
-                                if oPD:GetFractionComplete() == 1 then
-                                    bMoveToStopPDConstruction = false
-                                    break
-                                end
-                            end
-                            if bDebugMessages == true then LOG(sFunctionRef..': bMoveToStopPDConstruction before doublechecking threats='..tostring(bMoveToStopPDConstruction)) end
-                            if bMoveToStopPDConstruction then
-                                --Check we have significantly more threat if excluding under-construction PD
-                                bMoveToStopPDConstruction = false
-                                local iPDThreat = M28UnitInfo.GetCombatThreatRating(tEnemyPD, true)
-                                if bDebugMessages == true then LOG(sFunctionRef..': iPDThreat='..iPDThreat) end
-                                if (iAvailableCombatUnitThreat or 0) > 2 * tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] - iPDThreat and iAvailableCombatUnitThreat > GetEnemyCombatThreatInAdjacentZones() then
-                                    bMoveToStopPDConstruction = true
-                                end
-                            end
-                        else
-                            --do we have engineers to attack instead?
-                            if iAvailableCombatUnitThreat <= 400 and iAvailableCombatUnitThreat <= 300 then
-                                bMoveTowardsEngineers = true
-                            end
-                        end
-                    end
 
                     local iDistFromNearestEnemyToFriendlyBase = 10000 --used in some niche scenarios so we attack nearest unit e.g. mex instead of further away one
                     if oNearestEnemyToFriendlyBase then iDistFromNearestEnemyToFriendlyBase = M28Utilities.GetDistanceBetweenPositions(oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], tLZTeamData[M28Map.reftClosestFriendlyBase]) end
@@ -8130,7 +8136,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             end
 
                             --If we are close to the last known position such that we will be able to see there is no longer a unit there, then update this unit's position for next cycle
-                            if bCheckIfNearestUnitVisible and not(bUpdateNearestUnit) and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]) <= 18 then bUpdateNearestUnit = true end
+                            if ShouldRefreshNearestEnemyVisibilityFromUnit(oUnit, oNearestEnemyToFriendlyBase, bCheckIfNearestUnitVisible, bUpdateNearestUnit) then bUpdateNearestUnit = true end
 
                             --if bCheckIfNearLocationToAvoid and EntityCategoryContains(categories.TECH1 + categories.TECH2 - categories.COMMAND, oUnit.UnitId) and not(oUnit[M28UnitInfo.refbSpecialMicroActive]) and M28Conditions.HaveSentOrderToRunAwayFromLocationToAvoid(oUnit, tLZTeamData[M28Map.reftiLocationsToAvoid], 4) then
                             --if bDebugMessages == true then LOG(sFunctionRef..': Told unit to avoid a location to avoid') end
@@ -9345,7 +9351,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                         M28Navy.RecordWaterZoneTarget(tLZTeamData, iLandZone, iTeam, false, oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedWaterZoneByTeam][iTeam], M28Map.subrefiLZOrWZTAttackingUnit, true)
                                     end
                                     for iUnit, oUnit in tOutrangedCombatUnits do
-                                        if bCheckIfNearestUnitVisible and not(bUpdateNearestUnit) and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]) <= 18 then bUpdateNearestUnit = true end
+                                        if ShouldRefreshNearestEnemyVisibilityFromUnit(oUnit, oNearestEnemyToFriendlyBase, bCheckIfNearestUnitVisible, bUpdateNearestUnit) then bUpdateNearestUnit = true end
 
                                         if bMoveBlockedNotAttackMove and (oUnit[M28UnitInfo.refbLastShotBlocked] or M28UnitInfo.IsUnitUnderwater(oUnit)) and not(EntityCategoryContains(M28UnitInfo.refCategorySkirmisher + M28UnitInfo.refCategoryAbsolver, oUnit.UnitId)) and not(oUnit[M28UnitInfo.refbScoutCombatOverride]) then
                                             M28Orders.IssueTrackedMove(oUnit, oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], 6, false, 'OBlckM'..iLandZone)
@@ -9549,7 +9555,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
                                         for iSRUnit, oSRUnit in tOutrangedCombatUnits do
                                             --If we are close to the last known position such that we will be able to see there is no longer a unit there, then update this unit's position for next cycle
-                                            if bCheckIfNearestUnitVisible and not(bUpdateNearestUnit) and M28Utilities.GetDistanceBetweenPositions(oSRUnit:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]) <= 18 then bUpdateNearestUnit = true end
+                                            if ShouldRefreshNearestEnemyVisibilityFromUnit(oSRUnit, oNearestEnemyToFriendlyBase, bCheckIfNearestUnitVisible, bUpdateNearestUnit) then bUpdateNearestUnit = true end
                                             iClosestDist = 100000
                                             for iLRUnit, oLRUnit in tUnitsToSupport do
                                                 iCurDist = M28Utilities.GetRoughDistanceBetweenPositions(oSRUnit:GetPosition(), oLRUnit:GetPosition())
@@ -10341,11 +10347,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
                     local function FinalizeScenario2DecisionState(bAttackWithEverythingLocal, bConsolidateAtMidpointLocal, bOnlyAttackWithUnitsInThisZoneLocal)
                         if bDebugMessages == true then LOG(sFunctionRef..': Dont outrange enemy, bAttackWithEverything='..tostring(bAttackWithEverythingLocal)..'; Is table of ACUs in the LZ empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefAlliedACU]))) end
-                        local bUpdateNearestUnitLocal = false
-                        local bCheckIfNearestUnitVisibleLocal = bUpdateNearestUnitLocal
-                        if not(bUpdateNearestUnitLocal) and M28Utilities.GetDistanceBetweenPositions(oNearestEnemyToFriendlyBase:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]) >= 10 then
-                            bCheckIfNearestUnitVisibleLocal = true
-                        end
+                        local bUpdateNearestUnitLocal, bCheckIfNearestUnitVisibleLocal = GetNearestEnemyVisibilityRefreshState(oNearestEnemyToFriendlyBase)
 
                         local iTargetZoneForDecision = oNearestEnemyToFriendlyBase[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2] or nil
                         local iLastTargetZone = tLZTeamData[M28Map.subrefiLandZoneLastTargetZone]
@@ -10411,36 +10413,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     bAttackWithEverything, bConsolidateAtMidpoint, bOnlyAttackWithUnitsInThisZone, bUpdateNearestUnit, bCheckIfNearestUnitVisible = FinalizeScenario2DecisionState(bAttackWithEverything, bConsolidateAtMidpoint, bOnlyAttackWithUnitsInThisZone)
 
                     if bAttackWithEverything then
-                        local bMoveToStopPDConstruction = false
+                        local bMoveToStopPDConstruction, bMoveTowardsEngineers = GetPDConstructionPressureSignals(iAvailableCombatUnitThreat, tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal], GetEnemyCombatThreatInAdjacentZones(), tEnemyEngineers, tLZTeamData[M28Map.subrefTEnemyUnits], 400, nil, false)
                         if bDebugMessages == true then LOG(sFunctionRef..': Seeing if we have enough threat to try and stop PD being built, tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal]='..(tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 'nil')..'; iAvailableCombatUnitThreat='..(iAvailableCombatUnitThreat or 'nil')) end
-                        if M28Utilities.IsTableEmpty(tEnemyEngineers) == false and tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] <= 100 and (iAvailableCombatUnitThreat or 0) >= math.min(40, tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] * 3) and GetEnemyCombatThreatInAdjacentZones() <= 500  then
-                            local tEnemyPD = EntityCategoryFilterDown(M28UnitInfo.refCategoryPD, tLZTeamData[M28Map.subrefTEnemyUnits])
-                            if bDebugMessages == true then LOG(sFunctionRef..': Is table of enemy PD empty='..tostring(M28Utilities.IsTableEmpty(tEnemyPD))) end
-                            if M28Utilities.IsTableEmpty(tEnemyPD) == false then
-                                bMoveToStopPDConstruction = true
-                                for iPD, oPD in tEnemyPD do
-                                    if oPD:GetFractionComplete() == 1 then
-                                        bMoveToStopPDConstruction = false
-                                        break
-                                    end
-                                end
-                                if bDebugMessages == true then LOG(sFunctionRef..': bMoveToStopPDConstruction before doublechecking threats='..tostring(bMoveToStopPDConstruction)) end
-                                if bMoveToStopPDConstruction then
-                                    --Check we have significantly more threat if excluding under-construction PD
-                                    bMoveToStopPDConstruction = false
-                                    local iPDThreat = M28UnitInfo.GetCombatThreatRating(tEnemyPD, true)
-                                    if bDebugMessages == true then LOG(sFunctionRef..': iPDThreat='..iPDThreat) end
-                                    if (iAvailableCombatUnitThreat or 0) > 2 * tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] - iPDThreat and (iAvailableCombatUnitThreat or 0) >= GetEnemyCombatThreatInAdjacentZones() then
-                                        bMoveToStopPDConstruction = true
-                                    end
-                                end
-                            end
-                        end
                         if bDebugMessages == true then LOG(sFunctionRef..': Will attack with everything, oNearestEnemyToFriendlyBase='..oNearestEnemyToFriendlyBase.UnitId..M28UnitInfo.GetUnitLifetimeCount(oNearestEnemyToFriendlyBase)..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oNearestEnemyToFriendlyBase))..'; oNearestEnemyToFriendlyBase position='..repru(oNearestEnemyToFriendlyBase:GetPosition())..'; Last known position='..repru(oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam])..'; bMoveToStopPDConstruction='..tostring(bMoveToStopPDConstruction or false)) end
-                        local bMoveTowardsEngineers = false
-                        if M28Utilities.IsTableEmpty(tEnemyEngineers) == false and iAvailableCombatUnitThreat <= 400 and tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] <= 100 and (iAvailableCombatUnitThreat or 0) >= math.min(40, tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] * 3) and GetEnemyCombatThreatInAdjacentZones() <= 500 then
-                            bMoveTowardsEngineers = true
-                        end
                         local bFiringAtNegligibleThreatInLRExperimentalRange = false
                         --local bCheckIfNearLocationToAvoid = not(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftiLocationsToAvoid]))
 
@@ -10448,7 +10423,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         local bMoveWithDFUnitsForM28Easy = nil
                         for iUnit, oUnit in tAvailableCombatUnits do
                             --If we are close to the last known position such that we will be able to see there is no longer a unit there, then update this unit's position for next cycle
-                            if bCheckIfNearestUnitVisible and not(bUpdateNearestUnit) and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]) <= 18 then bUpdateNearestUnit = true end
+                            if ShouldRefreshNearestEnemyVisibilityFromUnit(oUnit, oNearestEnemyToFriendlyBase, bCheckIfNearestUnitVisible, bUpdateNearestUnit) then bUpdateNearestUnit = true end
                             if bDebugMessages == true then LOG(sFunctionRef..': Attacking with everything, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Special micro active='..tostring(oUnit[M28UnitInfo.refbSpecialMicroActive] or false)..'; bOnlyAttackWithUnitsInThisZone='..tostring(bOnlyAttackWithUnitsInThisZone)) end
                             if bOnlyAttackWithUnitsInThisZone and oUnit[refiCurrentAssignmentPlateauAndLZ][2] == iLandZone and oUnit[refiCurrentAssignmentPlateauAndLZ][1] == iPlateau then
                                 if bDebugMessages == true then LOG(sFunctionRef..': Wont attack with this unit as were doing a suicide attack with units from the cur zone only') end
@@ -10976,7 +10951,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             bGivenCombatUnitsOrders = true
                             for iUnit, oUnit in tAvailableCombatUnits do
                                 --If we are close to the last known position such that we will be able to see there is no longer a unit there, then update this unit's position for next cycle
-                                if bCheckIfNearestUnitVisible and not(bUpdateNearestUnit) and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]) <= 18 then bUpdateNearestUnit = true end
+                                if ShouldRefreshNearestEnemyVisibilityFromUnit(oUnit, oNearestEnemyToFriendlyBase, bCheckIfNearestUnitVisible, bUpdateNearestUnit) then bUpdateNearestUnit = true end
 
                                 --Only retreat units from this LZ
                                 if bDebugMessages == true then
