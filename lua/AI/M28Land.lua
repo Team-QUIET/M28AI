@@ -4956,6 +4956,32 @@ function BackupUnitTowardsRallyIfAvailable(oUnit, tRallyPoint, iIslandPlateauOrP
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+local function IssueResolvedRetreatOrder(oUnit, tRetreatTarget, sRetreatOrderRef, iOrderDistance, tRetreatOptions)
+    if not(tRetreatTarget) then return false end
+    tRetreatOptions = tRetreatOptions or {}
+    local bOverrideMicroOrder = tRetreatOptions.bOverrideMicroOrder or false
+    if tRetreatOptions.bUseBackupThread then
+        ForkThread(
+            BackupUnitTowardsRallyIfAvailable,
+            oUnit,
+            tRetreatTarget,
+            tRetreatOptions.iPathingRef,
+            sRetreatOrderRef,
+            tRetreatOptions.bUseHoverPlateauRef,
+            tRetreatOptions.iDefaultDistOverride,
+            tRetreatOptions.iMaxAngleDifForMovingBackwardsOverride,
+            tRetreatOptions.bUsingPondRef
+        )
+    elseif tRetreatOptions.bUseAggressiveMove then
+        M28Orders.IssueTrackedAggressiveMove(oUnit, tRetreatTarget, iOrderDistance, false, sRetreatOrderRef, bOverrideMicroOrder)
+    elseif tRetreatOptions.bUseSmartMove then
+        M28Orders.IssueSmartMove(oUnit, tRetreatTarget, iOrderDistance, false, sRetreatOrderRef, bOverrideMicroOrder, true)
+    else
+        M28Orders.IssueTrackedMove(oUnit, tRetreatTarget, iOrderDistance, false, sRetreatOrderRef, bOverrideMicroOrder)
+    end
+    return true
+end
+
 function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, tAvailableCombatUnits, iFriendlyBestMobileDFRange, iFriendlyBestMobileIndirectRange, bWantIndirectReinforcements, tUnavailableUnitsInThisLZ, bDelayOrdersForHover, bHaveCombatUnitsFromAdjZone)
     --Handles logic for main combat units (direct and indirect fire mobile units) that are noted as available to the land zone
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
@@ -8738,7 +8764,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                                 end
                                                             else
                                                                 oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
-                                                                ForkThread(BackupUnitTowardsRallyIfAvailable, oUnit, tManualRetreatTarget, tLZData[M28Map.subrefLZIslandRef], sManualRetreatOrderRef)
+                                                                IssueResolvedRetreatOrder(oUnit, tManualRetreatTarget, sManualRetreatOrderRef, 6, {bUseBackupThread = true, iPathingRef = tLZData[M28Map.subrefLZIslandRef]})
                                                             end
                                                             --M28Orders.IssueTrackedAttack(oUnit, oTargetToManuallyAttack, false, 'UnderWAR*', false)
                                                         elseif EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oUnit.UnitId) then
@@ -8773,7 +8799,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                                 if bDebugMessages == true then LOG(sFunctionRef..': Will try and backup to amphibious rally point, tAmphibiousRallyPoint='..repru(tAmphibiousRallyPoint)..'; Unit position='..repru(oUnit:GetPosition())) end
                                                             end
                                                             oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
-                                                            ForkThread(BackupUnitTowardsRallyIfAvailable, oUnit, tResolvedBackupTarget, iResolvedBackupPathingRef, sResolvedBackupOrderRef, bResolvedUseHoverPlateauRef, iResolvedDefaultDist)
+                                                            IssueResolvedRetreatOrder(oUnit, tResolvedBackupTarget, sResolvedBackupOrderRef, 6, {bUseBackupThread = true, iPathingRef = iResolvedBackupPathingRef, bUseHoverPlateauRef = bResolvedUseHoverPlateauRef, iDefaultDistOverride = iResolvedDefaultDist})
                                                             --M28Orders.IssueTrackedMove(oUnit, tAmphibiousRallyPoint/tTemporaryRetreatLocation, 6, false, 'AKRet*', false)
                                                         else
                                                             if EntityCategoryContains(M28UnitInfo.refCategorySkirmisher + M28UnitInfo.refCategoryAbsolver, oUnit.UnitId) or oUnit[M28UnitInfo.refbScoutCombatOverride] then iAngleThresholdForRally = 100 else iAngleThresholdForRally = 70 end
@@ -8803,34 +8829,25 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                                 local tResolvedRetreatTarget = tRallyPoint
                                                                 local sResolvedRetreatOrderRef = (bAttackMove and 'KARetr'..iLandZone or 'KRetr'..iLandZone)
                                                                 local bUseSmartMoveRetreat = bAttackMove
-                                                                local bUseTrackedMoveRetreat = false
                                                                 local bUseBackupThreadRetreat = not(bAttackMove)
                                                                 if M28Utilities.IsTableEmpty(tTemporaryRetreatLocation) == false and NavUtils.GetTerrainLabel(M28Map.refPathingTypeLand, tTemporaryRetreatLocation) == tLZData[M28Map.subrefLZIslandRef] then
                                                                     tResolvedRetreatTarget = tTemporaryRetreatLocation
                                                                     sResolvedRetreatOrderRef = (bAttackMove and 'KARetNE'..iLandZone or 'KRetNE'..iLandZone)
                                                                     bUseSmartMoveRetreat = bAttackMove
-                                                                    bUseTrackedMoveRetreat = not(bAttackMove)
                                                                     bUseBackupThreadRetreat = false
                                                                 else
                                                                     sResolvedRetreatOrderRef = (bAttackMove and 'KARetFA'..iLandZone or 'KRetFA')
                                                                     bUseSmartMoveRetreat = bAttackMove
-                                                                    bUseTrackedMoveRetreat = false
                                                                     bUseBackupThreadRetreat = not(bAttackMove)
                                                                 end
                                                                 oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
-                                                                if bUseSmartMoveRetreat then
-                                                                    M28Orders.IssueSmartMove(oUnit, tResolvedRetreatTarget, 4, false, sResolvedRetreatOrderRef, false, true)
-                                                                elseif bUseTrackedMoveRetreat then
-                                                                    M28Orders.IssueTrackedMove(oUnit, tResolvedRetreatTarget, 4, false, sResolvedRetreatOrderRef)
-                                                                elseif bUseBackupThreadRetreat then
-                                                                    ForkThread(BackupUnitTowardsRallyIfAvailable, oUnit, tResolvedRetreatTarget, tLZData[M28Map.subrefLZIslandRef], sResolvedRetreatOrderRef)
-                                                                end
+                                                                IssueResolvedRetreatOrder(oUnit, tResolvedRetreatTarget, sResolvedRetreatOrderRef, 4, {bUseSmartMove = bUseSmartMoveRetreat, bUseBackupThread = bUseBackupThreadRetreat, iPathingRef = tLZData[M28Map.subrefLZIslandRef]})
                                                             else
                                                                 oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
                                                                 if bAttackMove then
-                                                                    M28Orders.IssueSmartMove(oUnit, tRallyPoint, 4, false, 'KARetr'..iLandZone, false, true)
+                                                                    IssueResolvedRetreatOrder(oUnit, tRallyPoint, 'KARetr'..iLandZone, 4, {bUseSmartMove = true})
                                                                 else
-                                                                    ForkThread(BackupUnitTowardsRallyIfAvailable, oUnit, tRallyPoint, tLZData[M28Map.subrefLZIslandRef], 'KRetr'..iLandZone)
+                                                                    IssueResolvedRetreatOrder(oUnit, tRallyPoint, 'KRetr'..iLandZone, 4, {bUseBackupThread = true, iPathingRef = tLZData[M28Map.subrefLZIslandRef]})
                                                                 end
                                                                 if bDebugMessages == true then LOG(sFunctionRef..': Will move unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' to rally point (kiting retreat), rallypoint='..repru(tRallyPoint)..'; unit position='..repru(oUnit:GetPosition())) end
                                                             end
@@ -11188,11 +11205,11 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                             local bUseAggressiveRetreatMove = (oUnit[M28UnitInfo.refbWeaponUnpacks] or not(oUnit[M28UnitInfo.refbCanKite])) and iDistToResolvedRetreatTarget <= 13
                                                             local bUseCloseAttackMoveRetreat = bConsiderAttackMoveIfClose and iDistToResolvedRetreatTarget <= 20
                                                             if bUseAggressiveRetreatMove then
-                                                                M28Orders.IssueTrackedAggressiveMove(oUnit, tResolvedRetreatTarget, 6, false, sResolvedRetreatOrderRef)
+                                                                IssueResolvedRetreatOrder(oUnit, tResolvedRetreatTarget, sResolvedRetreatOrderRef, 6, {bUseAggressiveMove = true})
                                                             elseif bUseCloseAttackMoveRetreat then
-                                                                M28Orders.IssueTrackedAggressiveMove(oUnit, tResolvedRetreatTarget, 6, false, 'MTBABA'..iLandZone)
+                                                                IssueResolvedRetreatOrder(oUnit, tResolvedRetreatTarget, 'MTBABA'..iLandZone, 6, {bUseAggressiveMove = true})
                                                             else
-                                                                M28Orders.IssueTrackedMove(oUnit, tResolvedRetreatTarget, 6, false, sResolvedRetreatOrderRef)
+                                                                IssueResolvedRetreatOrder(oUnit, tResolvedRetreatTarget, sResolvedRetreatOrderRef, 6)
                                                             end
                                                         else
                                                             local bAttackMove = false
@@ -11225,11 +11242,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                                     sResolvedRetreatOrderRef = (bAttackMove and 'RAXInt' or 'MXInt')..sRetreatMessage..iLandZone
                                                                 end
                                                             end
-                                                            if bAttackMove then
-                                                                M28Orders.IssueSmartMove(oUnit, tResolvedRetreatTarget, 6, false, sResolvedRetreatOrderRef, false, true)
-                                                            else
-                                                                M28Orders.IssueTrackedMove(oUnit, tResolvedRetreatTarget, 6, false, sResolvedRetreatOrderRef)
-                                                            end
+                                                            IssueResolvedRetreatOrder(oUnit, tResolvedRetreatTarget, sResolvedRetreatOrderRef, 6, {bUseSmartMove = bAttackMove})
                                                         end
 
                                                     end
@@ -11267,9 +11280,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                         end
                                                         local bUseAggressiveRetreatMove = (oUnit[M28UnitInfo.refbWeaponUnpacks] or not(oUnit[M28UnitInfo.refbCanKite])) and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tResolvedRetreatTarget) <= 13
                                                         if bUseAggressiveRetreatMove then
-                                                            M28Orders.IssueTrackedAggressiveMove(oUnit, tResolvedRetreatTarget, 6, false, sResolvedRetreatOrderRef)
+                                                            IssueResolvedRetreatOrder(oUnit, tResolvedRetreatTarget, sResolvedRetreatOrderRef, 6, {bUseAggressiveMove = true})
                                                         else
-                                                            M28Orders.IssueSmartMove(oUnit, tResolvedRetreatTarget, 6, false, sResolvedRetreatOrderRef, false, true)
+                                                            IssueResolvedRetreatOrder(oUnit, tResolvedRetreatTarget, sResolvedRetreatOrderRef, 6, {bUseSmartMove = true})
                                                         end
                                                     end
                                                 end
@@ -11473,7 +11486,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     tMMLRetreatTarget = tAmphibiousRallyPoint
                                     sMMLRetreatOrderRef = 'MMLASKRetr'..iLandZone
                                 end
-                                M28Orders.IssueTrackedMove(oUnit, tMMLRetreatTarget, 6, false, sMMLRetreatOrderRef)
+                                IssueResolvedRetreatOrder(oUnit, tMMLRetreatTarget, sMMLRetreatOrderRef, 6)
                             end
                         end
                     end
@@ -11833,7 +11846,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             --Throttled debug logging for muster evaluation (every 30 seconds per zone)
                             if tMusteringPoint then
                                 --Unit is joining mustering effort (bIsRetreat=true so snipers/artillery don't stop to attack)
-                                M28Orders.IssueSmartMove(oUnit, tMusteringPoint, 6, false, 'MustRetr'..iLandZone, false, true)
+                                IssueResolvedRetreatOrder(oUnit, tMusteringPoint, 'MustRetr'..iLandZone, 6, {bUseSmartMove = true})
                             else
                                 local tFallbackRetreatTarget = tRallyPoint
                                 local sFallbackRetreatOrderRef = 'FBRetr'..iLandZone
@@ -11848,7 +11861,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                         sFallbackRetreatOrderRef = 'FBARetr'..iLandZone
                                     end
                                 end
-                                M28Orders.IssueSmartMove(oUnit, tFallbackRetreatTarget, 6, false, sFallbackRetreatOrderRef, false, true)
+                                IssueResolvedRetreatOrder(oUnit, tFallbackRetreatTarget, sFallbackRetreatOrderRef, 6, {bUseSmartMove = true})
                             end
                         end
                     end
@@ -13215,12 +13228,7 @@ function RetreatOtherUnits(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, tOt
             bUseBackupThreadRetreat, tResolvedRetreatTarget, iResolvedRetreatPathingRef, sResolvedRetreatOrderRef, bResolvedUseHoverPlateauRef, iResolvedDefaultDist = ResolveSpecialHeavyRetreat(oUnit, oNearestEnemyCombatToRallyPoint)
             if bDebugMessages == true then LOG(sFunctionRef..': Resolved heavy retreat for '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; bUseBackupThreadRetreat='..tostring(bUseBackupThreadRetreat)..'; tResolvedRetreatTarget='..repru(tResolvedRetreatTarget)..'; sResolvedRetreatOrderRef='..sResolvedRetreatOrderRef) end
         end
-        if bUseBackupThreadRetreat then
-            ForkThread(BackupUnitTowardsRallyIfAvailable, oUnit, tResolvedRetreatTarget, iResolvedRetreatPathingRef, sResolvedRetreatOrderRef, bResolvedUseHoverPlateauRef, iResolvedDefaultDist)
-            --M28Orders.IssueTrackedMove(oUnit, tResolvedRetreatTarget, 3, false, sResolvedRetreatOrderRef)
-        else
-            M28Orders.IssueTrackedMove(oUnit, tResolvedRetreatTarget, 10, false, sResolvedRetreatOrderRef, false)
-        end
+        IssueResolvedRetreatOrder(oUnit, tResolvedRetreatTarget, sResolvedRetreatOrderRef, 10, {bUseBackupThread = bUseBackupThreadRetreat, iPathingRef = iResolvedRetreatPathingRef, bUseHoverPlateauRef = bResolvedUseHoverPlateauRef, iDefaultDistOverride = iResolvedDefaultDist})
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
