@@ -3632,6 +3632,36 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+local function ShouldDelayPowerPgenUpgrade(oUnit, iTeam, tLZOrWZData, tLZOrWZTeamData)
+    local aiBrain = oUnit:GetAIBrain()
+    local iActiveBrains = math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1)
+    local bWantMorePower = M28Conditions.WantMorePower(iTeam)
+    local bGoodMassForUpgrade = not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0) >= 0.35 and ((M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 0) >= 2 or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0) >= 12 * iActiveBrains or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] or 0) >= 250)
+    local iPendingHighTechPowerCount, iPendingHighTechPowerIncome = M28Conditions.GetPendingHighTechPowerDetails(iTeam)
+    local iEnemyNearOurSide = 0
+    local iAllyNearOurSide = 0
+    local bPrioritiseProduction = false
+    if aiBrain.M28LandSubteam and M28Team.tLandSubteamData[aiBrain.M28LandSubteam] then
+        iEnemyNearOurSide = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] or 0
+        iAllyNearOurSide = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide] or 0
+        bPrioritiseProduction = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refbPrioritiseProduction] or false
+    end
+    local bLandPressureNearOurSide = iEnemyNearOurSide >= math.max(900, iAllyNearOurSide * 0.7)
+    local bLocalContestedPressure = (tLZOrWZTeamData[M28Map.refiModDistancePercent] or 1) <= 0.6 and (tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false) and (tLZOrWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) >= math.max(250, (tLZOrWZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) * 0.6)
+    local bEnemyStillSubT3Ground = (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] or 1) < 3
+
+    if not(bWantMorePower) or not(bGoodMassForUpgrade) then
+        return true
+    end
+    if iPendingHighTechPowerCount >= 1 and iPendingHighTechPowerIncome >= math.max(100, (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] or 0) * 0.15) and not(M28Conditions.HaveLowPower(iTeam)) then
+        return true
+    end
+    if bEnemyStillSubT3Ground and (bPrioritiseProduction or bLandPressureNearOurSide or bLocalContestedPressure) then
+        return true
+    end
+    return false
+end
+
 function ConsiderPowerPgenUpgrade(oUnit, iOverrideSecondsToWait)
     --Called when we have just constructed a t3 pgen that is capable of being upgraded - tries to upgrade immediately unless are stalling mass
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
@@ -3659,14 +3689,15 @@ function ConsiderPowerPgenUpgrade(oUnit, iOverrideSecondsToWait)
             tLZOrWZTeamData = tLZOrWZData[M28Map.subrefLZTeamData][iTeam]
         end
 
-        if (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] and (tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] < math.min(2, tLZOrWZData[M28Map.subrefLZOrWZMexCount]))) or (M28Team.tTeamData[iTeam][M28Team.refbPrioritiseProduction] and not(M28Conditions.HaveLowPower(iTeam)) and M28Conditions.HaveLowMass(iTeam)) or not(M28Conditions.SafeToUpgradeUnit(oUnit)) then
-            if bDebugMessages == true then LOG(sFunctionRef..': Dont have enough mass or want to produce more so will delay consideration of pgen upgrade, tLZOrWZTeamData[M28Map.subrefMexCountByTech]='..repru(tLZOrWZTeamData[M28Map.subrefMexCountByTech])..'; M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or false)..'; Prioritise production='..tostring(M28Team.tTeamData[iTeam][M28Team.refbPrioritiseProduction] or false)..'; Safe to upgrade unit='..tostring(M28Conditions.SafeToUpgradeUnit(oUnit))) end
+        if (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] and (tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] < math.min(2, tLZOrWZData[M28Map.subrefLZOrWZMexCount]))) or (M28Team.tTeamData[iTeam][M28Team.refbPrioritiseProduction] and not(M28Conditions.HaveLowPower(iTeam)) and M28Conditions.HaveLowMass(iTeam)) or not(M28Conditions.SafeToUpgradeUnit(oUnit)) or ShouldDelayPowerPgenUpgrade(oUnit, iTeam, tLZOrWZData, tLZOrWZTeamData) then
+            if bDebugMessages == true then LOG(sFunctionRef..': Delaying pgen upgrade as mass or production state is not suitable, or we do not genuinely need the extra power yet. tLZOrWZTeamData[M28Map.subrefMexCountByTech]='..repru(tLZOrWZTeamData[M28Map.subrefMexCountByTech])..'; M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or false)..'; Prioritise production='..tostring(M28Team.tTeamData[iTeam][M28Team.refbPrioritiseProduction] or false)..'; Safe to upgrade unit='..tostring(M28Conditions.SafeToUpgradeUnit(oUnit))..'; WantMorePower='..tostring(M28Conditions.WantMorePower(iTeam))..'; Team mass %='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 'nil')..'; Team net mass='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 'nil')) end
             ForkThread(ConsiderPowerPgenUpgrade, oUnit, 10)
         else
             if not(M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam)) then
                 --Wnat to upgrade pgen
                 if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
                 UpgradeUnit(oUnit, true)
+                M28Team.tTeamData[iTeam][M28Team.refiTimeLastPendingHighTechPowerRefresh] = nil
                 oUnit[M28UnitInfo.refbTriedUpgrading] = true
             else
                 if bDebugMessages == true then LOG(sFunctionRef..': Want t1 spam so will reconsider later') end

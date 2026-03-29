@@ -5488,6 +5488,14 @@ function SetPriorityPreferredUnitsByCategory(aiBrain)
         aiBrain[reftBlueprintPriorityOverride]['sel0324'] = -1000 --mobile omni (that also has AA so gets misused as an AA unit)
         aiBrain[reftBlueprintPriorityOverride]['bal0403'] = -1000 
         aiBrain[reftBlueprintPriorityOverride]['ssl0404'] = -1000 
+        aiBrain[reftBlueprintPriorityOverride]['sal0209'] = -1000 
+        aiBrain[reftBlueprintPriorityOverride]['sal0319'] = -1000 
+        aiBrain[reftBlueprintPriorityOverride]['sel0119'] = -1000 
+        aiBrain[reftBlueprintPriorityOverride]['sel0319'] = -1000 
+        aiBrain[reftBlueprintPriorityOverride]['srl0209'] = -1000 
+        aiBrain[reftBlueprintPriorityOverride]['srl0319'] = -1000
+        aiBrain[reftBlueprintPriorityOverride]['ssl0219'] = -1000 
+        aiBrain[reftBlueprintPriorityOverride]['ssl0319'] = -1000 
 
         --Buffed units in QUIET (able to kite)
         -- aiBrain[reftBlueprintPriorityOverride]['drl0204'] = 1 --Hoplite

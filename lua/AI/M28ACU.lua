@@ -4480,6 +4480,45 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
     local iLastPathedZoneTravelDist
     local iRecentLandZoneRef
     local iSecondsToIgnoreZonesRecentlyRunFrom = 30
+    local function GetArmyCallBonusForACUZone(tZoneData, tZoneTeamData, iZoneRef)
+        if not(oACU[refbUseACUAggressively]) then return 0, 0, 1000 end
+        if not(tZoneTeamData[M28Map.subrefbLZWantsDFSupport]) then return 0, 0, 1000 end
+        local iAllyMobileThreat = tZoneTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0
+        if iAllyMobileThreat < 450 then return 0, 0, 1000 end
+        local iEnemyCombatThreat = tZoneTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+        local iBonus = 0
+        if iEnemyCombatThreat >= 250 then
+            iBonus = iBonus + 350 + math.min(450, iAllyMobileThreat * 0.15)
+        elseif tZoneTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] then
+            iBonus = iBonus + 180 + math.min(220, iAllyMobileThreat * 0.08)
+        end
+        local iClosestEnemyACUDist = 1000
+        local iEnemyACUThreat = 0
+        if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyACUs]) == false then
+            for iEnemyACU, oEnemyACU in M28Team.tTeamData[iTeam][M28Team.reftEnemyACUs] do
+                if M28UnitInfo.IsUnitValid(oEnemyACU) then
+                    local iEnemyPlateau, iEnemyZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oEnemyACU:GetPosition())
+                    if iEnemyPlateau == iPlateau and iEnemyZone and (iEnemyZone == iLandZone or iEnemyZone == iZoneRef or M28Utilities.GetDistanceBetweenPositions(oEnemyACU:GetPosition(), tZoneData[M28Map.subrefMidpoint]) <= 55) then
+                        local iCurDist = M28Utilities.GetDistanceBetweenPositions(oEnemyACU:GetPosition(), tZoneData[M28Map.subrefMidpoint])
+                        if iCurDist < iClosestEnemyACUDist then
+                            iClosestEnemyACUDist = iCurDist
+                            iEnemyACUThreat = (oEnemyACU[M28UnitInfo.refiDFMassThreatOverride] or 0) + 250 * (oEnemyACU[refiUpgradeCount] or 0)
+                        end
+                    end
+                end
+            end
+        end
+        if iEnemyACUThreat > 0 then
+            iBonus = iBonus + 900 + math.min(700, iAllyMobileThreat * 0.2)
+            if iClosestEnemyACUDist <= 32 then
+                iBonus = iBonus + 250
+            end
+        end
+        if iBonus > 0 and (tZoneTeamData[M28Map.refiModDistancePercent] or 0) >= 0.2 and (tZoneTeamData[M28Map.refiModDistancePercent] or 0) <= 0.65 then
+            iBonus = iBonus + 250
+        end
+        return iBonus, iEnemyACUThreat, iClosestEnemyACUDist
+    end
     if bDebugMessages == true then LOG(sFunctionRef..': Time ACU last had order to move to zone='..(oACU[refiTimeLastToldToMoveToZone] or 'nil')..'; oACU[refiLastPlateauAndZoneToMoveTo]='..repru(oACU[refiLastPlateauAndZoneToMoveTo])..'; iLowerPriorityDistanceThreshold berfore last zone adjust='..iLowerPriorityDistanceThreshold) end
     if GetGameTimeSeconds() - (oACU[refiTimeLastToldToMoveToZone] or -100) <= 10 and not(oACU[refiLastPlateauAndZoneToMoveTo][1] == 0) then
         iRecentLandZoneRef = oACU[refiLastPlateauAndZoneToMoveTo][2]
@@ -4523,8 +4562,14 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
             if bDebugMessages == true then LOG(sFunctionRef..': Considering iAdjLZ='..iAdjLZ..'; Travel dist='..tPathingDetails[M28Map.subrefLZTravelDist]..'; Does it want DF support='..tostring(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam][M28Map.subrefbLZWantsDFSupport])) end
             if tPathingDetails[M28Map.subrefLZTravelDist] < iHighValueDistanceThreshold then
                 local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
+                local tAdjLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ]
                 if tAdjLZTeamData[M28Map.subrefbLZWantsDFSupport] then
                     iCurValue = tAdjLZTeamData[M28Map.subrefLZTValue]
+                    local iArmyCallBonus, iEnemyACUThreat, iClosestEnemyACUDist = GetArmyCallBonusForACUZone(tAdjLZData, tAdjLZTeamData, iAdjLZ)
+                    if iArmyCallBonus > 0 then
+                        iCurValue = iCurValue + iArmyCallBonus
+                        if bDebugMessages == true then LOG(sFunctionRef..': Army support-call bonus in nearby-zone pass='..iArmyCallBonus..'; iEnemyACUThreat='..iEnemyACUThreat..'; iClosestEnemyACUDist='..iClosestEnemyACUDist..'; iCurValue='..iCurValue) end
+                    end
                     if iAdjLZ == iRecentLandZoneRef then iCurValue = iCurValue * 1.05 + 25 end
                     if (tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) < 50 + 60 * GetReducedUpgradeWeightForACUStrength(oACU) then
                         iCurValue = iCurValue * 0.7
@@ -4619,6 +4664,14 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
                         iCurValue = iCurValue + iArmySynergyBonus
                         if bDebugMessages == true then LOG(sFunctionRef..': Army synergy bonus='..iArmySynergyBonus..'; iAllyMobileThreat='..iAllyMobileThreat..'; iEnemyCombatThreat='..iEnemyCombatThreat..'; new iCurValue='..iCurValue) end
                     end
+                end
+                local iArmyCallBonus, iEnemyACUThreat, iClosestEnemyACUDist = GetArmyCallBonusForACUZone(tAdjLZData, tAdjLZTeamData, iAdjLZ)
+                if iArmyCallBonus > 0 then
+                    iCurValue = iCurValue + iArmyCallBonus
+                    if bDebugMessages == true then LOG(sFunctionRef..': Army support-call bonus='..iArmyCallBonus..'; iEnemyACUThreat='..iEnemyACUThreat..'; iClosestEnemyACUDist='..iClosestEnemyACUDist..'; new iCurValue='..iCurValue) end
+                elseif oACU[refbUseACUAggressively] and iAllyMobileThreat < 250 and tAdjLZTeamData[M28Map.subrefbLZWantsDFSupport] and not(tAdjLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) then
+                    iCurValue = iCurValue * 0.8
+                    if bDebugMessages == true then LOG(sFunctionRef..': Reducing unsupported aggressive ACU move value to keep ACU with the army, iCurValue='..iCurValue) end
                 end
 
                 --Encourage ACU to advance toward enemy, especially during the pure-T1 pressure window

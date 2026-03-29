@@ -22,7 +22,7 @@ tbBuildOnLandLayerCaps = {['Land'] = true, ['Air'] = true, ['9'] = true, ['3'] =
 tbBuildOnWaterLayerCaps = {['Water'] = true, ['9'] = true, ['3'] = true, ['11'] = true, ['12'] = true}
 
 bDontConsiderCombinedArmy = true --shares same desc as M28Orders (for easier referencing)
-iBaseACUThreat = 400 --i.e. approx 8 tanks
+iBaseACUThreat = 220 --Reduced baseline so land logic stops treating early ACUs like a major tank ball
 iBaseACUExpectedHealth = 11000 --Used so we can adjust iBaseACUThreat to allow for mods that give high health to ACUs (up to 1.5x threat)
 
 --Factions
@@ -722,10 +722,15 @@ function UpdateUnitCombatMassRatingForUpgrades(oUnit)
     if M28Utilities.IsTableEmpty(tPossibleUpgrades) == false then
         local iCurMassValue
         local iCurMassMod
-        local iTotalMassValue = iBaseACUThreat --Approx 20 tanks
+        local bIsACU = EntityCategoryContains(categories.COMMAND, oUnit.UnitId)
+        local iTotalMassValue = iBaseACUThreat
         local iBaseMaxHealth = oUnit:GetBlueprint().Defense.Health
         if iBaseMaxHealth > iBaseACUExpectedHealth then
-            iTotalMassValue = iTotalMassValue * math.min(1.5, iBaseMaxHealth / iBaseACUExpectedHealth)
+            if bIsACU then
+                iTotalMassValue = iTotalMassValue * math.min(1.2, iBaseMaxHealth / iBaseACUExpectedHealth)
+            else
+                iTotalMassValue = iTotalMassValue * math.min(1.5, iBaseMaxHealth / iBaseACUExpectedHealth)
+            end
         end
         if bDebugMessages == true then LOG(sFunctionRef..': tPossibleUpgrades size='..table.getn(tPossibleUpgrades)) end
         if tPossibleUpgrades then
@@ -742,7 +747,11 @@ function UpdateUnitCombatMassRatingForUpgrades(oUnit)
                         else iCurMassValue = 500
                         end
                     end
-                    iTotalMassValue = iTotalMassValue + iCurMassMod * iCurMassValue
+                    if bIsACU then
+                        iTotalMassValue = iTotalMassValue + math.min(120, iCurMassMod * iCurMassValue * 0.2)
+                    else
+                        iTotalMassValue = iTotalMassValue + iCurMassMod * iCurMassValue
+                    end
                     if bDebugMessages == true then LOG(sFunctionRef..': ACU has enhancement no. '..sCurUpgrade..'; iCurMassValue='..iCurMassValue..'; iCurMassMod='..iCurMassMod) end
                 end
             end
@@ -981,6 +990,15 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                     if oUnit[refiAntiNavyMassThreatOverride] and (bAntiNavyOnly or bAddAntiNavy or bSubmersibleOnly) then
                         iBaseThreat = oUnit[refiAntiNavyMassThreatOverride]
                     end
+                    if EntityCategoryContains(categories.COMMAND, oUnit.UnitId) and bEnemyUnits and not(bJustGetMassValue) and not(bAntiNavyOnly) and not(bAddAntiNavy) and not(bSubmersibleOnly) then
+                        local iEnemyACUThreatMultiplier = 0.35
+                        if GetGameTimeSeconds() <= 420 and (oUnit[refiDFRange] or 0) < 32 then
+                            iEnemyACUThreatMultiplier = 0.18
+                        elseif (oUnit[refiDFRange] or 0) >= 36 then
+                            iEnemyACUThreatMultiplier = 0.5
+                        end
+                        iBaseThreat = iBaseThreat * iEnemyACUThreatMultiplier
+                    end
                     if bDebugMessages == true then LOG(sFunctionRef..': Considering unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; iBaseThreat='..(iBaseThreat or 0)..'; DF threat override='..(oUnit[refiDFMassThreatOverride] or 'nil')..'; tUnitThreatByIDAndType[oUnit.UnitId][iThreatRef]='..(tUnitThreatByIDAndType[oUnit.UnitId][iThreatRef] or 'nil')..'; bJustGetMassValue='..tostring(bJustGetMassValue)) end
                     if not(tUnitThreatByIDAndType[oUnit.UnitId][iThreatRef]) and not(bBlueprintThreat) then
                         iBaseThreat = GetCombatThreatRating({ { ['UnitId'] = oUnit.UnitId } }, bEnemyUnits, bJustGetMassValue, bIndirectFireThreatOnly, bAntiNavyOnly, bAddAntiNavy, bSubmersibleOnly, bLongRangeThreatOnly, true)
@@ -1017,7 +1035,7 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                                     iHealthFactor = iHealthPercentage --threat will be mass * iHealthFactor
                                     --iMassCost = GetACUCombatMassRating(oUnit) --have already calculated this earlier
                                     if bEnemyUnits then
-                                        iOtherAdjustFactor = 1.10 --Want to allow for enemy ACU to be 10% higher threat due to potential of veterancy
+                                        iOtherAdjustFactor = 0.9
                                     else
                                         if iHealthPercentage < 0.5 then iHealthFactor = iHealthPercentage * iHealthPercentage
                                         elseif iHealthPercentage < 0.9 then iHealthFactor = iHealthPercentage * (iHealthPercentage + 0.1) end

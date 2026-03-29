@@ -508,6 +508,36 @@ tiIgnoreUnderConstructionThreshold = { --specify the number of under constructio
     [refActionBuildThirdTMD] = 3, --set to 3 as would rather have 2 engineers each trying to build a tmd than 1, due to risk of normal and second tmd builders ending up assisting this
 }
 
+local tHighTechPowerBuildActions = {
+    [refActionBuildPower] = true,
+    [refActionBuildSecondPower] = true,
+    [refActionBuildThirdPower] = true,
+}
+
+local function ZoneHasLocalHighTechPowerCommitment(iTeam, iPlateauOrPond, iLandOrWaterZone, tLZOrWZTeamData, bIsWaterZone)
+    if GetPartCompleteBuildingInZone(iTeam, iPlateauOrPond, iLandOrWaterZone, M28UnitInfo.refCategoryT2Power + M28UnitInfo.refCategoryT3Power, bIsWaterZone, 0) then
+        return true
+    end
+    if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefQueuedBuildings]) == false then
+        for iEntry, tQueuedDetails in tLZOrWZTeamData[M28Map.subrefQueuedBuildings] do
+            if tQueuedDetails[M28Map.subrefBuildingID] and EntityCategoryContains(M28UnitInfo.refCategoryT2Power + M28UnitInfo.refCategoryT3Power, tQueuedDetails[M28Map.subrefBuildingID]) and M28UnitInfo.IsUnitValid(tQueuedDetails[M28Map.subrefPrimaryBuilder]) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function ShouldHoldOffFreshHighTechPowerStart(iActionToAssign, iMinTechLevelWanted, iTeam, iPlateauOrPond, iLandOrWaterZone, tLZOrWZTeamData, bIsWaterZone)
+    if not(tHighTechPowerBuildActions[iActionToAssign]) or (iMinTechLevelWanted or 1) < 2 then
+        return false
+    end
+    if not(M28Conditions.ShouldHoldOffStartingNewHighTechPower(iTeam)) then
+        return false
+    end
+    return not(ZoneHasLocalHighTechPowerCommitment(iTeam, iPlateauOrPond, iLandOrWaterZone, tLZOrWZTeamData, bIsWaterZone))
+end
+
 tbIgnoreEngineerAssistance = { --Any actions where we dont want to assist an engineer already constructiong the building should go here; main purpose is building a mex
     [refActionBuildMex] = true,
     [refActionCompletePartBuiltMex] = true,
@@ -11553,10 +11583,6 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                             if iOptionalFactionRequired then tEngineersOfTechWanted, iEngiCount = FilterEngineersOfTechAndEngiCountForFaction(iOptionalFactionRequired, tEngineersOfTechWanted) end
 
                             if iEngiCount > 0 then
-                                --Building power - if we get to T3, have at least 750 gross energy per tick, and have an action to build second power, then change building power normally so it builds separately to building second power
-                                if iActionToAssign == refActionBuildThirdPower and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 1000 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] then
-                                    tiIgnoreUnderConstructionThreshold[refActionBuildPower] = 1
-                                end
                                 local oFirstEngineer = tEngineersOfTechWanted[iEngiCount]
                                 local sBlueprint, tBuildLocation
                                 local iAdjacencyCategory
@@ -13767,7 +13793,12 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
         --Done as subfunction for convenience so can just note the key values for the action in question and add on the others that wont change
         --vOptionalVariable can be used for action specific information to save having to recalculate the same thing - could be a table, nil, or a value
         if M28Utilities.bLoudModActive and (bHaveLowMass or bHaveLowPower) then iBuildPowerWanted = iBuildPowerWanted * 0.8 end
+        if ShouldHoldOffFreshHighTechPowerStart(iActionToAssign, iMinTechLevelWanted, iTeam, iPlateau, iLandZone, tLZTeamData, false) then
+            if bDebugMessages == true then LOG(sFunctionRef..': Holding off starting a fresh high-tech power action in P'..iPlateau..'Z'..iLandZone..' as the team already has enough pending high-tech power elsewhere, iActionToAssign='..iActionToAssign..'; iMinTechLevelWanted='..iMinTechLevelWanted) end
+            return
+        end
         ConsiderActionToAssign(iActionToAssign, math.max(1, iMinTechLevelWanted), iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iCurPriority, tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, toAvailableEngineersByTech, toAssignedEngineers, false, iOptionalSpecificFactionWanted, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
+        if tHighTechPowerBuildActions[iActionToAssign] and math.max(1, iMinTechLevelWanted) >= 2 then M28Team.tTeamData[iTeam][M28Team.refiTimeLastPendingHighTechPowerRefresh] = nil end
     end
     if bDebugMessages == true then
         LOG(sFunctionRef..': About to consider what actions we want to give engineers for iPlateau='..(iPlateau or 'nil')..'; iLandZone='..(iLandZone or 'nil')..'; iTeam='..(iTeam or 'nil')..'; bHaveLowMass='..tostring(bHaveLowMass or false)..'; Team gross mass='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 'nil')..'; Lowest mass % stored='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 'nil')..'; Team mass stored='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] or 'nil')..'; Team net mass='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 'nil')..'; Team gross mass='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 'nil'))
@@ -18129,7 +18160,12 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
 
     function HaveActionToAssign(iActionToAssign, iMinTechLevelWanted, iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iOptionalSpecificFactionWanted, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
         --Done as subfunction for convenience so can just note the key values for the action in question and add on the others that wont change
+        if ShouldHoldOffFreshHighTechPowerStart(iActionToAssign, iMinTechLevelWanted, iTeam, iPlateau, iLandZone, tLZTeamData, false) then
+            if bDebugMessages == true then LOG(sFunctionRef..': Holding off starting a fresh minor-zone high-tech power action in P'..iPlateau..'Z'..iLandZone..' as the team already has enough pending high-tech power elsewhere, iActionToAssign='..iActionToAssign..'; iMinTechLevelWanted='..iMinTechLevelWanted) end
+            return
+        end
         ConsiderActionToAssign(iActionToAssign, iMinTechLevelWanted, iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iCurPriority, tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, toAvailableEngineersByTech, toAssignedEngineers, false, iOptionalSpecificFactionWanted, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
+        if tHighTechPowerBuildActions[iActionToAssign] and (iMinTechLevelWanted or 1) >= 2 then M28Team.tTeamData[iTeam][M28Team.refiTimeLastPendingHighTechPowerRefresh] = nil end
     end
 
     --Unclaimed mex in the zone (top priority)
@@ -20458,7 +20494,12 @@ function ConsiderWaterZoneEngineerAssignment(tWZTeamData, iTeam, iPond, iWaterZo
 
     function HaveActionToAssign(iActionToAssign, iMinTechLevelWanted, iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iOptionalSpecificFactionWanted, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
         --Done as subfunction for convenience so can just note the key values for the action in question and add on the others that wont change
+        if ShouldHoldOffFreshHighTechPowerStart(iActionToAssign, iMinTechLevelWanted, iTeam, iPond, iWaterZone, tWZTeamData, true) then
+            if bDebugMessages == true then LOG(sFunctionRef..': Holding off starting a fresh water-zone high-tech power action in Pond'..iPond..' WZ'..iWaterZone..' as the team already has enough pending high-tech power elsewhere, iActionToAssign='..iActionToAssign..'; iMinTechLevelWanted='..iMinTechLevelWanted) end
+            return
+        end
         ConsiderActionToAssign(iActionToAssign, iMinTechLevelWanted, iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iCurPriority, tWZData, tWZTeamData, iTeam, iPond, iWaterZone, toAvailableEngineersByTech, toAssignedEngineers, true, iOptionalSpecificFactionWanted, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
+        if tHighTechPowerBuildActions[iActionToAssign] and (iMinTechLevelWanted or 1) >= 2 then M28Team.tTeamData[iTeam][M28Team.refiTimeLastPendingHighTechPowerRefresh] = nil end
     end
 
     --Emergency torp launcher if enemy has threat in this zone and we have a naval factory
