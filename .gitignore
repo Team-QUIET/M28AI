@@ -1,5 +1,3 @@
 .vscode
-.agent
-.claude
-.grepai
 docs
+AGENTS.md
