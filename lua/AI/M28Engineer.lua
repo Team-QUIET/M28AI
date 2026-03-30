@@ -16541,6 +16541,73 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
         end
     end
 
+    --If far behind on air, heavily prioritize assisting local air production or air HQ upgrades.
+    iCurPriority = iCurPriority + 1
+    if M28Conditions.TeamIsFarBehindOnAir(iTeam) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
+        local tActiveUpgrades = tLZTeamData[M28Map.subreftoActiveUpgrades] or {}
+        local tAirFacsInLZ = EntityCategoryFilterDown(M28UnitInfo.refCategoryAirFactory, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
+        local tUpgradingAirFac = EntityCategoryFilterDown(M28UnitInfo.refCategoryAirFactory, tActiveUpgrades)
+        local oAirFactoryToAssist
+        local bAssistUpgrade = false
+        local iCurTech
+        local iBestTech = 0
+        local iBestCompletion = -1
+        local iCurCompletion
+
+        if M28Utilities.IsTableEmpty(tUpgradingAirFac) == false then
+            for iUpgradingUnit, oUpgradingUnit in tUpgradingAirFac do
+                if M28UnitInfo.IsUnitValid(oUpgradingUnit) and oUpgradingUnit:GetFractionComplete() < 1 then
+                    iCurTech = M28UnitInfo.GetUnitTechLevel(oUpgradingUnit)
+                    iCurCompletion = oUpgradingUnit:GetFractionComplete()
+                    if iCurTech > iBestTech or (iCurTech == iBestTech and iCurCompletion > iBestCompletion) then
+                        iBestTech = iCurTech
+                        iBestCompletion = iCurCompletion
+                        oAirFactoryToAssist = oUpgradingUnit
+                        bAssistUpgrade = true
+                    end
+                end
+            end
+        end
+
+        if not(oAirFactoryToAssist) and M28Utilities.IsTableEmpty(tAirFacsInLZ) == false then
+            for iFactory, oFactory in tAirFacsInLZ do
+                if M28UnitInfo.IsUnitValid(oFactory) and (not(oFactory[M28Factory.refiTimeSinceLastFailedToGetOrder]) or GetGameTimeSeconds() - oFactory[M28Factory.refiTimeSinceLastFailedToGetOrder] >= 10) then
+                    iCurTech = M28UnitInfo.GetUnitTechLevel(oFactory)
+                    iCurCompletion = oFactory:GetFractionComplete() or 1
+                    if iCurTech > iBestTech or (iCurTech == iBestTech and iCurCompletion > iBestCompletion) then
+                        iBestTech = iCurTech
+                        iBestCompletion = iCurCompletion
+                        oAirFactoryToAssist = oFactory
+                    end
+                end
+            end
+        end
+
+        if oAirFactoryToAssist then
+            iBPWanted = 80 + 90 * math.max(1, iBestTech)
+            if bAssistUpgrade then iBPWanted = iBPWanted + 70 end
+            if not(bHaveLowMass) then iBPWanted = iBPWanted * 1.4
+            else iBPWanted = iBPWanted * 0.85
+            end
+            if not(bHaveLowPower) then iBPWanted = iBPWanted * 1.25
+            else iBPWanted = iBPWanted * 0.7
+            end
+            if M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] > M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] then
+                iBPWanted = iBPWanted * 1.2
+            end
+            if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] then
+                iBPWanted = math.min(iBPWanted, 160)
+            end
+            iBPWanted = math.max(100, math.min(450, iBPWanted))
+            if bDebugMessages == true then LOG(sFunctionRef..': Far behind on air - heavily assisting local air factory target='..oAirFactoryToAssist.UnitId..M28UnitInfo.GetUnitLifetimeCount(oAirFactoryToAssist)..'; bAssistUpgrade='..tostring(bAssistUpgrade)..'; iBPWanted='..iBPWanted..'; AirFacTech='..iBestTech..'; bHaveLowMass='..tostring(bHaveLowMass)..'; bHaveLowPower='..tostring(bHaveLowPower)) end
+            if bAssistUpgrade then
+                HaveActionToAssign(refActionAssistUpgrade, 1, iBPWanted, oAirFactoryToAssist)
+            else
+                HaveActionToAssign(refActionAssistAirFactory, 1, iBPWanted, oAirFactoryToAssist)
+            end
+        end
+    end
+
     --Assist mex and air fac upgrades if in a safe zone or high resource modifier; also assist mex more generally if have already have at least 1 mex of the same tech level and no enemies in an adjacent zone
     iCurPriority = iCurPriority + 1
     if bDebugMessages == true then LOG(sFunctionRef..': Priority mex or air fac assist, iCurPriority='..iCurPriority..'; is table of active upgrades empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoActiveUpgrades]))..'; Is base in safe position='..tostring(tLZTeamData[M28Map.refbBaseInSafePosition])..'; Enemies in adj zone='..tostring(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ])..'; Mex count: T1='..tLZTeamData[M28Map.subrefMexCountByTech][1]..'; T2='..tLZTeamData[M28Map.subrefMexCountByTech][2]..'; T3='..tLZTeamData[M28Map.subrefMexCountByTech][3]..'; Stalling E='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])) end
@@ -16969,11 +17036,6 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                             iBPWanted = tiBPByTech[M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]] * 4
                             if not(bWantMorePower) then iBPWanted = iBPWanted * 2 end
                         end
-                        --Boost air factory assistance when far behind on air
-                        if M28Conditions.TeamIsFarBehindOnAir(iTeam) then
-                            iBPWanted = math.max(iBPWanted, 200)
-                            if not(bHaveLowPower) and not(bHaveLowMass) then iBPWanted = iBPWanted * 1.5 end
-                        end
                         local oAirFactoryToAssist
                         local iHighestAirFac = 0
                         local iCurTechLevel
@@ -16990,34 +17052,6 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                             HaveActionToAssign(refActionAssistAirFactory, 1, iBPWanted, oAirFactoryToAssist)
                         end
                     end
-                end
-            end
-        end
-    end
-
-    --Assist T1 air factory if far behind on air and only have T1 air factories
-    iCurPriority = iCurPriority + 1
-    if M28Conditions.TeamIsFarBehindOnAir(iTeam) and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] == 1 and not(bHaveLowPower) then
-        if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
-            local tT1AirFacsInLZ = EntityCategoryFilterDown(M28UnitInfo.refCategoryAirFactory * categories.TECH1, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
-            if M28Utilities.IsTableEmpty(tT1AirFacsInLZ) == false then
-                --Base BP on economy - more if not stalling
-                if bHaveLowMass then
-                    iBPWanted = 30
-                else
-                    iBPWanted = 60
-                    if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.3 then iBPWanted = iBPWanted * 1.5 end
-                end
-                local oAirFactoryToAssist
-                for iFactory, oFactory in tT1AirFacsInLZ do
-                    if not(oFactory[M28Factory.refiTimeSinceLastFailedToGetOrder]) or GetGameTimeSeconds() - oFactory[M28Factory.refiTimeSinceLastFailedToGetOrder] >= 10 then
-                        oAirFactoryToAssist = oFactory
-                        break
-                    end
-                end
-                if oAirFactoryToAssist then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Far behind on air with only T1 air fac, assisting T1 air factory, iBPWanted='..iBPWanted) end
-                    HaveActionToAssign(refActionAssistAirFactory, 1, iBPWanted, oAirFactoryToAssist)
                 end
             end
         end
