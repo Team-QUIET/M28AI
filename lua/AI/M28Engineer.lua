@@ -11065,7 +11065,7 @@ end
 
 function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iCurPriority, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrPond, iLandOrWaterZone, toAvailableEngineersByTech, toAssignedEngineers, bIsWaterZone, iSpecificFactionRequiredOverride, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
     --vOptionalVariable can be a table, nil or a value; used to pass info specific to the action if it needs it
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
+    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ConsiderActionToAssign'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
@@ -11248,9 +11248,33 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                 local iHighestPriorityEngi = iCurPriority
                 local oHighestPriorityEngi
                 for iEngi, oEngi in toAssignedEngisOfTechLevel do
-                    --Don't reassign engineers on a reclaim path or mex build path - they should complete their path
-                    if oEngi[refiAssignedAction] == refActionReclaimPath or oEngi[refiAssignedAction] == refActionMexBuildPath then
+                    local bEngineerOnProtectedMexPath = oEngi[refiAssignedAction] == refActionMexBuildPath or oEngi[refiAssignedAction] == refActionExpandToLandZone
+                    local bCanInterruptProtectedMexPathForPower = false
+                    if bEngineerOnProtectedMexPath and iActionToAssign == refActionBuildPower and iMinTechWanted <= 1 and tLZOrWZTeamData[M28Map.subrefLZbCoreBase] then
+                        local aiBrain = ArmyBrains[tLZOrWZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
+                        if aiBrain and aiBrain.M28AI and M28Conditions.GetCurrentM28UnitsOfCategoryInTeam(M28UnitInfo.refCategoryPower - categories.TECH1, iTeam) == 0 then
+                            local iLocalStoredEnergy = aiBrain:GetEconomyStored('ENERGY')
+                            local iLocalStoredMass = aiBrain:GetEconomyStored('MASS')
+                            local iLocalGrossEnergy = aiBrain[M28Economy.refiGrossEnergyBaseIncome] or 0
+                            local iLocalNetEnergy = aiBrain[M28Economy.refiNetEnergyBaseIncome] or 0
+                            local iLocalGrossMass = aiBrain[M28Economy.refiGrossMassBaseIncome] or 0
+                            local iResourceMod = aiBrain[M28Economy.refiBrainResourceMultiplier] or M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier] or 1
+                            if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]
+                                    or iLocalStoredEnergy <= 250
+                                    or iLocalGrossEnergy <= math.max(8 * iResourceMod, 8)
+                                    or (iLocalNetEnergy <= 1 * iResourceMod and iLocalStoredEnergy <= 500) then
+                                if iLocalStoredMass >= 10 or iLocalGrossMass >= 1 or not(M28Conditions.TeamHasLowMass(iTeam)) then
+                                    bCanInterruptProtectedMexPathForPower = true
+                                end
+                            end
+                        end
+                    end
+                    --Don't reassign engineers on a reclaim path or protected mex path unless we need one engineer for emergency T1 power recovery
+                    if oEngi[refiAssignedAction] == refActionReclaimPath or (bEngineerOnProtectedMexPath and not(bCanInterruptProtectedMexPathForPower)) then
                         --Skip this engineer entirely
+                    elseif bCanInterruptProtectedMexPathForPower and not(oHighestPriorityEngi) and not(oEngi[refbPrimaryBuilder]) and not(oEngi:IsUnitState('Building')) and not(oEngi:IsUnitState('Repairing')) and not(oEngi:IsUnitState('Reclaiming')) and not(oEngi:IsUnitState('Attached')) and not(oEngi:IsUnitState('Capturing')) then
+                        oHighestPriorityEngi = oEngi
+                        iHighestPriorityEngi = oEngi[refiAssignedActionPriority] or iCurPriority
                     elseif not(oEngi[refbPrimaryBuilder]) and not(oEngi[refiAssignedAction] == iActionToAssign) and oEngi[refiAssignedActionPriority] > iHighestPriorityEngi and not(oEngi:IsUnitState('Reclaiming')) and not(oEngi:IsUnitState('Attached')) and not(oEngi:IsUnitState('Capturing')) then
                         --Exception for engineers assisting a shield
                         if not(oEngi[refiAssignedAction] == refActionAssistShield) or not(M28Team.tTeamData[iTeam][M28Team.refbDefendAgainstArti]) or (M28Team.tTeamData[iTeam][M28Team.refiEnemyT3ArtiCount] == 0 and M28Team.tTeamData[iTeam][M28Team.refiEnemyNovaxCount] <= 2) then
@@ -13766,6 +13790,19 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     local iTeamActiveBrains = math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1)
     local bNoT2PlusPowerYet = M28Conditions.GetCurrentM28UnitsOfCategoryInTeam(M28UnitInfo.refCategoryPower - categories.TECH1, iTeam) == 0
 
+    local function GetAvailableEngineerCount(iMinTechWanted)
+        local iCount = 0
+        local iStartTech = iMinTechWanted or 1
+        if toAvailableEngineersByTech then
+            for iTech = iStartTech, 3 do
+                if M28Utilities.IsTableEmpty(toAvailableEngineersByTech[iTech]) == false then
+                    iCount = iCount + table.getn(toAvailableEngineersByTech[iTech])
+                end
+            end
+        end
+        return iCount
+    end
+
     if not(M28UnitInfo.bDontConsiderCombinedArmy) and M28Team.tTeamData[iTeam][M28Team.refbContainsPureM28AndSharedM28] and tLZTeamData[M28Map.subrefLZSValue] > 30 then
         local tMexesInZone = EntityCategoryFilterDown(M28UnitInfo.refCategoryMex, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
         if M28Utilities.IsTableEmpty(tMexesInZone) == false then
@@ -13816,10 +13853,36 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
         end
     end
 
+    local iCurrentMexCount = (tLZTeamData[M28Map.subrefMexCountByTech][1] or 0) + (tLZTeamData[M28Map.subrefMexCountByTech][2] or 0) + (tLZTeamData[M28Map.subrefMexCountByTech][3] or 0)
+    local iCurrentPowerCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryPower)
+    local bCoreOpeningPhase = GetGameTimeSeconds() <= 240 and tLZTeamData[M28Map.subrefLZbCoreBase] and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] <= 1
+    local bOpeningMassCrash = aiBrain:GetEconomyStored('MASS') <= iOpeningMassCrashStoredFloor and aiBrain[M28Economy.refiNetMassBaseIncome] <= iOpeningMassCrashNetFloor
+    local bOpeningEnergyEmergency = aiBrain[M28Economy.refiGrossEnergyBaseIncome] < iOpeningFirstMexGrossEnergyFloor or aiBrain:GetEconomyStored('ENERGY') < iOpeningEnergyEmergencyStoredFloor
+    local bDelayOpeningExtraPower = bCoreOpeningPhase and iCurrentPowerCount >= 1 and iCurrentMexCount < iOpeningMexTarget and bOpeningMassCrash and not(bOpeningEnergyEmergency)
+    local iLocalStoredEnergy = aiBrain:GetEconomyStored('ENERGY')
+    local iLocalGrossEnergy = aiBrain[M28Economy.refiGrossEnergyBaseIncome] or 0
+    local iLocalNetEnergy = aiBrain[M28Economy.refiNetEnergyBaseIncome] or 0
+    local bLocalEarlyEnergyWeak = tLZTeamData[M28Map.subrefLZbCoreBase] and bNoT2PlusPowerYet and (
+            bHaveLowPower
+            or M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]
+            or iLocalGrossEnergy <= math.max(8 * iResourceMod, iOpeningFirstMexGrossEnergyFloor * 2)
+            or (iLocalNetEnergy <= 1 * iResourceMod and iLocalStoredEnergy <= iOpeningFurtherMexEnergyStoredFloor)
+            or iLocalStoredEnergy <= iOpeningEnergyEmergencyStoredFloor * 2
+    )
+    local bReserveOneEngineerForPowerRecovery = GetGameTimeSeconds() <= 420 and bLocalEarlyEnergyWeak and (iCurrentPowerCount <= math.max(1, math.min(2, iCurrentMexCount)))
+    if bDelayOpeningExtraPower and bReserveOneEngineerForPowerRecovery then
+        bDelayOpeningExtraPower = false
+    end
+
     --Unclaimed mex in the zone (top priority)
     iCurPriority = iCurPriority + 1
     if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefMexUnbuiltLocations]) == false and not(M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tLZData, true)) then
         local iUnbuiltMexCount = table.getn(tLZData[M28Map.subrefMexUnbuiltLocations])
+        local iAvailableEngineersBeforeMexAssignment = GetAvailableEngineerCount(1)
+        local iReservedEngineersForPowerRecovery = 0
+        if bReserveOneEngineerForPowerRecovery and iAvailableEngineersBeforeMexAssignment > 0 then
+            iReservedEngineersForPowerRecovery = 1
+        end
         iBPWanted = math.max(5, iUnbuiltMexCount * 2.5)
         if bDebugMessages == true then LOG(sFunctionRef..': We have unbuilt mex locations for this land zone, iBPWanted='..iBPWanted..', iUnbuiltMexCount='..iUnbuiltMexCount..', locations='..repru(tLZData[M28Map.subrefMexUnbuiltLocations])) end
         if bEngineersRecentlyRunFromEnemy then iBPWanted =5
@@ -13828,10 +13891,17 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
         elseif bHaveLowPower and iBPWanted > 10 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.2 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 80  then
             iBPWanted = 10
         end
+        if iReservedEngineersForPowerRecovery > 0 then
+            iBPWanted = math.min(iBPWanted, math.max(0, (iAvailableEngineersBeforeMexAssignment - iReservedEngineersForPowerRecovery) * tiBPByTech[1]))
+            if bDebugMessages == true then LOG(sFunctionRef..': Reserving one early engineer for T1 power recovery, iAvailableEngineersBeforeMexAssignment='..iAvailableEngineersBeforeMexAssignment..'; iBPWanted after reserve='..iBPWanted) end
+        end
 
         --Assign multiple engineers to mex build paths for rapid expansion
         local iMexBuildPathsAssigned = 0
         local iMaxLocalPaths = math.min(3, math.ceil(iUnbuiltMexCount / 3)) --Up to 3 engineers per zone, ~3 mexes each
+        if iReservedEngineersForPowerRecovery > 0 then
+            iMaxLocalPaths = math.min(iMaxLocalPaths, math.max(0, iAvailableEngineersBeforeMexAssignment - iReservedEngineersForPowerRecovery))
+        end
         if not(bEngineersRecentlyRunFromEnemy) and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) then
             while iUnbuiltMexCount > 0 and GetMexBuildPathEngineerCount(iTeam) < iMaxMexBuildPathEngineers and iMexBuildPathsAssigned < iMaxLocalPaths do
                 local iHighestTechAvailable = GetHighestTechEngiAvailable(toAvailableEngineersByTech)
@@ -13857,7 +13927,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
         end
 
         --Fall back to normal mex building if no mex paths were used or we still have more mexes to build
-        if iMexBuildPathsAssigned == 0 or iUnbuiltMexCount > 5 then
+        if (iMexBuildPathsAssigned == 0 or iUnbuiltMexCount > 5) and iBPWanted > 0 then
             HaveActionToAssign(refActionBuildMex, 1, iBPWanted)
         end
         if not(bEngineersRecentlyRunFromEnemy) and (tLZTeamData[M28Map.subreftiBPWantedByAction][refActionBuildMex] or 0) > 0 and not(tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex]) then
@@ -13947,12 +14017,6 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     end
 
     if bDebugMessages == true then LOG(sFunctionRef..': iMinTechLevelForPower='..iMinTechLevelForPower..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]) end
-    local iCurrentMexCount = (tLZTeamData[M28Map.subrefMexCountByTech][1] or 0) + (tLZTeamData[M28Map.subrefMexCountByTech][2] or 0) + (tLZTeamData[M28Map.subrefMexCountByTech][3] or 0)
-    local iCurrentPowerCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryPower)
-    local bCoreOpeningPhase = GetGameTimeSeconds() <= 240 and tLZTeamData[M28Map.subrefLZbCoreBase] and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] <= 1
-    local bOpeningMassCrash = aiBrain:GetEconomyStored('MASS') <= iOpeningMassCrashStoredFloor and aiBrain[M28Economy.refiNetMassBaseIncome] <= iOpeningMassCrashNetFloor
-    local bOpeningEnergyEmergency = aiBrain[M28Economy.refiGrossEnergyBaseIncome] < iOpeningFirstMexGrossEnergyFloor or aiBrain:GetEconomyStored('ENERGY') < iOpeningEnergyEmergencyStoredFloor
-    local bDelayOpeningExtraPower = bCoreOpeningPhase and iCurrentPowerCount >= 1 and iCurrentMexCount < iOpeningMexTarget and bOpeningMassCrash and not(bOpeningEnergyEmergency)
 
     --Early hydro handoff for normal 4-5 mex starts: let engineers take the hydro once mexes and the first pgen are secured.
     iCurPriority = iCurPriority + 1
