@@ -5290,8 +5290,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
     if bMiddleMapZone and (tLZTeamData[M28Map.subrefbLZWantsDFSupport] or false) then
         iACUCommitThreatRatio = 0.72
     end
-    local iPushThreatRatio = 1.04
-    local iMusterSuspendThreatRatio = 0.90
+    local iPushThreatRatio = 0.94
+    local iMusterSuspendThreatRatio = 0.80
 
     --Non-skirmisher focus set used for push/muster gating
     local tNonSkirmisherCombatUnits = EntityCategoryFilterDown(M28UnitInfo.refCategoryLandCombat - M28UnitInfo.refCategorySkirmisher - M28UnitInfo.refCategoryAbsolver, tAvailableCombatUnits)
@@ -7247,7 +7247,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     end
                 end
                 bSuspendMusterOverride = bForcePushNonSkirmisher or (bWinningEnoughToSuspendMuster and (bNonSkirmisherActivelyEngaged or bFrontlinePressureZone))
-                bDisableFrontlineRetreatLogic = bFrontlinePressureZone and not(tLZTeamData[M28Map.subrefLZbCoreBase]) and iNonSkirmisherCombatThreat >= 250
+                bDisableFrontlineRetreatLogic = bFrontlinePressureZone and not(tLZTeamData[M28Map.subrefLZbCoreBase]) and iNonSkirmisherCombatThreat >= 180
                 if bDisableFrontlineRetreatLogic then
                     bSuspendMusterOverride = true
                 end
@@ -7948,8 +7948,16 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 --SCENARIO 1 - We outrange enemy DF units (mobile and fix), or have equal range but with either significantly more threat at that range, or nearest enemy lacks that range
                 --Skip Scenario 1 attacks if we should muster instead (enemy has equal or greater threat)
                 if bAreInScenario1 and bApplyMusterRetreatOverride then
-                    bAreInScenario1 = false --Force into Scenario 2 which will then retreat/muster
-                    if bDebugMessages == true then LOG(sFunctionRef..': Overriding Scenario 1 due to bApplyMusterRetreatOverride=true, will muster instead of kiting attack') end
+                    local bScenario1FrontlinePushException = bForcePushNonSkirmisher
+                        or (bDisableFrontlineRetreatLogic and not(bHaveACUInTroubleAndRecentlyInCombat))
+                        or (((tLZTeamData[M28Map.subrefbLZWantsDFSupport] or false) or (tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false))
+                            and iNonSkirmisherCombatThreat >= math.max(300, (iEnemyCombatThreat or 0) * 0.78))
+                    if not(bScenario1FrontlinePushException) then
+                        bAreInScenario1 = false --Force into Scenario 2 which will then retreat/muster
+                        if bDebugMessages == true then LOG(sFunctionRef..': Overriding Scenario 1 due to bApplyMusterRetreatOverride=true, will muster instead of kiting attack') end
+                    elseif bDebugMessages == true then
+                        LOG(sFunctionRef..': Keeping Scenario 1 despite bApplyMusterRetreatOverride because frontline push exception is active, iNonSkirmisherCombatThreat='..(iNonSkirmisherCombatThreat or 0)..'; iEnemyCombatThreat='..(iEnemyCombatThreat or 0))
+                    end
                 end
 
                 if bAreInScenario1 then
@@ -9594,16 +9602,39 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                     else
                                                         DoManualAttack(oSRUnit, oTargetToManuallyAttack, 'ExpSRA')
                                                     end
-                                                elseif EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oSRUnit.UnitId) then
-                                                    local tSupportRetreatPoint = M28Utilities.MoveInDirection(oClosestUnit:GetPosition(), M28Utilities.GetAngleFromAToB(oClosestUnit:GetPosition(), (tSRRallyOverride or tAmphibiousRallyPoint)), iDistToRetreat, true, false, true)
-                                                    if bDebugMessages == true and oSRUnit[M28UnitInfo.refbCanKite] then
-                                                        LOG(sFunctionRef..': Want unit to move towards tAmphibiousRallyPoint, position to move to towards this='..repru(tSupportRetreatPoint)..'; cur position='..repru(oSRUnit:GetPosition())..'; Last orders='..reprs(oSRUnit[M28Orders.reftiLastOrders])..'; Angle from cur position to new position='..M28Utilities.GetAngleFromAToB(oSRUnit:GetPosition(), tAmphibiousRallyPoint)..'; IgnoreOrderDueToStuckUnit(oSRUnit)='..tostring(IgnoreOrderDueToStuckUnit(oSRUnit) or false))
-                                                    end
-                                                    M28Orders.IssueSmartMove(oSRUnit, tSupportRetreatPoint, 5, false, 'ASRSup'..iLandZone, false, true)
-
                                                 else
-                                                    local tSupportRetreatPoint = M28Utilities.MoveInDirection(oClosestUnit:GetPosition(), M28Utilities.GetAngleFromAToB(oClosestUnit:GetPosition(), (tSRRallyOverride or tRallyPoint)), iDistToRetreat, true, false, true)
-                                                    M28Orders.IssueSmartMove(oSRUnit, tSupportRetreatPoint, 4, false, 'SRSup'..iLandZone, false, true)
+                                                    local bFrontlineSupportAdvancePreferred = bForcePushNonSkirmisher
+                                                        or (bDisableFrontlineRetreatLogic and not(bHaveACUInTroubleAndRecentlyInCombat))
+                                                        or (((tLZTeamData[M28Map.subrefbLZWantsDFSupport] or false) or (tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false))
+                                                            and iNonSkirmisherCombatThreat >= math.max(325, (iEnemyCombatThreat or 0) * 0.82))
+                                                    if bFrontlineSupportAdvancePreferred then
+                                                        local tSupportAdvancePoint = M28Utilities.MoveInDirection(
+                                                            oClosestUnit:GetPosition(),
+                                                            M28Utilities.GetAngleFromAToB(oClosestUnit:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]),
+                                                            math.max(8, math.min(18, iDistToRetreat + 4)),
+                                                            true,
+                                                            false,
+                                                            true
+                                                        )
+                                                        if M28Utilities.IsTableEmpty(tSupportAdvancePoint) then
+                                                            tSupportAdvancePoint = oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]
+                                                        end
+                                                        if EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oSRUnit.UnitId) then
+                                                            M28Orders.IssueSmartMove(oSRUnit, tSupportAdvancePoint, 5, false, 'ASRPush'..iLandZone, false, true)
+                                                        else
+                                                            M28Orders.IssueSmartMove(oSRUnit, tSupportAdvancePoint, 4, false, 'SRPush'..iLandZone, false, true)
+                                                        end
+                                                    elseif EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oSRUnit.UnitId) then
+                                                        local tSupportRetreatPoint = M28Utilities.MoveInDirection(oClosestUnit:GetPosition(), M28Utilities.GetAngleFromAToB(oClosestUnit:GetPosition(), (tSRRallyOverride or tAmphibiousRallyPoint)), iDistToRetreat, true, false, true)
+                                                        if bDebugMessages == true and oSRUnit[M28UnitInfo.refbCanKite] then
+                                                            LOG(sFunctionRef..': Want unit to move towards tAmphibiousRallyPoint, position to move to towards this='..repru(tSupportRetreatPoint)..'; cur position='..repru(oSRUnit:GetPosition())..'; Last orders='..reprs(oSRUnit[M28Orders.reftiLastOrders])..'; Angle from cur position to new position='..M28Utilities.GetAngleFromAToB(oSRUnit:GetPosition(), tAmphibiousRallyPoint)..'; IgnoreOrderDueToStuckUnit(oSRUnit)='..tostring(IgnoreOrderDueToStuckUnit(oSRUnit) or false))
+                                                        end
+                                                        M28Orders.IssueSmartMove(oSRUnit, tSupportRetreatPoint, 5, false, 'ASRSup'..iLandZone, false, true)
+
+                                                    else
+                                                        local tSupportRetreatPoint = M28Utilities.MoveInDirection(oClosestUnit:GetPosition(), M28Utilities.GetAngleFromAToB(oClosestUnit:GetPosition(), (tSRRallyOverride or tRallyPoint)), iDistToRetreat, true, false, true)
+                                                        M28Orders.IssueSmartMove(oSRUnit, tSupportRetreatPoint, 4, false, 'SRSup'..iLandZone, false, true)
+                                                    end
                                                 end
                                             end
                                         end
@@ -9617,7 +9648,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             end
                         end
 
-                        if math.max(tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal]* 0.7,tLZTeamData[M28Map.subrefThreatEnemyDFStructures] + tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal])  * 1.5 > iAvailableCombatUnitThreat then
+                        if math.max(tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] * 0.7,tLZTeamData[M28Map.subrefThreatEnemyDFStructures] + tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal]) * 1.5 > iAvailableCombatUnitThreat then
                             bWantReinforcements = true
                             if bDebugMessages == true then LOG(sFunctionRef..': Want reinforcements as enemy combat DF exceeds our combat rating, tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal]='..tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal]..'; Our combat units rating='..iAvailableCombatUnitThreat) end
                         end
@@ -10362,10 +10393,13 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
                         UpdateNonSkirmisherAggressionSignals()
                         if bAttackWithEverythingLocal and bApplyMusterRetreatOverride and not(bDisableFrontlineRetreatLogic) then
-                            local bFrontlineMusterException = bForcePushNonSkirmisher or ((tLZTeamData[M28Map.subrefbLZWantsDFSupport] or false)
-                                    and iOurDFAndT1ArtiCombatThreat >= math.max(450, iEnemyCombatThreat * 0.92)
-                                    and (((tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0) == 0) or iOurDFAndT1ArtiCombatThreat >= iEnemyCombatThreat))
-                            if not(bFrontlineMusterException) and iOurDFAndT1ArtiCombatThreat <= iEnemyCombatThreat * 1.02 and not(bHaveACUInTroubleAndRecentlyInCombat) then
+                            local bFrontlineMusterException = bForcePushNonSkirmisher
+                                or (((tLZTeamData[M28Map.subrefbLZWantsDFSupport] or false) or (tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false))
+                                    and iOurDFAndT1ArtiCombatThreat >= math.max(350, iEnemyCombatThreat * 0.78)
+                                    and (((tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0) == 0)
+                                        or iOurDFAndT1ArtiCombatThreat >= iEnemyCombatThreat * 0.88
+                                        or table.getn(tAvailableCombatUnits) >= math.max(18, table.getn(tLZTeamData[M28Map.subrefTEnemyUnits]) + 8)))
+                            if not(bFrontlineMusterException) and iOurDFAndT1ArtiCombatThreat <= iEnemyCombatThreat * 0.92 and not(bHaveACUInTroubleAndRecentlyInCombat) then
                                 bAttackWithEverythingLocal = false
                             end
                             bWantReinforcements = true
@@ -10865,12 +10899,19 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         UpdateNonSkirmisherAggressionSignals()
                         local bFrontlinePushStillPreferred = bForcePushNonSkirmisher or bDisableFrontlineRetreatLogic
                         if not(bFrontlinePushStillPreferred) and (tLZTeamData[M28Map.subrefbLZWantsDFSupport] or false) then
-                            bFrontlinePushStillPreferred = iAvailableCombatUnitThreat >= math.max(400, (iEnemyCombatThreat or 0) * 0.9)
+                            bFrontlinePushStillPreferred = iAvailableCombatUnitThreat >= math.max(300, (iEnemyCombatThreat or 0) * 0.72)
+                        end
+                        if not(bFrontlinePushStillPreferred) and (tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false) then
+                            bFrontlinePushStillPreferred = iAvailableCombatUnitThreat >= math.max(350, (iEnemyCombatThreat or 0) * 0.82)
+                        end
+                        if not(bFrontlinePushStillPreferred) and table.getn(tAvailableCombatUnits) >= 18 then
+                            bFrontlinePushStillPreferred = iAvailableCombatUnitThreat >= math.max(500, (iEnemyCombatThreat or 0) * 0.80)
                         end
                         if not(bFrontlinePushStillPreferred) and (tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0) > 0 then
-                            bFrontlinePushStillPreferred = iAvailableCombatUnitThreat >= math.max(700, (iEnemyCombatThreat or 0) * 0.95)
+                            bFrontlinePushStillPreferred = iAvailableCombatUnitThreat >= math.max(550, (iEnemyCombatThreat or 0) * 0.85)
                         end
                         local bUseMusterRetreatControl = bApplyMusterRetreatOverride and not(bFrontlinePushStillPreferred)
+                            and iAvailableCombatUnitThreat < math.max(450, (iEnemyCombatThreat or 0) * 0.95)
                         if bUseMusterRetreatControl then
                             sRetreatMessage = 'ConsArmy'
                         end
