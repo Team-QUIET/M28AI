@@ -933,6 +933,11 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
         end
     end
 
+    local iTargetLowTechGunshipCount, iTargetLowTechGunshipPressure, bTargetLowTechGunshipPressure = GetLowTechGunshipPressureAgainstLand(tLZTargetTeamData)
+    if bDebugMessages == true and bTargetLowTechGunshipPressure then
+        LOG(sFunctionRef..': Low-tech gunship flak pressure detected for target zone '..iTargetLandZone..'; Count='..iTargetLowTechGunshipCount..'; Pressure='..iTargetLowTechGunshipPressure..'; GroundAA have='..(tLZTargetTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0)..'; Wanted='..(tLZTargetTeamData[M28Map.subrefLZMAAThreatWanted] or 0))
+    end
+
     --Priority scouts
     if not(bDontConsiderLandScouts) and bInSameIsland and tLZTargetTeamData[M28Map.refbWantLandScout] and M28Utilities.IsTableEmpty(tLZTargetTeamData[M28Map.subrefTScoutsTravelingHere]) and (bUrgentFrontlineScoutWanted or (tLZTargetTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] and GetGameTimeSeconds() - tLZTargetTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] <= 20)) then
         iBaseCategoryWanted = M28UnitInfo.refCategoryLandScout
@@ -953,6 +958,16 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
             end
             if not(bInSameIsland) then iBaseCategoryWanted = iBaseCategoryWanted * M28UnitInfo.refCategoryAmphibious + iBaseCategoryWanted * categories.HOVER end
             if bDebugMessages == true then LOG(sFunctionRef..': Will get MAA0') end
+        end
+    end
+
+    --Low-tech gunships pressuring land units: bias earlier to T2 flak if we can build it
+    if not(iBaseCategoryWanted) and M28UnitInfo.GetUnitTechLevel(oFactory) >= 2 and ((not(bDontConsiderBuildingMAA)) or bTargetLowTechGunshipPressure) and bTargetLowTechGunshipPressure then
+        local iFlakNeedThreshold = math.max((tLZTargetTeamData[M28Map.subrefLZMAAThreatWanted] or 0), iTargetLowTechGunshipPressure, 350 + 140 * iTargetLowTechGunshipCount)
+        if (tLZTargetTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0) < iFlakNeedThreshold or not(bHaveLowMass) then
+            iBaseCategoryWanted = M28UnitInfo.refCategoryMAA * categories.TECH2
+            if not(bInSameIsland) then iBaseCategoryWanted = iBaseCategoryWanted * M28UnitInfo.refCategoryAmphibious + iBaseCategoryWanted * categories.HOVER end
+            if bDebugMessages == true then LOG(sFunctionRef..': LOW_TECH_GUNSHIP_FLAK - Prioritising T2 flak for land units under T1/T2 gunship pressure. NeedThreshold='..iFlakNeedThreshold..'; Have='..(tLZTargetTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0)..'; Count='..iTargetLowTechGunshipCount) end
         end
     end
 
@@ -1441,6 +1456,24 @@ function GetLandFactoryThrottleDelay(iFactoryTechLevel)
     return 60 --default fallback
 end
 
+function GetLowTechGunshipPressureAgainstLand(tLZTeamData)
+    if not(tLZTeamData) then return 0, 0, false end
+    if (tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) <= 0 then return 0, 0, false end
+    if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftLZEnemyAirUnits]) then return 0, 0, false end
+
+    local bHaveLandUnitsNeedingCover = (tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) >= 75
+        or not(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoNearestDFEnemies]))
+        or (tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false)
+    if not(bHaveLandUnitsNeedingCover) then return 0, 0, false end
+
+    local tEnemyLowTechGunships = EntityCategoryFilterDown((categories.TECH1 + categories.TECH2) * M28UnitInfo.refCategoryGunship, tLZTeamData[M28Map.reftLZEnemyAirUnits])
+    if M28Utilities.IsTableEmpty(tEnemyLowTechGunships) then return 0, 0, false end
+
+    local iGunshipCount = table.getn(tEnemyLowTechGunships)
+    local iGunshipPressure = math.max(iGunshipCount * 180, math.min(2400, (tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) * 0.75))
+    return iGunshipCount, iGunshipPressure, true
+end
+
 function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     local sFunctionRef = 'GetBlueprintToBuildForLandFactory'
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
@@ -1638,6 +1671,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 
     if bDebugMessages == true then LOG(sFunctionRef..': bDontConsiderLandScouts='..tostring(bDontConsiderLandScouts or false)..'; M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauIslandTimeLastFailedLandScoutByTeam][iTeam][tLZData[M28Map.subrefLZIslandRef]]='..(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauIslandTimeLastFailedLandScoutByTeam][iTeam][tLZData[M28Map.subrefLZIslandRef]] or 'nil')) end
     local bDontConsiderBuildingMAA = false
+    local iEnemyLowTechGunshipCountInZone, iEnemyLowTechGunshipPressureInZone, bEnemyLowTechGunshipsPressuringLandInZone = GetLowTechGunshipPressureAgainstLand(tLZTeamData)
 
     --Don't build T2 MAA when enemy has T3 air
     --T2 MAA is technically efficient but if the enemy has T3 Air, we can assume we have T3 factories
@@ -1647,17 +1681,12 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     if bEnemyHasT3Air and bWeCanOnlyBuildT2OrLowerMAA then
         --Default to not building MAA since T2 flak is ineffective vs T3 air
         bDontConsiderBuildingMAA = true
-        --Exception: Allow T2 MAA if enemy has T2 gunships specifically in this zone attacking us
-        if tLZTeamData[M28Map.refiEnemyAirToGroundThreat] > 0 and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftLZEnemyAirUnits]) == false then
-            local tEnemyT2Gunships = EntityCategoryFilterDown(categories.TECH2 * M28UnitInfo.refCategoryGunship, tLZTeamData[M28Map.reftLZEnemyAirUnits])
-            if M28Utilities.IsTableEmpty(tEnemyT2Gunships) == false then
-                bDontConsiderBuildingMAA = false
-                if bDebugMessages == true then LOG(sFunctionRef..': T3_AIR_FIX - Enemy has T3 air but T2 gunships in zone, allowing T2 MAA production') end
-            else
-                if bDebugMessages == true then LOG(sFunctionRef..': T3_AIR_FIX - Blocking T2 MAA production because enemy has T3 air and we only have T2 factories - T2 flak is ineffective vs T3 air') end
-            end
+        --Exception: Allow T2 MAA if enemy has low-tech gunships actively pressuring land units in this zone
+        if bEnemyLowTechGunshipsPressuringLandInZone then
+            bDontConsiderBuildingMAA = false
+            if bDebugMessages == true then LOG(sFunctionRef..': T3_AIR_FIX - Enemy has T3 air but low-tech gunships are pressuring land units here, allowing T2 flak response. Count='..iEnemyLowTechGunshipCountInZone..'; Pressure='..iEnemyLowTechGunshipPressureInZone) end
         else
-            if bDebugMessages == true then LOG(sFunctionRef..': T3_AIR_FIX - Blocking T2 MAA production because enemy has T3 air and we only have T2 factories') end
+            if bDebugMessages == true then LOG(sFunctionRef..': T3_AIR_FIX - Blocking T2 MAA production because enemy has T3 air and we only have T2 factories - T2 flak is ineffective vs T3 air') end
         end
     end
 
@@ -1698,7 +1727,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     end
 
     -- If we have good AA coverage relative to enemy air threat, and enemy ground threat is higher, prioritize ground units
-    if iTotalAACoverage >= iEnemyAirThreat * 1.5 and iEnemyGroundThreat > iEnemyAirThreat then
+    if not(bEnemyLowTechGunshipsPressuringLandInZone) and iTotalAACoverage >= iEnemyAirThreat * 1.5 and iEnemyGroundThreat > iEnemyAirThreat then
         bDontConsiderBuildingMAA = true
         if bDebugMessages == true then
             LOG(sFunctionRef .. ': Sufficient AA coverage detected (total AA=' .. iTotalAACoverage .. ' vs enemy air=' .. iEnemyAirThreat .. '), and enemy ground threat is higher (' .. iEnemyGroundThreat .. '), prioritizing ground combat units')
@@ -1706,7 +1735,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     end
 
     --Static AA is often more cost-effective than MAA, especially T3 SAMs against T3 air
-    if not(bDontConsiderBuildingMAA) and iStaticAA >= 1500 then
+    if not(bDontConsiderBuildingMAA) and not(bEnemyLowTechGunshipsPressuringLandInZone) and iStaticAA >= 1500 then
         if iStaticAA >= iEnemyAirThreat * 0.6 then
             bDontConsiderBuildingMAA = true
             if bDebugMessages == true then
@@ -1733,7 +1762,10 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     --MAA cannot regain air control - only fighters can. Mass spent on MAA is mass not spent on interceptors.
     --We keep a bit of MAA production per Normander because we might want some MAA to force Air Fights to be more efficient
     if not(M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbHaveAirControl]) and not(M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam]) then
-        if M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbFarBehindOnAir] then
+        if bEnemyLowTechGunshipsPressuringLandInZone then
+            iMinMAARatioFactor = math.max(4, iMinMAARatioFactor * 0.6)
+            if bDebugMessages == true then LOG(sFunctionRef..': LOW_TECH_GUNSHIP_FLAK - Local low-tech gunship pressure, easing MAA suppression. Count='..iEnemyLowTechGunshipCountInZone..'; Pressure='..iEnemyLowTechGunshipPressureInZone..'; factor='..iMinMAARatioFactor) end
+        elseif M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbFarBehindOnAir] then
             local bEarlyGameNoAirThreat = GetGameTimeSeconds() <= 600 and
                 M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] == 0 and
                 M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftoAllEnemyAir])
@@ -1753,7 +1785,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 
     -- Don't build more MAA if we already have sufficient mobile AA relative to ground combat units
     -- This prevents starving ground unit production when we have good mobile AA coverage
-    if not(bDontConsiderBuildingMAA) then
+    if not(bDontConsiderBuildingMAA) and not(bEnemyLowTechGunshipsPressuringLandInZone) then
         local iMobileAACount = aiBrain:GetCurrentUnits(categories.MOBILE * categories.ANTIAIR - categories.SCOUT)
         local iGroundCombatCount = aiBrain:GetCurrentUnits(categories.MOBILE * categories.LAND * (categories.DIRECTFIRE + categories.INDIRECTFIRE) - categories.ENGINEER - categories.SCOUT)
 
@@ -8735,6 +8767,11 @@ function GetBlueprintToBuildForMobileLandFactory(aiBrain, oFactory)
                     iMAACategoryWanted = M28UnitInfo.refCategoryMAA * categories.TECH2
                 end
             end
+        end
+        local iEnemyLowTechGunshipCountInZone, iEnemyLowTechGunshipPressureInZone, bEnemyLowTechGunshipsPressuringLandInZone = GetLowTechGunshipPressureAgainstLand(tLZTeamData)
+        if bEnemyLowTechGunshipsPressuringLandInZone then
+            iMAACategoryWanted = M28UnitInfo.refCategoryMAA * categories.TECH2
+            if bDebugMessages == true then LOG(sFunctionRef..': LOW_TECH_GUNSHIP_FLAK - T3 land fac preferring T2 flak due to local T1/T2 gunship pressure. Count='..iEnemyLowTechGunshipCountInZone..'; Pressure='..iEnemyLowTechGunshipPressureInZone) end
         end
 
         --Build T2 MAA if enemy has air units in this zone
