@@ -74,6 +74,9 @@ iReclaimWantedForTransportDrop = 250 --i.e. amount of reclaim in amss to conside
     refoGunshipAttackOrderTarget = 'M28AGsAOTg' --if gunship is being given an attack-move order to ensure it fires at a target, this records that target
     refbGunshipViaPointReached = 'M28GsViaPR' --true if have recently reached the gunship via point
     refbRallyViaPointReached = 'M28GsRalPR' --true if have recently reached the via point for the rally
+    refiTimeLastUrgentEscortThreat = 'M28UrgEscTm' --Game time of the most recent local escort peel we want interceptors to keep screening around
+    reftUrgentEscortFocusPoint = 'M28UrgEscPt' --Position we want interceptors to linger near after an urgent escort peel
+    refoUrgentEscortProtectedUnit = 'M28UrgEscPU' --Protected air unit that last triggered urgent escort peel logic
     rebEarlyBomberTargetBase = 'M28ErBTrB' --true if have a bomber that we want to target enemy base (used when went early bomber mode)
     refiBomberTargetNavalEngiWZ = 'M28BmTrNv' --if bomber is targeting a water zone with engineers, this should return the water zone it has been assigned to target
     refbBomberUsingMexHunterLogic = 'M28BmMx' --true if bomber is being given special orders for attacking enemy mexes (e.g. for first strat)
@@ -81,6 +84,70 @@ iReclaimWantedForTransportDrop = 250 --i.e. amount of reclaim in amss to conside
     refbExpBomberRecentlyTriedFiringAtRange = 'M28ExpBFnR' --true if bomber has tried to fire at range instead of turning around
     refiProjectileHealthOverridePercent = 'M28PjHRn' --% health to run on - if want to override the global value (e.g. for t1-t2 gunships)
     refbDisableAirAAAttackMicro = 'M28DsAAM' --Disables airaa 'move and hover-move to attack' logic and instead just attack moves - e.g. for penetration fighters
+
+local iUrgentEscortLingerDuration = 15
+local iUrgentEscortFocusDistance = 135
+local iUrgentEscortExtendedFocusDistance = 180
+
+local function IsUrgentEscortPriorityAirUnit(oUnit)
+    return M28UnitInfo.IsUnitValid(oUnit) and EntityCategoryContains(M28UnitInfo.refCategoryBomber + M28UnitInfo.refCategoryTorpBomber + M28UnitInfo.refCategoryGunship + M28UnitInfo.refCategoryCzar + M28UnitInfo.refCategoryRestorer, oUnit.UnitId)
+end
+
+local function ClearExpiredUrgentEscortState(iAirSubteam, iCurTime)
+    if not(M28Team.tAirSubteamData[iAirSubteam]) then return end
+    if (M28Team.tAirSubteamData[iAirSubteam][refiTimeLastUrgentEscortThreat] or 0) + iUrgentEscortLingerDuration < iCurTime then
+        M28Team.tAirSubteamData[iAirSubteam][reftUrgentEscortFocusPoint] = nil
+        M28Team.tAirSubteamData[iAirSubteam][refoUrgentEscortProtectedUnit] = nil
+    elseif not(M28UnitInfo.IsUnitValid(M28Team.tAirSubteamData[iAirSubteam][refoUrgentEscortProtectedUnit])) then
+        M28Team.tAirSubteamData[iAirSubteam][refoUrgentEscortProtectedUnit] = nil
+    end
+end
+
+local function RecordUrgentEscortState(iAirSubteam, iCurTime, oProtectedUnit, tFocusPoint)
+    if not(M28Team.tAirSubteamData[iAirSubteam]) then return end
+    M28Team.tAirSubteamData[iAirSubteam][refiTimeLastUrgentEscortThreat] = iCurTime
+    if M28Utilities.IsTableEmpty(tFocusPoint) and M28UnitInfo.IsUnitValid(oProtectedUnit) then
+        tFocusPoint = oProtectedUnit:GetPosition()
+    end
+    if M28Utilities.IsTableEmpty(tFocusPoint) == false then
+        M28Team.tAirSubteamData[iAirSubteam][reftUrgentEscortFocusPoint] = {tFocusPoint[1], tFocusPoint[2], tFocusPoint[3]}
+    end
+    if M28UnitInfo.IsUnitValid(oProtectedUnit) then
+        M28Team.tAirSubteamData[iAirSubteam][refoUrgentEscortProtectedUnit] = oProtectedUnit
+    end
+end
+
+local function IsRecentUrgentEscortFocusActive(iAirSubteam, iCurTime)
+    ClearExpiredUrgentEscortState(iAirSubteam, iCurTime)
+    return not(M28Utilities.IsTableEmpty(M28Team.tAirSubteamData[iAirSubteam][reftUrgentEscortFocusPoint]))
+end
+
+local function IsUnitInRecentUrgentEscortFocus(iAirSubteam, oUnit, iCurTime, tOptionalPosition, iOptionalDistanceThreshold)
+    if not(IsUrgentEscortPriorityAirUnit(oUnit)) then return false end
+    ClearExpiredUrgentEscortState(iAirSubteam, iCurTime)
+    if M28Team.tAirSubteamData[iAirSubteam][refoUrgentEscortProtectedUnit] == oUnit then return true end
+
+    local tFocusPoint = M28Team.tAirSubteamData[iAirSubteam][reftUrgentEscortFocusPoint]
+    if M28Utilities.IsTableEmpty(tFocusPoint) then return false end
+
+    local tPosition = tOptionalPosition
+    if M28Utilities.IsTableEmpty(tPosition) then
+        if not(M28UnitInfo.IsUnitValid(oUnit)) then return false end
+        tPosition = oUnit:GetPosition()
+    end
+    return M28Utilities.GetDistanceBetweenPositions(tPosition, tFocusPoint) <= (iOptionalDistanceThreshold or iUrgentEscortFocusDistance)
+end
+
+local function ShouldSuppressFarBehindForLocalEscort(iTeam, iAirSubteam, oUnit, iCurTime, iOptionalFriendlyAAFromUnitToProtect)
+    if not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]) or not(IsUrgentEscortPriorityAirUnit(oUnit)) then return false end
+    if IsUnitInRecentUrgentEscortFocus(iAirSubteam, oUnit, iCurTime, nil, iUrgentEscortExtendedFocusDistance) then return true end
+
+    local iFriendlyAAFromUnitToProtect = iOptionalFriendlyAAFromUnitToProtect or 0
+    if iFriendlyAAFromUnitToProtect > 0 and (M28Team.tTeamData[iTeam][M28Team.subrefiOurAirAAThreat] or 0) + iFriendlyAAFromUnitToProtect > (M28Team.tAirSubteamData[iAirSubteam][M28Team.refiFarBehindFactor] or 0.8) * (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 0) then
+        return true
+    end
+    return false
+end
 
 function RecordNewAirUnitForTeam(iTeam, oUnit)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
@@ -2457,6 +2524,10 @@ function UpdateAirRallyAndSupportPoints(iTeam, iAirSubteam)
                         end
                         if bDebugMessages == true then LOG(sFunctionRef..': Although normally we are far behind on air, want to consider if there is sufficient AA around the unit we want to protect to justify staying close to it, bFarBehindOnAir='..tostring(bFarBehindOnAir)..'; M28Team.tTeamData[iTeam][M28Team.subrefiOurAirAAThreat='..M28Team.tTeamData[iTeam][M28Team.subrefiOurAirAAThreat]..'; iFriendlyAAFromUnitToProtect='..iFriendlyAAFromUnitToProtect..'; M28Team.tAirSubteamData[iAirSubteam][M28Team.refiFarBehindFactor]='..M28Team.tAirSubteamData[iAirSubteam][M28Team.refiFarBehindFactor]..'; M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]) end
                     end
+                    if bFarBehindOnAir and ShouldSuppressFarBehindForLocalEscort(iTeam, iAirSubteam, oPriorityUnitBeingSupported, GetGameTimeSeconds(), iFriendlyAAFromUnitToProtect) then
+                        bFarBehindOnAir = false
+                        if bDebugMessages == true then LOG(sFunctionRef..': Overriding far-behind-on-air caution for a local escort focus around priority unit '..(oPriorityUnitBeingSupported.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oPriorityUnitBeingSupported) or 'nil')) end
+                    end
                     if bDebugMessages == true then LOG(sFunctionRef..': Will consider moving closer to priority unit to protect unless are far behind on air, M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] or false)) end
                     if not(bFarBehindOnAir) then
                         local iAirToGroundThreat = M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat] + M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurT1ToT3BomberThreat]
@@ -2919,7 +2990,9 @@ function UpdateAirRallyAndSupportPoints(iTeam, iAirSubteam)
             end
         end
         --Allow escort for T1/T2/T3 bombers - lower threat threshold and allow escort even with contested air (as long as not far behind)
-        local bCanEscortFrontBomber = M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] or not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir])
+        local bCanEscortFrontBomber = M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]
+                or not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir])
+                or ShouldSuppressFarBehindForLocalEscort(iTeam, iAirSubteam, M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontT3Bomber], GetGameTimeSeconds(), 0)
         if M28UnitInfo.IsUnitValid(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontT3Bomber]) and M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurT1ToT3BomberThreat] >= 500 and (M28UnitInfo.IsUnitValid(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontT3Bomber][refoStrikeDamageAssigned]) or (M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontT3Bomber][M28UnitInfo.refiLastBombFired] and GetGameTimeSeconds() - M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontT3Bomber][M28UnitInfo.refiLastBombFired] <= 15)) and bCanEscortFrontBomber and M28Map.iMapSize >= 256 and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] >= 200 then
             bConsideredForT3Bomber = true
             ConsiderChangingSupportPointToSupportBomber(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontT3Bomber])
@@ -2928,7 +3001,9 @@ function UpdateAirRallyAndSupportPoints(iTeam, iAirSubteam)
 
         if bDebugMessages == true then LOG(sFunctionRef..': Considering if should try and support torp bomber, M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber]='..(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber].UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber]) or 'nil')..'; Have air control='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl])..'; M28UnitInfo.IsUnitValid(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontT3Bomber][refoStrikeDamageAssigned]='..(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontT3Bomber][refoStrikeDamageAssigned].UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontT3Bomber][refoStrikeDamageAssigned]) or 'nil')..'; M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber][M28UnitInfo.refiLastBombFired]='..(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber][M28UnitInfo.refiLastBombFired] or 'nil')..'; M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]) end
         --Allow bomber escort even when air is contested
-        local bCanEscortBomber = M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] or not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir])
+        local bCanEscortBomber = M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]
+                or not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir])
+                or ShouldSuppressFarBehindForLocalEscort(iTeam, iAirSubteam, M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber], GetGameTimeSeconds(), 0)
         if M28UnitInfo.IsUnitValid(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber]) and bCanEscortBomber and (M28UnitInfo.IsUnitValid(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber][refoStrikeDamageAssigned]) or (M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber][M28UnitInfo.refiLastBombFired] and GetGameTimeSeconds() - M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber][M28UnitInfo.refiLastBombFired] <= 15)) and M28Map.iMapSize >= 512 and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] >= 1500 then
             --Ignore if t3 bomber is almost further from rally than torp bomber
             local iTorpDistToRally = M28Utilities.GetDistanceBetweenPositions(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber]:GetPosition(), M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint])
@@ -4442,6 +4517,8 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ManageAirAAUnits'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+    local iCurTime = GetGameTimeSeconds()
+    ClearExpiredUrgentEscortState(iAirSubteam, iCurTime)
 
     --Get available airAA units (owned by M28 brains in our subteam):
     local tAvailableAirAA, tAirForRefueling, tUnavailableUnits, tInCombatUnits = GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, M28UnitInfo.refCategoryAirAA)
@@ -5186,6 +5263,7 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                         if oActiveEscortBomber == oProtectedUnit and M28Utilities.IsTableEmpty(tEscortPoint) == false then
                             tAssignmentStartPoint = tEscortPoint
                         end
+                        RecordUrgentEscortState(iAirSubteam, iCurTime, oProtectedUnit, tAssignmentStartPoint)
                         AssignAirAATargets(tAvailableAirAA, tUrgentEnemyAirTargets, iTeam, iAirSubteam, tExistingThreatAssignedByUnitRef, false, tAssignmentStartPoint)
                         if M28Utilities.IsTableEmpty(tAvailableAirAA) then
                             break
@@ -5194,16 +5272,20 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                 end
             end
             ConsiderUrgentEscortThreats()
+            local bRecentUrgentEscortFocusActive = IsRecentUrgentEscortFocusActive(iAirSubteam, iCurTime)
 
             --Determine what threats to avoid for priority units
             local bAvoidLargeEnemyAirAA = false
             local iAirAAAvoidThreshold
-            if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] then
+            if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] and not(bRecentUrgentEscortFocusActive) then
                 bAvoidLargeEnemyAirAA = true
                 iAirAAAvoidThreshold = iAvailableAndInCombatAirAAThreat * 0.5
             else
                 --We risk not having good intel if either large map size or we lack omni
                 iAirAAAvoidThreshold = iAvailableAndInCombatAirAAThreat
+                if bRecentUrgentEscortFocusActive and M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] then
+                    iAirAAAvoidThreshold = math.max(iAirAAAvoidThreshold * 0.7, iAvailableAndInCombatAirAAThreat * 0.8)
+                end
             end
             local bAlwaysProtectACU = false
             if M28Team.tTeamData[iTeam][M28Team.refbAssassinationOrSimilar] then
@@ -5218,16 +5300,17 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
             function GetAASearchTypeForPriorityUnit(oUnit, iPlateauOrZero, tUnitLZOrWZData, tUnitLZOrWZTeamData)
                 --Only consider avoiding AA if no enemy air to ground threat in this zone or adjacent zone
                 local bAvoidGroundAA
+                local bRecentUrgentEscortFocus = IsUnitInRecentUrgentEscortFocus(iAirSubteam, oUnit, iCurTime, tUnitLZOrWZData[M28Map.subrefMidpoint], iUrgentEscortExtendedFocusDistance)
                 if tUnitLZOrWZTeamData[M28Map.refiEnemyAirToGroundThreat] > 0 and EntityCategoryContains(categories.LAND + categories.NAVAL, oUnit.UnitId) then bAvoidGroundAA = false
-                elseif M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] then
+                elseif not(bRecentUrgentEscortFocus) and M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] then
                     bAvoidGroundAA = true
-                elseif (tUnitLZOrWZTeamData[M28Map.refiModDistancePercent] or 0) >= 0.7 and not(EntityCategoryContains(categories.COMMAND, oUnit.UnitId)) then
+                elseif not(bRecentUrgentEscortFocus) and (tUnitLZOrWZTeamData[M28Map.refiModDistancePercent] or 0) >= 0.7 and not(EntityCategoryContains(categories.COMMAND, oUnit.UnitId)) then
                     if not(tUnitLZOrWZTeamData[M28Map.refiEnemyAirAAThreat] >= 3000 and EntityCategoryContains(categories.AIR, oUnit.UnitId)) then
                         bAvoidGroundAA = true
                     end
                 end
-                if not(bAvoidGroundAA) and tUnitLZOrWZTeamData[M28Map.subrefiThreatEnemyGroundAA] >= 8000 and (tUnitLZOrWZTeamData[M28Map.refiModDistancePercent] or 0) >= 0.4 then bAvoidGroundAA = true end
-                if not(bAvoidGroundAA) and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]) then
+                if not(bAvoidGroundAA) and tUnitLZOrWZTeamData[M28Map.subrefiThreatEnemyGroundAA] >= (bRecentUrgentEscortFocus and 12000 or 8000) and (tUnitLZOrWZTeamData[M28Map.refiModDistancePercent] or 0) >= 0.4 then bAvoidGroundAA = true end
+                if not(bAvoidGroundAA) and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]) and not(bRecentUrgentEscortFocus) then
                     if EntityCategoryContains(categories.AIR * categories.MOBILE, oUnit.UnitId) then
                         if tUnitLZOrWZTeamData[M28Map.refiEnemyAirAAThreat] <= 200 then bAvoidGroundAA = true end
                     else
@@ -5236,7 +5319,7 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                 end
 
                 local bAvoidAAThreat = false
-                if bAvoidLargeEnemyAirAA and (not(bAlwaysProtectACU) or not(EntityCategoryContains(categories.COMMAND, oUnit.UnitId))) and not(EntityCategoryContains(M28UnitInfo.refCategoryRestorer + M28UnitInfo.refCategoryCzar, oUnit.UnitId)) then
+                if not(bRecentUrgentEscortFocus) and bAvoidLargeEnemyAirAA and (not(bAlwaysProtectACU) or not(EntityCategoryContains(categories.COMMAND, oUnit.UnitId))) and not(EntityCategoryContains(M28UnitInfo.refCategoryRestorer + M28UnitInfo.refCategoryCzar, oUnit.UnitId)) then
                     --Is this in a core zone?
                     if not(tUnitLZOrWZTeamData[M28Map.subrefLZbCoreBase] or tUnitLZOrWZTeamData[M28Map.subrefWZbCoreBase]) then
                         --Is this a land zone adjacent to a core land zone?
@@ -5435,12 +5518,12 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                     iStartPositionGroundAAThreshold = math.min(3200,iAvailableAndInCombatAirAAThreat * 0.2)
                 end
 
-                local bConsiderAdjacentZones = not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir])
+                local bConsiderAdjacentZones = not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]) or bRecentUrgentEscortFocusActive
                 if bConsiderAdjacentZones and iAvailableAndInCombatAirAAThreat < M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] * 0.8 then
                     -- In contested air, still consider adjacent zones if enemy has significant bomber/gunship threat
                     -- This helps intercept incoming bombers before they reach our base
                     local iEnemyAirToGroundThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0
-                    if iEnemyAirToGroundThreat < 500 then
+                    if iEnemyAirToGroundThreat < 500 and not(bRecentUrgentEscortFocusActive) then
                         bConsiderAdjacentZones = false
                     end
                 end
@@ -5614,7 +5697,13 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                             local iTorpGroundAAThreshold = 2100
                             local iTorpAirAAThreshold = iAvailableAndInCombatAirAAThreat * 0.5
                             if not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]) and (M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] or M28Team.tTeamData[iTeam][M28Team.refiAirAAKills] < M28Team.tTeamData[iTeam][M28Team.refiAirAALossesToAir] or iAvailableAndInCombatAirAAThreat < M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]) then
-                                iAASearchType = refiAvoidAllAA
+                                if bRecentUrgentEscortFocusActive and (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0) >= 500 then
+                                    iAASearchType = refiAvoidOnlyGroundAA
+                                    iTorpAirAAThreshold = math.max(iTorpAirAAThreshold * 0.8, iAvailableAndInCombatAirAAThreat * 0.45)
+                                    iTorpGroundAAThreshold = math.max(iTorpGroundAAThreshold, iAvailableAndInCombatAirAAThreat * 0.08)
+                                else
+                                    iAASearchType = refiAvoidAllAA
+                                end
                             else
                                 iAASearchType = refiAvoidOnlyGroundAA
                                 iTorpAirAAThreshold = iTorpAirAAThreshold * 2
@@ -5622,7 +5711,7 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                             end
                             if M28Team.tTeamData[iTeam][M28Team.refbDontHaveBuildingsOrACUInPlayableArea] then iAASearchType = refiIgnoreAllAA end
                             if not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]) then
-                                if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] then
+                                if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] and not(bRecentUrgentEscortFocusActive) then
                                     iMaxModDist = 0.55
                                 else
                                     -- Contested air scenario - extend detection range to intercept enemy air before they reach our units
