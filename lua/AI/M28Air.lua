@@ -5005,6 +5005,9 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
             local aiEscortThreatBrain = M28Team.GetFirstActiveM28Brain(iTeam)
             local iUrgentEscortGroundAAThreatThreshold = math.max(250, math.min(750, iAvailableAndInCombatAirAAThreat * 0.1))
             local iUrgentEscortGroundAASearchRadius = 75
+            local function IsUrgentEscortGunshipLikeUnit(oUnit)
+                return M28UnitInfo.IsUnitValid(oUnit) and EntityCategoryContains(M28UnitInfo.refCategoryGunship + M28UnitInfo.refCategoryCzar + M28UnitInfo.refCategoryRestorer, oUnit.UnitId)
+            end
             local function GetUrgentEscortThreatSearchRadius(oProtectedUnit)
                 if EntityCategoryContains(M28UnitInfo.refCategoryBomber - categories.EXPERIMENTAL, oProtectedUnit.UnitId) then
                     if EntityCategoryContains(categories.TECH3, oProtectedUnit.UnitId) then
@@ -5013,10 +5016,28 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                     return 130
                 elseif EntityCategoryContains(M28UnitInfo.refCategoryTorpBomber, oProtectedUnit.UnitId) then
                     return 135
-                elseif EntityCategoryContains(M28UnitInfo.refCategoryGunship + M28UnitInfo.refCategoryCzar + M28UnitInfo.refCategoryRestorer, oProtectedUnit.UnitId) then
-                    return 120
+                elseif IsUrgentEscortGunshipLikeUnit(oProtectedUnit) then
+                    if EntityCategoryContains(categories.TECH3 + categories.EXPERIMENTAL, oProtectedUnit.UnitId) then
+                        return 175
+                    end
+                    return 160
                 end
                 return 115
+            end
+            local function GetUrgentEscortGroundAAThreatThresholdForProtectedUnit(oProtectedUnit, oEnemyUnit, iCurDist, iThreatRadius)
+                local iThreshold = iUrgentEscortGroundAAThreatThreshold
+                if IsUrgentEscortGunshipLikeUnit(oProtectedUnit) then
+                    iThreshold = math.max(iThreshold, 850)
+                    if IsUrgentEscortGunshipLikeUnit(oEnemyUnit) then
+                        iThreshold = math.max(iThreshold, math.min(1650, iUrgentEscortGroundAAThreatThreshold * 2.5))
+                    else
+                        iThreshold = math.max(iThreshold, math.min(1300, iUrgentEscortGroundAAThreatThreshold * 2))
+                    end
+                    if iCurDist <= math.max(75, iThreatRadius * 0.55) then
+                        iThreshold = math.min(1900, iThreshold * 1.2)
+                    end
+                end
+                return iThreshold
             end
             local function GetUrgentEscortMobileHighTechGroundAAThreat(tPosition)
                 if not(aiEscortThreatBrain) or M28Utilities.IsTableEmpty(tPosition) then
@@ -5058,6 +5079,8 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
             end
             local function GetUrgentEnemyAirThreatsForProtectedUnit(oProtectedUnit, tsUrgentEnemyAirRefs)
                 local tUrgentEnemyAirTargets = {}
+                local tUrgentEnemyGunshipTargets = {}
+                local tUrgentOtherEnemyAirTargets = {}
                 if not(M28UnitInfo.IsUnitValid(oProtectedUnit)) then
                     return tUrgentEnemyAirTargets
                 end
@@ -5065,6 +5088,7 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                 local tProtectedPos = oProtectedUnit:GetPosition()
                 local iThreatRadius = GetUrgentEscortThreatSearchRadius(oProtectedUnit)
                 local iSearchRadius = iThreatRadius + 25
+                local bProtectedGunshipLike = IsUrgentEscortGunshipLikeUnit(oProtectedUnit)
                 local aiSearchBrain = oProtectedUnit:GetAIBrain() or aiEscortThreatBrain
                 if not(aiSearchBrain) then
                     return tUrgentEnemyAirTargets
@@ -5077,28 +5101,56 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
 
                 local iCurDist
                 local iNearbyMobileHighTechGroundAA
+                local iCurGroundAAThreshold
                 local tEnemyPos
+                local bEnemyGunshipLike
                 for iUnit, oEnemyUnit in tNearbyEnemyAir do
                     if M28UnitInfo.IsUnitValid(oEnemyUnit) and oEnemyUnit.EntityId and not(tsUrgentEnemyAirRefs[oEnemyUnit.EntityId]) and not(oEnemyUnit:IsUnitState('Attached')) then
                         tEnemyPos = oEnemyUnit:GetPosition()
-                        if oEnemyUnit:IsUnitState('Moving') or oEnemyUnit:IsUnitState('Attacking') or tEnemyPos[2] - GetSurfaceHeight(tEnemyPos[1], tEnemyPos[3]) > 1 then
-                            iCurDist = M28Utilities.GetDistanceBetweenPositions(tProtectedPos, tEnemyPos)
-                            if iCurDist <= iThreatRadius or (oEnemyUnit:IsUnitState('Attacking') and iCurDist <= iSearchRadius) then
-                                iNearbyMobileHighTechGroundAA = GetUrgentEscortMobileHighTechGroundAAThreat(tEnemyPos)
-                                if iNearbyMobileHighTechGroundAA < iUrgentEscortGroundAAThreatThreshold then
-                                    table.insert(tUrgentEnemyAirTargets, oEnemyUnit)
-                                    tsUrgentEnemyAirRefs[oEnemyUnit.EntityId] = true
-                                    if bDebugMessages == true then
-                                        LOG(sFunctionRef..': Added urgent escort peel target '..oEnemyUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEnemyUnit)..' threatening '..oProtectedUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oProtectedUnit)..'; Dist='..iCurDist..'; NearbyMobileHighTechGroundAA='..iNearbyMobileHighTechGroundAA..'; Threshold='..iUrgentEscortGroundAAThreatThreshold)
-                                    end
-                                elseif bDebugMessages == true then
-                                    LOG(sFunctionRef..': Skipping urgent escort peel target '..oEnemyUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEnemyUnit)..' as nearby mobile T2/T3 groundAA='..iNearbyMobileHighTechGroundAA..' exceeds threshold='..iUrgentEscortGroundAAThreatThreshold)
+                        iCurDist = M28Utilities.GetDistanceBetweenPositions(tProtectedPos, tEnemyPos)
+                        bEnemyGunshipLike = IsUrgentEscortGunshipLikeUnit(oEnemyUnit)
+                        if iCurDist <= iThreatRadius or ((oEnemyUnit:IsUnitState('Attacking') or (bProtectedGunshipLike and bEnemyGunshipLike)) and iCurDist <= iSearchRadius) then
+                            iNearbyMobileHighTechGroundAA = GetUrgentEscortMobileHighTechGroundAAThreat(tEnemyPos)
+                            iCurGroundAAThreshold = GetUrgentEscortGroundAAThreatThresholdForProtectedUnit(oProtectedUnit, oEnemyUnit, iCurDist, iThreatRadius)
+                            if iNearbyMobileHighTechGroundAA < iCurGroundAAThreshold then
+                                if bProtectedGunshipLike and bEnemyGunshipLike then
+                                    table.insert(tUrgentEnemyGunshipTargets, oEnemyUnit)
+                                else
+                                    table.insert(tUrgentOtherEnemyAirTargets, oEnemyUnit)
                                 end
+                                tsUrgentEnemyAirRefs[oEnemyUnit.EntityId] = true
+                                if bDebugMessages == true then
+                                    LOG(sFunctionRef..': Added urgent escort peel target '..oEnemyUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEnemyUnit)..' threatening '..oProtectedUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oProtectedUnit)..'; Dist='..iCurDist..'; NearbyMobileHighTechGroundAA='..iNearbyMobileHighTechGroundAA..'; Threshold='..iCurGroundAAThreshold)
+                                end
+                            elseif bDebugMessages == true then
+                                LOG(sFunctionRef..': Skipping urgent escort peel target '..oEnemyUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEnemyUnit)..' as nearby mobile T2/T3 groundAA='..iNearbyMobileHighTechGroundAA..' exceeds threshold='..iCurGroundAAThreshold)
                             end
                         end
                     end
                 end
+                if M28Utilities.IsTableEmpty(tUrgentEnemyGunshipTargets) == false then
+                    for iUnit, oEnemyUnit in tUrgentEnemyGunshipTargets do
+                        table.insert(tUrgentEnemyAirTargets, oEnemyUnit)
+                    end
+                end
+                if M28Utilities.IsTableEmpty(tUrgentOtherEnemyAirTargets) == false then
+                    for iUnit, oEnemyUnit in tUrgentOtherEnemyAirTargets do
+                        table.insert(tUrgentEnemyAirTargets, oEnemyUnit)
+                    end
+                end
                 return tUrgentEnemyAirTargets
+            end
+            local function AddNearbyFriendlyGunshipsForUrgentEscort(tProtectedAirUnits, tsProtectedAirUnitRefs, oFrontGunship)
+                if not(IsUrgentEscortGunshipLikeUnit(oFrontGunship)) or not(aiEscortThreatBrain) then
+                    return
+                end
+                local tNearbyFriendlyGunships = aiEscortThreatBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryGunship, oFrontGunship:GetPosition(), 55, 'Ally')
+                if M28Utilities.IsTableEmpty(tNearbyFriendlyGunships) then
+                    return
+                end
+                for iUnit, oUnit in tNearbyFriendlyGunships do
+                    AddProtectedAirUnitForUrgentEscort(tProtectedAirUnits, tsProtectedAirUnitRefs, oUnit)
+                end
             end
             local function ConsiderUrgentEscortThreats()
                 if M28Utilities.IsTableEmpty(tAvailableAirAA) then
@@ -5109,10 +5161,12 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                 local tsProtectedAirUnitRefs = {}
                 local tsUrgentEnemyAirRefs = {}
                 local tEscortPoint, oActiveEscortBomber = GetActiveBomberEscortPoint()
+                local oFrontGunship = M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship]
+                AddProtectedAirUnitForUrgentEscort(tProtectedAirUnits, tsProtectedAirUnitRefs, oFrontGunship)
+                AddNearbyFriendlyGunshipsForUrgentEscort(tProtectedAirUnits, tsProtectedAirUnitRefs, oFrontGunship)
                 AddProtectedAirUnitForUrgentEscort(tProtectedAirUnits, tsProtectedAirUnitRefs, oActiveEscortBomber)
                 AddProtectedAirUnitForUrgentEscort(tProtectedAirUnits, tsProtectedAirUnitRefs, M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontT3Bomber])
                 AddProtectedAirUnitForUrgentEscort(tProtectedAirUnits, tsProtectedAirUnitRefs, M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber])
-                AddProtectedAirUnitForUrgentEscort(tProtectedAirUnits, tsProtectedAirUnitRefs, M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship])
                 if M28Utilities.IsTableEmpty(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftACUExpAndPriorityDefenceOnSubteam]) == false then
                     for iUnit, oUnit in M28Team.tAirSubteamData[iAirSubteam][M28Team.reftACUExpAndPriorityDefenceOnSubteam] do
                         AddProtectedAirUnitForUrgentEscort(tProtectedAirUnits, tsProtectedAirUnitRefs, oUnit)
@@ -5372,59 +5426,7 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                     end
 
                 end
-                --Also protect gunships
-                local iGunshipGroundAAThreshold
-                if M28UnitInfo.IsUnitValid(M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship]) then
-                    iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship]:GetPosition())
-                    if bDebugMessages == true then LOG(sFunctionRef..': About to get the closest plateau or zone to the front gunship, front gunship='..(M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship].UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship]) or 'nil')..' at position '..repru(M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship]:GetPosition())..'; iPlateauOrZero for gunship='..(iPlateauOrZero or 'nil')..'; iLandOrWaterZone='..(iLandOrWaterZone or 'nil')..'; Playable area='..repru(M28Map.rMapPlayableArea)..'; iAASearchType='..(iAASearchType or 'nil')..'; M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat]='..(M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat] or 'nil')) end
-                    iGunshipGroundAAThreshold = math.min(3200,M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat] * 0.15)
-                    iGunshipGroundAAThreshold = math.min(3200,M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat] * 0.15)
-                    if not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]) then
-                        if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] then iGunshipGroundAAThreshold = iGunshipGroundAAThreshold * 0.3
-                        else iGunshipGroundAAThreshold = iGunshipGroundAAThreshold * 0.6
-                        end
-                    end
-                    local iGunshipAirAAThreshold = iAirAAAvoidThreshold
-                    if not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]) or (M28Team.tAirSubteamData[iAirSubteam][M28Team.refiOurGunshipAAThreat] >= 1000 and M28Team.tAirSubteamData[iAirSubteam][M28Team.refiOurGunshipAAThreat] + iAvailableAndInCombatAirAAThreat > M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] * 0.9) then
-                        iGunshipAirAAThreshold = iGunshipAirAAThreshold + M28Team.tAirSubteamData[iAirSubteam][M28Team.refiOurGunshipAAThreat]
-                    end
-
-                    if bDebugMessages == true then LOG(sFunctionRef..': iGunshipGroundAAThreshold='..(iGunshipGroundAAThreshold or 'nil')..'; iGunshipAirAAThreshold='..iGunshipAirAAThreshold..'; refiOurGunshipAAThreat='..(M28Team.tAirSubteamData[iAirSubteam][M28Team.refiOurGunshipAAThreat] or 'nil')) end
-                    local tUnitLZOrWZData
-                    local tUnitLZOrWZTeamData
-
-                    if iPlateauOrZero == 0 then
-                        if (iLandOrWaterZone or 0) > 0 then
-                            tUnitLZOrWZData = M28Map.tPondDetails[iLandOrWaterZone][M28Map.subrefPondWaterZones][iLandOrWaterZone]
-                            tUnitLZOrWZTeamData = tUnitLZOrWZData[M28Map.subrefWZTeamData][iTeam]
-                            iCurUnitAASearchType = GetAASearchTypeForPriorityUnit(M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship], iPlateauOrZero, tUnitLZOrWZData, tUnitLZOrWZTeamData)
-
-                            if iCurUnitAASearchType == refiIgnoreAllAA and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]) then
-                                --AddEnemyAirInWaterZoneIfNoAA(iWaterZone,         bAddAdjacentZones, refiAASearchType,        iOptionalGroundThreatThresholdOverride, iOptionalAirThreatThresholdOverride,                    iOptionalMaxDistToEdgeOfAdjacentZone, tOptionalStartPointForEdgeOfAdacentZone,                              toOptionalUnitOverride, iOptionalAdjacentZoneSearchType)
-                                AddEnemyAirInWaterZoneIfNoAA(iLandOrWaterZone, false, iCurUnitAASearchType,        iGunshipGroundAAThreshold               , iGunshipAirAAThreshold                            , iDistanceToZoneEdgeToConsider, M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship]:GetPosition(), nil            , refiAvoidOnlyGroundAA)
-                                AddEnemyAirInWaterZoneIfNoAA(iLandOrWaterZone, true, refiAvoidOnlyGroundAA,        iGunshipGroundAAThreshold * 0.25               , iGunshipAirAAThreshold                            , iDistanceToZoneEdgeToConsider, M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship]:GetPosition(), nil            , refiAvoidOnlyGroundAA)
-                            else
-                                AddEnemyAirInWaterZoneIfNoAA(iLandOrWaterZone, false, iCurUnitAASearchType,        iGunshipGroundAAThreshold               , iGunshipAirAAThreshold                            , iDistanceToZoneEdgeToConsider, M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship]:GetPosition())
-                            end
-                            if bDebugMessages == true then LOG(sFunctionRef..': Gunship defence - FInished checking for enemy air in water zone and adjacent zones, is table of enemy targets empty='..tostring(M28Utilities.IsTableEmpty(tEnemyAirTargets))..'; iCurUnitAASearchType='..iCurUnitAASearchType) end
-                        end
-                    else
-                        if (iLandOrWaterZone or 0) > 0 then
-                            tUnitLZOrWZData = M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iLandOrWaterZone]
-                            tUnitLZOrWZTeamData = tUnitLZOrWZData[M28Map.subrefLZTeamData][iTeam]
-                            iCurUnitAASearchType = GetAASearchTypeForPriorityUnit(M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship], iPlateauOrZero, tUnitLZOrWZData, tUnitLZOrWZTeamData)
-
-                            if bDebugMessages == true then LOG(sFunctionRef..': About to search for enemy air targets in land zone that gunship is in to defend gunship, iPlateauOrZero='..iPlateauOrZero..'; iLandOrWaterZone='..iLandOrWaterZone..'#; will search adjacent zones if not far behind on air, far behind='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir])..'; iCurUnitAASearchType='..iCurUnitAASearchType) end
-                            if iCurUnitAASearchType == refiIgnoreAllAA and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]) then
-                                AddEnemyAirInLandZoneIfNoAA(iPlateauOrZero, iLandOrWaterZone, false, iCurUnitAASearchType, iGunshipGroundAAThreshold, iGunshipAirAAThreshold, iDistanceToZoneEdgeToConsider, M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship]:GetPosition(), nil,  refiAvoidOnlyGroundAA)
-                                AddEnemyAirInLandZoneIfNoAA(iPlateauOrZero, iLandOrWaterZone, true, refiAvoidOnlyGroundAA, iGunshipGroundAAThreshold * 0.25, iGunshipAirAAThreshold, iDistanceToZoneEdgeToConsider, M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship]:GetPosition(), nil,  refiAvoidOnlyGroundAA)
-                            else
-                                AddEnemyAirInLandZoneIfNoAA(iPlateauOrZero, iLandOrWaterZone, not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]), iCurUnitAASearchType, iGunshipGroundAAThreshold, iGunshipAirAAThreshold, iDistanceToZoneEdgeToConsider, M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship]:GetPosition())
-                            end
-                            if bDebugMessages == true then LOG(sFunctionRef..': Gunship defence - FInished checking for enemy air in land zone and adjacent zones, is table of enemy targets empty='..tostring(M28Utilities.IsTableEmpty(tEnemyAirTargets))..'; far behind on air='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir])..'; iPlateauOrZero='..iPlateauOrZero..'; iLandOrWaterZone='..iLandOrWaterZone) end
-                        end
-                    end
-                end
+                -- Immediate gunship-vs-gunship defence is owned by ConsiderUrgentEscortThreats above.
                 --Now search around start positions
                 local iStartPositionGroundAAThreshold
                 if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] then
@@ -5634,9 +5636,20 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                                 end
                             end
                             local iOtherLandZoneGroundAAThreshold
+                            local iGunshipLowerPriorityGroundAAThreshold
+                            if M28UnitInfo.IsUnitValid(M28Team.tAirSubteamData[iAirSubteam][M28Team.refoFrontGunship]) and (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat] or 0) > 0 then
+                                iGunshipLowerPriorityGroundAAThreshold = math.min(3200, (M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurGunshipThreat] or 0) * 0.15)
+                                if not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]) then
+                                    if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] then
+                                        iGunshipLowerPriorityGroundAAThreshold = iGunshipLowerPriorityGroundAAThreshold * 0.3
+                                    else
+                                        iGunshipLowerPriorityGroundAAThreshold = iGunshipLowerPriorityGroundAAThreshold * 0.6
+                                    end
+                                end
+                            end
                             if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] then
                                 iOtherLandZoneGroundAAThreshold = math.min(M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] * 0.15, iStartPositionGroundAAThreshold, iTorpGroundAAThreshold)
-                                if iGunshipGroundAAThreshold and iGunshipGroundAAThreshold < iOtherLandZoneGroundAAThreshold then iOtherLandZoneGroundAAThreshold = iGunshipGroundAAThreshold end
+                                if iGunshipLowerPriorityGroundAAThreshold and iGunshipLowerPriorityGroundAAThreshold < iOtherLandZoneGroundAAThreshold then iOtherLandZoneGroundAAThreshold = iGunshipLowerPriorityGroundAAThreshold end
                                 iOtherLandZoneGroundAAThreshold = iOtherLandZoneGroundAAThreshold * 0.9
                                 if bDebugMessages == true then LOG(sFunctionRef..': Set iOtherLandZoneGroundAAThreshold to be '..iOtherLandZoneGroundAAThreshold..' (subject to individual zone air threat') end
                             end
