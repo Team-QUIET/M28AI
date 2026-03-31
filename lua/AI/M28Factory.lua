@@ -2214,12 +2214,25 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         else
             --GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryCondition, oFactory, bGetSlowest, bGetFastest, bGetCheapest, iOptionalCategoryThatMustBeAbleToBuild, bIgnoreTechDifferences)
             sBPIDToBuild = GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryToBuild, oFactory, nil,             nil,        nil,        nil,                                    false)
+            local bWasEngineerChoice = sBPIDToBuild and EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBPIDToBuild)
 
             if bDebugMessages == true then
                 LOG(sFunctionRef .. ': Time=' .. GetGameTimeSeconds() .. ' Factory=' .. oFactory.UnitId .. M28UnitInfo.GetUnitLifetimeCount(oFactory) .. '; LZ=' .. iLandZone .. '; iCurrentConditionToTry=' .. iCurrentConditionToTry .. '; sBPIDToBuild before adjusting for override=' .. (sBPIDToBuild or 'nil'))
             end
             if sBPIDToBuild then
                 sBPIDToBuild = AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamData, iFactoryTechLevel)
+            end
+            if not(sBPIDToBuild) and bWasEngineerChoice and bHaveLowMass and (tLZTeamData[M28Map.subrefTbWantBP] or tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) then
+                local sFallbackBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher, oFactory, nil, nil, nil, nil, false)
+                if not(sFallbackBlueprint) then
+                    sFallbackBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryLandCombat - M28UnitInfo.refCategorySkirmisher - M28UnitInfo.refCategoryEngineer, oFactory, nil, nil, nil, nil, false)
+                end
+                if bDebugMessages == true then
+                    LOG(sFunctionRef..': Low-mass engineer choice was overridden away, will try combat fallback instead, fallback='..(sFallbackBlueprint or 'nil'))
+                end
+                if sFallbackBlueprint then
+                    sBPIDToBuild = AdjustBlueprintForOverrides(aiBrain, oFactory, sFallbackBlueprint, tLZTeamData, iFactoryTechLevel)
+                end
             end
             if sBPIDToBuild then
                 if bDebugMessages == true then LOG(sFunctionRef..': After adjusting for overrides still have blueprint to build='..sBPIDToBuild) end
