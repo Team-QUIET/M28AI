@@ -11065,7 +11065,7 @@ end
 
 function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iCurPriority, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrPond, iLandOrWaterZone, toAvailableEngineersByTech, toAssignedEngineers, bIsWaterZone, iSpecificFactionRequiredOverride, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
     --vOptionalVariable can be a table, nil or a value; used to pass info specific to the action if it needs it
-    local bDebugMessages = true if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ConsiderActionToAssign'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
