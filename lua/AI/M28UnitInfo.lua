@@ -780,6 +780,105 @@ function GetMassCostOfUnits(tUnits, bEnemyUnits)
     return iMassCost
 end
 
+local function LayerCapsContainsValue(sValue, sNeedle)
+    return sValue and string.find(string.lower(sValue), string.lower(sNeedle), 1, true)
+end
+
+local function GetBlueprintWeaponVolleyCount(tWeapon)
+    return math.max(1, tWeapon.ProjectilesPerOnFire or 1) * math.max(1, tWeapon.MuzzleSalvoSize or 1)
+end
+
+local function GetApproxBlueprintCombatStatThreat(oBP, bIndirectFireThreatOnly, bAntiNavyOnly, bAddAntiNavy, bSubmersibleOnly, bLongRangeThreatOnly)
+    local iDurability = (oBP.Defense and oBP.Defense.Health or 0)
+    if oBP.Defense and oBP.Defense.Shield then
+        iDurability = iDurability + (oBP.Defense.Shield.ShieldMaxHealth or 0)
+    end
+    if iDurability <= 0 or M28Utilities.IsTableEmpty(oBP.Weapon) then
+        return 0
+    end
+
+    local iRelevantDPS = 0
+    local iBestRange = 0
+    local iBestAOE = 0
+    local iBestVolley = 0
+    local bWantNavalThreat = bAntiNavyOnly or bSubmersibleOnly
+    local tCaps
+    local bIsRelevantWeapon
+    local bIsIndirectWeapon
+    local iVolleyCount
+    local iVolleyDamage
+    local iReloadTime
+
+    for _, tWeapon in oBP.Weapon do
+        if (tWeapon.Damage or 0) > 0 and (tWeapon.MaxRadius or 0) > 1 and not(tWeapon.EnabledByEnhancement) then
+            tCaps = tWeapon.FireTargetLayerCapsTable or {}
+            bIsIndirectWeapon = tWeapon.RangeCategory == 'UWRC_IndirectFire'
+                or tWeapon.WeaponCategory == 'Indirect Fire'
+                or tWeapon.DisplayName == 'Resonance Artillery'
+
+            if bWantNavalThreat then
+                bIsRelevantWeapon = tWeapon.RangeCategory == 'UWRC_AntiNavy'
+                    or tWeapon.WeaponCategory == 'Anti Navy'
+                    or ((tCaps.Sub or tCaps.Water) and not(tCaps.Land) and not(tCaps.Air))
+                    or (tCaps.Sub and tCaps.Water)
+            elseif bIndirectFireThreatOnly then
+                bIsRelevantWeapon = bIsIndirectWeapon or tWeapon.ManualFire
+            elseif bLongRangeThreatOnly then
+                bIsRelevantWeapon = ((tWeapon.MaxRadius or 0) >= 55) and (bIsIndirectWeapon
+                    or tWeapon.RangeCategory == 'UWRC_DirectFire'
+                    or tWeapon.WeaponCategory == 'Direct Fire'
+                    or tWeapon.WeaponCategory == 'Direct Fire Experimental'
+                    or LayerCapsContainsValue(tCaps.Land, 'land')
+                    or LayerCapsContainsValue(tCaps.Water, 'land'))
+            else
+                bIsRelevantWeapon = tWeapon.RangeCategory == 'UWRC_DirectFire'
+                    or bIsIndirectWeapon
+                    or tWeapon.WeaponCategory == 'Direct Fire'
+                    or tWeapon.WeaponCategory == 'Direct Fire Experimental'
+                    or tWeapon.WeaponCategory == 'Indirect Fire'
+                    or tWeapon.ManualFire
+                    or LayerCapsContainsValue(tCaps.Land, 'land')
+                    or LayerCapsContainsValue(tCaps.Water, 'land')
+                    or LayerCapsContainsValue(tCaps.Air, 'land')
+            end
+
+            if bIsRelevantWeapon then
+                iVolleyCount = GetBlueprintWeaponVolleyCount(tWeapon) * math.max(1, tWeapon.DoTPulses or 1)
+                iVolleyDamage = math.min(12000, (tWeapon.Damage or 0) * iVolleyCount)
+                iReloadTime = math.max(0.2, math.max(tWeapon.RackSalvoReloadTime or 0, tWeapon.RateOfFire and (1 / tWeapon.RateOfFire) or 0.2))
+                iRelevantDPS = iRelevantDPS + math.min(4000, iVolleyDamage / iReloadTime)
+                iBestRange = math.max(iBestRange, tWeapon.MaxRadius or 0)
+                iBestAOE = math.max(iBestAOE, tWeapon.DamageRadius or 0)
+                iBestVolley = math.max(iBestVolley, iVolleyDamage)
+            end
+        end
+    end
+
+    if iRelevantDPS <= 0 or iBestRange <= 0 then
+        return 0
+    end
+
+    local iRangeBaseline = 18
+    if bIndirectFireThreatOnly then
+        iRangeBaseline = 28
+    elseif bLongRangeThreatOnly then
+        iRangeBaseline = 55
+    elseif bWantNavalThreat then
+        iRangeBaseline = 22
+    end
+
+    local iRangeMultiplier = 1 + math.max(0, math.min(0.45, (iBestRange - iRangeBaseline) / 45))
+    local iAOEMultiplier = 1 + math.max(0, math.min(0.35, iBestAOE * 0.04))
+    local iAlphaMultiplier = 1 + math.max(0, math.min(0.3, iBestVolley / 3000))
+    local iCombatStatThreat = math.sqrt(math.max(1, iDurability) * math.max(1, iRelevantDPS)) * iRangeMultiplier * iAOEMultiplier * iAlphaMultiplier
+
+    if bAddAntiNavy and not(bWantNavalThreat) then
+        iCombatStatThreat = math.max(iCombatStatThreat, GetApproxBlueprintCombatStatThreat(oBP, false, true, false, false, false) * 0.65)
+    end
+
+    return iCombatStatThreat
+end
+
 function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirectFireThreatOnly, bAntiNavyOnly, bAddAntiNavy, bSubmersibleOnly, bLongRangeThreatOnly, bBlueprintThreat)
     --Determines threat rating for tUnits, which in most cases will be the mass cost of the unit and adjusted for unit health; by default assumes are referring to main combat threat (e.g. tank), but the flags for indirect and naval threat can be used to adjust this
     --bJustGetMassValue - if thisi s true, will ignore things like health and just return the mass value (so none of the other values should matter if this is true - i.e. assumes tUnits is already filtered to those of interest)
@@ -977,6 +1076,13 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                 end
                 if bDebugMessages == true then LOG(sFunctionRef..': iMassCost='..(iMassCost or 'nil')..'; iMassMod='..(iMassMod or 'nil')) end
                 iBaseThreat = iMassCost * iMassMod
+                if iBaseThreat > 0 and not(bJustGetMassValue) then
+                    local iCombatStatThreat = GetApproxBlueprintCombatStatThreat(oBP, bIndirectFireThreatOnly, bAntiNavyOnly, bAddAntiNavy, bSubmersibleOnly, bLongRangeThreatOnly)
+                    if iCombatStatThreat > 0 then
+                        iBaseThreat = math.max(iBaseThreat * 0.6, iCombatStatThreat)
+                        if bDebugMessages == true then LOG(sFunctionRef..': Applying combat stat threat adjustment, iCombatStatThreat='..iCombatStatThreat..'; iBaseThreat after adjustment='..iBaseThreat) end
+                    end
+                end
             end
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
             return iBaseThreat
@@ -1713,11 +1819,12 @@ function CalculateBlueprintThreatsByType()
         function RecordBlueprintThreatValues(oBP, sUnitId)
 
             tUnitThreatByIDAndType[sUnitId] = {}
+            local tUnitRef = {['UnitId']=sUnitId}
             if bDebugMessages == true then LOG(sFunctionRef..': About to consider different land threat values for unit '..sUnitId..' Name='..(oBP.General.UnitName or 'nil')) end
             for iRef, tConditions in tiLandAndNavyThreatTypes do
                 --GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirectFireThreatOnly, bAntiNavyOnly, bAddAntiNavy, bSubmersibleOnly, bLongRangeThreatOnly, bBlueprintThreat)
                 --{bJustGetMassValue, bIndirectFireThreatOnly, bAntiNavyOnly, bAddAntiNavy, bSubmersibleOnly, bLongRangeThreatOnly}
-                tUnitThreatByIDAndType[sUnitId][iRef] = GetCombatThreatRating( { {['UnitId']=sUnitId }}, false, tConditions[1], tConditions[2], tConditions[3], tConditions[4], tConditions[5], tConditions[6], true)
+                tUnitThreatByIDAndType[sUnitId][iRef] = GetCombatThreatRating({ tUnitRef }, false, tConditions[1], tConditions[2], tConditions[3], tConditions[4], tConditions[5], tConditions[6], true)
             end
             if bDebugMessages == true then LOG(sFunctionRef..': Finished calculating land threat values for '..(oBP.General.UnitName or 'nil')..', result='..reprs(tUnitThreatByIDAndType[sUnitId])) end
 
