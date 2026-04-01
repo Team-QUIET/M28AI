@@ -1203,7 +1203,11 @@ function WantMorePower(iTeam)
     local iTeamNetEnergy = M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] or 0
     local iTeamGrossMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0
     local iTeamAvgMassStored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0
+    local iTeamAvgEnergyStored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] or 0
+    local iHighestTeamTech = M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] or 1
+    local iResourceMod = M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier] or 1
     local iGrossEnergyWhenStalled = M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled] or 0
+    local iExistingHighTechPowerCount = GetCurrentM28UnitsOfCategoryInTeam(M28UnitInfo.refCategoryPower - categories.TECH1, iTeam)
     local iPendingCountThreshold = math.max(1, math.min(2, iActiveBrains - 1))
     local bHardEnergyEmergency = M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and ((M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] or 1) <= 0.08 or iTeamNetEnergy <= -25 or iTeamGrossEnergy <= 50 * iActiveBrains)
     local bMeaningfulPendingHighTechPower = iPendingHighTechPowerIncome >= math.max(100, iTeamGrossEnergy * 0.2)
@@ -1211,7 +1215,17 @@ function WantMorePower(iTeam)
     local iProjectedGrossEnergy = iTeamGrossEnergy + iPendingHighTechPowerIncome
     local iProjectedNetEnergy = iTeamNetEnergy + iPendingHighTechPowerIncome * 0.25
     local bPowerStillTightAfterProjectedIncome = iProjectedNetEnergy < math.max(6 * iActiveBrains, iProjectedGrossEnergy * 0.08) or (iGrossEnergyWhenStalled > 0 and iProjectedGrossEnergy < iGrossEnergyWhenStalled * (iTeamAvgMassStored >= 0.5 and 1.25 or 1.1))
+    local bEarlyT1PowerPush = GetGameTimeSeconds() <= 420 and iExistingHighTechPowerCount == 0 and iHighestTeamTech <= 2 and (
+            iProjectedGrossEnergy < 24 * iActiveBrains * iResourceMod
+            or iProjectedNetEnergy < 6 * iActiveBrains * iResourceMod
+            or (iTeamAvgEnergyStored < 0.95 and iProjectedGrossEnergy < 32 * iActiveBrains * iResourceMod)
+    )
     if bDebugMessages == true then LOG(sFunctionRef..': Start of code at time '..GetGameTimeSeconds()..'; Gross energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Energy when last unable to build air='..(M28Team.tTeamData[iTeam][M28Team.refiEnergyWhenAirFactoryLastUnableToBuildAir] or 0)..'; Highest factory tech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]..'; M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier]='..M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier]..'; M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower]='..tostring(M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower] or false)..'; HaveLowPower(iTeam)='..tostring(HaveLowPower(iTeam))..'; Pending high-tech power count='..iPendingHighTechPowerCount..'; Pending high-tech power income='..iPendingHighTechPowerIncome..'; Hold off fresh high-tech power='..tostring(bHoldOffFreshHighTechPower)..'; M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled]='..(M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled] or 'nil')) end
+    if bEarlyT1PowerPush then
+        if bDebugMessages == true then LOG(sFunctionRef..': Early pre-high-tech power stage so will keep wanting more power, iProjectedGrossEnergy='..iProjectedGrossEnergy..'; iProjectedNetEnergy='..iProjectedNetEnergy..'; iTeamAvgEnergyStored='..iTeamAvgEnergyStored) end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return true
+    end
     if M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 100000 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.5 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and (M28Team.tTeamData[iTeam][M28Team.refbBuiltParagon] or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.95)) then
         bWantMorePower = false
     elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < 1.25 * (M28Team.tTeamData[iTeam][M28Team.refiEnergyWhenAirFactoryLastUnableToBuildAir] or 0) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] < math.max(250, M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] * 0.25) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < (M28Team.tTeamData[iTeam][M28Team.refiEnergyWhenAirFactoryLastUnableToBuildAir] or 0) + 150) then
@@ -3938,12 +3952,26 @@ end
 
 function GetPowerInsteadOfHydroEvenIfHydroAvailable(iTeam, tLZData, tLZTeamData, iPlateau, iLandZone, bHaveLowMass, bHaveLowPower)
     local iActiveBrains = math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1)
+    local iResourceMod = M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier] or 1
+    local iTeamGrossEnergy = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] or 0
+    local iTeamNetEnergy = M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] or 0
+    local iTeamAvgEnergyStored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] or 0
+    local iExistingHighTechPowerCount = GetCurrentM28UnitsOfCategoryInTeam(M28UnitInfo.refCategoryPower - categories.TECH1, iTeam)
+    local iCurrentPowerCount = GetCurrentM28UnitsOfCategoryInTeam(M28UnitInfo.refCategoryPower, iTeam)
     local bHardLowMassPowerEmergency = bHaveLowMass and bHaveLowPower and (
         (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] or 1) <= 0.15)
         or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] or 0) <= -6 * iActiveBrains
         or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] or 0) <= 35 * iActiveBrains
     )
     if bHardLowMassPowerEmergency then
+        return true
+    end
+    if tLZTeamData[M28Map.subrefLZbCoreBase] and iExistingHighTechPowerCount == 0 and GetGameTimeSeconds() <= 420 and (
+            iCurrentPowerCount < 5
+            or iTeamGrossEnergy <= 18 * iActiveBrains * iResourceMod
+            or iTeamNetEnergy <= 6 * iActiveBrains * iResourceMod
+            or iTeamAvgEnergyStored <= 0.92
+    ) then
         return true
     end
     if not(tLZTeamData[M28Map.subrefLZbCoreBase]) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 7 * iActiveBrains or bHaveLowMass or not(bHaveLowPower) or table.getn(tLZData[M28Map.subrefHydroLocations]) <= 2 or M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] == 1 then
