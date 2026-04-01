@@ -1092,6 +1092,8 @@ function HaveLowPower(iTeam)
     local iTeamGrossMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0
     local iGrossEnergyWhenStalled = M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled] or 0
     local iTimeSinceEnergyStall = GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastEnergyStall] or -100)
+    local iResourceMod = M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier] or 1
+    local iExistingHighTechPowerCount = GetCurrentM28UnitsOfCategoryInTeam(M28UnitInfo.refCategoryPower - categories.TECH1, iTeam)
 
     if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < 80000 or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < 80000 * iActiveBrains * (M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier] or 1) and not(M28Team.tTeamData[iTeam][M28Team.refbBuiltParagon])))
          or (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and iTeamAvgEnergyStored <= 0.5) then --Paragon gives 1000000 per sec I think
@@ -1124,6 +1126,13 @@ function HaveLowPower(iTeam)
                     bHaveLowPower = true
                 end
             end
+        end
+    end
+    if not(bHaveLowPower) and GetGameTimeSeconds() <= 480 and iExistingHighTechPowerCount == 0 and not(M28Team.tTeamData[iTeam][M28Team.refbBuiltParagon]) then
+        if (iTeamAvgEnergyStored <= 0.97 and iTeamNetEnergy <= 4 * iActiveBrains * iResourceMod)
+                or (iTeamAvgEnergyStored <= 0.9 and iTeamGrossEnergy <= 30 * iActiveBrains * iResourceMod)
+                or (iTeamAvgEnergyStored <= 0.8 and iTeamNetEnergy <= 8 * iActiveBrains * iResourceMod) then
+            bHaveLowPower = true
         end
     end
     if bDebugMessages == true then LOG(sFunctionRef..': End of code, bHaveLowPower='..tostring(bHaveLowPower)) end
@@ -1215,10 +1224,10 @@ function WantMorePower(iTeam)
     local iProjectedGrossEnergy = iTeamGrossEnergy + iPendingHighTechPowerIncome
     local iProjectedNetEnergy = iTeamNetEnergy + iPendingHighTechPowerIncome * 0.25
     local bPowerStillTightAfterProjectedIncome = iProjectedNetEnergy < math.max(6 * iActiveBrains, iProjectedGrossEnergy * 0.08) or (iGrossEnergyWhenStalled > 0 and iProjectedGrossEnergy < iGrossEnergyWhenStalled * (iTeamAvgMassStored >= 0.5 and 1.25 or 1.1))
-    local bEarlyT1PowerPush = GetGameTimeSeconds() <= 420 and iExistingHighTechPowerCount == 0 and iHighestTeamTech <= 2 and (
-            iProjectedGrossEnergy < 24 * iActiveBrains * iResourceMod
-            or iProjectedNetEnergy < 6 * iActiveBrains * iResourceMod
-            or (iTeamAvgEnergyStored < 0.95 and iProjectedGrossEnergy < 32 * iActiveBrains * iResourceMod)
+    local bEarlyT1PowerPush = GetGameTimeSeconds() <= 480 and iExistingHighTechPowerCount == 0 and iHighestTeamTech <= 2 and (
+            iProjectedGrossEnergy < 30 * iActiveBrains * iResourceMod
+            or iProjectedNetEnergy < 9 * iActiveBrains * iResourceMod
+            or (iTeamAvgEnergyStored < 0.98 and iProjectedGrossEnergy < 40 * iActiveBrains * iResourceMod)
     )
     if bDebugMessages == true then LOG(sFunctionRef..': Start of code at time '..GetGameTimeSeconds()..'; Gross energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Energy when last unable to build air='..(M28Team.tTeamData[iTeam][M28Team.refiEnergyWhenAirFactoryLastUnableToBuildAir] or 0)..'; Highest factory tech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]..'; M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier]='..M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier]..'; M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower]='..tostring(M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower] or false)..'; HaveLowPower(iTeam)='..tostring(HaveLowPower(iTeam))..'; Pending high-tech power count='..iPendingHighTechPowerCount..'; Pending high-tech power income='..iPendingHighTechPowerIncome..'; Hold off fresh high-tech power='..tostring(bHoldOffFreshHighTechPower)..'; M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled]='..(M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled] or 'nil')) end
     if bEarlyT1PowerPush then

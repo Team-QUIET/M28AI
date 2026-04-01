@@ -1548,10 +1548,10 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         local iCurrentPowerCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryPower)
         local bOpeningPowerPressure = M28Conditions.HaveLowPower(iTeam)
                 or M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]
-                or iCurrentPowerCount <= 1
-                or iStoredEnergy <= 500
-                or iGrossEnergy <= math.max(8 * iResourceMod, 8)
-                or (iNetEnergy <= 1 * iResourceMod and iStoredEnergy <= 700)
+                or iCurrentPowerCount <= 2
+                or iStoredEnergy <= 700
+                or iGrossEnergy <= math.max(10 * iResourceMod, 10)
+                or (iNetEnergy <= 2 * iResourceMod and iStoredEnergy <= 900)
         if bOpeningPowerPressure then
             bPreferThisFactoryForEarlyT1Engineers = true
             return true
@@ -2653,8 +2653,9 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 
     --No engineers in this zone and want BP and have some mass, or a low-mass power emergency means we still need one engineer to recover.
     iCurrentConditionToTry = iCurrentConditionToTry + 1
-    local bEmergencyPowerEngineerWanted = tLZTeamData[M28Map.subrefTbWantBP] and bHaveLowPower and bHaveLowMass and (tLZTeamData[M28Map.subrefTBuildPowerByTechWanted][1] or 0) > 0 and ((M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.15) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] <= -6 * math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 35 * math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1))
-    if tLZTeamData[M28Map.subrefTbWantBP] and (((aiBrain:GetEconomyStored('MASS') >= 50 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass])) or (bEmergencyPowerEngineerWanted and (aiBrain:GetEconomyStored('MASS') >= 18 or tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 750 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 25))) and (not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) or tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] > tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal])) then
+    local bQuickPowerEngineerWanted = tLZTeamData[M28Map.subrefTbWantBP] and bHaveLowPower and (tLZTeamData[M28Map.subrefTBuildPowerByTechWanted][1] or 0) > 0 and ((M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] or 1) <= 0.4 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] <= 2 * math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 60 * math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1))
+    local bEmergencyPowerEngineerWanted = bQuickPowerEngineerWanted and bHaveLowMass and ((M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.22) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] <= -4 * math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 45 * math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1))
+    if tLZTeamData[M28Map.subrefTbWantBP] and (((aiBrain:GetEconomyStored('MASS') >= 50 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass])) or (bQuickPowerEngineerWanted and (aiBrain:GetEconomyStored('MASS') >= 28 or tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 500 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 18)) or (bEmergencyPowerEngineerWanted and (aiBrain:GetEconomyStored('MASS') >= 12 or tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 350 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 12))) and (not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) or tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] > tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal])) then
         local bHaveEngiInZone = false
         local iEngineersUnderConstruction = 0
         for iUnit, oUnit in tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits] do
@@ -2663,16 +2664,16 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                 break
             end
         end
-        if bEmergencyPowerEngineerWanted then
+        if bQuickPowerEngineerWanted then
             iEngineersUnderConstruction = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryEngineer, false)
         end
-        if bDebugMessages == true then LOG(sFunctionRef..': Build engi if want BP and have no engi in zone, bHaveEngiInZone='..tostring(bHaveEngiInZone)..'; bEmergencyPowerEngineerWanted='..tostring(bEmergencyPowerEngineerWanted)..'; iEngineersUnderConstruction='..(iEngineersUnderConstruction or 0)..'; Mass stored='..aiBrain:GetEconomyStored('MASS')) end
-        if not(bHaveEngiInZone) or (bEmergencyPowerEngineerWanted and GetEngiCountInZone() <= 1 and iEngineersUnderConstruction == 0) then
-            if ShouldDelayGenericHighTechEngineer() and not(bEmergencyPowerEngineerWanted) then
+        if bDebugMessages == true then LOG(sFunctionRef..': Build engi if want BP and have no engi in zone, bHaveEngiInZone='..tostring(bHaveEngiInZone)..'; bQuickPowerEngineerWanted='..tostring(bQuickPowerEngineerWanted)..'; bEmergencyPowerEngineerWanted='..tostring(bEmergencyPowerEngineerWanted)..'; iEngineersUnderConstruction='..(iEngineersUnderConstruction or 0)..'; Mass stored='..aiBrain:GetEconomyStored('MASS')) end
+        if not(bHaveEngiInZone) or ((bQuickPowerEngineerWanted or bEmergencyPowerEngineerWanted) and GetEngiCountInZone() <= 1 and iEngineersUnderConstruction == 0) then
+            if ShouldDelayGenericHighTechEngineer() and not(bQuickPowerEngineerWanted) then
                 if bDebugMessages == true then LOG(sFunctionRef..': Delaying generic T'..iFactoryTechLevel..' engineer opener until factory has built more units of this tech, GetCurrentTechMobileUnitLifetimeCount()='..GetCurrentTechMobileUnitLifetimeCount()..'; bHighMassAllowsEarlyHighTechEngineer='..tostring(bHighMassAllowsEarlyHighTechEngineer)) end
             else
-                if bEmergencyPowerEngineerWanted and bDebugMessages == true then
-                    LOG(sFunctionRef..': Bypassing generic high-tech engineer delay because the zone is in an emergency low-mass power recovery state')
+                if (bQuickPowerEngineerWanted or bEmergencyPowerEngineerWanted) and bDebugMessages == true then
+                    LOG(sFunctionRef..': Bypassing generic high-tech engineer delay because the zone needs faster power recovery')
                 end
                 if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end
             end

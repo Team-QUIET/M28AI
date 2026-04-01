@@ -579,6 +579,27 @@ function GetReclaimUrgencyMultiplier(iTeam)
     end
 end
 
+local iLateGameReclaimAggressionStartTime = 480
+local iLateGameReclaimAggressionThreshold = 500
+
+--After the opening, pull real BP into reclaim-heavy zones instead of only doing so when mass-crashing
+local function GetLateGameAggressiveReclaimBP(iTeam, iSignificantReclaim, bZoneSecure, bHaveArmyProtection)
+    if GetGameTimeSeconds() < iLateGameReclaimAggressionStartTime or iSignificantReclaim < iLateGameReclaimAggressionThreshold then
+        return 0
+    end
+    if not(bZoneSecure or bHaveArmyProtection) then
+        return 0
+    end
+
+    local iBPWanted = math.max(20, math.min(80, iSignificantReclaim / 40))
+    if iSignificantReclaim >= 1500 then iBPWanted = math.max(iBPWanted, 35) end
+    if iSignificantReclaim >= 3000 then iBPWanted = math.max(iBPWanted, 50) end
+    if bZoneSecure and iSignificantReclaim >= 1000 then iBPWanted = iBPWanted + 5 end
+
+    iBPWanted = iBPWanted * GetReclaimUrgencyMultiplier(iTeam)
+    return math.floor(iBPWanted + 0.5)
+end
+
 --Forward factory eligibility constants
 local iForwardFactoryReclaimThreshold = 1000 --Minimum significant reclaim in zone
 local iForwardFactorySustainedTimeThreshold = 45 --Seconds reclaim must be sustained
@@ -13885,10 +13906,10 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
             or iLocalStoredEnergy <= iOpeningEnergyEmergencyStoredFloor * 2
     )
     local iDesiredEngineersReservedForPowerRecovery = 0
-    if GetGameTimeSeconds() <= 420 and bLocalEarlyEnergyWeak and iCurrentPowerCount <= math.max(1, math.min(2, iCurrentMexCount)) then
-        iDesiredEngineersReservedForPowerRecovery = 2
-        if iCurrentPowerCount == 0 or iLocalGrossEnergy <= iOpeningExtraPowerGrossEnergyFloor or iLocalStoredEnergy <= iOpeningExtraPowerStoredEnergyFloor or iLocalNetEnergy <= 0 then
-            iDesiredEngineersReservedForPowerRecovery = 3
+    if GetGameTimeSeconds() <= 480 and bLocalEarlyEnergyWeak and iCurrentPowerCount <= math.max(2, math.min(3, iCurrentMexCount + 1)) then
+        iDesiredEngineersReservedForPowerRecovery = 3
+        if iCurrentPowerCount <= 1 or iLocalGrossEnergy <= iOpeningExtraPowerGrossEnergyFloor + 2 * iResourceMod or iLocalStoredEnergy <= iOpeningExtraPowerStoredEnergyFloor + 150 or iLocalNetEnergy <= 1 * iResourceMod then
+            iDesiredEngineersReservedForPowerRecovery = 4
         end
     end
 
@@ -14446,9 +14467,9 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
 
     --If we are still on T1/T2 eco with no higher-tech power, keep letting engineers recover with T1 pgens after the opener.
     iCurPriority = iCurPriority + 1
-    if not(bDelayOpeningExtraPower) and not(bEngineersRecentlyRunFromEnemy) and GetGameTimeSeconds() >= 90 and bNoT2PlusPowerYet and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] <= 2 and (bHaveLowPower or (bWantMorePower and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 180 * iTeamActiveBrains * iResourceMod)) and not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and (not(bHaveLowMass) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 3.5 * iTeamActiveBrains or tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 1000 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 35) then
-        iBPWanted = 18
-        if tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 2000 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 5 * iTeamActiveBrains then iBPWanted = 24 end
+    if not(bDelayOpeningExtraPower) and not(bEngineersRecentlyRunFromEnemy) and GetGameTimeSeconds() >= 60 and bNoT2PlusPowerYet and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] <= 2 and (bHaveLowPower or (bWantMorePower and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 220 * iTeamActiveBrains * iResourceMod)) and not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and (not(bHaveLowMass) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 3 * iTeamActiveBrains or tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 800 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 25) then
+        iBPWanted = 24
+        if tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 1600 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 4.5 * iTeamActiveBrains then iBPWanted = 30 end
         if bDebugMessages == true then LOG(sFunctionRef..': Low-tech T1 power stabiliser: keeping engineers able to add more T1 pgens after the opener, iBPWanted='..iBPWanted..'; bHaveLowPower='..tostring(bHaveLowPower)..'; bWantMorePower='..tostring(bWantMorePower)..'; Team gross energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Team gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Significant reclaim='..(tLZData[M28Map.subrefTotalSignificantMassReclaim] or 0)) end
         HaveActionToAssign(refActionBuildPower, 1, iBPWanted)
     end
@@ -14456,18 +14477,18 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     --Emergency power recovery when both mass and power are low; stay on T1 only until higher-tech power exists.
     iCurPriority = iCurPriority + 1
     local bHardLowMassPowerEmergency = bHaveLowPower and bHaveLowMass and (
-        (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= math.max(0.08, 0.05 + 2 * M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]))
-        or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] <= -6 * iTeamActiveBrains
-        or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 30 * iTeamActiveBrains
+        (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= math.max(0.12, 0.08 + 2 * M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]))
+        or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] <= -4 * iTeamActiveBrains
+        or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 40 * iTeamActiveBrains
     )
     if not(bDelayOpeningExtraPower) and not(bEngineersRecentlyRunFromEnemy) and bHardLowMassPowerEmergency and not(bSaveMassForMML) and (not(bPrioritiseProduction) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.05) and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftEnemyFirebasesInRange]) and ((not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ])) or (tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) > (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 12 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 1.5 * iTeamActiveBrains or tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 600 or GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastEnergyStall] or -100) <= 12) then
         local iEmergencyPowerTechWanted = 1
         if not(bNoT2PlusPowerYet) then iEmergencyPowerTechWanted = math.max(2, iMinTechLevelForPower) end
-        iBPWanted = math.max(tiBPByTech[iEmergencyPowerTechWanted], 8)
-        if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.05 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] <= -12 * iTeamActiveBrains then
+        iBPWanted = math.max(tiBPByTech[iEmergencyPowerTechWanted], 10)
+        if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.08 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] <= -10 * iTeamActiveBrains then
+            iBPWanted = math.max(iBPWanted, 14)
+        elseif tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 900 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 20 then
             iBPWanted = math.max(iBPWanted, 12)
-        elseif tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 1200 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 25 then
-            iBPWanted = math.max(iBPWanted, 10)
         end
         if bDebugMessages == true then LOG(sFunctionRef..': Emergency low-mass power recovery builder active, iEmergencyPowerTechWanted='..iEmergencyPowerTechWanted..'; iBPWanted='..iBPWanted..'; Energy %='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored]..'; Net energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy]..'; Gross energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Mass stored='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Significant reclaim='..(tLZData[M28Map.subrefTotalSignificantMassReclaim] or 0)..'; bNoT2PlusPowerYet='..tostring(bNoT2PlusPowerYet)) end
         HaveActionToAssign(refActionBuildPower, iEmergencyPowerTechWanted, iBPWanted)
@@ -14681,6 +14702,21 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
             if bDebugMessages == true then LOG(sFunctionRef..': HIGH PRIORITY BATTLE ZONE RECLAIM: Signif reclaim='..tLZData[M28Map.subrefTotalSignificantMassReclaim]..'; iBPWanted='..iBPWanted..'; bBattleConcluded='..tostring(bBattleConcludedHere)) end
             HaveActionToAssign(refActionReclaimArea, 1, iBPWanted, {false, nil})
         end
+    end
+
+    --After 8 minutes, aggressively pull reclaim from any secure or army-covered zone with meaningful wreck fields
+    iCurPriority = iCurPriority + 1
+    local iLateGameAggressiveReclaimBP = 0
+    if not(bEngineersRecentlyRunFromEnemy) then
+        local iAllyCombat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+        local iEnemyCombat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+        local bZoneSecure = not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and (tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) == 0
+        local bHaveArmyProtection = iAllyCombat >= iEnemyCombat
+        iLateGameAggressiveReclaimBP = GetLateGameAggressiveReclaimBP(iTeam, tLZData[M28Map.subrefTotalSignificantMassReclaim] or 0, bZoneSecure, bHaveArmyProtection)
+    end
+    if iLateGameAggressiveReclaimBP > 0 then
+        if bDebugMessages == true then LOG(sFunctionRef..': Late game aggressive reclaim for core LZ, signif reclaim='..(tLZData[M28Map.subrefTotalSignificantMassReclaim] or 0)..'; iLateGameAggressiveReclaimBP='..iLateGameAggressiveReclaimBP) end
+        HaveActionToAssign(refActionReclaimArea, 1, iLateGameAggressiveReclaimBP, {false, nil}, false, true)
     end
 
     --Adjacent zones wanting mexes that dont already have 1 engineer traveling for every 2 unbuilt mexes, or 5k reclaim
@@ -18940,6 +18976,21 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
         iCurPriority = iCurPriority + 1
     end
 
+    --After 8 minutes, let any reclaim-rich minor zone pull meaningful BP if it is safe enough to work
+    iCurPriority = iCurPriority + 1
+    local iLateGameAggressiveReclaimBP = 0
+    if not(bEngineersRecentlyRunFromEnemy) then
+        local iAllyCombat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+        local iEnemyCombat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+        local bZoneSecure = not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and (tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) == 0
+        local bHaveArmyProtection = iAllyCombat >= iEnemyCombat
+        iLateGameAggressiveReclaimBP = GetLateGameAggressiveReclaimBP(iTeam, tLZData[M28Map.subrefTotalSignificantMassReclaim] or 0, bZoneSecure, bHaveArmyProtection)
+    end
+    if iLateGameAggressiveReclaimBP > 0 then
+        if bDebugMessages == true then LOG(sFunctionRef..': Late game aggressive reclaim for minor LZ, signif reclaim='..(tLZData[M28Map.subrefTotalSignificantMassReclaim] or 0)..'; iLateGameAggressiveReclaimBP='..iLateGameAggressiveReclaimBP) end
+        HaveActionToAssign(refActionReclaimArea, 1, iLateGameAggressiveReclaimBP, {false, nil}, false, true)
+    end
+
     --Low power - if at T1, and have lots of mass income but poor E, and lots of mexes in zone (6+), then build t1 pgen as very high priority instead of more t1 mexes
     iCurPriority = iCurPriority + 1
     if bDebugMessages == true then LOG(sFunctionRef..': Priority t1 power builder for minor LZ check, subrefiHighestFriendlyFactoryTech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]..'; subrefLZOrWZMexCount='..tLZData[M28Map.subrefLZOrWZMexCount]..'; bHaveLowPower='..tostring(bHaveLowPower)..'; subrefiTeamAverageMassPercentStored='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]..'; subrefMexCountByTech][1]='..tLZTeamData[M28Map.subrefMexCountByTech][1]..'; subrefiTeamGrossMass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; subrefiTeamGrossEnergy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]) end
@@ -20762,6 +20813,21 @@ function ConsiderWaterZoneEngineerAssignment(tWZTeamData, iTeam, iPond, iWaterZo
     if bDebugMessages == true then LOG(sFunctionRef..': Considering high priority reclaim, tWZData[M28Map.subrefTotalSignificantMassReclaim]='..(tWZData[M28Map.subrefTotalSignificantMassReclaim] or 'nil')..'; bHaveLowMass='..tostring(bHaveLowMass)) end
     if bHaveLowMass and tWZData[M28Map.subrefTotalSignificantMassReclaim] >= 50 then
         HaveActionToAssign(refActionReclaimArea, 1, 5, { false, 40 })
+    end
+
+    --After 8 minutes, give any reclaim-rich water zone real reclaim BP instead of only token recovery
+    iCurPriority = iCurPriority + 1
+    local iLateGameAggressiveReclaimBP = 0
+    if not(bEngineersRecentlyRunFromEnemy) then
+        local iAllyCombat = tWZTeamData[M28Map.subrefWZTThreatAllyCombatTotal] or 0
+        local iEnemyCombat = tWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+        local bZoneSecure = not(tWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentWZ]) and (tWZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) == 0
+        local bHaveArmyProtection = iAllyCombat >= iEnemyCombat
+        iLateGameAggressiveReclaimBP = GetLateGameAggressiveReclaimBP(iTeam, tWZData[M28Map.subrefTotalSignificantMassReclaim] or 0, bZoneSecure, bHaveArmyProtection)
+    end
+    if iLateGameAggressiveReclaimBP > 0 then
+        if bDebugMessages == true then LOG(sFunctionRef..': Late game aggressive reclaim for WZ, signif reclaim='..(tWZData[M28Map.subrefTotalSignificantMassReclaim] or 0)..'; iLateGameAggressiveReclaimBP='..iLateGameAggressiveReclaimBP) end
+        HaveActionToAssign(refActionReclaimArea, 1, iLateGameAggressiveReclaimBP, {false, nil}, false, true)
     end
 
     --Naval fac if this is a core WZ and we dont have any (or lack an HQ), with eco condition
