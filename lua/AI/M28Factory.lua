@@ -628,7 +628,7 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                     sBPIDToBuild = nil
                 end
             end
-            --QUIET mod: Limit early game engineers - prioritize combat units over engineers during T1/T2 phases
+            --QUIET mod: Soft-cap early engineers only when the zone is not actively asking for build power.
             if M28Utilities.bQuietModActive and sBPIDToBuild and iFactoryTechLevel <= 2 and aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] then
                 if not(iCurEngineers) then iCurEngineers = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer) end
                 local iCurCombat = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandCombat)
@@ -639,6 +639,7 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                 local iEnemyCount = table.getn(tTeamData[M28Team.subreftoEnemyBrains] or {})
                 local iFriendlyCount = table.getn(tTeamData[M28Team.subreftoFriendlyHumanAndAIBrains] or {})
                 local iTotalPlayers = iEnemyCount + iFriendlyCount
+                local bHighEngineerPriority = tLZTeamData[M28Map.subrefTbWantBP] and (tLZTeamData[M28Map.subrefLZbCoreBase] or iGameTime <= 600 or ((tLZTeamData[M28Map.subrefTBuildPowerByTechWanted] and tLZTeamData[M28Map.subrefTBuildPowerByTechWanted][math.min(2, iFactoryTechLevel)]) or 0) > 0)
 
                 --Base limits scaled by total players
                 --2 players (1v1): 15/20/30
@@ -656,17 +657,17 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                 local iMaxEngineers, iEngiToCombatRatio
                 if iGameTime <= 300 then
                     iMaxEngineers = iBaseEarlyMax
-                    iEngiToCombatRatio = 0.5 --1 engi per 2 combat
+                    iEngiToCombatRatio = 0.75
                 elseif iGameTime <= 600 then
                     iMaxEngineers = iBaseMidMax
-                    iEngiToCombatRatio = 0.67 --1 engi per 1.5 combat
+                    iEngiToCombatRatio = 1
                 else
                     iMaxEngineers = iBaseLateMax
-                    iEngiToCombatRatio = 1 --1:1 ratio
+                    iEngiToCombatRatio = 1.25
                 end
-                if iCurEngineers >= iMaxEngineers or (iCurCombat > 0 and iCurEngineers > iCurCombat * iEngiToCombatRatio) then
-                    if aiBrain:GetEconomyStoredRatio('MASS') < 0.7 then
-                        if bDebugMessages == true then LOG(sFunctionRef..': QUIET mod early game engineer limit, iCurEngineers='..iCurEngineers..'; iCurCombat='..iCurCombat..'; iMaxEngineers='..iMaxEngineers..'; iEngiToCombatRatio='..iEngiToCombatRatio) end
+                if not(bHighEngineerPriority) and (iCurEngineers >= iMaxEngineers or (iCurCombat > 0 and iCurEngineers > iCurCombat * iEngiToCombatRatio)) then
+                    if aiBrain:GetEconomyStoredRatio('MASS') < 0.55 then
+                        if bDebugMessages == true then LOG(sFunctionRef..': QUIET mod early game engineer limit, iCurEngineers='..iCurEngineers..'; iCurCombat='..iCurCombat..'; iMaxEngineers='..iMaxEngineers..'; iEngiToCombatRatio='..iEngiToCombatRatio..'; bHighEngineerPriority='..tostring(bHighEngineerPriority)) end
                         sBPIDToBuild = nil
                     end
                 end
@@ -1513,7 +1514,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     end
 
     local iCurrentTechMobileUnitLifetimeCount
-    local iMinCurrentTechUnitsBeforeGenericEngineer = 2
+    local iMinCurrentTechUnitsBeforeGenericEngineer = 0
     local iTeamMassStored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] or 0
     local iTeamAverageMassStored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0
     local iTeamNetMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 0
@@ -1537,6 +1538,21 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             return bPreferThisFactoryForEarlyT1Engineers
         end
         if iFactoryTechLevel ~= 1 or not(tLZTeamData[M28Map.subrefLZbCoreBase]) or GetGameTimeSeconds() > 420 then
+            bPreferThisFactoryForEarlyT1Engineers = true
+            return true
+        end
+        local iResourceMod = aiBrain[M28Economy.refiBrainResourceMultiplier] or M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier] or 1
+        local iStoredEnergy = aiBrain:GetEconomyStored('ENERGY')
+        local iGrossEnergy = aiBrain[M28Economy.refiGrossEnergyBaseIncome] or 0
+        local iNetEnergy = aiBrain[M28Economy.refiNetEnergyBaseIncome] or 0
+        local iCurrentPowerCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryPower)
+        local bOpeningPowerPressure = M28Conditions.HaveLowPower(iTeam)
+                or M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]
+                or iCurrentPowerCount <= 1
+                or iStoredEnergy <= 500
+                or iGrossEnergy <= math.max(8 * iResourceMod, 8)
+                or (iNetEnergy <= 1 * iResourceMod and iStoredEnergy <= 700)
+        if bOpeningPowerPressure then
             bPreferThisFactoryForEarlyT1Engineers = true
             return true
         end
@@ -2593,9 +2609,9 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     if iFactoryTechLevel >= M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] and tLZTeamData[M28Map.subrefLZbCoreBase] and (iFactoryTechLevel > 1 or ShouldThisFactoryOwnEarlyT1EngineerProduction()) then
         local iMinEngisWanted --lifetime count; or half this for active current number
         if tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] then
-            iMinEngisWanted = 1
-        else
             iMinEngisWanted = 2
+        else
+            iMinEngisWanted = 3
         end
         if M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryEngineer * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)) < iMinEngisWanted then
             if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end
@@ -2635,21 +2651,31 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         end
     end
 
-    --No engineers in this zone and want BP and have some mass
+    --No engineers in this zone and want BP and have some mass, or a low-mass power emergency means we still need one engineer to recover.
     iCurrentConditionToTry = iCurrentConditionToTry + 1
-    if tLZTeamData[M28Map.subrefTbWantBP] and aiBrain:GetEconomyStored('MASS') >= 50 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and (not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) or tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] > tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal]) then
+    local bEmergencyPowerEngineerWanted = tLZTeamData[M28Map.subrefTbWantBP] and bHaveLowPower and bHaveLowMass and (tLZTeamData[M28Map.subrefTBuildPowerByTechWanted][1] or 0) > 0 and ((M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.15) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] <= -6 * math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 35 * math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1))
+    if tLZTeamData[M28Map.subrefTbWantBP] and (((aiBrain:GetEconomyStored('MASS') >= 50 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass])) or (bEmergencyPowerEngineerWanted and (aiBrain:GetEconomyStored('MASS') >= 18 or tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 750 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 25))) and (not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) or tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] > tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal])) then
         local bHaveEngiInZone = false
+        local iEngineersUnderConstruction = 0
         for iUnit, oUnit in tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits] do
             if EntityCategoryContains(M28UnitInfo.refCategoryEngineer, oUnit.UnitId) then
                 bHaveEngiInZone = true
                 break
             end
         end
-        if bDebugMessages == true then LOG(sFunctionRef..': Build engi if want BP and have no engi in zone, bHaveEngiInZone='..tostring(bHaveEngiInZone)) end
-        if not(bHaveEngiInZone) then
-            if ShouldDelayGenericHighTechEngineer() then
+        if bEmergencyPowerEngineerWanted then
+            iEngineersUnderConstruction = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryEngineer, false)
+        end
+        if bDebugMessages == true then LOG(sFunctionRef..': Build engi if want BP and have no engi in zone, bHaveEngiInZone='..tostring(bHaveEngiInZone)..'; bEmergencyPowerEngineerWanted='..tostring(bEmergencyPowerEngineerWanted)..'; iEngineersUnderConstruction='..(iEngineersUnderConstruction or 0)..'; Mass stored='..aiBrain:GetEconomyStored('MASS')) end
+        if not(bHaveEngiInZone) or (bEmergencyPowerEngineerWanted and GetEngiCountInZone() <= 1 and iEngineersUnderConstruction == 0) then
+            if ShouldDelayGenericHighTechEngineer() and not(bEmergencyPowerEngineerWanted) then
                 if bDebugMessages == true then LOG(sFunctionRef..': Delaying generic T'..iFactoryTechLevel..' engineer opener until factory has built more units of this tech, GetCurrentTechMobileUnitLifetimeCount()='..GetCurrentTechMobileUnitLifetimeCount()..'; bHighMassAllowsEarlyHighTechEngineer='..tostring(bHighMassAllowsEarlyHighTechEngineer)) end
-            elseif ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end
+            else
+                if bEmergencyPowerEngineerWanted and bDebugMessages == true then
+                    LOG(sFunctionRef..': Bypassing generic high-tech engineer delay because the zone is in an emergency low-mass power recovery state')
+                end
+                if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end
+            end
         end
     end
 
@@ -3257,8 +3283,8 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         end
         --If early on and we have ACU in our zone and nearest enemy base is close and no enemies in our zone itself, and we have nearby zones wanting engis for mex, then dont build
         if tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] and (iFactoryTechLevel > 1 or oFactory[refiTotalBuildCount] >= 10 or GetGameTimeSeconds() >= 300 or not(tLZTeamData[M28Map.subrefLZbCoreBase]) or (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] > 60 and tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] < tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] * 2) or not(tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex]) or M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], tLZTeamData[M28Map.reftClosestEnemyBase]) >= 300) then
-            --Require lifetime engi build count of 2 first for t1 fac
-            if iFactoryTechLevel == 1 and not(M28Map.bIsCampaignMap) and (oFactory[refiTotalBuildCount] or 0) < 4 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryEngineer) < 3 then
+            --Require a stronger early engineer count first for T1 factories before defaulting back to tanks.
+            if iFactoryTechLevel == 1 and not(M28Map.bIsCampaignMap) and (oFactory[refiTotalBuildCount] or 0) < 4 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryEngineer) < 5 then
                 --Do nothing (want later initial engineer builder to apply instead)
                 if bDebugMessages == true then LOG(sFunctionRef..': Wont build tank as want to get engineers') end
             else
@@ -3467,9 +3493,9 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         if iFactoryTechLevel >= M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] and tLZTeamData[M28Map.subrefLZbCoreBase] and (iFactoryTechLevel > 1 or ShouldThisFactoryOwnEarlyT1EngineerProduction()) then
             local iMinEngisWanted --lifetime count; or half this for active current number
             if tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or M28Map.bIsLowMexMap then
-                iMinEngisWanted = 2
+                iMinEngisWanted = 3
                 --If enemies in adj zone arent mobile then increase min to 3
-                if not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and iFactoryTechLevel == 1 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryEngineer) < 4 and not(M28Map.bIsLowMexMap) and GetGameTimeSeconds() <= 300 then
+                if not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and iFactoryTechLevel == 1 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryEngineer) < 6 and not(M28Map.bIsLowMexMap) and GetGameTimeSeconds() <= 300 then
                     --Are there no mobile enemies in adj zone (e.g. might be a civilian PD)
                     local bNearbyMobileThreat = false
                     if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
@@ -3483,15 +3509,15 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                         end
                     end
                     if not(bNearbyMobileThreat) then
-                        iMinEngisWanted = 3
-                        if M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryIndirect) > 0 then iMinEngisWanted = 4 end
+                        iMinEngisWanted = 5
+                        if M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryIndirect) > 0 then iMinEngisWanted = 6 end
                     end
                     if bDebugMessages == true then LOG(sFunctionRef..': bNearbyMobileThreat='..tostring(bNearbyMobileThreat)..'; iMinEngisWatned='..iMinEngisWanted..'; Lifetime indirect build count='..M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryIndirect)) end
                 end
             else
-                iMinEngisWanted = 4
+                iMinEngisWanted = 5
             end
-            if M28Utilities.bLoudModActive and iMinEngisWanted > 3 then iMinEngisWanted = 3 end
+            if M28Utilities.bLoudModActive and iMinEngisWanted > 4 then iMinEngisWanted = 4 end
             if M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryEngineer * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)) < iMinEngisWanted or aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)) <= (iMinEngisWanted * 0.5) then
                 if ShouldDelayGenericHighTechEngineer() then
                     if bDebugMessages == true then LOG(sFunctionRef..': Delaying initial T'..iFactoryTechLevel..' engineer from core base until factory has opened on units, GetCurrentTechMobileUnitLifetimeCount()='..GetCurrentTechMobileUnitLifetimeCount()) end
@@ -5727,7 +5753,7 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
 
     --Engineers for start of game (e.g. relevant for if gone first bomber)
     iCurrentConditionToTry = iCurrentConditionToTry + 1
-    if iFactoryTechLevel == 1 and M28UnitInfo.GetUnitLifetimeCount(oFactory) == 1 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryEngineer) < 7 and tLZTeamData[M28Map.subrefTbWantBP] then
+    if iFactoryTechLevel == 1 and M28UnitInfo.GetUnitLifetimeCount(oFactory) == 1 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryEngineer) < 10 and tLZTeamData[M28Map.subrefTbWantBP] then
         if bDebugMessages == true then LOG(sFunctionRef..': Will try and get early engi') end
         if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end
     end
@@ -5780,8 +5806,8 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
         if iFactoryTechLevel == 2 then iEngiCat = M28UnitInfo.refCategoryEngineer - categories.TECH1
         else iEngiCat = M28UnitInfo.refCategoryEngineer * categories.TECH3
         end
-        local iMinEngisWanted = 1
-        if not(bHaveLowMass) and tLZTeamData[M28Map.subrefTbWantBP] then iMinEngisWanted = 2 end
+        local iMinEngisWanted = 2
+        if not(bHaveLowMass) and tLZTeamData[M28Map.subrefTbWantBP] then iMinEngisWanted = 3 end
         local iCurEngisofCat = aiBrain:GetCurrentUnits(iEngiCat)
         if bDebugMessages == true then LOG(sFunctionRef..'; iCurEngisOfCat='..iCurEngisofCat..'; iMinEngisWanted='..iMinEngisWanted..'; bHaveLowMass='..tostring(bHaveLowMass)..'; Number of engis of relevant cat under construction in LZ='..M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, iEngiCat)) end
         if iCurEngisofCat < iMinEngisWanted and iCurEngisofCat + M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, iEngiCat) < iMinEngisWanted then
@@ -6275,7 +6301,7 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
             LOG(sFunctionRef .. ': Considering high priority engineers, iFactoryTechLevel=' .. iFactoryTechLevel .. '; Team highest factory tech level=' .. M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] .. '; Lifetime build count=' .. M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryEngineer * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)) .. '; Current units=' .. aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)))
         end
         if iFactoryTechLevel >= M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] and tLZTeamData[M28Map.subrefLZbCoreBase] then
-            if M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryEngineer * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)) <= 4 or aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)) <= 2 then
+            if M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryEngineer * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)) <= 6 or aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)) <= 3 then
                 if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end
             end
         end

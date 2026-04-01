@@ -4420,23 +4420,65 @@ function CalculateZoneValue(iPlateau, iLandZone, iTeam, iAvailableMass)
     if tClosestFriendlyBase and tLZData[subrefMidpoint] then
         iDistance = M28Utilities.GetDistanceBetweenPositions(tClosestFriendlyBase, tLZData[subrefMidpoint])
     end
-    local iDistanceDecay = math.max(0.1, 1.0 - (iDistance / 800))  --800 unit threshold for aggressive local focus
+    local iDistanceDecay = math.max(0.2, 1.0 - (iDistance / 1100))  --Reduce localism so wider lanes can still win pressure assignments
 
     --Concentration Penalty: Penalize zones with many units already assigned
     local iAssignedMass = tLZTeamData[subrefLZTAlliedCombatUnits] and M28UnitInfo.GetMassCostOfUnits(tLZTeamData[subrefLZTAlliedCombatUnits]) or 0
     local iConcentrationPenalty = 1.0
     if iAvailableMass and iAvailableMass > 0 then
-        iConcentrationPenalty = 1.0 / (1.0 + (iAssignedMass / iAvailableMass))
+        local iAssignedRatio = iAssignedMass / iAvailableMass
+        iConcentrationPenalty = 1.0 / (1.0 + (iAssignedRatio * 2.5) + (iAssignedRatio * iAssignedRatio * 3.0))
+    end
+
+    --Baseline Pressure Bonus: empty flank / anchor lanes should still win units so we dictate the fight location
+    local iBaselinePressureBonus = 0
+    if tLZTeamData[subrefbLZBaselinePressure] then
+        local iTech = M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] or 1
+        local iBaseThreatFloor = 700
+        if iTech >= 3 then
+            iBaseThreatFloor = 3000
+        elseif iTech == 2 then
+            iBaseThreatFloor = 1600
+        end
+
+        local iMexBonus = math.min(600, (tLZData[subrefLZOrWZMexCount] or 0) * 180)
+        local iExpansionBonus = tLZTeamData[subrefLZCoreExpansion] and 500 or 0
+        local iStructureBonus = math.min(900, (tLZTeamData[subrefLZSValue] or 0) * 0.3)
+        local iForwardBonus = ((tLZTeamData[refiModDistancePercent] or 0) >= 0.5) and 350 or 0
+        local iPressureFloor = iBaseThreatFloor + iMexBonus + iExpansionBonus + iStructureBonus + iForwardBonus
+        local iCurrentDFThreat = tLZTeamData[subrefLZThreatAllyMobileDFTotal] or 0
+        local iShortfall = math.max(0, iPressureFloor - iCurrentDFThreat)
+
+        iBaselinePressureBonus = math.min(3200, iShortfall * 1.25)
+    end
+
+    --Opening Flank Bias: in the first 4 minutes, avoid hard-locking onto the direct base-to-base lane
+    local iOpeningFlankBias = 0
+    if GetGameTimeSeconds() <= 240 and tClosestFriendlyBase and tLZTeamData[reftClosestEnemyBase] and tLZData[subrefMidpoint] then
+        local iModDist = tLZTeamData[refiModDistancePercent] or 0
+        local bZoneHasContestValue = (tLZData[subrefLZOrWZMexCount] or 0) > 0 or tLZTeamData[subrefLZCoreExpansion] or (tLZTeamData[subrefLZSValue] or 0) > 0
+        if bZoneHasContestValue and iModDist >= 0.18 and iModDist <= 0.72 then
+            local iAngleToEnemy = M28Utilities.GetAngleFromAToB(tClosestFriendlyBase, tLZTeamData[reftClosestEnemyBase])
+            local iAngleToZone = M28Utilities.GetAngleFromAToB(tClosestFriendlyBase, tLZData[subrefMidpoint])
+            if iAngleToEnemy and iAngleToZone then
+                local iAngleDiff = M28Utilities.GetAngleDifference(iAngleToEnemy, iAngleToZone)
+                local iTimeMultiplier = math.max(0.25, 1.0 - (GetGameTimeSeconds() / 280))
+                local iFlankRatio = math.max(0, math.min(1, (iAngleDiff - 12) / 38))
+                local iCenterPenaltyRatio = math.max(0, math.min(1, (18 - iAngleDiff) / 18))
+
+                iOpeningFlankBias = ((iFlankRatio * 2600) - (iCenterPenaltyRatio * 1800)) * iTimeMultiplier
+            end
+        end
     end
 
     --Final Zone Value Calculation (includes all penalties)
-    local iZoneValue = iEconomicValue * iThreatModifier * iFortificationPenalty * iDistanceDecay * iConcentrationPenalty
+    local iZoneValue = math.max(0, iEconomicValue * iThreatModifier * iFortificationPenalty * iDistanceDecay * iConcentrationPenalty + iBaselinePressureBonus + iOpeningFlankBias)
 
     if bDebugMessages == true then
         LOG(sFunctionRef..': iPlateau='..iPlateau..'; iLZ='..iLandZone..'; iTeam='..iTeam..
             '; EcoValue='..iEconomicValue..'; ThreatMod='..string.format("%.2f", iThreatModifier)..
             '; FortPenalty='..string.format("%.2f", iFortificationPenalty)..'; DistDecay='..string.format("%.2f", iDistanceDecay)..
-            '; ConcPenalty='..string.format("%.2f", iConcentrationPenalty)..'; FinalZoneValue='..math.floor(iZoneValue))
+            '; ConcPenalty='..string.format("%.2f", iConcentrationPenalty)..'; BaselineBonus='..math.floor(iBaselinePressureBonus)..'; OpeningFlankBias='..math.floor(iOpeningFlankBias)..'; FinalZoneValue='..math.floor(iZoneValue))
     end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)

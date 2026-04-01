@@ -1037,15 +1037,16 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
     local tLZOrWZTeamData
     local iTeam = oACU:GetAIBrain().M28Team
     local iResourceMod = aiBrain[M28Economy.refiBrainResourceMultiplier]
-    local iFirstMexGrossEnergyFloor = 4 * iResourceMod --ACU 2 + first pgen 2 in M28's economy scale
-    local iFurtherMexGrossEnergyFloor = 6 * iResourceMod --ACU 2 + two pgens 4
-    local iFirstMexEnergyStoredFloor = 700
-    local iFurtherMexEnergyStoredFloor = 500
-    local iHydroExtraPgenEnergyStoredFloor = 700
+    local iFirstMexGrossEnergyFloor = 7 * iResourceMod --Hold longer on T1 pgens before pivoting back into mexes
+    local iFurtherMexGrossEnergyFloor = 10 * iResourceMod --Delay the opener's transition out of T1 power more aggressively
+    local iFirstMexEnergyStoredFloor = 1100
+    local iFurtherMexEnergyStoredFloor = 900
+    local iHydroExtraPgenEnergyStoredFloor = 900
     local iInitialBuildHardEnergyStoredFloor = 150
     local iInitialBuildMassCrashStoredFloor = 5
     local iInitialBuildMassCrashNetFloor = -0.2 * iResourceMod
     local iHydroACUMexTarget = 3
+    local iMinT1PowerCountBeforeHydro = 3
     --if aiBrain.CheatEnabled then iResourceMod = M28Team.tTeamData[aiBrain.M28Team][M28Team.refiHighestBrainResourceMultiplier] end
     if iPlateauOrZero == 0 then
         tLZOrWZData = M28Map.tPondDetails[M28Map.tiPondByWaterZone[iLZOrWZ]][M28Map.subrefPondWaterZones][iLZOrWZ]
@@ -1354,7 +1355,7 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
                             local iCurMexCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMex)
                             local iCurPowerCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryPower)
                             local bOpeningMassCrash = aiBrain:GetEconomyStored('MASS') <= iInitialBuildMassCrashStoredFloor and aiBrain[M28Economy.refiNetMassBaseIncome] <= iInitialBuildMassCrashNetFloor
-                            local bHardEnergyEmergency = aiBrain:GetEconomyStored('ENERGY') <= iInitialBuildHardEnergyStoredFloor or aiBrain[M28Economy.refiGrossEnergyBaseIncome] < 2 * iResourceMod or (aiBrain[M28Economy.refiNetEnergyBaseIncome] < -1 * iResourceMod and aiBrain:GetEconomyStored('ENERGY') < 400)
+                            local bHardEnergyEmergency = aiBrain:GetEconomyStored('ENERGY') <= math.max(iInitialBuildHardEnergyStoredFloor, iFurtherMexEnergyStoredFloor) or aiBrain[M28Economy.refiGrossEnergyBaseIncome] < math.max(iFirstMexGrossEnergyFloor, 4 * iResourceMod) or (aiBrain[M28Economy.refiNetEnergyBaseIncome] <= 1 * iResourceMod and aiBrain:GetEconomyStored('ENERGY') < math.max(400, iFurtherMexEnergyStoredFloor))
                             if iCurPowerCount >= 1 and iCurMexCount < math.min(2, tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0) and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= iFirstMexGrossEnergyFloor and aiBrain:GetEconomyStored('ENERGY') >= iFirstMexEnergyStoredFloor and ConsiderBuildingMex(tLZOrWZData, tLZOrWZTeamData, oACU, 50) then
                                 if bDebugMessages == true then LOG(sFunctionRef..': Opening math = after 1 pgen want first 2 mexes before the 2nd pgen') end
                             elseif aiBrain[M28Economy.refiGrossEnergyBaseIncome] < math.max(6, 2 * (tLZOrWZTeamData[M28Map.subrefMexCountByTech][1] + tLZOrWZTeamData[M28Map.subrefMexCountByTech][2] * 3 + tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] * 9)) * iResourceMod and (iCurPowerCount == 0 or not(bOpeningMassCrash and not(bHardEnergyEmergency))) then
@@ -1486,8 +1487,10 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
                             local iCurMexCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMex)
                             local iPreferredMexCountBeforeHydro = math.min(iMexCap, math.min(iHydroACUMexTarget, iMexInLandZone))
                             local bOpeningMassCrash = aiBrain:GetEconomyStored('MASS') <= iInitialBuildMassCrashStoredFloor and aiBrain[M28Economy.refiNetMassBaseIncome] <= iInitialBuildMassCrashNetFloor
-                            local bHardEnergyEmergency = aiBrain:GetEconomyStored('ENERGY') <= iInitialBuildHardEnergyStoredFloor or aiBrain[M28Economy.refiGrossEnergyBaseIncome] < 2 * iResourceMod or (aiBrain[M28Economy.refiNetEnergyBaseIncome] < -1 * iResourceMod and aiBrain:GetEconomyStored('ENERGY') < 400)
-                            if iCurPowerCount == 0 or (iCurPowerCount == 1 and iCurMexCount >= iCurPowerCount and aiBrain:GetEconomyStored('ENERGY') <= math.min(2000, aiBrain:GetEconomyStored('MASS') * 20) and (aiBrain[M28Economy.refiGrossEnergyBaseIncome] < iFirstMexGrossEnergyFloor or aiBrain:GetEconomyStored('ENERGY') <= iHydroExtraPgenEnergyStoredFloor) and not(bOpeningMassCrash and not(bHardEnergyEmergency))) then
+                            local bHardEnergyEmergency = aiBrain:GetEconomyStored('ENERGY') <= math.max(iInitialBuildHardEnergyStoredFloor, iHydroExtraPgenEnergyStoredFloor) or aiBrain[M28Economy.refiGrossEnergyBaseIncome] < math.max(iFirstMexGrossEnergyFloor, 4 * iResourceMod) or (aiBrain[M28Economy.refiNetEnergyBaseIncome] <= 1 * iResourceMod and aiBrain:GetEconomyStored('ENERGY') < math.max(400, iHydroExtraPgenEnergyStoredFloor))
+                            if iCurPowerCount == 0
+                                    or (iCurPowerCount == 1 and iCurMexCount >= iCurPowerCount and aiBrain:GetEconomyStored('ENERGY') <= math.min(2000, aiBrain:GetEconomyStored('MASS') * 20) and (aiBrain[M28Economy.refiGrossEnergyBaseIncome] < iFirstMexGrossEnergyFloor or aiBrain:GetEconomyStored('ENERGY') <= iHydroExtraPgenEnergyStoredFloor) and not(bOpeningMassCrash and not(bHardEnergyEmergency)))
+                                    or (iCurPowerCount < iMinT1PowerCountBeforeHydro and iCurMexCount >= iPreferredMexCountBeforeHydro and aiBrain[M28Economy.refiGrossEnergyBaseIncome] < iFurtherMexGrossEnergyFloor and aiBrain:GetEconomyStored('ENERGY') <= math.max(iHydroExtraPgenEnergyStoredFloor, iFurtherMexEnergyStoredFloor) and not(bOpeningMassCrash and not(bHardEnergyEmergency))) then
                                 if bDebugMessages == true then LOG(sFunctionRef..': Hydro opener = want the first pgen before hydro, but not an extra pgen unless energy is still genuinely low') end
                                 ACUActionBuildPower(aiBrain, oACU)
                             elseif bHaveUnderConstructionFirstHydro and
@@ -1500,7 +1503,7 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
                                 ACUActionAssistHydro(aiBrain, oACU, tLZOrWZData, tLZOrWZTeamData, oOptionalUnderConstructionHydro)
                             elseif iCurPowerCount >= 1 and iCurMexCount < iPreferredMexCountBeforeHydro and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= iFirstMexGrossEnergyFloor and aiBrain:GetEconomyStored('ENERGY') >= iFurtherMexEnergyStoredFloor and M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subrefMexUnbuiltLocations]) == false and (not(M28Overseer.bNoRushActive) or not(M28Conditions.NoRushPreventingHydroOrMex(tLZOrWZData, true))) and ConsiderBuildingMex(tLZOrWZData, tLZOrWZTeamData, oACU, 50) then
                                 if bDebugMessages == true then LOG(sFunctionRef..': Hydro opening math = want mexes up to '..iPreferredMexCountBeforeHydro..' before ACU commits to hydro') end
-                            elseif not(bHaveCompleteHydro) and not(bHaveUnderConstructionFirstHydro) and iCurPowerCount >= 1 and iCurMexCount >= iPreferredMexCountBeforeHydro and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= iFirstMexGrossEnergyFloor and aiBrain:GetEconomyStored('ENERGY') >= iFurtherMexEnergyStoredFloor and not(bOpeningMassCrash and not(bHardEnergyEmergency)) then
+                            elseif not(bHaveCompleteHydro) and not(bHaveUnderConstructionFirstHydro) and iCurPowerCount >= iMinT1PowerCountBeforeHydro and iCurMexCount >= iPreferredMexCountBeforeHydro and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= iFurtherMexGrossEnergyFloor and aiBrain:GetEconomyStored('ENERGY') >= iFurtherMexEnergyStoredFloor and not(bOpeningMassCrash and not(bHardEnergyEmergency)) then
                                 if bDebugMessages == true then LOG(sFunctionRef..': Hydro opening math = energy is stable and mexes are secured so ACU should start the hydro now') end
                                 ACUActionAssistHydro(aiBrain, oACU, tLZOrWZData, tLZOrWZTeamData, oOptionalUnderConstructionHydro)
                             elseif (tLZOrWZTeamData[M28Map.subrefMexCountByTech][1] + tLZOrWZTeamData[M28Map.subrefMexCountByTech][2] * 3 + tLZOrWZTeamData[M28Map.subrefMexCountByTech][3]) >= 5 and aiBrain[M28Economy.refiGrossEnergyBaseIncome] < iFurtherMexGrossEnergyFloor and not(bOpeningMassCrash and not(bHardEnergyEmergency)) then
@@ -1713,7 +1716,7 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
                         if not(M28Conditions.DoesACUHaveValidOrder(oACU)) then
                             local iCurPower =  aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryPower) + aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryHydro) * 5
                             local bOpeningMassCrash = aiBrain:GetEconomyStored('MASS') <= iInitialBuildMassCrashStoredFloor and aiBrain[M28Economy.refiNetMassBaseIncome] <= iInitialBuildMassCrashNetFloor
-                            local bHardEnergyEmergency = aiBrain:GetEconomyStored('ENERGY') <= iInitialBuildHardEnergyStoredFloor or aiBrain[M28Economy.refiGrossEnergyBaseIncome] < 2 * iResourceMod or (aiBrain[M28Economy.refiNetEnergyBaseIncome] < -1 * iResourceMod and aiBrain:GetEconomyStored('ENERGY') < 400)
+                            local bHardEnergyEmergency = aiBrain:GetEconomyStored('ENERGY') <= math.max(iInitialBuildHardEnergyStoredFloor, iFurtherMexEnergyStoredFloor) or aiBrain[M28Economy.refiGrossEnergyBaseIncome] < math.max(iFirstMexGrossEnergyFloor, 4 * iResourceMod) or (aiBrain[M28Economy.refiNetEnergyBaseIncome] <= 1 * iResourceMod and aiBrain:GetEconomyStored('ENERGY') < math.max(400, iFurtherMexEnergyStoredFloor))
                             if not(bOpeningMassCrash and not(bHardEnergyEmergency)) and (iCurPower <= 7 or (iCurPower <= 13 and aiBrain:GetEconomyStoredRatio('MASS') >= 0.25 and aiBrain:GetEconomyStoredRatio('ENERGY') <= 0.95)) then
                                 ACUActionBuildPower(aiBrain, oACU)
                             end
