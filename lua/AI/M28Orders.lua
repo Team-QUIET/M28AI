@@ -63,7 +63,6 @@ local M28Profiler = import('/mods/M28AI/lua/AI/M28Profiler.lua')
 local M28Team = import('/mods/M28AI/lua/AI/M28Team.lua')
 local M28Air = import('/mods/M28AI/lua/AI/M28Air.lua')
 
-
 function UpdateUnitNameForOrder(oUnit, sOptionalOrderDesc)
     --local sBaseOrder = 'Clear'
     --if oUnit[reftiLastOrders] then
@@ -863,7 +862,9 @@ end
 
 function IssueTrackedUpgrade(oUnit, sUpgradeRef, bAddToExistingQueue, sOptionalOrderDesc)
     if bDontConsiderCombinedArmy or oUnit.M28Active then
+        local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
         UpdateRecordedOrders(oUnit)
+        if bDebugMessages == true then LOG('IssueTrackedUpgrade: Considering upgrade order, time='..GetGameTimeSeconds()..'; armyIndex='..oUnit:GetAIBrain():GetArmyIndex()..'; unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; upgrade='..(sUpgradeRef or 'nil')..'; bAddToExistingQueue='..tostring(bAddToExistingQueue or false)..'; state='..M28UnitInfo.GetUnitState(oUnit)) end
         --Issue order if we arent already trying to attack them
         local tLastOrder
         if oUnit[reftiLastOrders] then
@@ -877,8 +878,11 @@ function IssueTrackedUpgrade(oUnit, sUpgradeRef, bAddToExistingQueue, sOptionalO
             if not(oUnit[reftiLastOrders]) then oUnit[reftiLastOrders] = {} oUnit[refiOrderCount] = 0 end
             oUnit[refiOrderCount] = oUnit[refiOrderCount] + 1
             table.insert(oUnit[reftiLastOrders], {[subrefiOrderType] = refiOrderUpgrade, [subrefsOrderBlueprint] = sUpgradeRef})
+            if bDebugMessages == true then LOG('IssueTrackedUpgrade: Issuing upgrade order, time='..GetGameTimeSeconds()..'; armyIndex='..oUnit:GetAIBrain():GetArmyIndex()..'; unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; upgrade='..(sUpgradeRef or 'nil')..'; bAddToExistingQueue='..tostring(bAddToExistingQueue or false)..'; orderDesc='..(sOptionalOrderDesc or 'nil')) end
             IssueUpgrade({oUnit}, sUpgradeRef)
             oUnit[M28UnitInfo.refbIssuedUpgrade] = true
+        elseif bDebugMessages == true then
+            LOG('IssueTrackedUpgrade: Skipping duplicate upgrade order for unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; upgrade='..(sUpgradeRef or 'nil'))
         end
         if M28Config.M28ShowUnitNames then UpdateUnitNameForOrder(oUnit, sOptionalOrderDesc) end
     end

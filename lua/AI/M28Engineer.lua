@@ -15887,7 +15887,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                         if bDebugMessages == true then LOG(sFunctionRef..': Have searched for t1 land factories to upgrade, is oFactoryToUpgrade valid='..tostring(M28UnitInfo.IsUnitValid(oFactoryToUpgrade))) end
                         if oFactoryToUpgrade then
                             if bDebugMessages == true then LOG(sFunctionRef..': Doign priority upgrade for oFactoryToUpgrade='..oFactoryToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactoryToUpgrade)..' due to appraoching enemy ACU') end
-                            M28Economy.UpgradeUnit(oFactoryToUpgrade, true)
+                            M28Economy.UpgradeUnit(oFactoryToUpgrade, true, nil, 'EngineerPriorityLandFactoryUpgradeApproachingEnemyACU')
                         end
                     end
                 else

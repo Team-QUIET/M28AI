@@ -63,13 +63,13 @@ tbQuietT25MexUnitIds = {
     ['xsb1204'] = true
 }
 
-function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait)
+function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReasonRef)
     --Work out the upgrade ID wanted; if bUpdateUpgradeTracker is true then records upgrade against unit's aiBrain
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'UpgradeUnit'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, oUnitToUpgrade='..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' owned by '..oUnitToUpgrade:GetAIBrain().Nickname..'; GetUnitUpgradeBlueprint='..reprs((M28UnitInfo.GetUnitUpgradeBlueprint(oUnitToUpgrade, true) or 'nil'))..'; bUpdateUpgradeTracker='..tostring((bUpdateUpgradeTracker or false))..'; unit brain='..oUnitToUpgrade:GetAIBrain().Nickname..'; Are we in T1 spam mode='..tostring(M28Team.tTeamData[oUnitToUpgrade:GetAIBrain().M28Team][M28Team.refbFocusOnT1Spam])..'; Unit enhancement upgrade count='..(oUnitToUpgrade[M28ACU.refiUpgradeCount] or 'nil')..'; refbTriedUpgrading='..tostring(oUnitToUpgrade[M28UnitInfo.refbTriedUpgrading] or false)..'; refbObjectiveUnit='..tostring(oUnitToUpgrade[M28UnitInfo.refbObjectiveUnit] or false)..'; Is oUnitToUpgrade.EventCallbacks.OnKilled nil='..tostring(oUnitToUpgrade.EventCallbacks.OnKilled == nil)..'; iOptionalWait='..(iOptionalWait or 'nil')) end
+    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, oUnitToUpgrade='..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' owned by '..oUnitToUpgrade:GetAIBrain().Nickname..'; GetUnitUpgradeBlueprint='..reprs((M28UnitInfo.GetUnitUpgradeBlueprint(oUnitToUpgrade, true) or 'nil'))..'; bUpdateUpgradeTracker='..tostring((bUpdateUpgradeTracker or false))..'; unit brain='..oUnitToUpgrade:GetAIBrain().Nickname..'; Are we in T1 spam mode='..tostring(M28Team.tTeamData[oUnitToUpgrade:GetAIBrain().M28Team][M28Team.refbFocusOnT1Spam])..'; Unit enhancement upgrade count='..(oUnitToUpgrade[M28ACU.refiUpgradeCount] or 'nil')..'; refbTriedUpgrading='..tostring(oUnitToUpgrade[M28UnitInfo.refbTriedUpgrading] or false)..'; refbObjectiveUnit='..tostring(oUnitToUpgrade[M28UnitInfo.refbObjectiveUnit] or false)..'; Is oUnitToUpgrade.EventCallbacks.OnKilled nil='..tostring(oUnitToUpgrade.EventCallbacks.OnKilled == nil)..'; iOptionalWait='..(iOptionalWait or 'nil')..'; reason='..(sReasonRef or 'nil')) end
 
     if iOptionalWait and iOptionalWait > 0 then
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -144,10 +144,12 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait)
                 end
 
                 --Issue upgrade
-                M28Orders.IssueTrackedUpgrade(oUnitToUpgrade, sUpgradeID, bAddToExistingQueue)
+                if bDebugMessages == true then LOG(sFunctionRef..': Issuing tracked upgrade for land factory '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..'; upgradeID='..(sUpgradeID or 'nil')..'; bAddToExistingQueue='..tostring(bAddToExistingQueue)..'; currentState='..M28UnitInfo.GetUnitState(oUnitToUpgrade)..'; queueEmpty='..tostring(M28Utilities.IsTableEmpty(oUnitToUpgrade:GetCommandQueue()))..'; reason='..(sReasonRef or 'nil')) end
+                M28Orders.IssueTrackedUpgrade(oUnitToUpgrade, sUpgradeID, bAddToExistingQueue, sReasonRef)
                 --Issue where if we give the upgrade presumably just as the unit has finihsed its own upgrade, then it shows as beingupgrade while also being complete; so we wait 1 second and try again
             elseif oUnitToUpgrade:GetFractionComplete() == 1 then
-                ForkThread(UpgradeUnit, oUnitToUpgrade, false, 1)
+                if bDebugMessages == true then LOG(sFunctionRef..': Unit still flagged as being upgraded at full completion, will retry in 1s for unit '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)) end
+                ForkThread(UpgradeUnit, oUnitToUpgrade, false, 1, sReasonRef)
             end
         end
 
@@ -362,7 +364,7 @@ function UpdateZoneM28MexByTechCount(oMexJustBuiltOrDied, bJustDied, iOptionalWa
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function FindAndUpgradeUnitOfCategory(aiBrain, iCategoryWanted, iOptionalMinUnitsToHaveBuilt)
+function FindAndUpgradeUnitOfCategory(aiBrain, iCategoryWanted, iOptionalMinUnitsToHaveBuilt, sReasonRef)
     --e.g. intended for upgrading factory HQs, subject to CheckIfNeedMoreEngineersOrSnipeUnitsBeforeUpgrading
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'FindAndUpgradeUnitOfCategory'
@@ -409,7 +411,7 @@ function FindAndUpgradeUnitOfCategory(aiBrain, iCategoryWanted, iOptionalMinUnit
             end
             if oClosestUnit then
                 if bDebugMessages == true then LOG(sFunctionRef..': WIll try and upgrade oClosestUnit '..oClosestUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oClosestUnit)..'; Fraction complete='..oClosestUnit:GetFractionComplete()..'; Unit state='..M28UnitInfo.GetUnitState(oClosestUnit)) end
-                UpgradeUnit(oClosestUnit, true) --Will queue up transport or engineer for factories as well as figuring out whether to upgrade a support factory or an HQ
+                UpgradeUnit(oClosestUnit, true, nil, sReasonRef or sFunctionRef) --Will queue up transport or engineer for factories as well as figuring out whether to upgrade a support factory or an HQ
             end
         end
     end
@@ -3885,17 +3887,17 @@ function ConsiderImmediateUpgradeOfFactory(oFactory)
             if EntityCategoryContains(M28UnitInfo.refCategoryAirHQ, oFactory.UnitId) then
                 if aiBrain[refiOurHighestAirFactoryTech] > math.min(3, iTechLevel) then
                     if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade air factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
-                    UpgradeUnit(oFactory, true)
+                    UpgradeUnit(oFactory, true, nil, sFunctionRef..':AirHQ')
                 end
             elseif EntityCategoryContains(M28UnitInfo.refCategoryLandHQ, oFactory.UnitId) then
                 if aiBrain[refiOurHighestLandFactoryTech] > math.min(3, iTechLevel) then
                     if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade land factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
-                    UpgradeUnit(oFactory, true)
+                    UpgradeUnit(oFactory, true, nil, sFunctionRef..':LandHQ')
                 end
             elseif EntityCategoryContains(M28UnitInfo.refCategoryNavalHQ, oFactory.UnitId) then
                 if aiBrain[refiOurHighestNavalFactoryTech] > math.min(3, iTechLevel) then
                     if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade naval factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
-                    UpgradeUnit(oFactory, true)
+                    UpgradeUnit(oFactory, true, nil, sFunctionRef..':NavalHQ')
                 end
             end
         end

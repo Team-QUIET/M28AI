@@ -4987,6 +4987,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 end
 
 function DetermineWhatToBuild(aiBrain, oFactory)
+    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sBPIDToBuild, bEnhancement
     if EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oFactory.UnitId) then
         if EntityCategoryContains(categories.EXPERIMENTAL, oFactory.UnitId) then
@@ -5010,6 +5011,9 @@ function DetermineWhatToBuild(aiBrain, oFactory)
         sBPIDToBuild = GetBlueprintToBuildForTempest(aiBrain, oFactory)
     else
         M28Utilities.ErrorHandler('Need to add code - unexpected factory type, unitID='..(oFactory.UnitId or 'nil')..'; ParentID (if external factory unit)='..(oFactory.Parent.UnitId or 'nil'))
+    end
+    if bDebugMessages == true then
+        LOG('DetermineWhatToBuild: Final land factory decision, time='..GetGameTimeSeconds()..'; armyIndex='..aiBrain:GetArmyIndex()..'; factory='..(oFactory.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oFactory) or 'nil')..'; blueprint='..(sBPIDToBuild or 'nil')..'; enhancement='..tostring(bEnhancement or false))
     end
     return sBPIDToBuild, bEnhancement
 end
@@ -5312,7 +5316,7 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait, bConsiderDes
                     if bEnhancement then
                         M28Orders.IssueTrackedEnhancement(oFactory, sBPToBuild, false, 'FacEnh')
                     elseif EntityCategoryContains(M28UnitInfo.refCategoryFactory, sBPToBuild) then
-                        M28Economy.UpgradeUnit(oFactory, true)
+                        M28Economy.UpgradeUnit(oFactory, true, nil, 'FactoryDetermineWhatToBuild')
                     else
                         --Do we already have this order? If so then want to start tracking how long we have had this order for, and consider redundancies after a while in case a unit is blocking us
                         if bDebugMessages == true then LOG(sFunctionRef..': oFactory[refiFirstTimeOfLastOrder]='..(oFactory[refiFirstTimeOfLastOrder] or 'nil')..'; Time from now='..(GetGameTimeSeconds() - (oFactory[refiFirstTimeOfLastOrder] or GetGameTimeSeconds()))..'; Is factory paused='..tostring(oFactory[M28UnitInfo.refbPaused])) end
