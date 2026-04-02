@@ -4148,8 +4148,12 @@ end
 
 function GetCurrentM28UnitsOfCategoryInTeam(iCategory, iTeam)
     local iCount = 0
-    for iBrain, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains] do
-        iCount = iCount + oBrain:GetCurrentUnits(iCategory)
+    local tTeamData = M28Team.tTeamData[iTeam]
+    local tFriendlyBrains = tTeamData and tTeamData[M28Team.subreftoFriendlyActiveM28Brains]
+    if M28Utilities.IsTableEmpty(tFriendlyBrains) == false then
+        for iBrain, oBrain in tFriendlyBrains do
+            iCount = iCount + oBrain:GetCurrentUnits(iCategory)
+        end
     end
     return iCount
 end
