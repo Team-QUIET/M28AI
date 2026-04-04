@@ -3531,20 +3531,25 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                 end
             end
 
-            --QUIET and LOUD (or FAF mods that give experimental PD) - consider experimental PD if dont have already
             if bDebugMessages == true then LOG(sFunctionRef..': Considering whether to get experimental PD or AA, bHaveAllFactionExpPD='..tostring(M28Building.bHaveAllFactionExpPD)..'; M28Building.bHaveAllFactionExperimentalSAM='..tostring(M28Building.bHaveAllFactionExperimentalSAM)..'; refiEnemyMobileDFThreatNearOurSide='..M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide]..'; tLZOrWZTeamData[M28Map.subrefMexCountByTech][3]='..tLZOrWZTeamData[M28Map.subrefMexCountByTech][3]..'; bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats='..tostring(bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats)..'; tLZOrWZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]='..tLZOrWZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]..'; Far behind on air='..tostring(M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbFarBehindOnAir])..'; Enemy air to ground threat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]..'; tLZOrWZData[M28Map.subrefLZOrWZMexCount]='..tLZOrWZData[M28Map.subrefLZOrWZMexCount]) end
-            --QUIET mod: Significantly reduce T4 PD priority - require experimental production parity with enemies before considering T4 PD
-            local bQuietT4PDAllowed = true
+            local bT4PDAllowed = true
             if M28Utilities.bQuietModActive then
-                local iEnemyExpCount = table.getn(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]) + table.getn(M28Team.tTeamData[iTeam][M28Team.reftEnemyAirExperimentals])
+                local iEnemyExpCount = GetKnownEnemyExperimentalCount(iTeam)
                 local iFriendlyExpCount = M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount]
-                --Only allow T4 PD if we have built at least as many experimentals as enemies have, and have built at least 2 experimentals
                 if iFriendlyExpCount < iEnemyExpCount or iFriendlyExpCount < 2 then
-                    bQuietT4PDAllowed = false
+                    bT4PDAllowed = false
                     if bDebugMessages == true then LOG(sFunctionRef..': QUIET mod blocking T4 PD - behind on experimentals. iFriendlyExpCount='..iFriendlyExpCount..'; iEnemyExpCount='..iEnemyExpCount) end
                 end
             end
-            if bQuietT4PDAllowed and M28Building.bHaveAllFactionExpPD and (bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats or M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] >= (M28Utilities.bQuietModActive and 60000 or 30000) or (aiBrain[M28Overseer.refbPrioritiseDefence] and M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] >= (M28Utilities.bQuietModActive and 30000 or 10000)))  and not(tLZOrWZTeamData[M28Map.refbBaseInSafePosition]) and (aiBrain[M28Overseer.refbPrioritiseDefence] or M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] >= (M28Utilities.bQuietModActive and 30000 or 10000)) and (aiBrain[M28Overseer.refbPrioritiseDefence] or (tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] >= math.max(1, math.min(2, tLZOrWZData[M28Map.subrefLZOrWZMexCount])) and (tLZOrWZTeamData[M28Map.subrefLZbCoreBase] or (tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] >= 4 and M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] >= (M28Utilities.bQuietModActive and 80000 or 40000))))) then
+            local iExperimentalPDThreatThreshold = 30000
+            local iExperimentalPDBroadThreatThreshold = 60000
+            local iEnemyMobileThreatNearOurSide = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide]
+            local bExperimentalPDThreatHighEnough = bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats
+                    or iEnemyMobileThreatNearOurSide >= iExperimentalPDBroadThreatThreshold
+                    or (aiBrain[M28Overseer.refbPrioritiseDefence] and iEnemyMobileThreatNearOurSide >= iExperimentalPDThreatThreshold)
+            local bExperimentalPDZoneAllowed = aiBrain[M28Overseer.refbPrioritiseDefence]
+                    or ShouldAllowExperimentalStaticDefenseInZone(tLZOrWZData, tLZOrWZTeamData, iTeam)
+            if bT4PDAllowed and M28Building.bHaveAllFactionExpPD and bExperimentalPDThreatHighEnough and not(tLZOrWZTeamData[M28Map.refbBaseInSafePosition]) and (aiBrain[M28Overseer.refbPrioritiseDefence] or iEnemyMobileThreatNearOurSide >= iExperimentalPDThreatThreshold) and bExperimentalPDZoneAllowed then
                 local iFriendlyPDThreat = 0
                 if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefLZThreatAllyStructureDFByRange]) == false then
                     for iRange, iThreat in tLZOrWZTeamData[M28Map.subrefLZThreatAllyStructureDFByRange] do
@@ -3552,10 +3557,9 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                     end
                 end
                 if bDebugMessages == true then LOG(sFunctionRef..': iFriendlyPDThreat='..iFriendlyPDThreat..'; Enemy land threat near our side='..M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide]) end
-                --Raise friendly PD threat thresholds significantly to reduce T4 PD spam
-                local iMinPDThreatForT4PD = M28Utilities.bQuietModActive and 60000 or 30000
-                local iMaxPDThreatForMoreT4PD = M28Utilities.bQuietModActive and 200000 or 100000
-                local iSecondaryPDThreatThreshold = M28Utilities.bQuietModActive and 90000 or 45000
+                local iMinPDThreatForT4PD = 60000
+                local iMaxPDThreatForMoreT4PD = 200000
+                local iSecondaryPDThreatThreshold = 90000
 
                 if iFriendlyPDThreat < iMinPDThreatForT4PD or (aiBrain[M28Overseer.refbPrioritiseDefence] and iFriendlyPDThreat < math.max(60000, M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] * 0.7) and (bEnemyHasDangerousLandExpWeCantHandleOrNearbyThreats or iFriendlyPDThreat < M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] * 0.5)) then
                     iCategoryWanted = M28UnitInfo.refCategoryPD * categories.EXPERIMENTAL
@@ -3843,7 +3847,7 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                             end
                         end
                         --Experimental level shields-  prioritise over normal experimentals
-                        if aiBrain[M28Overseer.refbCanBuildExperimentalShields] and not(iCategoryWanted) and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0 and (tLZOrWZTeamData[M28Map.subrefiExperimentalShieldConstructedCount] or 0) == 0 and (tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] >= 2 or (tLZOrWZTeamData[M28Map.subrefLZbCoreBase] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 40 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount])) then
+                        if aiBrain[M28Overseer.refbCanBuildExperimentalShields] and not(iCategoryWanted) and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0 and (tLZOrWZTeamData[M28Map.subrefiExperimentalShieldConstructedCount] or 0) == 0 and ShouldAllowExperimentalStaticDefenseInZone(tLZOrWZData, tLZOrWZTeamData, iTeam) then
                             if aiBrain[M28Overseer.refiExperimentalShieldCategory] then iCategoryWanted = aiBrain[M28Overseer.refiExperimentalShieldCategory]
                             else iCategoryWanted = M28UnitInfo.refCategoryFixedShield * categories.EXPERIMENTAL --redundancy
                             end
@@ -5758,7 +5762,7 @@ function GetCategoryToBuildOrAssistFromAction(iActionToAssign, iMinTechLevel, ai
             elseif iMinTechLevel <= 2 and ((tLZOrWZData[M28Map.subrefLZOrWZMexCount] <= 1 and tLZOrWZTeamData[M28Map.subrefLZSValue] <= 14000) or (M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subreftoAllNearbyEnemyT2ArtiUnits]) == false and (not(M28Team.tTeamData[aiBrain.M28Team][M28Team.refbDefendAgainstArti]) or (M28Team.tTeamData[aiBrain.M28Team][M28Team.refiEnemyT3ArtiCount] == 0 and M28Team.tTeamData[aiBrain.M28Team][M28Team.refiEnemyNovaxCount] <= 2)))) and not(aiBrain[M28Overseer.refbCloseToUnitCap]) then
                 iCategoryToBuild = M28UnitInfo.refCategoryFixedShield * categories.TECH2
                 if bDebugMessages == true then LOG(sFunctionRef..': Will build T2 shield') end
-            elseif aiBrain[M28Overseer.refbCanBuildExperimentalShields] and (tLZOrWZTeamData[M28Map.subrefLZbCoreBase] or (not(M28Utilities.bQuietModActive) and not(M28Utilities.bLoudModActive))) and (tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] >= 4 or (tLZOrWZTeamData[M28Map.subrefLZbCoreBase] and M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamGrossMass] >= 40 * M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiActiveM28BrainCount])) then
+            elseif aiBrain[M28Overseer.refbCanBuildExperimentalShields] and ShouldAllowExperimentalStaticDefenseInZone(tLZOrWZData, tLZOrWZTeamData, aiBrain.M28Team) then
                 iCategoryToBuild = aiBrain[M28Overseer.refiExperimentalShieldCategory] or M28UnitInfo.refCategoryFixedShield - categories.TECH2 - categories.TECH1
                 if bDebugMessages == true then LOG(sFunctionRef..': Want to allow for experimental tech shields') end
             elseif iMinTechLevel >= 3 or (M28Team.tTeamData[aiBrain.M28Team][M28Team.refbDefendAgainstArti] and (M28Team.tTeamData[aiBrain.M28Team][M28Team.refiEnemyT3ArtiCount] > 0 or M28Team.tTeamData[aiBrain.M28Team][M28Team.refiEnemyNovaxCount] > 2)) or aiBrain[M28Overseer.refbCloseToUnitCap] or (M28Team.tTeamData[aiBrain.M28Team][M28Team.refiEnemyAirToGroundThreat] >= 12000 and (tLZOrWZTeamData[M28Map.subrefLZbCoreBase] or tLZOrWZTeamData[M28Map.subrefLZSValue] >= 8000)) then
@@ -13434,6 +13438,50 @@ function GetCurrentStaticDefenseMassInZone(tLZOrWZTeamData)
         end
     end
     return iMass
+end
+
+function GetKnownEnemyExperimentalCount(iTeam)
+    local iEnemyExperimentalCount = 0
+    local tTeamData = M28Team.tTeamData[iTeam] or {}
+    if M28Utilities.IsTableEmpty(tTeamData[M28Team.reftEnemyLandExperimentals]) == false then
+        iEnemyExperimentalCount = iEnemyExperimentalCount + table.getn(tTeamData[M28Team.reftEnemyLandExperimentals])
+    end
+    if M28Utilities.IsTableEmpty(tTeamData[M28Team.reftEnemyAirExperimentals]) == false then
+        iEnemyExperimentalCount = iEnemyExperimentalCount + table.getn(tTeamData[M28Team.reftEnemyAirExperimentals])
+    end
+    return iEnemyExperimentalCount
+end
+
+function HasVeryStrongTeamEcoForExperimentalStaticDefense(iTeam)
+    local tTeamData = M28Team.tTeamData[iTeam] or {}
+    local iBrainCount = math.max(1, tTeamData[M28Team.subrefiActiveM28BrainCount] or 1)
+    local iGrossMass = tTeamData[M28Team.subrefiTeamGrossMass] or 0
+    local iGrossEnergy = tTeamData[M28Team.subrefiTeamGrossEnergy] or 0
+    local iAverageMassStored = tTeamData[M28Team.subrefiTeamAverageMassPercentStored] or 0
+    local bStallingMass = tTeamData[M28Team.subrefbTeamIsStallingMass]
+    local bStallingEnergy = tTeamData[M28Team.subrefbTeamIsStallingEnergy]
+
+    return not(bStallingMass) and not(bStallingEnergy)
+            and iGrossMass >= 28 * iBrainCount
+            and iGrossEnergy >= 2500 * iBrainCount
+            and iAverageMassStored >= 0.5
+end
+
+function ShouldAllowExperimentalStaticDefenseInZone(tLZData, tLZTeamData, iTeam)
+    if not(HasVeryStrongTeamEcoForExperimentalStaticDefense(iTeam)) then
+        return false
+    end
+
+    if tLZTeamData[M28Map.subrefLZbCoreBase] or tLZTeamData[M28Map.subrefLZCoreExpansion] or tLZTeamData[M28Map.subrefLZFortify] then
+        return true
+    end
+
+    local tMexCountByTech = tLZTeamData[M28Map.subrefMexCountByTech] or {}
+    local bForwardZone = (tLZTeamData[M28Map.refiModDistancePercent] or 0) >= 0.1 and not(tLZTeamData[M28Map.refbBaseInSafePosition])
+    return bForwardZone
+            or (tLZTeamData[M28Map.subrefLZSValue] or 0) >= 12000
+            or (tMexCountByTech[3] or 0) >= 2
+            or GetKnownEnemyExperimentalCount(iTeam) > 0
 end
 
 function GetStaticDefenseMassCapForLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone)
