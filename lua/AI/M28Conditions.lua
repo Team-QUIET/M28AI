@@ -5242,7 +5242,7 @@ function WantAnotherT3MexUpgrade(iTeam)
         else
             if bDebugMessages == true then LOG(sFunctionRef..': We already ahve t2 mexes upgrading to t3, size of table='..table.getn(tUpgradingT2Mexes)..'; Our existing mex count by tech='..repru(M28Team.tTeamData[iTeam][M28Team.refiMexCountByTech])) end
             local iConcurrentT3MexWanted = math.max(M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] + 2, 0.15*M28Team.tTeamData[iTeam][M28Team.refiMexCountByTech][2] + 0.6*M28Team.tTeamData[iTeam][M28Team.refiMexCountByTech][3], math.min(2 + 12 * M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored], M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] / 2000))
-            if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0) >= 0.45 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0) >= 6 * math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] or false) then
+            if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0) >= 0.35 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0) >= 5 * math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] or false) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or false) then
                 iConcurrentT3MexWanted = iConcurrentT3MexWanted + 1
             end
             if table.getn(tUpgradingT2Mexes) < iConcurrentT3MexWanted then

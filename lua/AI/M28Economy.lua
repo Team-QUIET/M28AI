@@ -3402,7 +3402,7 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
         elseif aiBrain[M28Overseer.refbPrioritiseHighTech] or aiBrain[M28Overseer.refbPrioritiseDefence] then iTimeToWait = iTimeToWait * 0.9
         end
         if not(aiBrain[M28Overseer.refbPrioritiseLowTech]) then
-            iTimeToWait = math.max(0, iTimeToWait * 0.92)
+            iTimeToWait = math.max(0, iTimeToWait * 0.88)
         end
     end
     if bDebugMessages == true then LOG(sFunctionRef..': About to wait before considering upgrading this mex again='..iTimeToWait..' for mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..' owned by '..aiBrain.Nickname..' at time='..GetGameTimeSeconds()..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oMex))) end
