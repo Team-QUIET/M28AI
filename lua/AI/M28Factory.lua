@@ -2255,7 +2255,10 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             if sBPIDToBuild then
                 sBPIDToBuild = AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamData, iFactoryTechLevel)
             end
-            if not(sBPIDToBuild) and bWasEngineerChoice and bHaveLowMass and (tLZTeamData[M28Map.subrefTbWantBP] or tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) then
+            local bAllowLowMassCombatFallback = bContinueLowerTechLandProduction
+                    or (tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or false)
+                    or ((tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false) and (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) >= math.max(160, (tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) * 0.85))
+            if not(sBPIDToBuild) and bWasEngineerChoice and bHaveLowMass and bAllowLowMassCombatFallback then
                 local sFallbackBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher, oFactory, nil, nil, nil, nil, false)
                 if not(sFallbackBlueprint) then
                     sFallbackBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryLandCombat - M28UnitInfo.refCategorySkirmisher - M28UnitInfo.refCategoryEngineer, oFactory, nil, nil, nil, nil, false)

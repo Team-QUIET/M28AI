@@ -1764,6 +1764,46 @@ function WantToKeepLowerTechLandProduction(tLZTeamData, iTeam, iFactoryTechLevel
             and iEnemyNearOurSide >= math.max(250 * iFactoryTechLevel, iAllyNearOurSide * 0.7)
 
     local bStillRampingHigherTech = iHigherTechCombatLifetimeCount <= iHigherTechCombatThreshold
+    local bImmediateGroundEmergency = (tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or false)
+            or ((tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false) and iEnemyZoneThreat >= math.max(180, iAllyZoneThreat * 0.85))
+            or (aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] and iEnemyNearOurSide >= math.max(400 * iFactoryTechLevel, iAllyNearOurSide * 0.9))
+
+    local iEnemyBrainCount = 0
+    local iEnemyBrainsAtTopLandTech = 0
+    if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains]) == false then
+        for _, oEnemyBrain in M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains] do
+            if oEnemyBrain and not(oEnemyBrain:IsDefeated()) then
+                iEnemyBrainCount = iEnemyBrainCount + 1
+                if (oEnemyBrain[M28Team.refiHighestSpottedEnemyGroundTech] or 0) >= iHighestLandTech then
+                    iEnemyBrainsAtTopLandTech = iEnemyBrainsAtTopLandTech + 1
+                end
+            end
+        end
+    end
+    local iEnemyBrainsNeededForBroadTopTechLead = 1
+    if iEnemyBrainCount >= 2 then iEnemyBrainsNeededForBroadTopTechLead = 2 end
+    local bBroadEnemyTopTechPresence = iHighestLandTech >= 3 and (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] or 0) >= 3
+            and (iEnemyBrainCount <= 1 or iEnemyBrainsAtTopLandTech >= iEnemyBrainsNeededForBroadTopTechLead)
+    local bEnemyHasSeriousT3Presence = bBroadEnemyTopTechPresence and ((M28Team.tTeamData[iTeam][M28Team.refbEnemyHasHeavyLandT3] or false)
+            or (M28Team.tTeamData[iTeam][M28Team.iEnemyT3MAAActiveCount] or 0) >= 2
+            or M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]) == false)
+
+    local iTeamAvgMassStored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0
+    local iTeamNetMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 0
+    local bEconomyStrained = TeamHasLowMass(iTeam)
+            or (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or false)
+            or iTeamAvgMassStored <= 0.1
+            or (iTeamAvgMassStored <= 0.22 and iTeamNetMass <= 0)
+    local bPowerStrained = HaveLowPower(iTeam) or (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] or false)
+
+    if (bEnemyHasSeriousT3Presence and (bEconomyStrained or bPowerStrained)) and not(bImmediateGroundEmergency) then
+        return false
+    end
+
+    if (bEconomyStrained or bPowerStrained) and not(bImmediateGroundEmergency) then
+        bStillRampingHigherTech = false
+    end
+
     return bZoneUnderPressure or bNearSidePressure or bStillRampingHigherTech
 end
 
