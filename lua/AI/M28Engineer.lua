@@ -11224,6 +11224,16 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                 end
             end
         end
+        if not(bIsWaterZone) and (iActionToAssign == refActionBuildEmergencyPD or iActionToAssign == refActionBuildSecondPD or iActionToAssign == refActionBuildShield or iActionToAssign == refActionBuildSecondShield or iActionToAssign == refActionBuildTMD or iActionToAssign == refActionBuildSecondTMD or iActionToAssign == refActionBuildThirdTMD) then
+            local iStaticDefenseMassCap, sStaticDefenseCapRef = GetStaticDefenseMassCapForLandZone(tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrPond, iLandOrWaterZone)
+            local iCurrentStaticDefenseMass = GetCurrentStaticDefenseMassInZone(tLZOrWZTeamData)
+            if iCurrentStaticDefenseMass >= iStaticDefenseMassCap then
+                iTotalBuildPowerWanted = 0
+                if bDebugMessages == true then LOG(sFunctionRef..': Clearing static defence BP for action '..iActionToAssign..' as zone already has '..math.floor(iCurrentStaticDefenseMass)..' mass in PD/TMD/shields vs cap '..iStaticDefenseMassCap..' ('..sStaticDefenseCapRef..')') end
+            elseif bDebugMessages == true then
+                LOG(sFunctionRef..': Static defence budget check passed for action '..iActionToAssign..'; zone mass='..math.floor(iCurrentStaticDefenseMass)..'; cap='..iStaticDefenseMassCap..' ('..sStaticDefenseCapRef..')')
+            end
+        end
         --Reduce the build power wanted by the existing build power assigned to that action for the LZ, unless bBPIsInAdditionToExisting is true or bMarkAsSpare is true
         local bAlreadyHaveTechLevelWanted = false
         if M28Utilities.IsTableEmpty(toAssignedEngineers) == false and iTotalBuildPowerWanted > 0 and not(bMarkAsSpare) then
@@ -13409,6 +13419,78 @@ function GetEnemyApproachMultiplier(tLZData, tLZTeamData, iPlateau, iTeam, iLand
     --Default: normal threat level
     if bDebugMessages == true then LOG(sFunctionRef..': Normal state, multiplier=1.0') end
     return 1.0
+end
+
+function GetCurrentStaticDefenseMassInZone(tLZOrWZTeamData)
+    local iMass = 0
+    if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
+        local tStaticDefences = EntityCategoryFilterDown(M28UnitInfo.refCategoryPD + M28UnitInfo.refCategoryTMD + M28UnitInfo.refCategoryFixedShield, tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
+        if M28Utilities.IsTableEmpty(tStaticDefences) == false then
+            for iUnit, oUnit in tStaticDefences do
+                if M28UnitInfo.IsUnitValid(oUnit) then
+                    iMass = iMass + (oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit)) * math.max(0, oUnit:GetFractionComplete() or 0)
+                end
+            end
+        end
+    end
+    return iMass
+end
+
+function GetStaticDefenseMassCapForLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone)
+    if tLZTeamData[M28Map.subrefLZbCoreBase] then
+        return 50000, 'core base'
+    end
+    if M28Map.bIsCampaignMap and tLZTeamData[M28Map.subrefLZFortify] then
+        return 50000, 'campaign fortify'
+    end
+
+    local iBrainCount = math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1)
+    local iT2Mex = tLZTeamData[M28Map.subrefMexCountByTech][2] or 0
+    local iT3Mex = tLZTeamData[M28Map.subrefMexCountByTech][3] or 0
+    local iZoneValue = tLZTeamData[M28Map.subrefLZSValue] or 0
+    local iGrossMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0
+    local iGrossEnergy = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] or 0
+    local iAverageMassStored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0
+    local bStrongEco = iGrossMass >= 18 * iBrainCount and iGrossEnergy >= 1200 * iBrainCount and iAverageMassStored >= 0.45 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])
+    local bVeryStrongEco = iGrossMass >= 28 * iBrainCount and iGrossEnergy >= 2500 * iBrainCount and iAverageMassStored >= 0.6 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])
+    local iApproachMultiplier = GetEnemyApproachMultiplier(tLZData, tLZTeamData, iPlateau, iTeam, iLandZone)
+    local iAdjacentZoneCount = 0
+    if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
+        iAdjacentZoneCount = table.getn(tLZData[M28Map.subrefLZAdjacentLandZones])
+    end
+    local bChokepointLike = tLZTeamData[M28Map.subrefLZFortify]
+            or (iApproachMultiplier >= 1.5 and iAdjacentZoneCount > 0 and iAdjacentZoneCount <= 2 and (tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]))
+
+    local iCap = 3500
+    local sCapRef = 'non-core baseline'
+    if tLZTeamData[M28Map.subrefLZCoreExpansion] then
+        iCap = math.max(iCap, 5000)
+        sCapRef = 'core expansion'
+    end
+    if iT2Mex + iT3Mex >= 3 or iZoneValue >= 9000 then
+        iCap = math.max(iCap, 7000)
+    end
+    if iT3Mex >= 2 then
+        iCap = math.max(iCap, 8000)
+    end
+    if bChokepointLike then
+        iCap = math.max(iCap, bStrongEco and 12000 or 8000)
+        sCapRef = 'frontline choke/fortify'
+    end
+    if bStrongEco then
+        iCap = iCap + 3000
+    end
+    if bVeryStrongEco then
+        iCap = iCap + 6000
+    end
+    if iT3Mex >= 2 then
+        iCap = iCap + 2000
+    end
+    if iZoneValue >= 15000 then
+        iCap = iCap + 2000
+    end
+
+    return math.min(24000, iCap), sCapRef
 end
 
 function GetClosestMobileTMLIfWantMoreTMD(iTeam, tLZTeamData)
