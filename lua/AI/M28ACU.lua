@@ -419,10 +419,6 @@ local function IssueACURetreatOrder(oACU, iPlateauOrZero, iLandOrWaterZone, tLZO
                 if ConsiderRunningToNearestShield(oACU, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrZero, iLandOrWaterZone) then
                     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                     return true
-                elseif iClosestEnemyExp <= (oACU[M28UnitInfo.refiDFRange] or 0) + 17 and M28Conditions.CanUnitUseOvercharge(aiBrain, oACU, tLZOrWZTeamData) then
-                    M28Orders.IssueTrackedMove(oACU, oClosestEnemyExp:GetPosition(), 5, false, 'RnAtkExp')
-                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-                    return true
                 end
             end
         end
@@ -4065,7 +4061,7 @@ function DoesACUWantToReturnToCoreBase(iPlateauOrZero, iLandOrWaterZone, tLZOrWZ
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function GiveOverchargeOrderIfRelevant(tLZData, tLZTeamData, oACU, iPlateauOrZero, iLandOrWaterZone)
+function GiveOverchargeOrderIfRelevant(tLZData, tLZTeamData, oACU, iPlateauOrZero, iLandOrWaterZone, tOptionalRetreatDecision)
     --Are there enemies in this LZ or adjacent, and do we have the energy to overcharge?
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'GiveOverchargeOrderIfRelevant'
@@ -4074,6 +4070,12 @@ function GiveOverchargeOrderIfRelevant(tLZData, tLZTeamData, oACU, iPlateauOrZer
 
 
     if bDebugMessages == true then LOG(sFunctionRef..': Time='..GetGameTimeSeconds()..'; DO we have enemies in this or adjacent LZ='..tostring(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ])..'; tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ]='..tostring(tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ])..'; Can we use overcharge='..tostring(M28Conditions.CanUnitUseOvercharge(oACU:GetAIBrain(), oACU))..'; iPlateauOrZero='..(iPlateauOrZero or 'nil')..'; iLandOrWaterZone='..(iLandOrWaterZone or 'nil')) end
+
+    if tOptionalRetreatDecision and (tOptionalRetreatDecision.bWantRun or tOptionalRetreatDecision.bWantCoreBase) then
+        if bDebugMessages == true then LOG(sFunctionRef..': Skipping overcharge because retreat logic currently has priority, bWantRun='..tostring(tOptionalRetreatDecision.bWantRun or false)..'; bWantCoreBase='..tostring(tOptionalRetreatDecision.bWantCoreBase or false)) end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
 
     if iPlateauOrZero > 0 and ((tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ]) and M28Conditions.CanUnitUseOvercharge(oACU:GetAIBrain(), oACU, tLZTeamData)) then
         --Dont overcharge if have teleport as can affect targeting and delay the return jump
@@ -7016,7 +7018,7 @@ function GetACUOrder(aiBrain, oACU)
     elseif M28Map.bIsCampaignMap and (oACU:IsUnitState('TransportLoading') or oACU:IsUnitState('Attached')) then
         --Liekly campaign wants to do something special with ACU
         if bDebugMessages == true then LOG(sFunctionRef..': campaign and ACU is loading or attached') end
-    elseif GiveOverchargeOrderIfRelevant(tLZOrWZData, tLZOrWZTeamData, oACU, iPlateauOrZero, iLandOrWaterZone) then
+    elseif GiveOverchargeOrderIfRelevant(tLZOrWZData, tLZOrWZTeamData, oACU, iPlateauOrZero, iLandOrWaterZone, tRetreatDecision) then
         --when an overcharge shot is fired it triggers this code to run again so no need to queue things up afterwards
         if bDebugMessages == true then LOG(sFunctionRef..': Have just givne overcharge order') end
     elseif oACU[M28UnitInfo.refbSpecialMicroActive] and not(oACU[refbACUSnipeModeActive]) then
