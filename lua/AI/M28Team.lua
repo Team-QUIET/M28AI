@@ -3554,7 +3554,7 @@ function ConsiderPriorityMexUpgrades(iM28Team)
                                                 tMexesToConsiderUpgrading = EntityCategoryFilterDown(M28UnitInfo.refCategoryMex * M28UnitInfo.ConvertTechLevelToCategory(iMexTech), tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
                                                 if M28Utilities.IsTableEmpty(tMexesToConsiderUpgrading) == false then
                                                     for iMex, oMex in tMexesToConsiderUpgrading do
-                                                        if not(oMex:IsUnitState('Upgrading')) and oMex:GetFractionComplete() == 1 and not(oMex.Dead) then
+                                                        if not(oMex:IsUnitState('Upgrading')) and oMex:GetFractionComplete() == 1 and not(oMex.Dead) and not(M28Economy.ShouldDelayMexUpgradeForQuietTierOrder(oMex, iM28Team)) then
                                                             if oMex:GetAIBrain().M28AI and oMex:GetAIBrain().M28Team == iM28Team then
                                                                 if bDebugMessages == true then LOG(sFunctionRef..': Will try to upgrade mex in starting zone, iPlateau='..iPlateau..'; iLandZone='..iLandZone..'; Mex='..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..'; Owned by '..oMex:GetAIBrain().Nickname..'; Mex unit state='..M28UnitInfo.GetUnitState(oMex)) end
                                                                 M28Economy.UpgradeUnit(oMex, true)
@@ -3627,18 +3627,41 @@ function GetSafeMexToUpgrade(iM28Team, bReturnIfSafeInsteadOfUpgrading, bDontUpg
     local toSafeUnitsToUpgrade = {}
     local tPotentialUnits
     local tiMexCategory
+    local iOutstandingQuietTier
     if bDontUpgradeT2Plus then
         --Dont want to upgrade t2 mexes as we have enough upgrading already
         tiMexCategory = {[1] = M28UnitInfo.refCategoryT1Mex}
     else
-        --First prioritise T1 mexes
-        tiMexCategory = {[1] = M28UnitInfo.refCategoryT1Mex, [2]=M28UnitInfo.refCategoryT2Mex}
-        if M28Economy.bT3MexCanBeUpgraded then table.insert(tiMexCategory, M28UnitInfo.refCategoryT3Mex) end
+        --First prioritise T1 mexes, then whichever Quiet rung is currently the next allowed one
+        iOutstandingQuietTier = M28Economy.GetLowestOutstandingQuietAdvancedMexTier(iM28Team)
+        tiMexCategory = {[1] = M28UnitInfo.refCategoryT1Mex}
+        if iOutstandingQuietTier then
+            local iQuietCategory = M28Economy.GetQuietMexCategoryForProgressionTier(iOutstandingQuietTier)
+            if iQuietCategory then
+                table.insert(tiMexCategory, iQuietCategory)
+            else
+                table.insert(tiMexCategory, M28UnitInfo.refCategoryT2Mex)
+                if M28Economy.bT3MexCanBeUpgraded then table.insert(tiMexCategory, M28UnitInfo.refCategoryT3Mex) end
+            end
+        else
+            table.insert(tiMexCategory, M28UnitInfo.refCategoryT2Mex)
+            if M28Economy.bT3MexCanBeUpgraded then table.insert(tiMexCategory, M28UnitInfo.refCategoryT3Mex) end
+        end
     end
     for iTech, iMexCategory in tiMexCategory do
         for iBrain, oBrain in tTeamData[iM28Team][subreftoFriendlyActiveM28Brains] do
             tPotentialUnits = oBrain:GetListOfUnits(iMexCategory, false, true)
-            AddPotentialUnitsToShortlist(toSafeUnitsToUpgrade, tPotentialUnits)
+            if iTech >= 2 and M28Utilities.IsTableEmpty(tPotentialUnits) == false then
+                local tEligibleMexes = {}
+                for iMex, oMex in tPotentialUnits do
+                    if not(M28Economy.ShouldDelayMexUpgradeForQuietTierOrder(oMex, iM28Team)) and not(((oMex:GetBlueprint().General.UpgradesTo or '') == '')) then
+                        table.insert(tEligibleMexes, oMex)
+                    end
+                end
+                AddPotentialUnitsToShortlist(toSafeUnitsToUpgrade, tEligibleMexes)
+            else
+                AddPotentialUnitsToShortlist(toSafeUnitsToUpgrade, tPotentialUnits)
+            end
         end
         if M28Utilities.IsTableEmpty(toSafeUnitsToUpgrade) == false then
             break
@@ -3805,7 +3828,15 @@ function GetAnyMexOrFactoryToUpgrade(iM28Team)
         else
             tPotentialUnits = oBrain:GetListOfUnits(M28UnitInfo.refCategoryT1Mex, false, true)
         end
-        AddPotentialUnitsToShortlist(toUnitsThatCouldUpgrade, tPotentialUnits, true)
+        if M28Utilities.IsTableEmpty(tPotentialUnits) == false then
+            local tEligibleMexes = {}
+            for iMex, oMex in tPotentialUnits do
+                if not(M28Economy.ShouldDelayMexUpgradeForQuietTierOrder(oMex, iM28Team)) and not(((oMex:GetBlueprint().General.UpgradesTo or '') == '')) then
+                    table.insert(tEligibleMexes, oMex)
+                end
+            end
+            AddPotentialUnitsToShortlist(toUnitsThatCouldUpgrade, tEligibleMexes, true)
+        end
     end
     if M28Utilities.IsTableEmpty(toUnitsThatCouldUpgrade) then
         --If at T3 consider upgrading T2 support factories

@@ -62,6 +62,103 @@ tbQuietT25MexUnitIds = {
     ['urb1204'] = true,
     ['xsb1204'] = true
 }
+tbQuietT35MexUnitIds = {
+    ['uab1304'] = true,
+    ['ueb1304'] = true,
+    ['urb1304'] = true,
+    ['xsb1304'] = true
+}
+local refiMexQuietTierT2 = 2
+local refiMexQuietTierT25 = 25
+local refiMexQuietTierT3 = 3
+local refiMexQuietTierT35 = 35
+local tiQuietMexTierPriority = {
+    [refiMexQuietTierT2] = 1,
+    [refiMexQuietTierT25] = 2,
+    [refiMexQuietTierT3] = 3,
+    [refiMexQuietTierT35] = 4,
+}
+local iQuietT25MexCategory = categories.ALLUNITS - categories.ALLUNITS
+local iQuietT35MexCategory = categories.ALLUNITS - categories.ALLUNITS
+for sUnitId, _ in tbQuietT25MexUnitIds do
+    if categories[sUnitId] then
+        iQuietT25MexCategory = iQuietT25MexCategory + categories[sUnitId]
+    end
+end
+for sUnitId, _ in tbQuietT35MexUnitIds do
+    if categories[sUnitId] then
+        iQuietT35MexCategory = iQuietT35MexCategory + categories[sUnitId]
+    end
+end
+local iQuietNormalT2MexCategory = M28UnitInfo.refCategoryT2Mex - iQuietT25MexCategory
+local iQuietNormalT3MexCategory = M28UnitInfo.refCategoryT3Mex - iQuietT35MexCategory
+
+local function GetNormalisedMexUnitId(oMexOrUnitId)
+    if type(oMexOrUnitId) == 'string' then
+        return string.lower(oMexOrUnitId)
+    elseif oMexOrUnitId and oMexOrUnitId.UnitId then
+        return string.lower(oMexOrUnitId.UnitId)
+    end
+end
+
+function GetQuietMexProgressionTier(oMexOrUnitId)
+    local sUnitId = GetNormalisedMexUnitId(oMexOrUnitId)
+    if not(sUnitId) then return nil end
+    if tbQuietT25MexUnitIds[sUnitId] then return refiMexQuietTierT25
+    elseif tbQuietT35MexUnitIds[sUnitId] then return refiMexQuietTierT35
+    elseif EntityCategoryContains(categories.TECH3, sUnitId) then return refiMexQuietTierT3
+    elseif EntityCategoryContains(categories.TECH2, sUnitId) then return refiMexQuietTierT2
+    end
+    return M28UnitInfo.GetUnitTechLevel(oMexOrUnitId)
+end
+
+function GetQuietMexCategoryForProgressionTier(iTier)
+    if iTier == refiMexQuietTierT2 then return iQuietNormalT2MexCategory
+    elseif iTier == refiMexQuietTierT25 then return iQuietT25MexCategory
+    elseif iTier == refiMexQuietTierT3 then return iQuietNormalT3MexCategory
+    elseif iTier == refiMexQuietTierT35 then return iQuietT35MexCategory
+    end
+    return nil
+end
+
+function GetLowestOutstandingQuietAdvancedMexTier(iTeam)
+    if not(M28Utilities.bQuietModActive) then return nil end
+    local tFriendlyBrains = M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]
+    local iLowestTier
+    local iLowestPriority
+
+    if M28Utilities.IsTableEmpty(tFriendlyBrains) == false then
+        for iBrain, oBrain in tFriendlyBrains do
+            local tMexes = oBrain:GetListOfUnits(M28UnitInfo.refCategoryMex - categories.TECH1, false, true)
+            if M28Utilities.IsTableEmpty(tMexes) == false then
+                for iMex, oMex in tMexes do
+                    if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 and not(oMex:IsUnitState('Upgrading')) and not(oMex:IsUnitState('BeingUpgraded')) and not(((oMex:GetBlueprint().General.UpgradesTo or '') == '')) then
+                        local iTier = GetQuietMexProgressionTier(oMex)
+                        local iPriority = tiQuietMexTierPriority[iTier]
+                        if iPriority and (not(iLowestPriority) or iPriority < iLowestPriority) then
+                            iLowestTier = iTier
+                            iLowestPriority = iPriority
+                            if iLowestPriority == 1 then
+                                return iLowestTier
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return iLowestTier
+end
+
+function ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam)
+    if not(M28Utilities.bQuietModActive) or not(M28UnitInfo.IsUnitValid(oMex)) then return false end
+    local iMexTier = GetQuietMexProgressionTier(oMex)
+    local iMexPriority = tiQuietMexTierPriority[iMexTier]
+    if not(iMexPriority) then return false end
+    local iLowestOutstandingTier = GetLowestOutstandingQuietAdvancedMexTier(iTeam)
+    local iLowestOutstandingPriority = tiQuietMexTierPriority[iLowestOutstandingTier]
+    return iLowestOutstandingPriority and iLowestOutstandingPriority < iMexPriority
+end
 
 function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReasonRef)
     --Work out the upgrade ID wanted; if bUpdateUpgradeTracker is true then records upgrade against unit's aiBrain
@@ -93,6 +190,12 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
 
     if sUpgradeID and M28UnitInfo.IsUnitValid(oUnitToUpgrade) then
         local aiBrain = oUnitToUpgrade:GetAIBrain()
+        if EntityCategoryContains(M28UnitInfo.refCategoryMex, oUnitToUpgrade.UnitId) and ShouldDelayMexUpgradeForQuietTierOrder(oUnitToUpgrade, aiBrain.M28Team) then
+            if bDebugMessages == true then LOG(sFunctionRef..': Aborting upgrade of mex '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' because a lower Quiet mex rung still has outstanding upgrades elsewhere on the team') end
+            ForkThread(ConsiderFutureMexUpgrade, oUnitToUpgrade, 20)
+            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+            return nil
+        end
         if bDebugMessages == true then LOG(sFunctionRef..': About to issue ugprade to unit '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..'; Current state='..M28UnitInfo.GetUnitState(oUnitToUpgrade)..'; Work progress='..(oUnitToUpgrade:GetWorkProgress() or 'nil')..'; Is unit upgrading='..tostring(oUnitToUpgrade:IsUnitState('Upgrading'))..'; Fraction complete='..oUnitToUpgrade:GetFractionComplete()) end
 
         if not(oUnitToUpgrade:IsUnitState('Upgrading')) then
@@ -3428,6 +3531,9 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
                                 --If this is a T2+ mex and as a team we have more than enough upgrading already then also dont upgrade unless this is a core base with no active upgrades
                             elseif not(tLZOrWZTeamData[M28Map.subrefLZbCoreBase] and (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) == 0) and not(M28Conditions.WantAnotherT3MexUpgrade(iTeam)) then
                                 ForkThread(ConsiderFutureMexUpgrade, oMex, 20) --check in a bit as we want another upgrade but once some existing ones have finished
+                            elseif ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam) then
+                                if bDebugMessages == true then LOG(sFunctionRef..': Delaying mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..' because a lower Quiet mex rung still has outstanding upgrades elsewhere on the team') end
+                                ForkThread(ConsiderFutureMexUpgrade, oMex, 30)
                             elseif iMexTechLevel < 3 or M28Utilities.bLoudModActive or M28Utilities.bQuietModActive then
                                 --We arent stalling (or need to upgrade even if stalling), we dont have any active mex upgrades in this zone, and this mex has been alive a while - proceed with upgrade
                                 if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..' as it has been active a while') end
@@ -3588,7 +3694,7 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
                                                             tMexOfCategory = EntityCategoryFilterDown(iMexCategory, tAdjLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
                                                             if M28Utilities.IsTableEmpty(tMexOfCategory) == false then
                                                                 for iMex, oMex in tMexOfCategory do
-                                                                    if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 and not(oMex:IsUnitState('Upgrading')) and not(oMex:IsUnitState('BeingUpgraded')) then
+                                                                    if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 and not(oMex:IsUnitState('Upgrading')) and not(oMex:IsUnitState('BeingUpgraded')) and not(ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam)) then
                                                                         UpgradeUnit(oMex, true)
                                                                         bAlreadyUpgraded = true
                                                                         if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade mex in adj zone P'..iPlateauOrZero..'Z'..iAdjLZ..', oMex='..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)) end
@@ -3604,6 +3710,11 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
                                     end
                                     if M28Utilities.IsTableEmpty(tMexOfCategory) and iMexTechLevel <= 2 then
                                         local bGetT3Mex = M28Conditions.WantAnotherT3MexUpgrade(iTeam)
+                                        local iLowestOutstandingQuietTier = GetLowestOutstandingQuietAdvancedMexTier(iTeam)
+                                        if M28Utilities.bQuietModActive and iLowestOutstandingQuietTier and not(iLowestOutstandingQuietTier == refiMexQuietTierT25) then
+                                            bGetT3Mex = false
+                                            if bDebugMessages == true then LOG(sFunctionRef..': Wont open a fresh T3 mex start because the outstanding Quiet mex rung is '..iLowestOutstandingQuietTier..' not T2.5') end
+                                        end
                                         if bDebugMessages == true then LOG(sFunctionRef..': Considering if we want to get another t3 mex at this stage, bGetT3Mex='..tostring(bGetT3Mex)) end
                                         if bGetT3Mex then
                                             if bDebugMessages == true then LOG(sFunctionRef..': We want another t3 mex on our team; however if this isnt a core base/similar mod dist then want to consider our base') end
@@ -3624,7 +3735,7 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
                                     if bDebugMessages == true then LOG(sFunctionRef..': Will try and find a mex to upgrade, is M28Utilities.IsTableEmpty(tMexOfCategory)='..tostring(M28Utilities.IsTableEmpty(tMexOfCategory))) end
                                     if M28Utilities.IsTableEmpty(tMexOfCategory) == false and not(bAlreadyUpgraded) then
                                         for iMex, oMex in tMexOfCategory do
-                                            if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 and not(oMex:IsUnitState('Upgrading')) and not(oMex:IsUnitState('BeingUpgraded')) and not(oMex == oJustBuilt) and not(oMex == oOptionalEngineer) and not((oMex:GetBlueprint().General.UpgradesTo or '') == '') then
+                                            if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 and not(oMex:IsUnitState('Upgrading')) and not(oMex:IsUnitState('BeingUpgraded')) and not(oMex == oJustBuilt) and not(oMex == oOptionalEngineer) and not((oMex:GetBlueprint().General.UpgradesTo or '') == '') and not(ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam)) then
                                                 bAlreadyUpgraded = true
                                                 UpgradeUnit(oMex, true)
                                                 if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade the mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..' as have just compelted a mex upgrade in this zone') end
