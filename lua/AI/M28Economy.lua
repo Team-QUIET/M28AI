@@ -228,6 +228,42 @@ function GetAllowedQuietParallelMexTier(iTeam, iOutstandingTier)
     return nil
 end
 
+function GetMinimumMexUpgradesToKeepDuringMassStall(iTeam)
+    local tTeamData = M28Team.tTeamData[iTeam]
+    if not(tTeamData) then return 1 end
+
+    local iActiveBrains = math.max(1, tTeamData[M28Team.subrefiActiveM28BrainCount] or 1)
+    local iGrossMass = tTeamData[M28Team.subrefiTeamGrossMass] or 0
+    local iNetMass = tTeamData[M28Team.subrefiTeamNetMass] or 0
+    local iMexRecoveryFloor = 1
+
+    if iGrossMass >= 3.5 * iActiveBrains and iNetMass >= -1.5 * iActiveBrains then
+        iMexRecoveryFloor = 2
+    end
+    if iGrossMass >= 6 * iActiveBrains and iNetMass >= -0.75 * iActiveBrains then
+        iMexRecoveryFloor = 3
+    end
+    if iGrossMass >= 9 * iActiveBrains and iNetMass >= -0.25 * iActiveBrains then
+        iMexRecoveryFloor = 4
+    end
+    return iMexRecoveryFloor
+end
+
+function ShouldAllowMexRecoveryUpgradeStart(iTeam, iLocalActiveMexUpgrades)
+    local tTeamData = M28Team.tTeamData[iTeam]
+    if not(tTeamData) then return false end
+    if (iLocalActiveMexUpgrades or 0) > 1 then return false end
+
+    local bMassRecoveryMode = (tTeamData[M28Team.subrefbTeamIsStallingMass] or false) or M28Conditions.TeamHasLowMass(iTeam)
+    if not(bMassRecoveryMode) then return false end
+
+    local iActiveTeamMexUpgrades = 0
+    if M28Utilities.IsTableEmpty(tTeamData[M28Team.subreftTeamUpgradingMexes]) == false then
+        iActiveTeamMexUpgrades = table.getn(tTeamData[M28Team.subreftTeamUpgradingMexes])
+    end
+    return iActiveTeamMexUpgrades < GetMinimumMexUpgradesToKeepDuringMassStall(iTeam)
+end
+
 function ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam)
     if not(M28Utilities.bQuietModActive) or not(M28UnitInfo.IsUnitValid(oMex)) then return false end
     local iMexTier = GetQuietMexProgressionTier(oMex)
@@ -1909,6 +1945,8 @@ function ManageMassStalls(iTeam)
                                 --Pause all but 1 upgrade per brain, pausing the lowest progress first, if we have multiple upgrades.  Dont pause the last mex upgrade. also dont pause anything that is >=85% complete
                                 tRelevantUnits = {}
                                 if M28Conditions.IsTableOfUnitsStillValid(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) then
+                                    local iTeamMexRecoveryFloor = GetMinimumMexUpgradesToKeepDuringMassStall(iTeam)
+                                    local iTeamUpgradingMexCount = table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes])
                                     local iMexesToPause
                                     if M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] <= 2.5 * M28Team.tTeamData[oBrain.M28Team][M28Team.subrefiActiveM28BrainCount] then
                                         iMexesToPause = math.max(0, table.getn(M28Team.tTeamData[oBrain.M28Team][M28Team.subreftTeamUpgradingMexes]) - (0.5 + 0.5 * M28Team.tTeamData[oBrain.M28Team][M28Team.subrefiActiveM28BrainCount]))
@@ -1957,6 +1995,7 @@ function ManageMassStalls(iTeam)
                                     if iMexesToPause > 0 and M28Utilities.bLoudModActive and not(M28Team.tTeamData[iTeam][M28Team.refbPrioritiseProduction]) and oBrain[refiGrossMassBaseIncome] >= 3 then
                                         iMexesToPause = math.max(0, iMexesToPause - 1)
                                     end
+                                    iMexesToPause = math.min(iMexesToPause, math.max(0, iTeamUpgradingMexCount - iTeamMexRecoveryFloor - table.getn(tRelevantUnits)))
                                     if bDebugMessages == true then LOG(sFunctionRef..': iMexesToPause for brain '..oBrain.Nickname..'='..iMexesToPause..'; Numbero f upgrading mexes='..table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes])..'; Team gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]) end
 
                                     while iMexesToPause > 0 do
@@ -3525,7 +3564,10 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
                         iTeamUpgradingMexCount = table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes])
                         iTimeThreshold = 60 * iTeamUpgradingMexCount
                     end
-                    if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] then iTimeThreshold = iTimeThreshold + 120 + 60 * iTeamUpgradingMexCount end
+                    if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] then
+                        local iMexRecoveryFloor = GetMinimumMexUpgradesToKeepDuringMassStall(iTeam)
+                        iTimeThreshold = iTimeThreshold + 30 * math.max(0, iTeamUpgradingMexCount - iMexRecoveryFloor)
+                    end
                     if iPlateauOrZero == 0 then iTimeThreshold = iTimeThreshold + 90 end
                     if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] <= iMexTechLevel then iTimeThreshold = iTimeThreshold + 300 end
                     --Increase time threshold if we dont have many mexes of the current level
@@ -3577,8 +3619,10 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
                         end
                     end
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': Zoen wants t1 spam='..tostring(M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam) or false)..'; Team has low mass='..tostring(M28Conditions.TeamHasLowMass(iTeam) or false)..'; iMexTechLevel='..iMexTechLevel..'; LZ mex count='..(tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0)..'; Active mex upgrades='..(tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0)..'; T1 mexes in zone='..tLZOrWZTeamData[M28Map.subrefMexCountByTech][1]..'; Brain gross mass='..aiBrain[refiGrossMassBaseIncome]..'; bUpgradeDueToHowLongHadMex='..tostring(bUpgradeDueToHowLongHadMex)) end
-                if not(M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam)) and (bUpgradeDueToHowLongHadMex or not(M28Conditions.TeamHasLowMass(iTeam)) or iMexTechLevel == 3 or ((tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0) >= 3 and (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) <= 1 and (tLZOrWZTeamData[M28Map.subrefMexCountByTech][1] > 0 or aiBrain[refiGrossMassBaseIncome] >= 8 or M28Utilities.bLoudModActive))) then
+                local bTeamLowMass = M28Conditions.TeamHasLowMass(iTeam)
+                local bAllowRecoveryMexStart = ShouldAllowMexRecoveryUpgradeStart(iTeam, tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0)
+                if bDebugMessages == true then LOG(sFunctionRef..': Zoen wants t1 spam='..tostring(M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam) or false)..'; Team has low mass='..tostring(bTeamLowMass or false)..'; bAllowRecoveryMexStart='..tostring(bAllowRecoveryMexStart)..'; iMexTechLevel='..iMexTechLevel..'; LZ mex count='..(tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0)..'; Active mex upgrades='..(tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0)..'; T1 mexes in zone='..tLZOrWZTeamData[M28Map.subrefMexCountByTech][1]..'; Brain gross mass='..aiBrain[refiGrossMassBaseIncome]..'; bUpgradeDueToHowLongHadMex='..tostring(bUpgradeDueToHowLongHadMex)) end
+                if not(M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam)) and (bUpgradeDueToHowLongHadMex or bAllowRecoveryMexStart or not(bTeamLowMass) or iMexTechLevel == 3 or ((tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0) >= 3 and (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) <= 1 and (tLZOrWZTeamData[M28Map.subrefMexCountByTech][1] > 0 or aiBrain[refiGrossMassBaseIncome] >= 8 or M28Utilities.bLoudModActive))) then
 
                     --Are there enough mexes that we want to consider upgrading?
                     if bDebugMessages == true then
@@ -3605,7 +3649,7 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
                             end
                         end
 
-                        if (iMexTechLevel == 3 and M28Utilities.bLoudModActive) or (M28Conditions.TeamHasLowMass(iTeam) or (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) <= 1 and
+                        if (iMexTechLevel == 3 and M28Utilities.bLoudModActive) or (bAllowRecoveryMexStart or bTeamLowMass or (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) <= 1 and
                                 (not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) or
                                         M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) or
                                         (tLZOrWZData[M28Map.subrefLZOrWZMexCount] >= 3 and table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) < math.max(2, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] * 1.5) and aiBrain[refiGrossMassBaseIncome] >= 3 * iMexTechLevel and (iMexTechLevel == 1 or  table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) < math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]))) or
