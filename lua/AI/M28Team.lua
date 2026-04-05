@@ -3406,21 +3406,19 @@ function ConsiderPriorityMexUpgrades(iM28Team)
         if tTeamData[iM28Team][subrefiTeamGrossMass] >= 2.5 * tTeamData[iM28Team][subrefiActiveM28BrainCount] then
             --if tTeamData[iM28Team][subrefiTeamGrossMass] >= 2.5 * tTeamData[iM28Team][subrefiActiveM28BrainCount] and iMexesOnMap > 60 then
             iWantedUpgradingMexValue = 1
-            if not(tTeamData[iM28Team][subrefbTeamIsStallingEnergy]) then
-                if tTeamData[iM28Team][subrefiTeamGrossMass] >= 12 or M28Utilities.bLoudModActive then
-                    iWantedUpgradingMexValue = iWantedUpgradingMexValue + 1
-                end
-                if tTeamData[iM28Team][refiMexCountByTech][3] < M28Conditions.GetHighestOtherTeamT3MexCount(iM28Team) then
-                    bBehindOnT3OrNotStartedT2Mex = true
-                    iWantedUpgradingMexValue = iWantedUpgradingMexValue * 1.5
-                    if M28Utilities.bLoudModActive then iWantedUpgradingMexValue = iWantedUpgradingMexValue + 1 end
-                end
-                if (M28Utilities.bLoudModActive) and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.5 and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 12 * tTeamData[iM28Team][subrefiActiveM28BrainCount] then
-                    --Further increases
-                    if tTeamData[iM28Team][subrefiTeamGrossMass] >= 6 then iWantedUpgradingMexValue = iWantedUpgradingMexValue + 1 end
-                end
+            if tTeamData[iM28Team][subrefiTeamGrossMass] >= 12 or M28Utilities.bLoudModActive then
+                iWantedUpgradingMexValue = iWantedUpgradingMexValue + 1
             end
-        elseif (M28Utilities.bLoudModActive) and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.5 and not(tTeamData[iM28Team][subrefbTeamIsStallingEnergy]) and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 12 * tTeamData[iM28Team][subrefiActiveM28BrainCount] and tTeamData[iM28Team][subrefiTeamGrossMass] >= 1.25 * tTeamData[iM28Team][subrefiActiveM28BrainCount] then
+            if tTeamData[iM28Team][refiMexCountByTech][3] < M28Conditions.GetHighestOtherTeamT3MexCount(iM28Team) then
+                bBehindOnT3OrNotStartedT2Mex = true
+                iWantedUpgradingMexValue = iWantedUpgradingMexValue * 1.5
+                if M28Utilities.bLoudModActive then iWantedUpgradingMexValue = iWantedUpgradingMexValue + 1 end
+            end
+            if (M28Utilities.bLoudModActive) and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.5 and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 12 * tTeamData[iM28Team][subrefiActiveM28BrainCount] then
+                --Further increases
+                if tTeamData[iM28Team][subrefiTeamGrossMass] >= 6 then iWantedUpgradingMexValue = iWantedUpgradingMexValue + 1 end
+            end
+        elseif (M28Utilities.bLoudModActive) and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.5 and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 12 * tTeamData[iM28Team][subrefiActiveM28BrainCount] and tTeamData[iM28Team][subrefiTeamGrossMass] >= 1.25 * tTeamData[iM28Team][subrefiActiveM28BrainCount] then
             iWantedUpgradingMexValue = 1
             if tTeamData[iM28Team][subrefiTeamGrossMass] >= 6 and (tTeamData[iM28Team][refiMexCountByTech][3] == 0 or tTeamData[iM28Team][refiMexCountByTech][3] >= 4) then iWantedUpgradingMexValue = iWantedUpgradingMexValue + 1 end
             if tTeamData[iM28Team][refiMexCountByTech][3] < M28Conditions.GetHighestOtherTeamT3MexCount(iM28Team) then
@@ -3445,13 +3443,13 @@ function ConsiderPriorityMexUpgrades(iM28Team)
         if bHaveSafeMexToUpgrade or M28Overseer.bNoRushActive then
             --if upgrading 1 mex from t1 to t2 costs roughly 0.8 mass per tick, and we want to be spenting 1/3 of mass per tick on this, then want 1/3 of gross mass / 0.8, i.e. 0.4167
             --However, are finding we are spending too much mass with this approach and end up always mass stalling, and only upgrading mexes, meaning HQs dont upgrade (when using a value of 0.4167 * gross mass income)
-            iWantedUpgradingMexValue = math.max(iWantedUpgradingMexValue, (tTeamData[iM28Team][subrefiTeamGrossMass] - 2 * tTeamData[iM28Team][subrefiActiveM28BrainCount]) * 0.35, tTeamData[iM28Team][subrefiTeamGrossMass] * 0.15)
-            if tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] >= 0.5 and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.75 and tTeamData[iM28Team][subrefiTeamNetMass] > -1 then
-                iWantedUpgradingMexValue = iWantedUpgradingMexValue + 0.75
+            iWantedUpgradingMexValue = math.max(iWantedUpgradingMexValue, (tTeamData[iM28Team][subrefiTeamGrossMass] - 1.5 * tTeamData[iM28Team][subrefiActiveM28BrainCount]) * 0.5, tTeamData[iM28Team][subrefiTeamGrossMass] * 0.22)
+            if tTeamData[iM28Team][subrefiTeamGrossMass] >= 5 * tTeamData[iM28Team][subrefiActiveM28BrainCount] and tTeamData[iM28Team][subrefiTeamNetMass] > -2 * tTeamData[iM28Team][subrefiActiveM28BrainCount] and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 12 * tTeamData[iM28Team][subrefiActiveM28BrainCount] and tTeamData[iM28Team][subrefiTeamNetEnergy] > -20 * tTeamData[iM28Team][subrefiActiveM28BrainCount] then
+                iWantedUpgradingMexValue = iWantedUpgradingMexValue + 1.25
             end
             --if are already upgrading 1 mex per brain and are stalling mass, then reduce the amount wanted
-            if (tTeamData[iM28Team][subrefiTeamMassStored] < 50 or tTeamData[iM28Team][subrefbTeamIsStallingMass]) and M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]) == false and (table.getn(tTeamData[iM28Team][subreftTeamUpgradingMexes]) > 1 + (tTeamData[iM28Team][subrefiActiveM28BrainCount] - 1) * 0.5 and tTeamData[iM28Team][subrefiTeamNetMass] <= -math.max(-0.5, tTeamData[iM28Team][subrefiTeamGrossMass] * 0.08)) then
-                iWantedUpgradingMexValue = iWantedUpgradingMexValue * 0.2
+            if tTeamData[iM28Team][subrefbTeamIsStallingMass] and M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]) == false and (table.getn(tTeamData[iM28Team][subreftTeamUpgradingMexes]) > 1 + (tTeamData[iM28Team][subrefiActiveM28BrainCount] - 1) * 0.35 and tTeamData[iM28Team][subrefiTeamNetMass] <= -math.max(1, tTeamData[iM28Team][subrefiTeamGrossMass] * 0.12)) then
+                iWantedUpgradingMexValue = iWantedUpgradingMexValue * 0.5
             end
             --Adjust maount wanted for any build power modifier
             iWantedUpgradingMexValue = iWantedUpgradingMexValue / tTeamData[iM28Team][refiHighestBrainBuildMultiplier]
@@ -3473,17 +3471,19 @@ function ConsiderPriorityMexUpgrades(iM28Team)
         if bDebugMessages == true then LOG(sFunctionRef..': bWantMassForProduction='..tostring(bWantMassForProduction)..'; Is table of upgrading mexes empty='..tostring( M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]))..'; Is table of upgrading HQs empty='..tostring(M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingHQs]))) end
         if not(bWantMassForProduction) or M28Overseer.bNoRushActive or (bBehindOnT3OrNotStartedT2Mex and not(tTeamData[iM28Team][subrefbTeamIsStallingMass])) or (M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]) and M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingHQs])) then
             local bCanStartPriorityMexUpgrade = true
-            if bProductionPriorityState and not(M28Overseer.bNoRushActive) and (tTeamData[iM28Team][subrefiTeamMassStored] or 0) < 300 then
+            if bProductionPriorityState and not(M28Overseer.bNoRushActive) and (tTeamData[iM28Team][subrefiTeamGrossMass] or 0) < 4 * tTeamData[iM28Team][subrefiActiveM28BrainCount] and (tTeamData[iM28Team][subrefiTeamNetMass] or 0) < -2 * tTeamData[iM28Team][subrefiActiveM28BrainCount] then
                 bCanStartPriorityMexUpgrade = false
             end
 
-            if (not(tTeamData[iM28Team][refbFocusOnT1Spam]) and not(bPrioritiseProduction)) or M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]) or table.getn(tTeamData[iM28Team][subreftTeamUpgradingMexes]) * 2 + 4 <= M28Conditions.GetCurrentM28UnitsOfCategoryInTeam(M28UnitInfo.refCategoryFactory, iM28Team) then
+            if (not(tTeamData[iM28Team][refbFocusOnT1Spam]) and not(bPrioritiseProduction)) or M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]) or table.getn(tTeamData[iM28Team][subreftTeamUpgradingMexes]) * 1.25 + 3 <= M28Conditions.GetCurrentM28UnitsOfCategoryInTeam(M28UnitInfo.refCategoryFactory, iM28Team) or tTeamData[iM28Team][subrefiTeamGrossMass] >= 5 * tTeamData[iM28Team][subrefiActiveM28BrainCount] then
                 if bDebugMessages == true then LOG(sFunctionRef..': iWantedUpgradingMexValue='..iWantedUpgradingMexValue..'; iUpgradingMexValue='..iUpgradingMexValue..'; bHaveSafeMexToUpgrade='..tostring(bHaveSafeMexToUpgrade)..'; iExistingT1MexUpgrades='..iExistingT1MexUpgrades..'; iExistingT2MexUpgrades='..iExistingT2MexUpgrades..'; iExistingT3PlusMexUpgrades='..iExistingT3PlusMexUpgrades..'; Active brain count='..tTeamData[iM28Team][subrefiActiveM28BrainCount]..'; Total mass stored='..tTeamData[iM28Team][subrefiTeamMassStored]) end
-                if bCanStartPriorityMexUpgrade and (M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]) or iWantedUpgradingMexValue > iUpgradingMexValue or (tTeamData[iM28Team][subrefiTeamMassStored] >= 550 and (tTeamData[iM28Team][subrefiTeamNetMass] - tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle]) > 0)) then
+                if bCanStartPriorityMexUpgrade and (M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]) or iWantedUpgradingMexValue > iUpgradingMexValue or ((tTeamData[iM28Team][subrefiTeamNetMass] - tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle]) > -math.max(1, tTeamData[iM28Team][subrefiTeamGrossMass] * 0.08) and tTeamData[iM28Team][subrefiTeamGrossMass] >= 4 * tTeamData[iM28Team][subrefiActiveM28BrainCount])) then
                     --Do we have enough energy?
                     if bDebugMessages == true then LOG(sFunctionRef..': Checking if we have enough energy, tTeamData[iM28Team][subrefiTeamNetEnergy]='..tTeamData[iM28Team][subrefiTeamNetEnergy]..'; tTeamData[iM28Team][subrefiEnergyUpgradesStartedThisCycle]='..tTeamData[iM28Team][subrefiEnergyUpgradesStartedThisCycle]..'; tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored]='..tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored]) end
-                    if (tTeamData[iM28Team][subrefiTeamNetEnergy] - tTeamData[iM28Team][subrefiEnergyUpgradesStartedThisCycle] > 0 or (M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]) and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.98)) and
-                            (tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.75 or tTeamData[iM28Team][subrefiTeamNetEnergy] - tTeamData[iM28Team][subrefiEnergyUpgradesStartedThisCycle] >= 5) then
+                    local iNetEnergyForMexUpgrades = tTeamData[iM28Team][subrefiTeamNetEnergy] - tTeamData[iM28Team][subrefiEnergyUpgradesStartedThisCycle]
+                    if iNetEnergyForMexUpgrades > -20 * tTeamData[iM28Team][subrefiActiveM28BrainCount]
+                            or tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 12 * tTeamData[iM28Team][subrefiActiveM28BrainCount]
+                            or tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.4 then
                         --Do we have mexes in start positions that are lower than the enemy's highest tech, or 2 lower than the highest mex in that LZ? Or are in norush mode? Or just want to be spending more mass on upgrading safe mexes?
                         local iTechLevelToUpgrade = math.min(3, (tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech] or 1)) - 1 --, (tTeamData[iM28Team][subrefiHighestEnemyMexTech] or 0))) - 1
                         if M28Overseer.bNoRushActive then iTechLevelToUpgrade = math.max(1, iTechLevelToUpgrade) end
@@ -3513,9 +3513,6 @@ function ConsiderPriorityMexUpgrades(iM28Team)
                                 if iUpgradingMexes > iNormalBrains * 2 then iTechLevelToUpgrade = 0 end
                             end
                         end
-
-                        --Override techlevel to upgrade
-                        if iTechLevelToUpgrade >= 2 and not(M28Conditions.WantAnotherT3MexUpgrade(iM28Team)) then iTechLevelToUpgrade = 1 end
 
                         if bDebugMessages == true then LOG(sFunctionRef..': iTechLevelToUpgrade='..iTechLevelToUpgrade..'; tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech]='..tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech]..'; bHaveSafeMexToUpgrade='..tostring(bHaveSafeMexToUpgrade or false)) end
                         if iTechLevelToUpgrade >= 1 then
@@ -3631,22 +3628,34 @@ function GetSafeMexToUpgrade(iM28Team, bReturnIfSafeInsteadOfUpgrading, bDontUpg
     local tPotentialUnits
     local tiMexCategory
     local iOutstandingQuietTier
+    local iParallelQuietTier
+    local bCollectAcrossQuietParallelTier = false
     if bDontUpgradeT2Plus then
         --Dont want to upgrade t2 mexes as we have enough upgrading already
         tiMexCategory = {[1] = M28UnitInfo.refCategoryT1Mex}
     else
-        --First prioritise T1 mexes, then whichever Quiet rung is currently the next allowed one
-        iOutstandingQuietTier = M28Economy.GetLowestOutstandingQuietAdvancedMexTier(iM28Team)
-        tiMexCategory = {[1] = M28UnitInfo.refCategoryT1Mex}
+        --First prioritise the current Quiet rung, and optionally allow the next rung in parallel
+        iOutstandingQuietTier = M28Economy.GetLowestOutstandingQuietMexTier(iM28Team, true)
+        tiMexCategory = {}
         if iOutstandingQuietTier then
             local iQuietCategory = M28Economy.GetQuietMexCategoryForProgressionTier(iOutstandingQuietTier)
             if iQuietCategory then
                 table.insert(tiMexCategory, iQuietCategory)
+                iParallelQuietTier = M28Economy.GetAllowedQuietParallelMexTier(iM28Team, iOutstandingQuietTier)
+                if iParallelQuietTier then
+                    local iParallelQuietCategory = M28Economy.GetQuietMexCategoryForProgressionTier(iParallelQuietTier)
+                    if iParallelQuietCategory and not(iParallelQuietCategory == iQuietCategory) then
+                        table.insert(tiMexCategory, iParallelQuietCategory)
+                        bCollectAcrossQuietParallelTier = true
+                    end
+                end
             else
+                tiMexCategory = {[1] = M28UnitInfo.refCategoryT1Mex}
                 table.insert(tiMexCategory, M28UnitInfo.refCategoryT2Mex)
                 if M28Economy.bT3MexCanBeUpgraded then table.insert(tiMexCategory, M28UnitInfo.refCategoryT3Mex) end
             end
         else
+            tiMexCategory = {[1] = M28UnitInfo.refCategoryT1Mex}
             table.insert(tiMexCategory, M28UnitInfo.refCategoryT2Mex)
             if M28Economy.bT3MexCanBeUpgraded then table.insert(tiMexCategory, M28UnitInfo.refCategoryT3Mex) end
         end
@@ -3666,7 +3675,7 @@ function GetSafeMexToUpgrade(iM28Team, bReturnIfSafeInsteadOfUpgrading, bDontUpg
                 AddPotentialUnitsToShortlist(toSafeUnitsToUpgrade, tPotentialUnits)
             end
         end
-        if M28Utilities.IsTableEmpty(toSafeUnitsToUpgrade) == false then
+        if M28Utilities.IsTableEmpty(toSafeUnitsToUpgrade) == false and not(bCollectAcrossQuietParallelTier) then
             break
         end
     end
@@ -3795,7 +3804,7 @@ function GetAnyMexOrFactoryToUpgrade(iM28Team)
     local toUnitsThatCouldUpgrade = {}
     local tPotentialUnits
     if bDebugMessages == true then LOG(sFunctionRef..': Start of code at time '..GetGameTimeSeconds()) end
-    local bConsiderT3Mex = M28Conditions.WantAnotherT3MexUpgrade(iM28Team)
+    local bConsiderT3Mex = true
 
     --First consider any t1 factories
     for iBrain, oBrain in tTeamData[iM28Team][subreftoFriendlyActiveM28Brains] do
@@ -4122,19 +4131,13 @@ function ConsiderNormalUpgrades(iM28Team)
                 
                 if bDebugMessages == true then LOG(sFunctionRef..': iCycleCount='..iCycleCount..'; bLookForMexNotHQ='..tostring(bLookForMexNotHQ)..'; Is table of upgrading mexes empty='..tostring(M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]))..'; Is table of upgrading HQs empty='..tostring(M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingHQs]))..'; Team gross mass='..tTeamData[iM28Team][subrefiTeamGrossMass]..'; Lowest land fac tech='..tTeamData[iM28Team][subrefiLowestFriendlyLandFactoryTech]..'; Lowest air fac tech='..tTeamData[iM28Team][subrefiLowestFriendlyAirFactoryTech]) end
                 if bLookForMexNotHQ then
-                    local bWantAnotherT3MexByDefault = M28Conditions.WantAnotherT3MexUpgrade(iM28Team)
-                    GetSafeMexToUpgrade(iM28Team, false, not(bWantAnotherT3MexByDefault))
+                    GetSafeMexToUpgrade(iM28Team, false, false)
                     --Backup - if didnt find anything then get a HQ upgrade if we dont already ahve a HQ upgrade active
                     if bDebugMessages == true then LOG(sFunctionRef..': Tried to get a mex upgrade, tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle]='..tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle]..'; iMassUpgradesAtLoopStart='..iMassUpgradesAtLoopStart) end
                     if tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle] == iMassUpgradesAtLoopStart then
-                        if not(bWantAnotherT3MexByDefault) then
-                            GetSafeMexToUpgrade(iM28Team, false, false)
-                        end
-                        if bWantAnotherT3MexByDefault or tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle] == iMassUpgradesAtLoopStart then
-                            if tTeamData[iM28Team][subrefiTeamGrossMass] >= 4 and M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingHQs]) then
-                                if bDebugMessages == true then LOG(sFunctionRef..': Trying backup HQ upgrade as no mexes could be found') end
-                                GetSafeHQUpgrade(iM28Team, bPreferLandToAirHQ)
-                            end
+                        if tTeamData[iM28Team][subrefiTeamGrossMass] >= 4 and M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingHQs]) then
+                            if bDebugMessages == true then LOG(sFunctionRef..': Trying backup HQ upgrade as no mexes could be found') end
+                            GetSafeHQUpgrade(iM28Team, bPreferLandToAirHQ)
                         end
                     end
                 else
@@ -4143,7 +4146,7 @@ function ConsiderNormalUpgrades(iM28Team)
                     if tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle] == iMassUpgradesAtLoopStart and (not(tTeamData[iM28Team][refbFocusOnT1Spam]) or tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] >= 0.8) then
                         --Further check - want to have 100% E or no upgrading mexes, or be overflowing mass
                         if tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] > 0.99 or  tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] > 0.99 or GetGameTimeSeconds() >= 600 or (iPlayersAtGameStart > 4 and M28Map.iMapSize >= 750) then
-                            GetSafeMexToUpgrade(iM28Team, false, M28Conditions.WantAnotherT3MexUpgrade(iM28Team))
+                            GetSafeMexToUpgrade(iM28Team, false, false)
                         end
                     end
                 end
