@@ -5881,16 +5881,6 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
     local bConsiderAttackingACU = false
     local bACUCommitByThreatRatio = false
     local toEnemyACUsNearZone --will set this later on
-    local function ShouldBlockExperimentalACUCommit(oUnit)
-        return oUnit and EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental, oUnit.UnitId)
-    end
-    local function ShouldBlockExperimentalStaticDive(oUnit)
-        return oUnit and EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental, oUnit.UnitId)
-                and (bRunFromFirebase
-                    or iFirebaseThreatAdjust > 0
-                    or (tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0) > 0
-                    or not(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftEnemyFirebasesInRange])))
-    end
     local function FlagFrontlineUnitForPriorityScoutIfNeeded()
         if M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision] or M28Utilities.IsTableEmpty(tNonSkirmisherCombatUnits) or not(M28UnitInfo.IsUnitValid(oNearestEnemyToFriendlyBase)) then return end
         if tLZTeamData[M28Map.refiRadarCoverage] >= iIntelThresholdForPriorityScout + 20 or not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) then return end
@@ -5967,46 +5957,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
         end
         if bDebugMessages == true then LOG(sFunctionRef..': GetManualAttackTargetIfWantManualAttack - Considering if want oUnit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' to pick a target for a manual attack, unit DF range='..(oUnit[M28UnitInfo.refiDFRange] or 0)..'; Is table of nearby enemy units empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoNearestDFEnemies]))..'; Can we see nearest enemy to midpoint='..tostring(M28UnitInfo.CanSeeUnit(oUnit:GetAIBrain(), oNearestEnemyToFriendlyBase))..'; Dist to nearest enemy='..M28Utilities.GetDistanceBetweenPositions(oNearestEnemyToFriendlyBase:GetPosition(), oUnit:GetPosition())..'; Is unit shot blocked='..tostring(oUnit[M28UnitInfo.refbLastShotBlocked] or false)..'; refiTimeOfLastUnblockedShot='..GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiTimeOfLastUnblockedShot] or 0)..'; Unit DF range='..(oUnit[M28UnitInfo.refiDFRange] or 'nil')..'; Mass cost='..(oUnit[M28UnitInfo.refiUnitMassCost] or 'nil')..'; bConsiderAttackingACU='..tostring(bConsiderAttackingACU)) end
 
-        --Monkeylord, GC and Ythotha - prioritise enemy ACUs that we are clsoe to being in range of, unless the ACU is very powerful
-        if (oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit)) >= 15000 and oUnit[M28UnitInfo.refiCombatRange] <= 64 and (oUnit[M28UnitInfo.refiDFRange] <= 50 or oUnit.UnitId == 'url0402') and oUnit:GetMaxHealth() >= 40000 and not(ShouldBlockExperimentalACUCommit(oUnit)) then --IF CHANGING HERE THEN CHANGE BELOW AS WELL
-            if not(oClosestFatboyOrACUInIslandToSuicideInto) and (oUnit[M28UnitInfo.refiDFRange] or 0) > 0 then
-                --Consider suiciding into enemy ACU with experimentals only
-                local iClosestACU
-                if bConsiderAttackingACU and M28Utilities.IsTableEmpty(toEnemyACUsNearZone) == false then iClosestACU = oUnit[M28UnitInfo.refiDFRange] + math.min(30, math.max(20, oUnit[M28UnitInfo.refiDFRange]))
-                else iClosestACU = oUnit[M28UnitInfo.refiDFRange] + 14
-                end
-                local iCurDist
-                local oClosestACUNearUnit
-                if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyACUs]) == false then
-                    for iACU, oACU in M28Team.tTeamData[iTeam][M28Team.reftEnemyACUs] do
-                        if M28UnitInfo.IsUnitValid(oACU) then
-                            iCurDist = M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZData[M28Map.subrefMidpoint])
-                            if bDebugMessages == true then LOG(sFunctionRef..': Dist to ACU owned by '..oACU:GetAIBrain().Nickname..'='..iCurDist) end
-                            if iCurDist < iClosestACU and not(M28UnitInfo.IsUnitUnderwater(oACU)) and not(oACU:IsUnitState('Attached')) then
-                                --Check this isnt a deadly ACU (i.e. 10k+ of mass upgrades)
-                                if (oACU[M28UnitInfo.refiDFMassThreatOverride] or 0) < 10000 and not(oACU[M28UnitInfo.refbUnitIsCloaked]) then
-                                    --Check on same plateau as us
-                                    local iACUPlateau, iACUZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oACU:GetPosition())
-                                    if iACUPlateau == iPlateau then
-                                        iClosestACU = iCurDist
-                                        oClosestACUNearUnit = oACU
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-                if oClosestACUNearUnit then
-                    if bDebugMessages == true then LOG(sFunctionRef..': GetManualAttackTargetIfWantManualAttack Will launch micro logic to suicide into enemy ACU') end
-                    --Suicide into this ACU as special micro logic (so dont get given new orders)
-                    ForkThread(M28Micro.SuicideExperimentalIntoEnemyACU, oUnit, oClosestACUNearUnit)
-                    return oClosestACUNearUnit, true
-                end
-            end
-        end
-
         --ACU snipe target that are in range of
-        if bSuicideIntoFatboyOrACU and oClosestFatboyOrACUInIslandToSuicideInto and not(ShouldBlockExperimentalACUCommit(oUnit) and EntityCategoryContains(categories.COMMAND, oClosestFatboyOrACUInIslandToSuicideInto.UnitId)) and ((oUnit[M28UnitInfo.refiDFRange] or 0) > 0 or ((oUnit[M28UnitInfo.refiIndirectRange] or 0) > 0 and EntityCategoryContains(M28UnitInfo.refCategoryLandCombat, oUnit.UnitId))) then
+        if bSuicideIntoFatboyOrACU and oClosestFatboyOrACUInIslandToSuicideInto and not(EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental, oUnit.UnitId) and EntityCategoryContains(categories.COMMAND, oClosestFatboyOrACUInIslandToSuicideInto.UnitId)) and ((oUnit[M28UnitInfo.refiDFRange] or 0) > 0 or ((oUnit[M28UnitInfo.refiIndirectRange] or 0) > 0 and EntityCategoryContains(M28UnitInfo.refCategoryLandCombat, oUnit.UnitId))) then
             --Are we almost 5 within range of the ACU/fatboy target, and it is an ACU (as for a fatboy t might be good to get close so we are under the shield)? if so then have as manual attack target
             if bDebugMessages == true then LOG(sFunctionRef..': GetManualAttackTargetIfWantManualAttack Dist to oClosestFatboyOrACUInIslandToSuicideInto='..M28Utilities.GetDistanceBetweenPositions(oClosestFatboyOrACUInIslandToSuicideInto:GetPosition(), oUnit:GetPosition())..'; Combat range='..oUnit[M28UnitInfo.refiCombatRange]) end
             if M28Utilities.GetDistanceBetweenPositions(oClosestFatboyOrACUInIslandToSuicideInto:GetPosition(), oUnit:GetPosition()) < (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) - 5 then
@@ -6785,7 +6737,6 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
 
             function GetUnitToAttackNearestACUOrOverrideUnit(oUnit, oACUOverride)
-                if ShouldBlockExperimentalACUCommit(oUnit) then return end
                 local oClosestACUToAttack
                 local iClosestACU = 100000
                 local iCurACUDist
@@ -6806,10 +6757,6 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 if EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental, oUnit.UnitId) then RecordAttackingExperimental(tLZTeamData, oUnit) end
                 if bDebugMessages == true then LOG(sFunctionRef..': Considering if unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' should do attack order on ACU or move to it, iClosestACU='..iClosestACU..'; oUnit[M28UnitInfo.refiDFRange]='..oUnit[M28UnitInfo.refiDFRange]..'; oUnit[M28UnitInfo.refbLastShotBlocked]='..tostring(oUnit[M28UnitInfo.refbLastShotBlocked] or false)..'; Do we expect shot to be blocked='..tostring(M28Logic.IsShotBlocked(oUnit, oClosestACUToAttack))..'; iDistToBeInRange='..iDistToBeInRange) end
 
-                if (oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit)) >= 15000 and oUnit[M28UnitInfo.refiCombatRange] <= 64 and (oUnit[M28UnitInfo.refiDFRange] <= 50 or oUnit.UnitId == 'url0402') and oUnit:GetMaxHealth() >= 40000 then --IF CHANGING HERE THEN CHANGE ABOVE AS WELL
-                    if bDebugMessages == true then LOG(sFunctionRef..': Will suicide experimental into ACU') end
-                    ForkThread(M28Micro.SuicideExperimentalIntoEnemyACU, oUnit, oClosestACUToAttack)
-                end
                 if not(oUnit[M28UnitInfo.refbSpecialMicroActive]) then
                     if (oUnit[M28UnitInfo.refiCombatRange] or 0) - iClosestACU >= iDistToBeInRange and (not(oUnit[M28UnitInfo.refbLastShotBlocked]) and (not(EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental, oUnit.UnitId)) or (oUnit[M28UnitInfo.refiDFRange] or 0) == 0 or not(M28Logic.IsShotBlocked(oUnit, oClosestACUToAttack)))) then --ACU more than 5 inside our range - attack it unless our shot is blocked
                         M28Orders.IssueTrackedAttack(oUnit, oClosestACUToAttack, false, 'ACUEAt', false)
@@ -8102,11 +8049,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     local function HandleScenario1OutrangedUnitSpecialMicro(oUnit, bMoveTowardsEngineersLocal)
                         local bUseNormalLogicLocal = true
                         if bDebugMessages == true and oClosestFatboyOrACUInIslandToSuicideInto then LOG(sFunctionRef..': bConsiderAttackingACU='..tostring(bConsiderAttackingACU)..'; Dist to oClosestFatboyOrACUInIslandToSuicideInto='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestFatboyOrACUInIslandToSuicideInto:GetPosition())..'; Unit combat range='..oUnit[M28UnitInfo.refiCombatRange]) end
-                        if bConsiderAttackingACU and not(ShouldBlockExperimentalACUCommit(oUnit)) and EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental - M28UnitInfo.refCategorySkirmisher - M28UnitInfo.refCategoryFatboy - M28UnitInfo.refCategoryAbsolver, oUnit.UnitId) and not(oUnit[M28UnitInfo.refbScoutCombatOverride]) and M28Conditions.CloseToEnemyUnit(oUnit:GetPosition(), toEnemyACUsNearZone, 6 + oUnit[M28UnitInfo.refiDFRange], iTeam, false, nil, nil, nil, nil, nil) then
-                            if bDebugMessages == true then LOG(sFunctionRef..': Want to attack ACU with our experimental') end
-                            GetUnitToAttackNearestACUOrOverrideUnit(oUnit)
-                            bUseNormalLogicLocal = false
-                        elseif bSuicideIntoFatboyOrACU and oClosestFatboyOrACUInIslandToSuicideInto and not(ShouldBlockExperimentalACUCommit(oUnit) and EntityCategoryContains(categories.COMMAND, oClosestFatboyOrACUInIslandToSuicideInto.UnitId)) and not(EntityCategoryContains(M28UnitInfo.refCategorySkirmisher, oUnit.UnitId)) and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestFatboyOrACUInIslandToSuicideInto:GetPosition()) <= oUnit[M28UnitInfo.refiCombatRange] + 8 then
+                        if bSuicideIntoFatboyOrACU and oClosestFatboyOrACUInIslandToSuicideInto and not(EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental, oUnit.UnitId) and EntityCategoryContains(categories.COMMAND, oClosestFatboyOrACUInIslandToSuicideInto.UnitId)) and not(EntityCategoryContains(M28UnitInfo.refCategorySkirmisher, oUnit.UnitId)) and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestFatboyOrACUInIslandToSuicideInto:GetPosition()) <= oUnit[M28UnitInfo.refiCombatRange] + 8 then
                             if bDebugMessages == true then LOG(sFunctionRef..': Are in range or almost in range of fatboy or acu to suicide into') end
                             GetUnitToAttackNearestACUOrOverrideUnit(oUnit, oClosestFatboyOrACUInIslandToSuicideInto)
                             bUseNormalLogicLocal = false
@@ -9421,12 +9364,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                     M28Orders.IssueSmartMove(oUnit, oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], 6, false, 'EsySR'..iLandZone)
                                                 end
                                             else
-                                                if bConsiderAttackingACU and not(ShouldBlockExperimentalACUCommit(oUnit)) and EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental - M28UnitInfo.refCategorySkirmisher - M28UnitInfo.refCategoryFatboy - M28UnitInfo.refCategoryAbsolver, oUnit.UnitId) and not(oUnit[M28UnitInfo.refbScoutCombatOverride]) and M28Conditions.CloseToEnemyUnit(oUnit:GetPosition(), toEnemyACUsNearZone, 6 + oUnit[M28UnitInfo.refiDFRange], iTeam, false, nil, nil, nil, nil, nil) then
-                                                    if bDebugMessages == true then LOG(sFunctionRef..': Want to attack ACU with experimental') end
-                                                    GetUnitToAttackNearestACUOrOverrideUnit(oUnit)
-                                                    --Attackmove (unless we have far more threat in this zone)
-
-                                                elseif oUnit[M28Air.refiTimeLastDropped] and oUnit[M28UnitInfo.refiIndirectRange] > 0 and GetGameTimeSeconds() - oUnit[M28Air.refiTimeLastDropped] <= 60 and oNearestEnemyStructureToMidpoint then
+                                                if oUnit[M28Air.refiTimeLastDropped] and oUnit[M28UnitInfo.refiIndirectRange] > 0 and GetGameTimeSeconds() - oUnit[M28Air.refiTimeLastDropped] <= 60 and oNearestEnemyStructureToMidpoint then
                                                     SuicideUnitIntoEnemyStructure(oUnit)
                                                 else
                                                     local oTargetToManuallyAttack, bMoveNotManualAttack = GetManualAttackTargetIfWantManualAttack(oUnit)
@@ -9445,57 +9383,11 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                             M28Orders.IssueTrackedMove(oUnit, oUnit[refoSREnemyTarget][M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'SRDFM'..iLandZone, false)
                                                         end
                                                     else
-                                                        --Exception - experimentals that are in range of enemy PD
-                                                        if EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId) and not(ShouldBlockExperimentalStaticDive(oUnit)) and not(EntityCategoryContains(M28UnitInfo.refCategoryStructure * categories.TECH2 + categories.TECH3 + categories.COMMAND - M28UnitInfo.refCategoryEngineer, oNearestEnemyToFriendlyBase.UnitId)) and GetEnemyCombatThreatInAdjacentZones() >= 5000 then
-                                                            --Want to try and find nearby enemy high value units
-                                                            if bDebugMessages == true then LOG(sFunctionRef..': Dealing with experimental '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' so will look for high value enemuy threats nearby to target') end
-                                                            if EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId) and not(ShouldBlockExperimentalStaticDive(oUnit)) and not(EntityCategoryContains(M28UnitInfo.refCategoryStructure * categories.TECH2 + categories.TECH3 + categories.COMMAND - M28UnitInfo.refCategoryEngineer, oNearestEnemyToFriendlyBase.UnitId)) and GetEnemyCombatThreatInAdjacentZones() >= 5000 then
-                                                                local tNearbyHighValueUnits = oUnit:GetAIBrain():GetUnitsAroundPoint(M28UnitInfo.refCategoryLandCombat * categories.TECH3 + M28UnitInfo.refCategoryExperimentalLevel + M28UnitInfo.refCategoryFixedT2Arti + M28UnitInfo.refCategoryStructure * categories.TECH3 - M28UnitInfo.refCategoryFatboy - M28UnitInfo.refCategoryEngineer + M28UnitInfo.refCategoryPD + categories.COMMAND, oUnit:GetPosition(), (oUnit[M28UnitInfo.refiDFRange] or 20) + 15, 'Enemy')
-                                                                local bMoveNotAttack = false
-                                                                if M28Utilities.IsTableEmpty(tNearbyHighValueUnits) == false then
-                                                                    local tACUsInNearbyHighValueUnits = EntityCategoryFilterDown(categories.COMMAND, tNearbyHighValueUnits)
-                                                                    oTargetToManuallyAttack = nil
-                                                                    if M28Utilities.IsTableEmpty( tACUsInNearbyHighValueUnits) == false then
-                                                                        oTargetToManuallyAttack, bMoveNotAttack = GetManualAttackTargetIfWantManualAttack(oUnit)
-                                                                    end
-                                                                    if not(oTargetToManuallyAttack) then
-                                                                        oTargetToManuallyAttack = M28Utilities.GetNearestUnit(tNearbyHighValueUnits, oUnit:GetPosition())
-                                                                    end
-                                                                end
-                                                                if oTargetToManuallyAttack and not(oTargetToManuallyAttack:IsUnitState('Attached')) and not(M28UnitInfo.IsUnitUnderwater(oTargetToManuallyAttack)) then
-                                                                    if not(bMoveNotAttack) and M28Utilities.GetDistanceBetweenPositions(oTargetToManuallyAttack:GetPosition(), oUnit:GetPosition()) <= (oUnit[M28UnitInfo.refiDFRange] or 0) + 1 then
-                                                                        DoManualAttack(oUnit, oTargetToManuallyAttack, 'SRManX')
-                                                                        --M28Orders.IssueTrackedAttack(oUnit, oTargetToManuallyAttack, false, 'SRManA', false)
-                                                                    else
-                                                                        M28Orders.IssueTrackedMove(oUnit, oTargetToManuallyAttack:GetPosition(), 10, 'SRxpTO', false)
-                                                                    end
-                                                                    if bDebugMessages == true then LOG(sFunctionRef..': Targeting oTargetToManuallyAttack='..oTargetToManuallyAttack.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTargetToManuallyAttack)) end
-                                                                else
-                                                                    if not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                                                                        if oUnit[M28UnitInfo.refiWeaponScanRange] and oUnit[M28UnitInfo.refiWeaponScanRange] + 5 < oUnit[M28UnitInfo.refiCombatRange] then
-                                                                            ConsiderManualAttackInsteadOfAttackMove(oUnit, oUnit[refoSREnemyTarget], oUnit[refoSREnemyTarget][M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, 'SRDFEA')
-                                                                        else
-                                                                            M28Orders.IssueSmartMove(oUnit, oUnit[refoSREnemyTarget][M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'SRDFEA'..iLandZone)
-                                                                        end
-                                                                    end
-                                                                end
+                                                        if not(IgnoreOrderDueToStuckUnit(oUnit)) then
+                                                            if oUnit[M28UnitInfo.refiWeaponScanRange] and oUnit[M28UnitInfo.refiWeaponScanRange] + 5 < oUnit[M28UnitInfo.refiCombatRange] then
+                                                                ConsiderManualAttackInsteadOfAttackMove(oUnit, oUnit[refoSREnemyTarget], oUnit[refoSREnemyTarget][M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, 'SRDFA')
                                                             else
-                                                                if bDebugMessages == true then LOG(sFunctionRef..': Targeting nearest SR enemy target via attack move, target='..oUnit[refoSREnemyTarget].UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit[refoSREnemyTarget])) end
-                                                                if not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                                                                    if oUnit[M28UnitInfo.refiWeaponScanRange] and oUnit[M28UnitInfo.refiWeaponScanRange] + 5 < oUnit[M28UnitInfo.refiCombatRange] then
-                                                                        ConsiderManualAttackInsteadOfAttackMove(oUnit, oUnit[refoSREnemyTarget], oUnit[refoSREnemyTarget][M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, 'SRDFExA')
-                                                                    else
-                                                                        M28Orders.IssueSmartMove(oUnit, oUnit[refoSREnemyTarget][M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'SRDFExA'..iLandZone)
-                                                                    end
-                                                                end
-                                                            end
-                                                        else
-                                                            if not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                                                                if oUnit[M28UnitInfo.refiWeaponScanRange] and oUnit[M28UnitInfo.refiWeaponScanRange] + 5 < oUnit[M28UnitInfo.refiCombatRange] then
-                                                                    ConsiderManualAttackInsteadOfAttackMove(oUnit, oUnit[refoSREnemyTarget], oUnit[refoSREnemyTarget][M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, 'SRDFA')
-                                                                else
-                                                                    M28Orders.IssueSmartMove(oUnit, oUnit[refoSREnemyTarget][M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'SRDFA'..iLandZone)
-                                                                end
+                                                                M28Orders.IssueSmartMove(oUnit, oUnit[refoSREnemyTarget][M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'SRDFA'..iLandZone)
                                                             end
                                                         end
                                                     end
@@ -9636,11 +9528,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                 SuicideUnitIntoEnemyStructure(oSRUnit)
                                                 if bDebugMessages == true then LOG(sFunctionRef..': Will suicide into enemy structure') end
                                             else
-                                                if (bConsiderAttackingACU or oSRUnit[M28UnitInfo.refiUnitMassCost] >= 17000 and oSRUnit[M28UnitInfo.refiDFRange] <= 64 and M28Utilities.IsTableEmpty(toEnemyACUsNearZone) == false) and not(ShouldBlockExperimentalACUCommit(oSRUnit)) and not(oSRUnit[M28UnitInfo.refbLastShotBlocked]) and EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental - M28UnitInfo.refCategorySkirmisher - M28UnitInfo.refCategoryFatboy - M28UnitInfo.refCategoryAbsolver, oSRUnit.UnitId) and not(oSRUnit[M28UnitInfo.refbScoutCombatOverride]) and M28Conditions.CloseToEnemyUnit(oSRUnit:GetPosition(), toEnemyACUsNearZone, 6 + oSRUnit[M28UnitInfo.refiDFRange], iTeam, false, nil, nil, nil, nil, nil) then
-                                                    if bDebugMessages == true then LOG(sFunctionRef..': Have an experimental we want to attack enemy ACU with') end
-                                                    GetUnitToAttackNearestACUOrOverrideUnit(oSRUnit)
-                                                    --Non-fatboy experimental - if we are almost in range of enemy experimental unit then attack
-                                                elseif bEnemyHasNearbyExperimentals and EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental + M28UnitInfo.refCategoryLandCombat * categories.TECH3 - M28UnitInfo.refCategorySkirmisher - M28UnitInfo.refCategoryFatboy - M28UnitInfo.refCategoryAbsolver, oSRUnit.UnitId) and not(oSRUnit[M28UnitInfo.refbScoutCombatOverride]) and M28Conditions.CloseToEnemyUnit(oSRUnit:GetPosition(), tNearbyEnemyDFExperimentals, 5, iTeam, true, math.min(oSRUnit[M28UnitInfo.refiDFRange] or 20) - 5, oSRUnit, oSRUnit) then
+                                                if bEnemyHasNearbyExperimentals and EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental + M28UnitInfo.refCategoryLandCombat * categories.TECH3 - M28UnitInfo.refCategorySkirmisher - M28UnitInfo.refCategoryFatboy - M28UnitInfo.refCategoryAbsolver, oSRUnit.UnitId) and not(oSRUnit[M28UnitInfo.refbScoutCombatOverride]) and M28Conditions.CloseToEnemyUnit(oSRUnit:GetPosition(), tNearbyEnemyDFExperimentals, 5, iTeam, true, math.min(oSRUnit[M28UnitInfo.refiDFRange] or 20) - 5, oSRUnit, oSRUnit) then
 
                                                     --Consider manual attack target
                                                     local oTargetToManuallyAttack, bMoveNotManualAttack = GetManualAttackTargetIfWantManualAttack(oSRUnit, oSRUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]) or oNearestEnemyToFriendlyBase
@@ -10602,7 +10490,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
                                         end
                                     else
-                                        if bSuicideIntoFatboyOrACU and oClosestFatboyOrACUInIslandToSuicideInto and not(ShouldBlockExperimentalACUCommit(oUnit) and EntityCategoryContains(categories.COMMAND, oClosestFatboyOrACUInIslandToSuicideInto.UnitId)) then
+                                        if bSuicideIntoFatboyOrACU and oClosestFatboyOrACUInIslandToSuicideInto and not(EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental, oUnit.UnitId) and EntityCategoryContains(categories.COMMAND, oClosestFatboyOrACUInIslandToSuicideInto.UnitId)) then
                                             if bDebugMessages == true then LOG(sFunctionRef..': Will move to nearest fatboy='..oClosestFatboyOrACUInIslandToSuicideInto.UnitId..M28UnitInfo.GetUnitLifetimeCount(oClosestFatboyOrACUInIslandToSuicideInto)..' with unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
                                             if (oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit)) >= 2000 and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestFatboyOrACUInIslandToSuicideInto:GetPosition()) <= 5 then
                                                 M28Orders.IssueSmartMove(oUnit, oClosestFatboyOrACUInIslandToSuicideInto:GetPosition(), 6, false, 'SuicFBA'..iLandZone)
@@ -10620,12 +10508,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                         elseif bMoveBlockedNotAttackMove and (oUnit[M28UnitInfo.refbLastShotBlocked] or M28UnitInfo.IsUnitUnderwater(oUnit)) and not(EntityCategoryContains(M28UnitInfo.refCategorySkirmisher + M28UnitInfo.refCategoryAbsolver, oUnit.UnitId) and not(oUnit[M28UnitInfo.refbScoutCombatOverride])) then
                                             M28Orders.IssueTrackedMove(oUnit, oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], 6, false, 'BAWE'..iLandZone)
                                         else
-                                            if bConsiderAttackingACU and not(ShouldBlockExperimentalACUCommit(oUnit)) and EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental - M28UnitInfo.refCategorySkirmisher - M28UnitInfo.refCategoryFatboy - M28UnitInfo.refCategoryAbsolver, oUnit.UnitId) and not(oUnit[M28UnitInfo.refbScoutCombatOverride]) and M28Conditions.CloseToEnemyUnit(oUnit:GetPosition(), toEnemyACUsNearZone, 6 + oUnit[M28UnitInfo.refiDFRange], iTeam, false, nil, nil, nil, nil, nil) then
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Will attack ACU with experimental') end
-                                                GetUnitToAttackNearestACUOrOverrideUnit(oUnit)
-
-                                                --Fatboy and megalith - want to be more cautious than normal units but less so than skirmishers
-                                            elseif (oUnit[M28UnitInfo.refiDFRange] or 0) >= 64 and EntityCategoryContains(M28UnitInfo.refCategoryFatboy + M28UnitInfo.refCategoryMegalith, oUnit.UnitId) then
+                                            if (oUnit[M28UnitInfo.refiDFRange] or 0) >= 64 and EntityCategoryContains(M28UnitInfo.refCategoryFatboy + M28UnitInfo.refCategoryMegalith, oUnit.UnitId) then
                                                 --Attackmove unless enemy threat is minimal in this zone and dont have notable neemies in range using getunitsaroundpoint
                                                 bFiringAtNegligibleThreatInLRExperimentalRange = false
                                                 --Note - iVisibleLandCombatMassInFatboyRange uses getunitsaroundpoint so wont factor in memory; therefore want to use more accurate method to avoid fatboy charging towards a monkeylord that recently fired at us
@@ -10718,9 +10601,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                             ((iAvailableCombatUnitThreat > GetEnemyCombatThreatInAdjacentZones() * 5) or
                                                                     --If lots of T1 arti want to keep moving with experimentals/other units or theyll get slaughtered; similarly if lots of low order spam and nothing significant in range then keep moving; also keep moving if we have more threat than all enemy nearby units
                                                                     (iAvailableCombatUnitThreat > math.max(800, GetEnemyCombatThreatInAdjacentZones() * 0.8) and tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] > 500 and (oUnit[M28UnitInfo.refiDFRange] or 0) > 0) or
-                                                                    (iAvailableCombatUnitThreat > GetEnemyCombatThreatInAdjacentZones() and EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId) and not(ShouldBlockExperimentalStaticDive(oUnit)) and (iAvailableCombatUnitThreat > GetEnemyCombatThreatInAdjacentZones() * 1.4 or tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] > 0 or EntityCategoryContains(M28UnitInfo.refCategoryIndirect + M28UnitInfo.refCategorySkirmisher, oNearestEnemyToFriendlyBase.UnitId) or M28Utilities.IsTableEmpty(oUnit:GetAIBrain():GetUnitsAroundPoint(M28UnitInfo.refCategoryLandCombat * categories.TECH3 + M28UnitInfo.refCategoryExperimentalLevel + M28UnitInfo.refCategoryFixedT2Arti + M28UnitInfo.refCategoryStructure * categories.TECH3 - M28UnitInfo.refCategoryFatboy - M28UnitInfo.refCategoryEngineer + M28UnitInfo.refCategoryPD, oUnit:GetPosition(), (oUnit[M28UnitInfo.refiDFRange] or 20), 'Enemy')))) or
                                                                     --Below to try and e.g. stop megalith attack-moving when enemy has nearby ravagers
-                                                                    (not(oUnit[M28UnitInfo.refbCanKite]) and EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental - M28UnitInfo.refCategoryFatboy, oUnit.UnitId) and not(ShouldBlockExperimentalStaticDive(oUnit))) and tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] > 500) then
+                                                                    (not(oUnit[M28UnitInfo.refbCanKite]) and EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental - M28UnitInfo.refCategoryFatboy, oUnit.UnitId) and tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] > 500)) then
 
                                                         --If have experimental unit and closest enemy unit to midpoint isn't a priority then consider alternative targets
                                                         local oTargetToManuallyAttack, bMoveNotManualAttack = GetManualAttackTargetIfWantManualAttack(oUnit, oNearestEnemyToFriendlyBase)
@@ -10732,64 +10614,13 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                             end
                                                             --M28Orders.IssueTrackedAttack(oUnit, oTargetToManuallyAttack, false, 'Sc3ManA', false)
                                                         else
-                                                            if bDebugMessages == true then LOG(sFunctionRef..': If dealing with an experimental then want to find nearby high value enemy targets, Is this an experimental='..tostring(EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId))..'; oNearestEnemyToFriendlyBase='..oNearestEnemyToFriendlyBase.UnitId..M28UnitInfo.GetUnitLifetimeCount(oNearestEnemyToFriendlyBase)..'; GetEnemyCombatThreatInAdjacentZones='..GetEnemyCombatThreatInAdjacentZones()) end
-                                                            if EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId) and not(ShouldBlockExperimentalStaticDive(oUnit)) and not(EntityCategoryContains(M28UnitInfo.refCategoryStructure * categories.TECH2 + categories.TECH3 + categories.COMMAND - M28UnitInfo.refCategoryEngineer, oNearestEnemyToFriendlyBase.UnitId)) and GetEnemyCombatThreatInAdjacentZones() >= 5000 then
-                                                                local bRetreatingNow = bRunFromFirebase or bRunFromEnemyAir
-                                                                if not(bRetreatingNow) then
-                                                                    local iEnemyThreatAdj = GetEnemyCombatThreatInAdjacentZones()
-                                                                    local iLRThreat = tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 0
-                                                                    local iEnemyThreatForRetreat = iEnemyThreatAdj + iLRThreat
-                                                                    if iEnemyThreatForRetreat > iAvailableCombatUnitThreat * 1.2 then
-                                                                        bRetreatingNow = true
-                                                                    end
-                                                                end
-
-                                                                if bRetreatingNow then
-                                                                    oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
-                                                                    local tScenario2ExperimentalRetreatTarget = tRallyPoint
-                                                                    if EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oUnit.UnitId) then
-                                                                        tScenario2ExperimentalRetreatTarget = tAmphibiousRallyPoint
-                                                                    end
-                                                                    M28Orders.IssueSmartMove(oUnit, tScenario2ExperimentalRetreatTarget, 6, false, 'Sc4Ret'..iLandZone, false, true)
+                                                            if bDebugMessages == true then LOG(sFunctionRef..': Will just move to the nearest enemy, Dist from us to the last known position of nearest enemy='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), (oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam] or oNearestEnemyToFriendlyBase:GetPosition()))) end
+                                                            if not(IgnoreOrderDueToStuckUnit(oUnit)) then
+                                                                --Attack-move if almost at target and dealing with a high value unit (mainly to stop issue with e.g. ythotha just standing looking at target)
+                                                                if (oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit)) >= 2000 and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]) <= 7 then
+                                                                    M28Orders.IssueSmartMove(oUnit, oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'MWAE'..iLandZone, false)
                                                                 else
-                                                                    --Want to try and find nearby enemy high value units
-                                                                    local iSearchHigherThreshold = 50
-                                                                    if (tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 0) > 1000 then iSearchHigherThreshold = 73 end
-                                                                    local tNearbyHighValueUnits = oUnit:GetAIBrain():GetUnitsAroundPoint(M28UnitInfo.refCategoryLandCombat * categories.TECH3 + M28UnitInfo.refCategoryExperimentalLevel + M28UnitInfo.refCategoryFixedT2Arti + M28UnitInfo.refCategoryStructure * categories.TECH3 - M28UnitInfo.refCategoryFatboy - M28UnitInfo.refCategoryEngineer + M28UnitInfo.refCategoryPD, oUnit:GetPosition(), math.max((oUnit[M28UnitInfo.refiDFRange] or 20) + 15, iSearchHigherThreshold), 'Enemy')
-                                                                    if M28Utilities.IsTableEmpty(tNearbyHighValueUnits) == false then
-                                                                        oTargetToManuallyAttack = M28Utilities.GetNearestUnit(tNearbyHighValueUnits, oUnit:GetPosition())
-                                                                    end
-                                                                    if oTargetToManuallyAttack and not(oTargetToManuallyAttack:IsUnitState('Attached')) and not(M28UnitInfo.IsUnitUnderwater(oTargetToManuallyAttack)) then
-                                                                        local iCombatRange = oUnit[M28UnitInfo.refiCombatRange] or oUnit[M28UnitInfo.refiDFRange] or 20
-                                                                        local tStandOffPosition = M28Utilities.MoveInDirection(oTargetToManuallyAttack:GetPosition(), M28Utilities.GetAngleFromAToB(oTargetToManuallyAttack:GetPosition(), oUnit:GetPosition()), math.max(5, iCombatRange - 2), true, false, M28Map.bIsCampaignMap)
-                                                                        if tStandOffPosition and NavUtils.GetTerrainLabel(M28Map.refPathingTypeLand, tStandOffPosition) == tLZData[M28Map.subrefLZIslandRef] then
-                                                                            M28Orders.IssueTrackedMove(oUnit, tStandOffPosition, 10, false, 'MExpSO', false)
-                                                                        elseif M28Utilities.GetDistanceBetweenPositions(oTargetToManuallyAttack:GetPosition(), oUnit:GetPosition()) <= (oUnit[M28UnitInfo.refiDFRange] or 0) + 1 then
-                                                                            DoManualAttack(oUnit, oTargetToManuallyAttack, 'Sc4ManX')
-                                                                            --M28Orders.IssueTrackedAttack(oUnit, oTargetToManuallyAttack, false, 'Sc4ManA', false)
-                                                                        else
-                                                                            M28Orders.IssueTrackedMove(oUnit, oTargetToManuallyAttack:GetPosition(), 10, false, 'MExpTO', false)
-                                                                        end
-                                                                    else
-                                                                        --Do same as below
-                                                                        if not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                                                                            if (oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit)) >= 2000 and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]) <= 7 then
-                                                                                M28Orders.IssueSmartMove(oUnit, oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'MExpAWE'..iLandZone, false)
-                                                                            else
-                                                                                M28Orders.IssueTrackedMove(oUnit, oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'MExpWE'..iLandZone, false)
-                                                                            end
-                                                                        end
-                                                                    end
-                                                                end
-                                                            else
-                                                                if bDebugMessages == true then LOG(sFunctionRef..': Will just move to the nearest enemy, Dist from us to the last known position of nearest enemy='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), (oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam] or oNearestEnemyToFriendlyBase:GetPosition()))) end
-                                                                if not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                                                                    --Attack-move if almost at target and dealing with a high value unit (mainly to stop issue with e.g. ythotha just standing looking at target)
-                                                                    if (oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit)) >= 2000 and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]) <= 7 then
-                                                                        M28Orders.IssueSmartMove(oUnit, oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'MWAE'..iLandZone, false)
-                                                                    else
-                                                                        M28Orders.IssueTrackedMove(oUnit, oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'MWE'..iLandZone, false)
-                                                                    end
+                                                                    M28Orders.IssueTrackedMove(oUnit, oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'MWE'..iLandZone, false)
                                                                 end
                                                             end
                                                         end
@@ -11059,11 +10890,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     --if bDebugMessages == true then LOG(sFunctionRef..': Unit will run away from location to avoid') end
 
                                     --Shot not blocked - consider attackign ACU with experimentals
-                                    if bConsiderAttackingACU and not(ShouldBlockExperimentalACUCommit(oUnit)) and EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental - M28UnitInfo.refCategorySkirmisher - M28UnitInfo.refCategoryFatboy - M28UnitInfo.refCategoryAbsolver, oUnit.UnitId) and not(oUnit[M28UnitInfo.refbScoutCombatOverride]) and M28Conditions.CloseToEnemyUnit(oUnit:GetPosition(), toEnemyACUsNearZone, 6 + (oUnit[M28UnitInfo.refiCombatRange] or 0), iTeam, false, nil, nil, nil, nil, nil) then
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Experimental - attack nearest ACU') end
-                                        GetUnitToAttackNearestACUOrOverrideUnit(oUnit)
-                                        --CloseToEnemyUnit(tStartPosition,       tUnitsToCheck, iDistThreshold, iTeam, bIncludeEnemyDFRange, iAltThresholdToDFRange, oUnitIfConsideringAngleAndLastShot, oOptionalFriendlyUnitToRecordClosestEnemy, iOptionalDistThresholdForStructure, bIncludeEnemyAntiNavyRange)
-                                    elseif bConsiderAttackingExperimental and
+                                    if bConsiderAttackingExperimental and
                                             (((oUnit[M28UnitInfo.refiDFRange] or 0) > 0 or ((oUnit[M28UnitInfo.refiIndirectRange] or 0) > 0 and EntityCategoryContains(M28UnitInfo.refCategoryFatboy, oClosestEnemyExpToBase.UnitId))) and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestEnemyExpToBase:GetPosition()) - oUnit[M28UnitInfo.refiCombatRange] <= iThresholdDistUntilInRangeToAttackExp and M28Conditions.CloseToEnemyUnit(oUnit:GetPosition(), tNearbyEnemyExperimentals, 5, iTeam, true,                    nil,                    oUnit,                              oUnit) and (not(EntityCategoryContains(M28UnitInfo.refCategorySkirmisher + M28UnitInfo.refCategoryIndirect, oUnit.UnitId)) or ((oUnit[M28UnitInfo.refiIndirectRange] or 0) > 0 and (oUnit[M28UnitInfo.refiIndirectRange] < oClosestEnemyExpToBase[M28UnitInfo.refiCombatRange] or M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestEnemyExpToBase:GetPosition()) - oUnit[M28UnitInfo.refiCombatRange] >= 10)) or (tLZTeamData[M28Map.refiTimeOurT2ArtiLastFired] and GetGameTimeSeconds() - tLZTeamData[M28Map.refiTimeOurT2ArtiLastFired] <= 10 and oClosestEnemyExpToBase[M28UnitInfo.refiCombatRange] >= math.max(60, oUnit[M28UnitInfo.refiCombatRange])))
                                                     or (not(oClosestEnemyExpToMidpoint == oClosestEnemyExpToBase) and oClosestEnemyExpToMidpoint and ((oUnit[M28UnitInfo.refiDFRange] or 0) > 0 or ((oUnit[M28UnitInfo.refiIndirectRange] or 0) > 0 and EntityCategoryContains(M28UnitInfo.refCategoryFatboy, oClosestEnemyExpToMidpoint.UnitId))) and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestEnemyExpToMidpoint:GetPosition()) - oUnit[M28UnitInfo.refiCombatRange] <= iThresholdDistUntilInRangeToAttackExp and M28Conditions.CloseToEnemyUnit(oUnit:GetPosition(), tNearbyEnemyExperimentals, 5, iTeam, true,                    nil,                    oUnit,                              oUnit) and (not(EntityCategoryContains(M28UnitInfo.refCategorySkirmisher + M28UnitInfo.refCategoryIndirect, oUnit.UnitId)) or ((oUnit[M28UnitInfo.refiIndirectRange] or 0) > 0 and (oUnit[M28UnitInfo.refiIndirectRange] < oClosestEnemyExpToMidpoint[M28UnitInfo.refiCombatRange] or M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestEnemyExpToMidpoint:GetPosition()) - oUnit[M28UnitInfo.refiCombatRange] >= 10)) or (tLZTeamData[M28Map.refiTimeOurT2ArtiLastFired] and GetGameTimeSeconds() - tLZTeamData[M28Map.refiTimeOurT2ArtiLastFired] <= 10 and oClosestEnemyExpToMidpoint[M28UnitInfo.refiCombatRange] >= math.max(60, oUnit[M28UnitInfo.refiCombatRange]))))) then
                                         --move to nearest enemy experimental if we arent in range of it yet but a friendly unit is, and we are an experimental level unit or it is a fatboy
@@ -11952,7 +11779,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 RecordDFLandZoneTarget(oClosestFatboyOrACUInIslandToSuicideInto[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2], M28Map.subrefiLZTAttackingUnit)
                 local tRemainingDFUnits = {}
                 for iUnit, oUnit in tDFUnits do
-                    if ShouldBlockExperimentalACUCommit(oUnit) and EntityCategoryContains(categories.COMMAND, oClosestFatboyOrACUInIslandToSuicideInto.UnitId) then
+                    if EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental, oUnit.UnitId) and EntityCategoryContains(categories.COMMAND, oClosestFatboyOrACUInIslandToSuicideInto.UnitId) then
                         table.insert(tRemainingDFUnits, oUnit)
                     else
                         M28Orders.IssueSmartMove(oUnit, oClosestFatboyOrACUInIslandToSuicideInto:GetPosition(), 6, false, 'LRFBSuic'..iLandZone)
