@@ -130,10 +130,7 @@ function GetQuietMexCategoryForProgressionTier(iTier)
     return nil
 end
 
-function GetLowestOutstandingQuietMexTier(iTeam, bIncludeT1)
-    if not(bIncludeT1) then
-        return GetLowestOutstandingQuietAdvancedMexTier(iTeam)
-    end
+function GetLowestOutstandingQuietMexTier(iTeam)
     if not(M28Utilities.bQuietModActive) then return nil end
     local tFriendlyBrains = M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]
     local iLowestTier
@@ -151,35 +148,6 @@ function GetLowestOutstandingQuietMexTier(iTeam, bIncludeT1)
                             iLowestTier = iTier
                             iLowestPriority = iPriority
                             if iLowestPriority == tiQuietMexTierPriority[refiMexQuietTierT1] then
-                                return iLowestTier
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    return iLowestTier
-end
-
-function GetLowestOutstandingQuietAdvancedMexTier(iTeam)
-    if not(M28Utilities.bQuietModActive) then return nil end
-    local tFriendlyBrains = M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]
-    local iLowestTier
-    local iLowestPriority
-
-    if M28Utilities.IsTableEmpty(tFriendlyBrains) == false then
-        for iBrain, oBrain in tFriendlyBrains do
-            local tMexes = oBrain:GetListOfUnits(M28UnitInfo.refCategoryMex - categories.TECH1, false, true)
-            if M28Utilities.IsTableEmpty(tMexes) == false then
-                for iMex, oMex in tMexes do
-                    if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 and not(oMex:IsUnitState('Upgrading')) and not(oMex:IsUnitState('BeingUpgraded')) and not(((oMex:GetBlueprint().General.UpgradesTo or '') == '')) then
-                        local iTier = GetQuietMexProgressionTier(oMex)
-                        local iPriority = tiQuietMexTierPriority[iTier]
-                        if iPriority and (not(iLowestPriority) or iPriority < iLowestPriority) then
-                            iLowestTier = iTier
-                            iLowestPriority = iPriority
-                            if iLowestPriority == tiQuietMexTierPriority[refiMexQuietTierT2] then
                                 return iLowestTier
                             end
                         end
@@ -265,7 +233,7 @@ function ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam)
     local iMexTier = GetQuietMexProgressionTier(oMex)
     local iMexPriority = tiQuietMexTierPriority[iMexTier]
     if not(iMexPriority) then return false end
-    local iLowestOutstandingTier = GetLowestOutstandingQuietMexTier(iTeam, true)
+    local iLowestOutstandingTier = GetLowestOutstandingQuietMexTier(iTeam)
     local iLowestOutstandingPriority = tiQuietMexTierPriority[iLowestOutstandingTier]
     if iLowestOutstandingPriority and iLowestOutstandingPriority < iMexPriority then
         if ShouldAllowQuietParallelMexTier(iTeam, iLowestOutstandingTier, iMexTier) then
@@ -3761,7 +3729,7 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
 
                                     if M28Utilities.bQuietModActive then
                                         if iMexTechLevel <= 2 then
-                                            local iOutstandingQuietTier = GetLowestOutstandingQuietMexTier(iTeam, true)
+                                            local iOutstandingQuietTier = GetLowestOutstandingQuietMexTier(iTeam)
                                             local iParallelQuietTier = GetAllowedQuietParallelMexTier(iTeam, iOutstandingQuietTier)
                                             iMexCategory = GetQuietMexCategoryForProgressionTier(iOutstandingQuietTier) or M28UnitInfo.refCategoryT1Mex
                                             if bDebugMessages == true then LOG(sFunctionRef..': Will look for mexes in current Quiet rung, iOutstandingQuietTier='..(iOutstandingQuietTier or 'nil')..'; iParallelQuietTier='..(iParallelQuietTier or 'nil')) end
@@ -3832,9 +3800,9 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
                                     end
                                     if M28Utilities.IsTableEmpty(tMexOfCategory) and iMexTechLevel <= 2 then
                                         local bGetT3Mex = DoesTeamWantAggressiveQuietMexTier(iTeam, refiMexQuietTierT3)
-                                        local iLowestOutstandingQuietTier = GetLowestOutstandingQuietMexTier(iTeam, true)
-                                        local bAllowParallelT3FromT25 = M28Utilities.bQuietModActive and ShouldAllowQuietParallelMexTier(iTeam, iLowestOutstandingQuietTier, refiMexQuietTierT25)
-                                        if M28Utilities.bQuietModActive and iLowestOutstandingQuietTier and not(iLowestOutstandingQuietTier == refiMexQuietTierT25 or bAllowParallelT3FromT25) then
+                                        local iLowestOutstandingQuietTier = GetLowestOutstandingQuietMexTier(iTeam)
+                                        local bAllowParallelNextQuietRungToT3 = M28Utilities.bQuietModActive and ShouldAllowQuietParallelMexTier(iTeam, iLowestOutstandingQuietTier, refiMexQuietTierT25)
+                                        if M28Utilities.bQuietModActive and iLowestOutstandingQuietTier and not(iLowestOutstandingQuietTier == refiMexQuietTierT25 or bAllowParallelNextQuietRungToT3) then
                                             bGetT3Mex = false
                                             if bDebugMessages == true then LOG(sFunctionRef..': Wont open a fresh T3 mex start because the outstanding Quiet mex rung is '..iLowestOutstandingQuietTier..' and parallel runging does not allow T3 yet') end
                                         end

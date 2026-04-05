@@ -3635,7 +3635,7 @@ function GetSafeMexToUpgrade(iM28Team, bReturnIfSafeInsteadOfUpgrading, bDontUpg
         tiMexCategory = {[1] = M28UnitInfo.refCategoryT1Mex}
     else
         --First prioritise the current Quiet rung, and optionally allow the next rung in parallel
-        iOutstandingQuietTier = M28Economy.GetLowestOutstandingQuietMexTier(iM28Team, true)
+        iOutstandingQuietTier = M28Economy.GetLowestOutstandingQuietMexTier(iM28Team)
         tiMexCategory = {}
         if iOutstandingQuietTier then
             local iQuietCategory = M28Economy.GetQuietMexCategoryForProgressionTier(iOutstandingQuietTier)
