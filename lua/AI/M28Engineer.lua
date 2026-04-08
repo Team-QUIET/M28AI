@@ -728,6 +728,22 @@ function GetEngineerUniqueCount(oEngineer)
     return iUniqueRef
 end
 
+function DoesZoneQualifyForStrategicRadar(tLZTeamData)
+    --Keep higher-tech radar ownership focused on core, frontline, or scout-relevant zones.
+    if tLZTeamData[M28Map.subrefLZbCoreBase] then
+        return true
+    elseif not(tLZTeamData[M28Map.refbBaseInSafePosition]) then
+        return true
+    elseif tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ] then
+        return true
+    elseif tLZTeamData[M28Map.refbWantLandScout] then
+        return true
+    elseif (tLZTeamData[M28Map.subrefLZAllyBestCombatRange] or 0) >= 60 and (tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) >= 250 then
+        return true
+    end
+    return false
+end
+
 function IsBuildLocationBlockedByResources(tLZOrWZData, iBuildingRadius, tTargetLocation, bAvoidStorageAdjacency)
     --Brain:CanBuildStructureAt() ignores (unbuilt) resource deposits, i.e. mexes and hydros; this cycles through all such locations and checks if they are blocking
 
@@ -16435,7 +16451,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
             --T2 radar
             if bDebugMessages == true then LOG(sFunctionRef..': Considering if want T2 radar, tLZTeamData[M28Map.refiRadarCoverage]='..tLZTeamData[M28Map.refiRadarCoverage]..'; Gross energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; bWantT1RadarFirst='..tostring(bWantT1RadarFirst)) end
             if not(bSaveMassForMML) and not(bWantT1RadarFirst) and tLZTeamData[M28Map.refiRadarCoverage] <= M28UnitInfo.iT1RadarSize and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 40 + 60 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 3 + 2 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] then
-                if not(tLZTeamData[M28Map.refbBaseInSafePosition]) or tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ] or M28Map.bIsCampaignMap or M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 3 then
+                if M28Map.bIsCampaignMap or DoesZoneQualifyForStrategicRadar(tLZTeamData) then
                     --Check we dont already have t2 radar in the land zone
                     if M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryT2Radar, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])) then
                         iBPWanted = 20
@@ -17207,7 +17223,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     --High priority T2 radar if we have sniperbots or fatboy
     iCurPriority = iCurPriority + 1
     if bDebugMessages == true then LOG(sFunctionRef..': SNiperbot t2 radar builder, tLZTeamData[M28Map.refiRadarCoverage] ='..tLZTeamData[M28Map.refiRadarCoverage]..'; M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech]='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech]..'; T2+T3 mexes='..tLZTeamData[M28Map.subrefMexCountByTech][2] + tLZTeamData[M28Map.subrefMexCountByTech][3]..'; Gross E='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Stalling E='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])) end
-    if tLZTeamData[M28Map.refiRadarCoverage] <= M28UnitInfo.iT1RadarSize and (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] or 0) >= 3 and tLZTeamData[M28Map.subrefMexCountByTech][2] + tLZTeamData[M28Map.subrefMexCountByTech][3] >= math.min(2, tLZData[M28Map.subrefLZOrWZMexCount]) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 200 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 5 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]  and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and not (M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision]) then
+    if tLZTeamData[M28Map.refiRadarCoverage] <= M28UnitInfo.iT1RadarSize and (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] or 0) >= 3 and tLZTeamData[M28Map.subrefMexCountByTech][2] + tLZTeamData[M28Map.subrefMexCountByTech][3] >= math.min(2, tLZData[M28Map.subrefLZOrWZMexCount]) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 200 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 5 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]  and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and not (M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision]) and (M28Map.bIsCampaignMap or DoesZoneQualifyForStrategicRadar(tLZTeamData)) then
         local bHaveAnySnipersOrFatboy = false
         local iCurSniperBots = 0
         for iBrain, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains] do
@@ -17271,26 +17287,25 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
         end
         if bDebugMessages == true then LOG(sFunctionRef..': bHaveFatboyOrSnipers='..tostring(bHaveFatboyOrSnipers)) end
         if bHaveFatboyOrSnipers or (M28Utilities.IsTableEmpty(M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.reftPriorityUnitsWantingAirScout]) == false and M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategorySML,M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.reftPriorityUnitsWantingAirScout])) == false) then
+            local bZoneQualifiesForStrategicRadar = M28Map.bIsCampaignMap or DoesZoneQualifyForStrategicRadar(tLZTeamData)
             --T2 radar
             local bBuildingT2 = false
             iCurPriority = iCurPriority + 1
             if bDebugMessages == true then LOG(sFunctionRef..': High priority Considering if want T2 radar, tLZTeamData[M28Map.refiRadarCoverage]='..tLZTeamData[M28Map.refiRadarCoverage]..'; Gross energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]) end
-            if tLZTeamData[M28Map.refiRadarCoverage] <= M28UnitInfo.iT1RadarSize then
+            if tLZTeamData[M28Map.refiRadarCoverage] <= M28UnitInfo.iT1RadarSize and bZoneQualifiesForStrategicRadar then
                 --Check we dont already have t2 radar in the land zone
-                if not(tLZTeamData[M28Map.refbBaseInSafePosition]) or tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ] or M28Map.bIsCampaignMap or M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 3 then
-                    if M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryT2Radar, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])) then
-                        iBPWanted = 20
-                        if not(bHaveLowMass) then iBPWanted = 60 end
-                        HaveActionToAssign(refActionBuildT2Radar, 2, iBPWanted)
-                        bBuildingT2 = true
-                    end
+                if M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryT2Radar, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])) then
+                    iBPWanted = 20
+                    if not(bHaveLowMass) then iBPWanted = 60 end
+                    HaveActionToAssign(refActionBuildT2Radar, 2, iBPWanted)
+                    bBuildingT2 = true
                 end
             end
 
             --T3 radar
             iCurPriority = iCurPriority + 1
             if bDebugMessages == true then LOG(sFunctionRef..': High priority Considering whether to build T3 radar, tLZTeamData[M28Map.refiRadarCoverage]='..tLZTeamData[M28Map.refiRadarCoverage]..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Net energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy]..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Closest enemy base dist to midpoint='..M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], tLZTeamData[M28Map.reftClosestEnemyBase])..'; tLZTeamData[M28Map.subrefMexCountByTech]='..repru(tLZTeamData[M28Map.subrefMexCountByTech])..'; aiBrain[M28Overseer.refbBuiltLongRangeLandUnit]='..tostring(aiBrain[M28Overseer.refbBuiltLongRangeLandUnit])..'; Omni under construction elsewhere='..M28Conditions.GetNumberOfUnderConstructionUnitsOfCategoryInOtherCoreZones(tLZTeamData, iTeam, M28UnitInfo.refCategoryT3Radar)) end
-            if not(bSaveMassForMML) and tLZTeamData[M28Map.refiRadarCoverage] <= M28UnitInfo.iT2RadarSize then
+            if bZoneQualifiesForStrategicRadar and not(bSaveMassForMML) and tLZTeamData[M28Map.refiRadarCoverage] <= M28UnitInfo.iT2RadarSize then
                 --Require T3 mexes before building T3 radar unless we have a fatboy and no T3 radar under construction elsewhere
                 if tLZTeamData[M28Map.subrefMexCountByTech][3] >= 2 or (tLZTeamData[M28Map.subrefMexCountByTech][3] == 1 and tLZTeamData[M28Map.subrefMexCountByTech][2] + tLZTeamData[M28Map.subrefMexCountByTech][1] == 0) or (aiBrain[M28Overseer.refbBuiltLongRangeLandUnit] and M28Conditions.GetNumberOfUnderConstructionUnitsOfCategoryInOtherCoreZones(tLZTeamData, iTeam, M28UnitInfo.refCategoryT3Radar) == 0) then
                     if M28UnitInfo.iT3RadarSize - M28UnitInfo.iT2RadarSize >= 100 or M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryT3Radar) == 0 then
@@ -17814,15 +17829,13 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
         --T2 radar
         iCurPriority = iCurPriority + 1
         if bDebugMessages == true then LOG(sFunctionRef..': Considering if want T2 radar, tLZTeamData[M28Map.refiRadarCoverage]='..tLZTeamData[M28Map.refiRadarCoverage]..'; Gross energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]) end
-        if tLZTeamData[M28Map.refiRadarCoverage] <= M28UnitInfo.iT1RadarSize and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 40 + 60 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 3 + 2 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] then
+        if tLZTeamData[M28Map.refiRadarCoverage] <= M28UnitInfo.iT1RadarSize and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 40 + 60 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 3 + 2 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and (M28Map.bIsCampaignMap or DoesZoneQualifyForStrategicRadar(tLZTeamData)) then
             if not(bSaveMassForMML) or tLZTeamData[M28Map.subrefMexCountByTech][3] >= 1 then
                 --Check we dont already have t2 radar in the land zone
-                if not(tLZTeamData[M28Map.refbBaseInSafePosition]) or tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ] or M28Map.bIsCampaignMap or M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 3 then
-                    if M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryT2Radar, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])) then
-                        iBPWanted = 20
-                        if not(bHaveLowMass) then iBPWanted = 60 end
-                        HaveActionToAssign(refActionBuildT2Radar, 2, iBPWanted)
-                    end
+                if M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryT2Radar, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])) then
+                    iBPWanted = 20
+                    if not(bHaveLowMass) then iBPWanted = 60 end
+                    HaveActionToAssign(refActionBuildT2Radar, 2, iBPWanted)
                 end
             end
         end
@@ -17830,7 +17843,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
         --T3 radar
         iCurPriority = iCurPriority + 1
         if bDebugMessages == true then LOG(sFunctionRef..': Considering whether to build T3 radar, tLZTeamData[M28Map.refiRadarCoverage]='..tLZTeamData[M28Map.refiRadarCoverage]..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Net energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy]..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Closest enemy base dist to midpoint='..M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], tLZTeamData[M28Map.reftClosestEnemyBase])..'; tLZTeamData[M28Map.subrefMexCountByTech]='..repru(tLZTeamData[M28Map.subrefMexCountByTech])) end
-        if not(bSaveMassForMML) and (not(bPrioritiseProduction) or tLZTeamData[M28Map.subrefMexCountByTech][3] >= tLZData[M28Map.subrefLZOrWZMexCount] and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] >= 2) and tLZTeamData[M28Map.refiRadarCoverage] <= M28UnitInfo.iT2RadarSize and ((M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 500 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] >= 200) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 350 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] >= 100 and M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategoryMobileLand * categories.TECH3 - M28UnitInfo.refCategoryEngineer) >= 40) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 10 and (M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], tLZTeamData[M28Map.reftClosestEnemyBase]) > tLZTeamData[M28Map.refiRadarCoverage] or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 20) then
+        if (M28Map.bIsCampaignMap or DoesZoneQualifyForStrategicRadar(tLZTeamData)) and not(bSaveMassForMML) and (not(bPrioritiseProduction) or tLZTeamData[M28Map.subrefMexCountByTech][3] >= tLZData[M28Map.subrefLZOrWZMexCount] and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] >= 2) and tLZTeamData[M28Map.refiRadarCoverage] <= M28UnitInfo.iT2RadarSize and ((M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 500 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] >= 200) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 350 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] >= 100 and M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategoryMobileLand * categories.TECH3 - M28UnitInfo.refCategoryEngineer) >= 40) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 10 and (M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], tLZTeamData[M28Map.reftClosestEnemyBase]) > tLZTeamData[M28Map.refiRadarCoverage] or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 20) then
             --Require T3 mexes before building T3 radar
             if tLZTeamData[M28Map.subrefMexCountByTech][3] >= 2 or (tLZTeamData[M28Map.subrefMexCountByTech][3] == 1 and tLZTeamData[M28Map.subrefMexCountByTech][2] + tLZTeamData[M28Map.subrefMexCountByTech][1] == 0) then
                 if M28UnitInfo.iT3RadarSize - M28UnitInfo.iT2RadarSize >= 100 or M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryT3Radar) == 0 then
@@ -20082,7 +20095,7 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
     --Higher priority T2 radar creep where we have large mass income or lots of experimentals, or priority units wanting land scouts in some cases
     iCurPriority = iCurPriority + 1
     if bDebugMessages == true then LOG(sFunctionRef..': T2 radar creep - bHaveLowMass='..tostring(bHaveLowMass)..'; bWantMorePower='..tostring(bWantMorePower)..'; Radar coverage='..tLZTeamData[M28Map.refiRadarCoverage]..'; Map size='..M28Map.iMapSize..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; tLZTeamData[M28Map.subrefMexCountByTech]='..repru(tLZTeamData[M28Map.subrefMexCountByTech])) end
-    if not(bHaveLowPower) and not(bTeammateHasBuiltHere) and not(bEngineersRecentlyRunFromEnemy) and tLZTeamData[M28Map.refiRadarCoverage] < math.max(M28UnitInfo.iT2RadarSize - 50, math.min(M28UnitInfo.iT2RadarSize - 20, M28UnitInfo.iT1RadarSize)) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftEnemyFirebasesInRange]) and (
+    if (M28Map.bIsCampaignMap or DoesZoneQualifyForStrategicRadar(tLZTeamData)) and not(bHaveLowPower) and not(bTeammateHasBuiltHere) and not(bEngineersRecentlyRunFromEnemy) and tLZTeamData[M28Map.refiRadarCoverage] < math.max(M28UnitInfo.iT2RadarSize - 50, math.min(M28UnitInfo.iT2RadarSize - 20, M28UnitInfo.iT1RadarSize)) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftEnemyFirebasesInRange]) and (
             (tLZTeamData[M28Map.subrefLZSValue] >= 3000 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 300 and tLZTeamData[M28Map.subrefMexCountByTech][3] >= 1 and (tLZTeamData[M28Map.refiRadarCoverage] <= M28UnitInfo.iT1RadarSize or not(bHaveLowMass)) and M28Map.iMapSize > M28UnitInfo.iT3RadarSize and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 60 and (not(bHaveLowMass) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 150) and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 3 and M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategoryLandExperimental + M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL) >= 4)
                     or (tLZTeamData[M28Map.refiRadarCoverage] < 50 and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and (tLZTeamData[M28Map.subrefLZSValue] > 0 or tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] > tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] * 2 or not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ])) and M28Utilities.IsTableEmpty(M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.reftoPriorityUnitsWantingLandScout]) == false)) then
         --Check we dont have any radar here already (redundancy for radar coverage)
@@ -20423,7 +20436,7 @@ end--]]
     --Low priority T2 radar creep
     iCurPriority = iCurPriority + 1
     if bDebugMessages == true then LOG(sFunctionRef..': T2 radar creep - bHaveLowMass='..tostring(bHaveLowMass)..'; bWantMorePower='..tostring(bWantMorePower)..'; Radar coverage='..tLZTeamData[M28Map.refiRadarCoverage]..'; Map size='..M28Map.iMapSize..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; tLZTeamData[M28Map.subrefMexCountByTech]='..repru(tLZTeamData[M28Map.subrefMexCountByTech])) end
-    if not(bEngineersRecentlyRunFromEnemy) and (not(bHaveLowMass) and not(bWantMorePower) and tLZTeamData[M28Map.refiRadarCoverage] < math.min(100, math.max(M28UnitInfo.iT1RadarSize + 1, M28UnitInfo.iT2RadarSize - 80)) and not(bTeammateHasBuiltHere) and M28Map.iMapSize > 512 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 300 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 18 or M28Map.bIsCampaignMap) and (tLZTeamData[M28Map.subrefMexCountByTech][3] > 0 or tLZTeamData[M28Map.subrefMexCountByTech][2] >= 2 or tLZTeamData[M28Map.subrefLZSValue] >= 1750)) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftEnemyFirebasesInRange]) then
+    if (M28Map.bIsCampaignMap or DoesZoneQualifyForStrategicRadar(tLZTeamData)) and not(bEngineersRecentlyRunFromEnemy) and (not(bHaveLowMass) and not(bWantMorePower) and tLZTeamData[M28Map.refiRadarCoverage] < math.min(100, math.max(M28UnitInfo.iT1RadarSize + 1, M28UnitInfo.iT2RadarSize - 80)) and not(bTeammateHasBuiltHere) and M28Map.iMapSize > 512 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 300 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 18 or M28Map.bIsCampaignMap) and (tLZTeamData[M28Map.subrefMexCountByTech][3] > 0 or tLZTeamData[M28Map.subrefMexCountByTech][2] >= 2 or tLZTeamData[M28Map.subrefLZSValue] >= 1750)) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftEnemyFirebasesInRange]) then
         --Check we dont have any radar here already (redundancy for radar coverage)
         local tExistingRadar = EntityCategoryFilterDown(M28UnitInfo.refCategoryRadar, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
         local bHaveRadar = false
