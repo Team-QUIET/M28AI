@@ -2900,6 +2900,47 @@ function DoesBrainHaveActiveHQUpgradesOfCategory(aiBrain, iFactoryBeingUpgradedC
     end
 end
 
+local function DoesBrainMeetCoreBaseT2HQMexGate(oBrain, iM28Team, bAirHQ, sFunctionRef, bDebugMessages)
+    local iCurrentFactoryTech = oBrain[M28Economy.refiOurHighestLandFactoryTech] or 0
+    local iRequiredT2PlusMexes = 3
+    local sHQType = 'land'
+    if bAirHQ then
+        iCurrentFactoryTech = oBrain[M28Economy.refiOurHighestAirFactoryTech] or 0
+        iRequiredT2PlusMexes = 6
+        sHQType = 'air'
+    end
+    if iCurrentFactoryTech ~= 1 then
+        return true, 0, iRequiredT2PlusMexes
+    end
+
+    local tStartZoneData, tStartZoneTeamData = M28Map.GetLandOrWaterZoneData(M28Map.GetPlayerStartPosition(oBrain, false), true, iM28Team)
+    if not(tStartZoneData and tStartZoneTeamData) then
+        return true, 0, iRequiredT2PlusMexes
+    end
+    if not(tStartZoneTeamData[M28Map.subrefLZbCoreBase] or tStartZoneTeamData[M28Map.subrefWZbCoreBase]) then
+        return true, 0, iRequiredT2PlusMexes
+    end
+
+    local tMexCountByTech = tStartZoneTeamData[M28Map.subrefMexCountByTech] or {}
+    local iCoreBaseT2PlusMexes = (tMexCountByTech[2] or 0) + (tMexCountByTech[3] or 0) + (tMexCountByTech[4] or 0)
+    if bDebugMessages == true then
+        LOG(sFunctionRef..': Core base '..sHQType..' HQ mex gate for brain '..oBrain.Nickname..'; T2+ mexes='..iCoreBaseT2PlusMexes..'; required='..iRequiredT2PlusMexes)
+    end
+    return iCoreBaseT2PlusMexes >= iRequiredT2PlusMexes, iCoreBaseT2PlusMexes, iRequiredT2PlusMexes
+end
+
+local function TryStartPriorityHQUpgradeWithCoreBaseMexGate(oBrain, iM28Team, bAirHQ, iCategoryToUpgrade, iMinUnits, sReasonRef, sFunctionRef, bDebugMessages)
+    local bPassesMexGate, iCoreBaseT2PlusMexes, iRequiredT2PlusMexes = DoesBrainMeetCoreBaseT2HQMexGate(oBrain, iM28Team, bAirHQ, sFunctionRef, bDebugMessages)
+    if not(bPassesMexGate) then
+        if bDebugMessages == true then
+            LOG(sFunctionRef..': Skipping priority '..(bAirHQ and 'air' or 'land')..' HQ upgrade for brain '..oBrain.Nickname..' because core base only has '..iCoreBaseT2PlusMexes..' T2+ mexes and needs '..iRequiredT2PlusMexes)
+        end
+        return false
+    end
+    M28Economy.FindAndUpgradeUnitOfCategory(oBrain, iCategoryToUpgrade, iMinUnits, sReasonRef)
+    return true
+end
+
 function ConsiderPriorityLandFactoryUpgrades(iM28Team)
     --Starts a land factory upgrade if we need one urgently (e.g. we are outteched, or have high gross mass so will want access to T3)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
@@ -3110,7 +3151,7 @@ function ConsiderPriorityLandFactoryUpgrades(iM28Team)
                                         --Do nothing
                                     else
                                         if bDebugMessages == true then LOG(sFunctionRef..': Will try and find land fac HQ to upgrade, bWantMoreMexesInBaseFirst='..tostring(bWantMoreMexesInBaseFirst)) end
-                                        M28Economy.FindAndUpgradeUnitOfCategory(oBrain, M28UnitInfo.refCategoryLandHQ * M28UnitInfo.ConvertTechLevelToCategory(oBrain[M28Economy.refiOurHighestLandFactoryTech]), 7, sFunctionRef..':LandHQ')
+                                        TryStartPriorityHQUpgradeWithCoreBaseMexGate(oBrain, iM28Team, false, M28UnitInfo.refCategoryLandHQ * M28UnitInfo.ConvertTechLevelToCategory(oBrain[M28Economy.refiOurHighestLandFactoryTech]), 7, sFunctionRef..':LandHQ', sFunctionRef, bDebugMessages)
                                     end
                                 end
                             end
@@ -3190,8 +3231,9 @@ function ConsiderPriorityAirFactoryUpgrades(iM28Team)
                     end
                     for iBrain, oBrain in tTeamData[iM28Team][subreftoFriendlyActiveM28Brains] do
                         if not(tbBrainsWithActiveUpgradeByIndex[oBrain:GetArmyIndex()]) and oBrain[M28Economy.refiOurHighestAirFactoryTech] > 0 and oBrain[M28Economy.refiOurHighestAirFactoryTech] < 2 then
-                            bWantUpgrade = true
-                            M28Economy.FindAndUpgradeUnitOfCategory(oBrain, M28UnitInfo.refCategoryAirHQ * categories.TECH1, nil, sFunctionRef..':AirHQ_T1')
+                            if TryStartPriorityHQUpgradeWithCoreBaseMexGate(oBrain, iM28Team, true, M28UnitInfo.refCategoryAirHQ * categories.TECH1, nil, sFunctionRef..':AirHQ_T1', sFunctionRef, bDebugMessages) then
+                                bWantUpgrade = true
+                            end
                         end
                     end
                 end
@@ -3201,11 +3243,13 @@ function ConsiderPriorityAirFactoryUpgrades(iM28Team)
                         if bDebugMessages == true then LOG(sFunctionRef..': Enemy has t3 air and we dont, oBrain='..oBrain.Nickname..'; oBrain[M28Economy.refiOurHighestAirFactoryTech]='..oBrain[M28Economy.refiOurHighestAirFactoryTech]) end
                         if oBrain[M28Economy.refiOurHighestAirFactoryTech] > 0 and oBrain[M28Economy.refiOurHighestAirFactoryTech] < 3 and ((not(oBrain[M28Overseer.refbPrioritiseLand]) and not(oBrain[M28Overseer.refbPrioritiseLowTech])) or tTeamData[iM28Team][refiConstructedExperimentalCount] > 0 or M28Conditions.GetLifetimeBuildCount(oBrain, M28UnitInfo.refCategoryAirNonScout * M28UnitInfo.ConvertTechLevelToCategory(oBrain[M28Economy.refiOurHighestAirFactoryTech])) >= 20) then
                             --Do we have any active air factory upgrades?
-                            bWantUpgrade = not(DoesBrainHaveActiveHQUpgradesOfCategory(oBrain, M28UnitInfo.refCategoryAirHQ))
-                            if bDebugMessages == true then LOG(sFunctionRef..': bWantUpgrade (based on if we have active HQ upgrades for air HQ)='..tostring(bWantUpgrade)) end
-                            if bWantUpgrade then
+                            local bCanTryUpgrade = not(DoesBrainHaveActiveHQUpgradesOfCategory(oBrain, M28UnitInfo.refCategoryAirHQ))
+                            if bDebugMessages == true then LOG(sFunctionRef..': bCanTryUpgrade (based on if we have active HQ upgrades for air HQ)='..tostring(bCanTryUpgrade)) end
+                            if bCanTryUpgrade then
                                 if bDebugMessages == true then LOG(sFunctionRef..': Will try and upgrade for this tech level') end
-                                M28Economy.FindAndUpgradeUnitOfCategory(oBrain, M28UnitInfo.refCategoryAirHQ * M28UnitInfo.ConvertTechLevelToCategory(oBrain[M28Economy.refiOurHighestAirFactoryTech]), nil, sFunctionRef..':AirHQ_TechCatchup')
+                                if TryStartPriorityHQUpgradeWithCoreBaseMexGate(oBrain, iM28Team, true, M28UnitInfo.refCategoryAirHQ * M28UnitInfo.ConvertTechLevelToCategory(oBrain[M28Economy.refiOurHighestAirFactoryTech]), nil, sFunctionRef..':AirHQ_TechCatchup', sFunctionRef, bDebugMessages) then
+                                    bWantUpgrade = true
+                                end
                             end
                         end
                     end
@@ -3216,11 +3260,13 @@ function ConsiderPriorityAirFactoryUpgrades(iM28Team)
                     for iBrain, oBrain in tTeamData[iM28Team][subreftoFriendlyActiveM28Brains] do
                         if oBrain[M28Economy.refiOurHighestAirFactoryTech] == 2 then
                             --Do we have any active air factory upgrades?
-                            bWantUpgrade = not(DoesBrainHaveActiveHQUpgradesOfCategory(oBrain, M28UnitInfo.refCategoryAirHQ))
-                            if bDebugMessages == true then LOG(sFunctionRef..': Naval T3 rush - bWantUpgrade='..tostring(bWantUpgrade)..'; Brain='..oBrain.Nickname) end
-                            if bWantUpgrade then
+                            local bCanTryUpgrade = not(DoesBrainHaveActiveHQUpgradesOfCategory(oBrain, M28UnitInfo.refCategoryAirHQ))
+                            if bDebugMessages == true then LOG(sFunctionRef..': Naval T3 rush - bCanTryUpgrade='..tostring(bCanTryUpgrade)..'; Brain='..oBrain.Nickname) end
+                            if bCanTryUpgrade then
                                 --Rush upgrade with minimal unit build requirement (3 units needed)
-                                M28Economy.FindAndUpgradeUnitOfCategory(oBrain, M28UnitInfo.refCategoryAirHQ * categories.TECH2, 3, sFunctionRef..':AirHQ_T3RushForNavy')
+                                if TryStartPriorityHQUpgradeWithCoreBaseMexGate(oBrain, iM28Team, true, M28UnitInfo.refCategoryAirHQ * categories.TECH2, 3, sFunctionRef..':AirHQ_T3RushForNavy', sFunctionRef, bDebugMessages) then
+                                    bWantUpgrade = true
+                                end
                             end
                         end
                     end
@@ -3231,11 +3277,13 @@ function ConsiderPriorityAirFactoryUpgrades(iM28Team)
                     for iBrain, oBrain in tTeamData[iM28Team][subreftoFriendlyActiveM28Brains] do
                         if oBrain[M28Economy.refiOurHighestAirFactoryTech] == 2 then
                             --Do we have any active air factory upgrades?
-                            bWantUpgrade = not(DoesBrainHaveActiveHQUpgradesOfCategory(oBrain, M28UnitInfo.refCategoryAirHQ))
-                            if bDebugMessages == true then LOG(sFunctionRef..': Tech disparity T3 rush - bWantUpgrade='..tostring(bWantUpgrade)..'; Brain='..oBrain.Nickname) end
-                            if bWantUpgrade then
+                            local bCanTryUpgrade = not(DoesBrainHaveActiveHQUpgradesOfCategory(oBrain, M28UnitInfo.refCategoryAirHQ))
+                            if bDebugMessages == true then LOG(sFunctionRef..': Tech disparity T3 rush - bCanTryUpgrade='..tostring(bCanTryUpgrade)..'; Brain='..oBrain.Nickname) end
+                            if bCanTryUpgrade then
                                 --Rush upgrade with minimal unit build requirement (3 units needed) - urgent response to tech rush
-                                M28Economy.FindAndUpgradeUnitOfCategory(oBrain, M28UnitInfo.refCategoryAirHQ * categories.TECH2, 3, sFunctionRef..':AirHQ_T3RushForTechDisparity')
+                                if TryStartPriorityHQUpgradeWithCoreBaseMexGate(oBrain, iM28Team, true, M28UnitInfo.refCategoryAirHQ * categories.TECH2, 3, sFunctionRef..':AirHQ_T3RushForTechDisparity', sFunctionRef, bDebugMessages) then
+                                    bWantUpgrade = true
+                                end
                             end
                         end
                     end
@@ -3250,8 +3298,8 @@ function ConsiderPriorityAirFactoryUpgrades(iM28Team)
                         for iBrain, oBrain in tTeamData[iM28Team][subreftoFriendlyActiveM28Brains] do
                             if oBrain[M28Economy.refiOurHighestAirFactoryTech] > 0 and oBrain[M28Economy.refiOurHighestAirFactoryTech] < 3 and (tTeamData[iM28Team][refiConstructedExperimentalCount] > 0 or (not(oBrain[M28Overseer.refbPrioritiseLand]) and not(oBrain[M28Overseer.refbPrioritiseLowTech]))) then
                                 --Do we have any active air factory upgrades? (redundancy - should already have excluded via above)
-                                bWantUpgrade = not(DoesBrainHaveActiveHQUpgradesOfCategory(oBrain, M28UnitInfo.refCategoryAirHQ))
-                                if bWantUpgrade then
+                                local bCanTryUpgrade = not(DoesBrainHaveActiveHQUpgradesOfCategory(oBrain, M28UnitInfo.refCategoryAirHQ))
+                                if bCanTryUpgrade then
                                     local iMinUnits = 3
                                     --Added below due to one scenario where our t2 air fac started a t3 upgrade despite nearby enemy navy
                                     if tTeamData[iM28Team][subrefiHighestEnemyAirTech] < 3 and oBrain[M28Economy.refiOurHighestAirFactoryTech] == 2 then
@@ -3263,7 +3311,9 @@ function ConsiderPriorityAirFactoryUpgrades(iM28Team)
                                         end
                                     end
                                     if bDebugMessages == true then LOG(sFunctionRef..': iMinUnits='..iMinUnits..'; oBrain='..oBrain.Nickname) end
-                                    M28Economy.FindAndUpgradeUnitOfCategory(oBrain, M28UnitInfo.refCategoryAirHQ * M28UnitInfo.ConvertTechLevelToCategory(oBrain[M28Economy.refiOurHighestAirFactoryTech]), iMinUnits, sFunctionRef..':AirHQ_Default')
+                                    if TryStartPriorityHQUpgradeWithCoreBaseMexGate(oBrain, iM28Team, true, M28UnitInfo.refCategoryAirHQ * M28UnitInfo.ConvertTechLevelToCategory(oBrain[M28Economy.refiOurHighestAirFactoryTech]), iMinUnits, sFunctionRef..':AirHQ_Default', sFunctionRef, bDebugMessages) then
+                                        bWantUpgrade = true
+                                    end
                                 end
                             end
                         end
