@@ -1060,6 +1060,32 @@ function TeamHasLowMass(iTeam)
     return bHaveLowMass
 end
 
+function ShouldHoldOffPowerForMassCrash(iTeam)
+    local tCurTeamData = M28Team.tTeamData[iTeam]
+    if not(tCurTeamData) or tCurTeamData[M28Team.refbBuiltParagon] then return false end
+
+    local iActiveBrains = math.max(1, tCurTeamData[M28Team.subrefiActiveM28BrainCount] or 1)
+    local iTeamGrossMass = tCurTeamData[M28Team.subrefiTeamGrossMass] or 0
+    local iTeamMassStored = tCurTeamData[M28Team.subrefiTeamMassStored] or 0
+    local iTeamNetMass = tCurTeamData[M28Team.subrefiTeamNetMass] or 0
+    local iTeamNetEnergy = tCurTeamData[M28Team.subrefiTeamNetEnergy] or 0
+    local iTeamAvgMassStored = tCurTeamData[M28Team.subrefiTeamAverageMassPercentStored] or 0
+    local iTeamAvgEnergyStored = tCurTeamData[M28Team.subrefiTeamAverageEnergyPercentStored] or 0
+    local iTimeSinceMassStall = GetGameTimeSeconds() - (tCurTeamData[M28Team.refiTimeOfLastMassStall] or -100)
+
+    local bRecentMassCrashRecovery = iTimeSinceMassStall <= 60
+            and (iTeamAvgMassStored <= 0.1 or iTeamMassStored <= 140 * iActiveBrains)
+            and iTeamNetMass <= math.max(0.5 * iActiveBrains, iTeamGrossMass * 0.05)
+    local bMassCrash = ((tCurTeamData[M28Team.subrefbTeamIsStallingMass] or false) and iTeamNetMass <= -math.max(1.5 * iActiveBrains, iTeamGrossMass * 0.12))
+            or (TeamHasLowMass(iTeam) and iTeamNetMass <= -math.max(0.75 * iActiveBrains, iTeamGrossMass * 0.06))
+            or bRecentMassCrashRecovery
+    local bEnergyHealthy = not(tCurTeamData[M28Team.subrefbTeamIsStallingEnergy] or false)
+            and iTeamAvgEnergyStored >= math.max(0.35, iTeamAvgMassStored)
+            and (iTeamNetEnergy >= 2 * iActiveBrains or iTeamAvgEnergyStored >= 0.75)
+
+    return bMassCrash and bEnergyHealthy
+end
+
 function IsEconomyStagnant(iTeam)
     local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'IsEconomyStagnant'
@@ -1094,6 +1120,7 @@ function HaveLowPower(iTeam)
     local iTimeSinceEnergyStall = GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastEnergyStall] or -100)
     local iResourceMod = M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier] or 1
     local iExistingHighTechPowerCount = GetCurrentM28UnitsOfCategoryInTeam(M28UnitInfo.refCategoryPower - categories.TECH1, iTeam)
+    local bHoldOffPowerForMassCrash = ShouldHoldOffPowerForMassCrash(iTeam)
 
     if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < 80000 or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < 80000 * iActiveBrains * (M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier] or 1) and not(M28Team.tTeamData[iTeam][M28Team.refbBuiltParagon])))
          or (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and iTeamAvgEnergyStored <= 0.5) then --Paragon gives 1000000 per sec I think
@@ -1134,6 +1161,10 @@ function HaveLowPower(iTeam)
                 or (iTeamAvgEnergyStored <= 0.8 and iTeamNetEnergy <= 8 * iActiveBrains * iResourceMod) then
             bHaveLowPower = true
         end
+    end
+    if bHaveLowPower and bHoldOffPowerForMassCrash then
+        if bDebugMessages == true then LOG(sFunctionRef..': Clearing low-power result because mass is crashing while energy is still healthy enough to hold off extra pgens') end
+        bHaveLowPower = false
     end
     if bDebugMessages == true then LOG(sFunctionRef..': End of code, bHaveLowPower='..tostring(bHaveLowPower)) end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -1219,6 +1250,7 @@ function WantMorePower(iTeam)
     local iExistingHighTechPowerCount = GetCurrentM28UnitsOfCategoryInTeam(M28UnitInfo.refCategoryPower - categories.TECH1, iTeam)
     local iPendingCountThreshold = math.max(1, math.min(2, iActiveBrains - 1))
     local bHardEnergyEmergency = M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and ((M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] or 1) <= 0.08 or iTeamNetEnergy <= -25 or iTeamGrossEnergy <= 50 * iActiveBrains)
+    local bHoldOffPowerForMassCrash = ShouldHoldOffPowerForMassCrash(iTeam)
     local bMeaningfulPendingHighTechPower = iPendingHighTechPowerIncome >= math.max(100, iTeamGrossEnergy * 0.2)
     local bHoldOffFreshHighTechPower = iPendingHighTechPowerCount >= iPendingCountThreshold and bMeaningfulPendingHighTechPower and not(bHardEnergyEmergency)
     local iProjectedGrossEnergy = iTeamGrossEnergy + iPendingHighTechPowerIncome
@@ -1229,11 +1261,16 @@ function WantMorePower(iTeam)
             or iProjectedNetEnergy < 9 * iActiveBrains * iResourceMod
             or (iTeamAvgEnergyStored < 0.98 and iProjectedGrossEnergy < 40 * iActiveBrains * iResourceMod)
     )
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code at time '..GetGameTimeSeconds()..'; Gross energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Energy when last unable to build air='..(M28Team.tTeamData[iTeam][M28Team.refiEnergyWhenAirFactoryLastUnableToBuildAir] or 0)..'; Highest factory tech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]..'; M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier]='..M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier]..'; M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower]='..tostring(M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower] or false)..'; HaveLowPower(iTeam)='..tostring(HaveLowPower(iTeam))..'; Pending high-tech power count='..iPendingHighTechPowerCount..'; Pending high-tech power income='..iPendingHighTechPowerIncome..'; Hold off fresh high-tech power='..tostring(bHoldOffFreshHighTechPower)..'; M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled]='..(M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled] or 'nil')) end
-    if bEarlyT1PowerPush then
+    if bDebugMessages == true then LOG(sFunctionRef..': Start of code at time '..GetGameTimeSeconds()..'; Gross energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Energy when last unable to build air='..(M28Team.tTeamData[iTeam][M28Team.refiEnergyWhenAirFactoryLastUnableToBuildAir] or 0)..'; Highest factory tech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]..'; M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier]='..M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier]..'; M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower]='..tostring(M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower] or false)..'; HaveLowPower(iTeam)='..tostring(HaveLowPower(iTeam))..'; Pending high-tech power count='..iPendingHighTechPowerCount..'; Pending high-tech power income='..iPendingHighTechPowerIncome..'; Hold off fresh high-tech power='..tostring(bHoldOffFreshHighTechPower)..'; Hold off power for mass crash='..tostring(bHoldOffPowerForMassCrash)..'; M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled]='..(M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled] or 'nil')) end
+    if bEarlyT1PowerPush and not(bHoldOffPowerForMassCrash) then
         if bDebugMessages == true then LOG(sFunctionRef..': Early pre-high-tech power stage so will keep wanting more power, iProjectedGrossEnergy='..iProjectedGrossEnergy..'; iProjectedNetEnergy='..iProjectedNetEnergy..'; iTeamAvgEnergyStored='..iTeamAvgEnergyStored) end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         return true
+    end
+    if bHoldOffPowerForMassCrash and not(bHardEnergyEmergency) then
+        if bDebugMessages == true then LOG(sFunctionRef..': Mass is crashing while energy remains healthy, so will hold off fresh power demand') end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
     end
     if M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 100000 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.5 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and (M28Team.tTeamData[iTeam][M28Team.refbBuiltParagon] or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.95)) then
         bWantMorePower = false
