@@ -30,7 +30,7 @@ M28DebugBrain = false
 M28DebugBuilding = false
 M28DebugChat = false
 M28DebugConditions = false
-M28DebugEconomy = true
+M28DebugEconomy = false
 M28DebugEngineer = false
 M28DebugEvents = false
 M28DebugFactory = false
@@ -43,7 +43,7 @@ M28DebugNavy = false
 M28DebugOrders = false
 M28DebugOverseer = false
 M28DebugProfiler = false
-M28DebugTeam = true
+M28DebugTeam = false
 M28DebugUnitInfo = false
 M28DebugUtilities = false
 
