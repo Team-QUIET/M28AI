@@ -4264,10 +4264,26 @@ function ConsiderGettingUpgrades(iM28Team)
     local sFunctionRef = 'ConsiderGettingUpgrades'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
+    local function DoesTeamMeetEarlyMexUpgradeStartGate()
+        return GetGameTimeSeconds() >= 120
+            and (tTeamData[iM28Team][subrefiTeamMassStored] or 0) >= 200
+            and (tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] or 0) >= 0.08
+    end
+
+    local bEarlyMexUpgradeStart = DoesTeamMeetEarlyMexUpgradeStartGate()
+    local bCanStartGeneralUpgradeFlow = GetGameTimeSeconds() >= 300
+        or M28Map.bIsCampaignMap
+        or GetGameTimeSeconds() >= 60 + 240 / (0.5 + tTeamData[iM28Team][refiHighestBrainResourceMultiplier] * 0.5) - 30 * math.min(3, math.max(0, tTeamData[iM28Team][subrefiActiveM28BrainCount] - 1.5))
+        or tTeamData[iM28Team][subrefiTeamGrossMass] >= 6 * tTeamData[iM28Team][subrefiActiveM28BrainCount] * (0.5 + tTeamData[iM28Team][refiHighestBrainResourceMultiplier] * 0.5)
+        or (tTeamData[iM28Team][subrefiTeamMassStored] >= 700 and tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] >= 0.4)
+        or M28Map.bIsLowMexMap
+        or M28Overseer.bNoRushActive
+        or ((M28Utilities.bLoudModActive) and GetGameTimeSeconds() >= 200)
+
     if bDebugMessages == true then LOG(sFunctionRef..': Time='..GetGameTimeSeconds()..'; tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored]='..tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored]..'; Stalling energy='..tostring(tTeamData[iM28Team][subrefbTeamIsStallingEnergy])..'; Stalling mass='..tostring(tTeamData[iM28Team][subrefbTeamIsStallingMass])..'; tTeamData[iM28Team][subrefiTeamGrossMass]='..tTeamData[iM28Team][subrefiTeamGrossMass]..'; tTeamData[iM28Team][subrefiTeamGrossEnergy]='..tTeamData[iM28Team][subrefiTeamGrossEnergy]..'; tTeamData[iM28Team][subrefiTeamMassStored]='..tTeamData[iM28Team][subrefiTeamMassStored]..'; tTeamData[iM28Team][subrefiTeamAverageMassPercentStored]='..tTeamData[iM28Team][subrefiTeamAverageMassPercentStored]..'; tTeamData[iM28Team][subrefiTeamNetEnergy]='..tTeamData[iM28Team][subrefiTeamNetEnergy]) end
-    if tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.6 and (GetGameTimeSeconds() >= 150 or (GetGameTimeSeconds() >= 60 and GetGameTimeSeconds() >= 150 / tTeamData[iM28Team][refiHighestBrainResourceMultiplier]) or (tTeamData[iM28Team][subrefiTeamGrossMass] >= 3 * tTeamData[iM28Team][subrefiActiveM28BrainCount] and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 50 * tTeamData[iM28Team][subrefiActiveM28BrainCount]) or (tTeamData[iM28Team][subrefiTeamMassStored] >= 700 and tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] >= 0.9 and tTeamData[iM28Team][subrefiTeamNetEnergy] >= 3 and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.95) or (M28Map.bIsLowMexMap and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.5 and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.99 or (tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 6 * tTeamData[iM28Team][subrefiActiveM28BrainCount]))) and not(tTeamData[iM28Team][subrefbTeamIsStallingEnergy]) then
+    if tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.6 and (bEarlyMexUpgradeStart or GetGameTimeSeconds() >= 150 or (GetGameTimeSeconds() >= 60 and GetGameTimeSeconds() >= 150 / tTeamData[iM28Team][refiHighestBrainResourceMultiplier]) or (tTeamData[iM28Team][subrefiTeamGrossMass] >= 3 * tTeamData[iM28Team][subrefiActiveM28BrainCount] and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 50 * tTeamData[iM28Team][subrefiActiveM28BrainCount]) or (tTeamData[iM28Team][subrefiTeamMassStored] >= 700 and tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] >= 0.9 and tTeamData[iM28Team][subrefiTeamNetEnergy] >= 3 and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.95) or (M28Map.bIsLowMexMap and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.5 and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.99 or (tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 6 * tTeamData[iM28Team][subrefiActiveM28BrainCount]))) and not(tTeamData[iM28Team][subrefbTeamIsStallingEnergy]) then
         --Further general eco conditions on upgrading early game
-        if GetGameTimeSeconds() >= 300 or M28Map.bIsCampaignMap or GetGameTimeSeconds() >= 60 + 240 / (0.5 + tTeamData[iM28Team][refiHighestBrainResourceMultiplier] * 0.5) - 30 * math.min(3, math.max(0, tTeamData[iM28Team][subrefiActiveM28BrainCount] - 1.5)) or tTeamData[iM28Team][subrefiTeamGrossMass] >= 6 * tTeamData[iM28Team][subrefiActiveM28BrainCount] * (0.5 + tTeamData[iM28Team][refiHighestBrainResourceMultiplier] * 0.5) or (tTeamData[iM28Team][subrefiTeamMassStored] >= 700 and tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] >= 0.4) or M28Map.bIsLowMexMap or M28Overseer.bNoRushActive or ((M28Utilities.bLoudModActive) and GetGameTimeSeconds() >= 200) then
+        if bCanStartGeneralUpgradeFlow then
             if bDebugMessages == true then LOG(sFunctionRef..': Have enough energy that we will check for priority upgrades and then normal upgrades') end
             tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle] = 0
             tTeamData[iM28Team][subrefiEnergyUpgradesStartedThisCycle] = 0
@@ -4297,6 +4313,14 @@ function ConsiderGettingUpgrades(iM28Team)
                     end
                 end
                 ConsiderPriorityMexUpgrades(iM28Team)
+            end
+        elseif bEarlyMexUpgradeStart then
+            if bDebugMessages == true then LOG(sFunctionRef..': Early mex upgrade start gate passed; will only consider mex upgrades, stored mass='..tTeamData[iM28Team][subrefiTeamMassStored]..'; stored ratio='..tTeamData[iM28Team][subrefiTeamAverageMassPercentStored]) end
+            tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle] = 0
+            tTeamData[iM28Team][subrefiEnergyUpgradesStartedThisCycle] = 0
+            ConsiderPriorityMexUpgrades(iM28Team)
+            if tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle] == 0 and not(tTeamData[iM28Team][refbFocusOnT1Spam]) then
+                GetSafeMexToUpgrade(iM28Team, false, false)
             end
         end
     end
