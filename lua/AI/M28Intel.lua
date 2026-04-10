@@ -182,8 +182,8 @@ end
 ---Refresh intel confidence for all land zones for a team
 ---@param iTeam number Team index
 function RefreshAllLandZoneIntelConfidence(iTeam)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'RefreshAllLandZoneIntelConfidence'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelIntel, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local iCurrentTime = GetGameTimeSeconds()
@@ -262,8 +262,8 @@ end
 ---@param iMaxZones number Maximum number of zones to return
 ---@return table Array of {iPlateau, iLandZone, iUrgency} for zones needing scouts
 function GetZonesNeedingArmyScouting(iTeam, iMaxZones)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'GetZonesNeedingArmyScouting'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelIntel, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local tUrgentZones = {}
@@ -395,8 +395,8 @@ end
 ---@param iTeam number Team index
 ---@param iUrgency number Urgency level (higher = more urgent)
 function RequestPriorityScoutingForZone(iPlateau, iLandOrWaterZone, iTeam, iUrgency)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'RequestPriorityScoutingForZone'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelIntel, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     -- Store in team data for air scouts to pick up
@@ -571,8 +571,8 @@ end
 ---@param iPreviousKnownThreat number What we thought the threat was
 ---@return boolean True if this constitutes an intel surprise
 function DetectIntelSurprise(tLZOrWZTeamData, iTeam, iActualThreat, iPreviousKnownThreat)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'DetectIntelSurprise'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelIntel, sFunctionRef)
 
     local iCurrentTime = GetGameTimeSeconds()
     local iConfidence = GetZoneIntelConfidence(tLZOrWZTeamData, iTeam, 2)
@@ -651,8 +651,8 @@ end
 ---@param iCurrentEnemyThreat number Current enemy combat threat in zone
 ---@return boolean True if battle has concluded (enemy threat dropped significantly)
 function DetectBattleConcluded(tLZOrWZTeamData, iCurrentEnemyThreat)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'DetectBattleConcluded'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelIntel, sFunctionRef)
 
     local iCurrentTime = GetGameTimeSeconds()
     local iPeakThreat = tLZOrWZTeamData[refiPeakEnemyThreat] or 0
@@ -716,8 +716,8 @@ end
 ---@param iMaxZones number Maximum number of zones to return
 ---@return table Array of {iPond, iWaterZone, iUrgency} for zones needing scouts
 function GetWaterZonesNeedingNavyScouting(iTeam, iMaxZones)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'GetWaterZonesNeedingNavyScouting'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelIntel, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local tUrgentZones = {}
@@ -811,8 +811,8 @@ iPriorityZoneScoutWeight = 2        -- Priority zones count as this many regular
 ---@return number Count of low intel land zones
 ---@return number Count of low intel water zones
 function GetZonesNeedingScoutingCount(iTeam)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'GetZonesNeedingScoutingCount'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelIntel, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local iPriorityZoneCount = 0
@@ -875,8 +875,8 @@ end
 ---@param iGameEnderCount number Number of game enders (nukes, etc) that need extra scouting
 ---@return number Desired number of air scouts
 function GetDesiredAirScoutCount(iTeam, iGameEnderCount)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then bDebugMessages = true end
     local sFunctionRef = 'GetDesiredAirScoutCount'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelIntel, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local iWeightedZones = GetZonesNeedingScoutingCount(iTeam)
@@ -1084,8 +1084,8 @@ end
 ---Enable/disable verbose intel logging globally
 ---@param bEnable boolean True to enable verbose logging
 function SetVerboseIntelLogging(bEnable)
-    -- This is a marker function - the actual logging is controlled by M28Profiler.bGlobalDebugOverride
+    -- This is a marker function - the actual logging is controlled by the M28Config debug channels.
     if bEnable then
-        LOG('M28Intel: Verbose logging can be enabled via M28Profiler.bGlobalDebugOverride = true')
+        LOG('M28Intel: Enable verbose intel logging via M28Config.M28DebugIntel = true')
     end
 end

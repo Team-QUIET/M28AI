@@ -16,6 +16,59 @@ M28RunMemoryProfiling = false --if this is true then every 60s will list out how
 M28RunGamePerformanceCheck = false --Aug 22 profiling tourney profiling - Runs regardless of whether M28 is active in the game, sends a log every second with how long it took to run that second and how many units are in the game.  Copy of same profiling available for M27 (that was used in the profiling tourney)
 --Simple profiling option:
 M28RunSimpleProfiling = false --if this is true then will output time taken every 10s
+M28DebugFunctionCalls = false --Separate from normal debug so profiling traces don't wake up every module's logs
 
 --Land support debug
 M28LandSupportDebug = false --Enable detailed logs for land support selection/rally targeting
+
+--Centralized debug config
+M28DebugGlobal = false --Enable all channels, still subject to interval and duplicate suppression
+M28DebugDefaultInterval = 5 --Seconds between debug-enabled passes of the same function
+M28DebugRepeatInterval = 20 --Seconds before repeating the same exact debug line for the same function
+M28DebugMaxLinesPerFunctionCall = 6 --Stops one debug-enabled pass from dumping every line in the function
+
+M28DebugACU = false
+M28DebugAir = false
+M28DebugBrain = false
+M28DebugBuilding = false
+M28DebugChat = false
+M28DebugConditions = false
+M28DebugEconomy = false
+M28DebugEngineer = false
+M28DebugEvents = false
+M28DebugFactory = true
+M28DebugIntel = false
+M28DebugLand = false
+M28DebugLogic = false
+M28DebugMap = false
+M28DebugMicro = false
+M28DebugNavy = false
+M28DebugOrders = false
+M28DebugOverseer = false
+M28DebugProfiler = false
+M28DebugTeam = false
+M28DebugUnitInfo = false
+M28DebugUtilities = false
+
+M28DebugACUInterval = 2
+M28DebugAirInterval = 3
+M28DebugBrainInterval = 5
+M28DebugBuildingInterval = 5
+M28DebugChatInterval = 10
+M28DebugConditionsInterval = 5
+M28DebugEconomyInterval = 2
+M28DebugEngineerInterval = 3
+M28DebugEventsInterval = 5
+M28DebugFactoryInterval = 2
+M28DebugIntelInterval = 4
+M28DebugLandInterval = 2
+M28DebugLogicInterval = 5
+M28DebugMapInterval = 6
+M28DebugMicroInterval = 2
+M28DebugNavyInterval = 3
+M28DebugOrdersInterval = 5
+M28DebugOverseerInterval = 5
+M28DebugProfilerInterval = 10
+M28DebugTeamInterval = 3
+M28DebugUnitInfoInterval = 8
+M28DebugUtilitiesInterval = 8

@@ -29,8 +29,8 @@ refiMaxUnitsToHoverMicroAtOnce = 'M28MxHvM' --determiend by ScenarioInfo.Options
 refiCurUnitsHoverMicroing = 'M28CrDgM' --Number of untis currently doing hover micro (used if refiMaxUnitsToHoverMicroAtOnce isnt nil)
 
 function MoveAwayFromTargetTemporarily(oUnit, iTimeToRun, tPositionToRunFrom)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'MoveAwayFromTargetTemporarily'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local bMoveInStages = false --set to true later if hardly have any time to run, but in reality this functionality isn't expected to be used in most cases, left in since took a while to get it to work to a basic level, but turns out it's probably better to just move in a straight line rather than trying multiple move orders
@@ -82,7 +82,7 @@ function MoveAwayFromTargetTemporarily(oUnit, iTimeToRun, tPositionToRunFrom)
 
         local tTempLocationToMove
 
-        if bDebugMessages == true then LOG(sFunctionRef..': About to start main loop for move commands for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iTimeToRun='..iTimeToRun..'; iCurFacingDirection='..iCurFacingDirection..'; iAngleFromUnitToBomb='..iAngleFromUnitToBomb..'; iFacingAngleWanted='..iFacingAngleWanted..'; tUnitStartPosition='..repru(oUnit:GetPosition())..'; tPositionToRunFrom='..repru(tPositionToRunFrom)..'; bBackupInsteadOfTurning='..tostring(bBackupInsteadOfTurning)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to start main loop for move commands for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iTimeToRun='..iTimeToRun..'; iCurFacingDirection='..iCurFacingDirection..'; iAngleFromUnitToBomb='..iAngleFromUnitToBomb..'; iFacingAngleWanted='..iFacingAngleWanted..'; tUnitStartPosition='..repru(oUnit:GetPosition())..'; tPositionToRunFrom='..repru(tPositionToRunFrom)..'; bBackupInsteadOfTurning='..tostring(bBackupInsteadOfTurning)) end
         M28Orders.IssueTrackedClearCommands(oUnit)
         TrackTemporaryUnitMicro(oUnit, iTimeToRun)
         tTempLocationToMove = oUnit:GetPosition()
@@ -120,13 +120,13 @@ function MoveAwayFromTargetTemporarily(oUnit, iTimeToRun, tPositionToRunFrom)
                     elseif iTempAngleDirectionToMove < 0 then iTempAngleDirectionToMove = iTempAngleDirectionToMove + 360
                     end
 
-                    if bDebugMessages == true then LOG(sFunctionRef..': iLoopCount='..iLoopCount..'; iTempAngleDirectionToMove='..iTempAngleDirectionToMove..'; iInitialAngleAdj='..iInitialAngleAdj..'; iAngleAdjFactor='..iAngleAdjFactor..'; iCurFacingDirection='..iCurFacingDirection..'; iFacingAngleWanted='..iFacingAngleWanted) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iLoopCount='..iLoopCount..'; iTempAngleDirectionToMove='..iTempAngleDirectionToMove..'; iInitialAngleAdj='..iInitialAngleAdj..'; iAngleAdjFactor='..iAngleAdjFactor..'; iCurFacingDirection='..iCurFacingDirection..'; iFacingAngleWanted='..iFacingAngleWanted) end
 
 
                     iTempDistanceAwayToMove = iTempDistanceAwayToMove + iDistanceIncreasePerCycle * iDistanceIncreasePerCycle * (iDistanceIncreaseCompoundFactor ^ iLoopCount - 1)
                     tTempLocationToMove = M28Utilities.MoveInDirection(oUnit:GetPosition(), iTempAngleDirectionToMove, iTempDistanceAwayToMove, true, false, true)
                     M28Orders.IssueTrackedMove(oUnit, tTempLocationToMove, 0.25, true, 'TempMA', true)
-                    if bDebugMessages == true then LOG(sFunctionRef..': Just issued move order to tTempLocationToMove='..repru(tTempLocationToMove)..'; iTempAngleDirectionToMove='..iTempAngleDirectionToMove) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just issued move order to tTempLocationToMove='..repru(tTempLocationToMove)..'; iTempAngleDirectionToMove='..iTempAngleDirectionToMove) end
                     if math.abs(iTempAngleDirectionToMove - iFacingAngleWanted) <= iAngleMaxSingleAdj then break
                     elseif math.abs(iTempAngleDirectionToMove - iFacingAngleWanted) > 360 then
                         M28Utilities.ErrorHandler('Something has gone wrong with dodge micro, will stop trying to turn around')
@@ -140,7 +140,7 @@ function MoveAwayFromTargetTemporarily(oUnit, iTimeToRun, tPositionToRunFrom)
 
 
         --If are backing up, then consider queuing up multiple move orders
-        if bDebugMessages == true then LOG(sFunctionRef..': Considering if we should backup, bBackupInsteadOfTurning='..tostring(bBackupInsteadOfTurning or false)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if we should backup, bBackupInsteadOfTurning='..tostring(bBackupInsteadOfTurning or false)) end
         if bBackupInsteadOfTurning and iBackupDist - 1 > 0 and iDistanceToMove > iDistanceAlreadyMoved then
             --First stop and wait 1 tick (so we can actually backup)
             TrackTemporaryUnitMicro(oUnit, iTimeToRun)
@@ -163,7 +163,7 @@ function MoveAwayFromTargetTemporarily(oUnit, iTimeToRun, tPositionToRunFrom)
                         WaitTicks(1)
                         iTotalTimeWaited = iTotalTimeWaited + 1
                         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-                        if bDebugMessages == true then LOG(sFunctionRef..': Speed after waiting 1 tick='..M28UnitInfo.GetUnitSpeed(oUnit)..'; iTotalTimeWaited in ticks='..iTotalTimeWaited) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Speed after waiting 1 tick='..M28UnitInfo.GetUnitSpeed(oUnit)..'; iTotalTimeWaited in ticks='..iTotalTimeWaited) end
                     end
                     if not(M28UnitInfo.IsUnitValid(oUnit)) then break end
                 end
@@ -178,7 +178,7 @@ function MoveAwayFromTargetTemporarily(oUnit, iTimeToRun, tPositionToRunFrom)
                             or (EntityCategoryContains(categories.NAVAL, oUnit.UnitId) and NavUtils.GetTerrainLabel(M28Map.refPathingTypeNavy, oUnit:GetPosition()) == NavUtils.GetTerrainLabel(M28Map.refPathingTypeNavy, tViaPoint)) then
                         M28Orders.IssueTrackedMove(oUnit, tViaPoint, 0.25, true, 'BckupDodMv', true)
                         iDistanceAlreadyMoved = iDistanceAlreadyMoved + iCurDistToMove
-                        if bDebugMessages == true then LOG(sFunctionRef..': Backing up to via point, iCurDistToMove='..iCurDistToMove..'; iDistanceAlreadyMoved='..iDistanceAlreadyMoved) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Backing up to via point, iCurDistToMove='..iCurDistToMove..'; iDistanceAlreadyMoved='..iDistanceAlreadyMoved) end
                     else
                         --Abort
                         break
@@ -191,14 +191,14 @@ function MoveAwayFromTargetTemporarily(oUnit, iTimeToRun, tPositionToRunFrom)
         end
         if not(bBackupInsteadOfTurning) or iDistanceToMove < iDistanceAlreadyMoved then
             local tNewTargetIgnoringGrouping = M28Utilities.MoveInDirection(oUnit:GetPosition(), iFacingAngleWanted, math.max(1, iDistanceToMove - iDistanceAlreadyMoved), true, false, true)
-            if bDebugMessages == true then LOG(sFunctionRef..': Finished trying to face the right direction, tNewTargetIgnoringGrouping='..repru(tNewTargetIgnoringGrouping)..'; tUnitPosition='..repru(tUnitPosition)..'; iDistanceToMove='..iDistanceToMove..'; iDistanceAlreadyMoved='..iDistanceAlreadyMoved) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished trying to face the right direction, tNewTargetIgnoringGrouping='..repru(tNewTargetIgnoringGrouping)..'; tUnitPosition='..repru(tUnitPosition)..'; iDistanceToMove='..iDistanceToMove..'; iDistanceAlreadyMoved='..iDistanceAlreadyMoved) end
             if EntityCategoryContains(M28UnitInfo.refCategoryAllAir, oUnit.UnitId) then
                 M28Orders.IssueTrackedMove(oUnit, tNewTargetIgnoringGrouping, 0.25, true, 'TempGA', true)
-                if bDebugMessages == true then LOG(sFunctionRef..': Dodging bomb for air unit, tNewTargetIgnoringGrouping='..repru(tNewTargetIgnoringGrouping)..'; Unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dodging bomb for air unit, tNewTargetIgnoringGrouping='..repru(tNewTargetIgnoringGrouping)..'; Unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
             else
                 local tNewTargetInSameGroup = M28Map.GetPositionAtOrNearTargetInPathingGroup(tUnitPosition, tNewTargetIgnoringGrouping, 0, 0, oUnit, true, false)
                 if tNewTargetInSameGroup then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Starting bomber dodge for unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; tNewTargetInSameGroup='..repru(tNewTargetInSameGroup)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Starting bomber dodge for unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; tNewTargetInSameGroup='..repru(tNewTargetInSameGroup)) end
 
                     M28Orders.IssueTrackedMove(oUnit, tNewTargetInSameGroup, 0.25, true, 'TempMA', true)
                     TrackTemporaryUnitMicro(oUnit, iTimeToRun)
@@ -206,7 +206,7 @@ function MoveAwayFromTargetTemporarily(oUnit, iTimeToRun, tPositionToRunFrom)
             end
         end
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': End of code at time='..GetGameTimeSeconds()) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': End of code at time='..GetGameTimeSeconds()) end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
@@ -259,13 +259,13 @@ function GetBombTarget(weapon, projectile)
 end
 
 function FriendlyGunshipsAvoidBomb(oBomber, oWeapon, projectile)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'FriendlyGunshipsAvoidBomb'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     local tBombTarget = GetBombTarget(oWeapon, projectile)
     if tBombTarget then
         local iBombSize = oWeapon:GetBlueprint().DamageRadius
-        if bDebugMessages == true then LOG(sFunctionRef..': Near start, oBomber='..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; tBombTarget='..repru(tBombTarget)..'; iBombSize='..iBombSize) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Near start, oBomber='..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; tBombTarget='..repru(tBombTarget)..'; iBombSize='..iBombSize) end
         if iBombSize then
             local iCategoriesToRun = M28UnitInfo.refCategoryGunship
             local iRadiusSize = iBombSize + 10
@@ -295,7 +295,7 @@ function FriendlyGunshipsAvoidBomb(oBomber, oWeapon, projectile)
                             --If gunship runs to temp destination is it likely to be going the wrong way to avoid the bomb? if so then have it run in a different direction
                             iCurDistToBomb = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tBombTarget)
                             bMoveToAltDestination = false
-                            if bDebugMessages == true then LOG(sFunctionRef..': Considering oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iCurDistToBomb='..iCurDistToBomb..'; ANgle from bomb='..M28Utilities.GetAngleFromAToB(tBombTarget, oUnit:GetPosition())..'; iAngleFromBombToBase='..iAngleFromBombToBase) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iCurDistToBomb='..iCurDistToBomb..'; ANgle from bomb='..M28Utilities.GetAngleFromAToB(tBombTarget, oUnit:GetPosition())..'; iAngleFromBombToBase='..iAngleFromBombToBase) end
                             if iCurDistToBomb >= 4 then
                                 iCurAngleFromBomb = M28Utilities.GetAngleFromAToB(tBombTarget, oUnit:GetPosition())
                                 if M28Utilities.GetAngleDifference(iCurAngleFromBomb, iAngleFromBombToBase) > 50 then
@@ -316,22 +316,22 @@ function FriendlyGunshipsAvoidBomb(oBomber, oWeapon, projectile)
             end
         end
     else
-        if bDebugMessages == true then LOG(sFunctionRef..': tBombTarget is nil') end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tBombTarget is nil') end
     end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
 function DodgeBomb(oBomber, oWeapon, projectile)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'DodgeBombsFiredByUnit'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local tBombTarget = GetBombTarget(oWeapon, projectile)
-    if bDebugMessages == true then LOG(sFunctionRef..': Start fo code for bomber '..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; is tBombTarget nil='..tostring(tBombTarget == nil)..'; Time='..GetGameTimeSeconds()) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start fo code for bomber '..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; is tBombTarget nil='..tostring(tBombTarget == nil)..'; Time='..GetGameTimeSeconds()) end
     --LOUD - recall Sprouto saying that bombs home in on target, so dont try and dodge
     if tBombTarget and not(M28Utilities.bLoudModActive) then
-        if bDebugMessages == true then LOG(sFunctionRef..': bomb fired by oBomber='..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; Dist to target from bomber='..M28Utilities.GetDistanceBetweenPositions(oBomber:GetPosition(), tBombTarget)..'; Bomber speed='..M28UnitInfo.GetUnitSpeed(oBomber)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bomb fired by oBomber='..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; Dist to target from bomber='..M28Utilities.GetDistanceBetweenPositions(oBomber:GetPosition(), tBombTarget)..'; Bomber speed='..M28UnitInfo.GetUnitSpeed(oBomber)) end
         oBomber[M28UnitInfo.refiLastDodgeBombEvent] = GetGameTimeSeconds()
         local iBombSize = 2.5
         if oWeapon.GetBlueprint then iBombSize = math.max(iBombSize, (oWeapon:GetBlueprint().DamageRadius or iBombSize)) end
@@ -344,7 +344,7 @@ function DodgeBomb(oBomber, oWeapon, projectile)
         elseif EntityCategoryContains(categories.TECH3, oBomber.UnitId) then
             iTimeToRun = 2.5
             --Consider recording for special asf suicide logic
-            if bDebugMessages == true then LOG(sFunctionRef..': Will consider logic for suiciding into strat bomber') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will consider logic for suiciding into strat bomber') end
             ForkThread(M28Air.ConsiderRecordingStratBomberToSuicideInto, oBomber)
         end --Some t2 bombers do damage in a spread (cybran, uef)
         --local iTimeToRun = math.min(7, iBombSize + 1)
@@ -359,7 +359,7 @@ function DodgeBomb(oBomber, oWeapon, projectile)
 
         local tAllUnitsInArea = GetUnitsInRect(Rect(tBombTarget[1]-iRadiusSize, tBombTarget[3]-iRadiusSize, tBombTarget[1]+iRadiusSize, tBombTarget[3]+iRadiusSize))
         local bDontCheckIfFriendlyGunships = true
-        if bDebugMessages == true then LOG(sFunctionRef..': Is table of units in rectangle around bomb radius empty='..tostring(M28Utilities.IsTableEmpty(tAllUnitsInArea))) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is table of units in rectangle around bomb radius empty='..tostring(M28Utilities.IsTableEmpty(tAllUnitsInArea))) end
         if M28Utilities.IsTableEmpty(tAllUnitsInArea) == false then
             local tMobileLandAndGunshipsInArea
             if iBombSize <= 9 then tMobileLandAndGunshipsInArea = EntityCategoryFilterDown(M28UnitInfo.refCategoryMobileLand - categories.EXPERIMENTAL, tAllUnitsInArea)
@@ -375,14 +375,14 @@ function DodgeBomb(oBomber, oWeapon, projectile)
                 else
                     tMobileLandAndGunshipsInArea = EntityCategoryFilterDown(M28UnitInfo.refCategoryMobileLand - categories.EXPERIMENTAL + M28UnitInfo.refCategoryGunship, tAllUnitsInArea)
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': Are including gunships in the category of unit to consider dodging') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Are including gunships in the category of unit to consider dodging') end
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': Is table of mobile land units in rectangle around bomb radius empty='..tostring(M28Utilities.IsTableEmpty(tMobileLandAndGunshipsInArea))) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is table of mobile land units in rectangle around bomb radius empty='..tostring(M28Utilities.IsTableEmpty(tMobileLandAndGunshipsInArea))) end
             if M28Utilities.IsTableEmpty(tMobileLandAndGunshipsInArea) == false then
                 local oCurBrain
                 for iUnit, oUnit in tMobileLandAndGunshipsInArea do
                     if not(oUnit.Dead) and oUnit.GetUnitId and oUnit.GetPosition and oUnit.GetAIBrain then
-                        if bDebugMessages == true then LOG(sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Does unit already have micro active='..tostring((oUnit[M28UnitInfo.refbSpecialMicroActive] or false))..'; refbLowerPriorityMicroActive='..tostring(oUnit[M28UnitInfo.refbLowerPriorityMicroActive] or false)..'; iTimeToRun='..iTimeToRun) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Does unit already have micro active='..tostring((oUnit[M28UnitInfo.refbSpecialMicroActive] or false))..'; refbLowerPriorityMicroActive='..tostring(oUnit[M28UnitInfo.refbLowerPriorityMicroActive] or false)..'; iTimeToRun='..iTimeToRun) end
                         oCurBrain = oUnit:GetAIBrain()
                         if oCurBrain.M28AI and not(oCurBrain.M28IsDefeated) and not(oCurBrain:IsDefeated()) and IsEnemy(oCurBrain:GetArmyIndex(), iBomberArmyIndex) then
                             if not(oUnit[M28UnitInfo.refbEasyBrain]) then
@@ -421,7 +421,7 @@ function DodgeBomb(oBomber, oWeapon, projectile)
                                     elseif oUnit:IsUnitState('Teleporting') then
                                         bDontTryAndDodge = true
                                     end
-                                    if bDebugMessages == true then LOG(sFunctionRef..': bDontTryAndDodge after checking if upgrading='..tostring(bDontTryAndDodge)) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bDontTryAndDodge after checking if upgrading='..tostring(bDontTryAndDodge)) end
                                     if not(bDontTryAndDodge) then
                                         --Is there a significant enemy land threat and we are against a T1 bomber?
                                         local iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oUnit:GetPosition(), true, oUnit)
@@ -432,10 +432,10 @@ function DodgeBomb(oBomber, oWeapon, projectile)
 
                                     if not(bDontTryAndDodge) then
                                         if oUnit[M28UnitInfo.refbSpecialMicroActive] and not(EntityCategoryContains(categories.AIR, oUnit.UnitId)) and not(oUnit[M28UnitInfo.refbLowerPriorityMicroActive]) then
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Will move in a circle as micro is already active') end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will move in a circle as micro is already active') end
                                             MoveInCircleTemporarily(oUnit, iTimeToRun)
                                         else
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Will move away from bomb target temporarily') end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will move away from bomb target temporarily') end
                                             MoveAwayFromTargetTemporarily(oUnit, iTimeToRun, tBombTarget)
                                             oUnit[M28UnitInfo.refiGameTimeMicroStarted] = GetGameTimeSeconds()
                                         end
@@ -444,12 +444,12 @@ function DodgeBomb(oBomber, oWeapon, projectile)
                                 else
                                     --If we are already in the process of dodging then dont try dodging some more, unless our micro is about to expire
                                     if oUnit[M28UnitInfo.refbSpecialMicroActive] and not(oUnit[M28UnitInfo.refbLowerPriorityMicroActive]) and (oUnit[M28UnitInfo.refiGameTimeToResetMicroActive] or 0) - GetGameTimeSeconds() > 0.5 then
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Unit has recently tried dodging so dont want to give it another dodge order as it might end up not moving') end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit has recently tried dodging so dont want to give it another dodge order as it might end up not moving') end
                                     else
                                         --Are we a mobile shield that isn't on the same team as the bomber? If so, then dont worry about dodging
                                         if not(EntityCategoryContains(M28UnitInfo.refCategoryMobileLandShield, oUnit.UnitId)) or not(oUnit.MyShield.GetHealth) or oUnit.MyShield:GetHealth() == 0 or not(oUnit.MyShield.Enabled) or oUnit.MyShield.DepletedByEnergy then
                                             if bDontCheckIfFriendlyGunships or not(EntityCategoryContains(M28UnitInfo.refCategoryGunship, oUnit.UnitId)) or not(oUnit:GetAIBrain().M28Team == oBomber:GetAIBrain().M28Team) then
-                                                if bDebugMessages == true then LOG(sFunctionRef..': about to call moveawayfromtargettemporarily') end
+                                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': about to call moveawayfromtargettemporarily') end
                                                 MoveAwayFromTargetTemporarily(oUnit, iTimeToRun, tBombTarget)
                                                 oUnit[M28UnitInfo.refiGameTimeMicroStarted] = GetGameTimeSeconds()
                                             end
@@ -463,7 +463,7 @@ function DodgeBomb(oBomber, oWeapon, projectile)
             end
         end
     else
-        if bDebugMessages == true then LOG(sFunctionRef..': tBombTarget is nil or are in LOUD') end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tBombTarget is nil or are in LOUD') end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
@@ -481,8 +481,8 @@ function DelayedRemovalOfTargetToAvoid(tTargetLZTeamData, tTargetToAvoid, iDelay
 end
 
 function ConsiderDodgingShot(oUnit, oWeapon)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ConsiderDodgingShot'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
         
     if not(ScenarioInfo.Options.M28DodgeMicro == 2) and not(EntityCategoryContains(M28UnitInfo.refCategoryLandScout, oUnit.UnitId)) then
@@ -506,7 +506,7 @@ function ConsiderDodgingShot(oUnit, oWeapon)
         end
         --Direct fire, t1 mobile arti, t2 mobile missile launchers, Cruiser missiles, and experimental land
         if oWeapon.GetCurrentTarget and (oWeaponBP.WeaponCategory == 'Direct Fire' or oWeaponBP.WeaponCategory == 'Direct Fire Naval' or oWeaponBP.WeaponCategory == 'Direct Fire Experimental' or (oWeaponBP.WeaponCategory == 'Artillery' and EntityCategoryContains(categories.TECH1, oUnit.UnitId)) or (oWeaponBP.WeaponCategory == 'Missile' and oWeaponBP.MaxRadius <= 80) or (not(M28Utilities.bFAFActive) and (oUnit[M28UnitInfo.refiCombatRange] or 0) > 0 and (oWeaponBP.RangeCategory == 'UWRC_IndirectFire' or oWeaponBP.RangeCategory == 'UWRC_DirectFire'))) or (oWeaponBP.WeaponCategory == 'Indirect Fire' and oWeaponBP.MuzzleVelocity <= 25) or (oWeaponBP.WeaponCategory == 'Missile' and not(oWeaponBP.ManualFire)) then
-            if bDebugMessages == true then LOG(sFunctionRef..': Have a valid weapon category, will see if have targets to consider dodging') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have a valid weapon category, will see if have targets to consider dodging') end
             local oWeaponTarget
             local iRadiusSize = math.min(5, 1 + math.max(oWeaponBP.DamageRadius + 0.5 + 7 * (oWeaponBP.FiringRandomness or 0), 1))
             local tWeaponTarget
@@ -516,7 +516,7 @@ function ConsiderDodgingShot(oUnit, oWeapon)
 
             local tUnitsToConsiderDodgeFor = {}
             function ConsiderAddingUnitToTable(oCurUnit, bIncludeBusyUnits)
-                if bDebugMessages == true then LOG(sFunctionRef..': Considering if we should add oCurUnit='..oCurUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oCurUnit)..'; Brain='..oCurUnit:GetAIBrain().Nickname..'; Unit state='..M28UnitInfo.GetUnitState(oCurUnit)..'; Special micro active='..tostring(oCurUnit[M28UnitInfo.refbSpecialMicroActive] or false)..'; Time='..GetGameTimeSeconds()..'; refiGameTimeToResetMicroActive='..(oCurUnit[M28UnitInfo.refiGameTimeToResetMicroActive] or 'nil')) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if we should add oCurUnit='..oCurUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oCurUnit)..'; Brain='..oCurUnit:GetAIBrain().Nickname..'; Unit state='..M28UnitInfo.GetUnitState(oCurUnit)..'; Special micro active='..tostring(oCurUnit[M28UnitInfo.refbSpecialMicroActive] or false)..'; Time='..GetGameTimeSeconds()..'; refiGameTimeToResetMicroActive='..(oCurUnit[M28UnitInfo.refiGameTimeToResetMicroActive] or 'nil')) end
                 local aiBrain = oCurUnit:GetAIBrain()
                 if aiBrain.M28AI and not(aiBrain.M28Easy) and (not(aiBrain[refiMaxUnitsToDodgeMicroAtOnce]) or aiBrain[refiCurUnitsDodging] < aiBrain[refiMaxUnitsToDodgeMicroAtOnce]) and (bIncludeBusyUnits or (not(oCurUnit:IsUnitState('Upgrading')) and (not(oCurUnit[M28UnitInfo.refbSpecialMicroActive]) or oCurUnit[M28UnitInfo.refbLowerPriorityMicroActive]))) then
                     if EntityCategoryContains(categories.AIR + categories.STRUCTURE, oCurUnit.UnitId) then
@@ -526,9 +526,9 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                             if not(oUnit[M28UnitInfo.refbEasyBrain]) then
                                 --Engineers - dont dodge if almost done construction
                                 if EntityCategoryContains(M28UnitInfo.refCategoryEngineer, oCurUnit.UnitId) and oCurUnit:GetWorkProgress() >= 0.4 and (oCurUnit:GetWorkProgress() >= 0.95 or ((oWeaponBP.Damage or 100) <= 50 and (oCurUnit:GetWorkProgress() >= 0.8 or oCurUnit:GetFocusUnit().UnitId and EntityCategoryContains(categories.DEFENSE, oCurUnit:GetFocusUnit().UnitId)))) then
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Wont dodge shot as almost done with construction or low damaage shot and we are building defensive unit, work progress='..oCurUnit:GetWorkProgress()..'; Weapon damage='..(oWeaponBP.Damage or 'nil')) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Wont dodge shot as almost done with construction or low damaage shot and we are building defensive unit, work progress='..oCurUnit:GetWorkProgress()..'; Weapon damage='..(oWeaponBP.Damage or 'nil')) end
                                 else
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Added unit to table of units to consider dodging for') end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Added unit to table of units to consider dodging for') end
                                     table.insert(tUnitsToConsiderDodgeFor, oCurUnit)
                                 end
                             end
@@ -548,11 +548,11 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                 else
                     ConsiderAddingUnitToTable(oWeaponTarget, bIncludeBusyUnits)
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': Dont want to consider units in area so will only consider oWeaponTarget') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dont want to consider units in area so will only consider oWeaponTarget') end
 
             else
                 --Does the weapon have an aoe?
-                if bDebugMessages == true then LOG(sFunctionRef..': oWeaponBP.DamageRadius='..(oWeaponBP.DamageRadius or 'nil')..'; will consider units in an area if it is an aoe attack, oWeaponTarget='..(oWeaponTarget.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oWeaponTarget) or 'nil')) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oWeaponBP.DamageRadius='..(oWeaponBP.DamageRadius or 'nil')..'; will consider units in an area if it is an aoe attack, oWeaponTarget='..(oWeaponTarget.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oWeaponTarget) or 'nil')) end
                 if (oWeaponBP.DamageRadius or 0) > 0.1 then
                     --Get all units in area
                     if oWeaponTarget then
@@ -567,7 +567,7 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                             else
                                 tTargetLZTeamData[M28Map.reftiLocationsToAvoid] = {}
                             end
-                            if bDebugMessages == true then LOG(sFunctionRef..': iExistingEntries in locations to avoid='..iExistingEntries..'; if <10 then will insert') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iExistingEntries in locations to avoid='..iExistingEntries..'; if <10 then will insert') end
                             if iExistingEntries < 10 then
                                 local tTargetToAvoid = {tWeaponTarget[1], tWeaponTarget[2], tWeaponTarget[3]}
                                 table.insert(tTargetLZTeamData[M28Map.reftiLocationsToAvoid], tTargetToAvoid)
@@ -579,7 +579,7 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                     end
 
                     if M28Utilities.IsTableEmpty(tWeaponTarget) == false then
-                        if bDebugMessages == true then LOG(sFunctionRef..': iRadiusSize='..iRadiusSize..'; based ond amage radius='..oWeaponBP.DamageRadius..'; and firing randomness='..(oWeaponBP.FiringRandomness or 'nil')..'; will draw weapon target')
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iRadiusSize='..iRadiusSize..'; based ond amage radius='..oWeaponBP.DamageRadius..'; and firing randomness='..(oWeaponBP.FiringRandomness or 'nil')..'; will draw weapon target')
                             M28Utilities.DrawLocation(tWeaponTarget, 1)
                         end
                         local tAllUnitsInArea = GetUnitsInRect(Rect(tWeaponTarget[1]-iRadiusSize, tWeaponTarget[3]-iRadiusSize, tWeaponTarget[1]+iRadiusSize, tWeaponTarget[3]+iRadiusSize))
@@ -591,10 +591,10 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                                 local iCurShield, iMaxShield
                                 for iShield, oShield in tShieldsInArea do
                                     iCurShield, iMaxShield = M28UnitInfo.GetCurrentAndMaximumShield(oShield, true)
-                                    if bDebugMessages == true then LOG(sFunctionRef..': oCurUnit='..oShield.UnitId..M28UnitInfo.GetUnitLifetimeCount(oShield)..'; iCurShield='..iCurShield..'; iMaxShield='..iMaxShield) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oCurUnit='..oShield.UnitId..M28UnitInfo.GetUnitLifetimeCount(oShield)..'; iCurShield='..iCurShield..'; iMaxShield='..iMaxShield) end
                                     if (iCurShield or 0) > (iMaxShield or 0) * 0.2 then
                                         bUnderMobileShield = true
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Unit has at least 20% shield remaining so wont dodge') end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit has at least 20% shield remaining so wont dodge') end
                                         break
                                     end
                                 end
@@ -603,7 +603,7 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                                 for iNearbyUnit, oNearbyUnit in tAllUnitsInArea do
                                     --Exclude shields (note we also exclude shields that are directly targeted further above)
                                     if oUnit.MyShield.GetHealth and oUnit.MyShield:GetHealth() > 0 and (oUnit:GetBlueprint().Defense.Shield.ShieldSize or 0) > 1.5 then
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Mobile shield that is still active so wont try and dodge') end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Mobile shield that is still active so wont try and dodge') end
                                     else
                                         ConsiderAddingUnitToTable(oNearbyUnit, bIncludeBusyUnits)
                                     end
@@ -613,7 +613,7 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                     end
                 end
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': Is table of units to consider dodging empty='..tostring(M28Utilities.IsTableEmpty(tUnitsToConsiderDodgeFor))..'; Weapon damage='..oWeaponBP.Damage) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is table of units to consider dodging empty='..tostring(M28Utilities.IsTableEmpty(tUnitsToConsiderDodgeFor))..'; Weapon damage='..oWeaponBP.Damage) end
             if M28Utilities.IsTableEmpty(tUnitsToConsiderDodgeFor) == false then
                 local bOnlyDodgeIfNotMoving = false
                 --Calculate time to impact
@@ -636,11 +636,11 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                     local iHoverMaxTimeToRun
 
                     if iMaxTimeToRun < 1.1 then iHoverMaxTimeToRun = 1.1 end
-                    if bDebugMessages == true then LOG(sFunctionRef..': Dist to target='..iDistToTarget..'; Shot speed='..iShotSpeed..'; iTimeUntilImpact='..iTimeUntilImpact..'; Is weapon target a bot='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryLightAttackBot, (oWeaponTarget.UnitId or 'uel0001')))..'; bOnlyDodgeIfNotMoving='..tostring(bOnlyDodgeIfNotMoving)..'; tWeaponTarget='..repru(tWeaponTarget)..'; iRadiusSize='..(iRadiusSize or 'nil')..'; oWeaponBP.WeaponCategory='..(oWeaponBP.WeaponCategory or 'nil')..'; oWeaponBP.Label='..(oWeaponBP.Label or 'nil')..'; bOnlyDodgeIfNotMoving='..tostring(bOnlyDodgeIfNotMoving)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dist to target='..iDistToTarget..'; Shot speed='..iShotSpeed..'; iTimeUntilImpact='..iTimeUntilImpact..'; Is weapon target a bot='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryLightAttackBot, (oWeaponTarget.UnitId or 'uel0001')))..'; bOnlyDodgeIfNotMoving='..tostring(bOnlyDodgeIfNotMoving)..'; tWeaponTarget='..repru(tWeaponTarget)..'; iRadiusSize='..(iRadiusSize or 'nil')..'; oWeaponBP.WeaponCategory='..(oWeaponBP.WeaponCategory or 'nil')..'; oWeaponBP.Label='..(oWeaponBP.Label or 'nil')..'; bOnlyDodgeIfNotMoving='..tostring(bOnlyDodgeIfNotMoving)) end
                     if iTimeUntilImpact > 0.8 or (oWeaponTarget and EntityCategoryContains(M28UnitInfo.refCategoryLightAttackBot, oWeaponTarget.UnitId) and iTimeUntilImpact >= 0.2) then
                         for iTarget, oTarget in tUnitsToConsiderDodgeFor do
                             bCancelDodge = false
-                            if bDebugMessages == true then LOG(sFunctionRef..': oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; Weapon damage='..oWeaponBP.Damage..'; Target health='..oTarget:GetHealth()) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; Weapon damage='..oWeaponBP.Damage..'; Target health='..oTarget:GetHealth()) end
 
                             --Disable most land unit dodging - only dodge truly high-alpha damage
                             --Land units should push, not dance around trying to dodge T1 arty shots
@@ -650,7 +650,7 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                             local bIsFromAirUnit = EntityCategoryContains(categories.AIR, oUnit.UnitId)
                             if bIsLandCombatUnit and not(bIsHighAlphaDamage) and not(bIsFromAirUnit) then
                                 bCancelDodge = true
-                                if bDebugMessages == true then LOG(sFunctionRef..': Skipping dodge for land combat unit against non-high-alpha land fire. Damage='..oWeaponBP.Damage..'; Unit='..oTarget.UnitId) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Skipping dodge for land combat unit against non-high-alpha land fire. Damage='..oWeaponBP.Damage..'; Unit='..oTarget.UnitId) end
                             end
 
                             --Skip dodging low-damage shots when we have overwhelming force superiority (2x+ threat)
@@ -663,7 +663,7 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                                         local iEnemyThreat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
                                         if iAllyThreat >= iEnemyThreat * 2 and iEnemyThreat > 0 then
                                             bCancelDodge = true
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Skipping dodge for low-damage shot due to force superiority. AllyThreat='..iAllyThreat..'; EnemyThreat='..iEnemyThreat..'; Damage='..oWeaponBP.Damage) end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Skipping dodge for low-damage shot due to force superiority. AllyThreat='..iAllyThreat..'; EnemyThreat='..iEnemyThreat..'; Damage='..oWeaponBP.Damage) end
                                         end
                                     end
                                 end
@@ -674,10 +674,10 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                                 --Dont bother dodging if missile attack and we are moving away from it
                                 if bOnlyDodgeIfNotMoving then
                                     local tFirstOrder = oUnit[M28Orders.reftiLastOrders][1]
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Only want to dodge if we are moving and will be far away from the waepon target, order type='..(tFirstOrder[M28Orders.subrefiOrderType] or 'nil')..'; Dist from weapon target='..M28Utilities.GetDistanceBetweenPositions(tWeaponTarget, oUnit:GetPosition())..'; iRadiusSize='..iRadiusSize) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Only want to dodge if we are moving and will be far away from the waepon target, order type='..(tFirstOrder[M28Orders.subrefiOrderType] or 'nil')..'; Dist from weapon target='..M28Utilities.GetDistanceBetweenPositions(tWeaponTarget, oUnit:GetPosition())..'; iRadiusSize='..iRadiusSize) end
                                     if tFirstOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueMove and M28Utilities.GetDistanceBetweenPositions(tWeaponTarget, oUnit:GetPosition()) > 2 + iRadiusSize then
                                         bCancelDodge = true
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Dodging missile - we are already planning on moving away from the missile') end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dodging missile - we are already planning on moving away from the missile') end
                                     end
                                 end
                                 if not(bCancelDodge) then
@@ -687,7 +687,7 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                                     if not(oBP.SizeX) then oBP = __blueprints[oTarget.UnitId] end
                                     local iAverageSize = (oBP.SizeX + oBP.SizeZ) * 0.5
                                     local iExpectedTimeWanted = math.min(2.5, 0.4 + iAverageSize * 1.5 / oBP.Physics.MaxSpeed)
-                                    if bDebugMessages == true then LOG(sFunctionRef..': iAverageSize='..iAverageSize..'; Is unit underwater='..tostring(M28UnitInfo.IsUnitUnderwater(oTarget))..'; SizeY='..oBP.SizeY..'; Terrain height='..GetTerrainHeight(oTarget:GetPosition()[1], oTarget:GetPosition()[3])..'; Surface height='..GetSurfaceHeight(oTarget:GetPosition()[1], oTarget:GetPosition()[3])..'; water height='..M28Map.iMapWaterHeight..'; aoe='..(oWeaponBP.DamageRadius or 'nil')..'; oTarget max speed='..oBP.Physics.MaxSpeed..'; iTimeUntilImpact='..iTimeUntilImpact..'; iExpectedTimeWanted='..iExpectedTimeWanted..'; speed of oTarget='..M28UnitInfo.GetUnitSpeed(oTarget)) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iAverageSize='..iAverageSize..'; Is unit underwater='..tostring(M28UnitInfo.IsUnitUnderwater(oTarget))..'; SizeY='..oBP.SizeY..'; Terrain height='..GetTerrainHeight(oTarget:GetPosition()[1], oTarget:GetPosition()[3])..'; Surface height='..GetSurfaceHeight(oTarget:GetPosition()[1], oTarget:GetPosition()[3])..'; water height='..M28Map.iMapWaterHeight..'; aoe='..(oWeaponBP.DamageRadius or 'nil')..'; oTarget max speed='..oBP.Physics.MaxSpeed..'; iTimeUntilImpact='..iTimeUntilImpact..'; iExpectedTimeWanted='..iExpectedTimeWanted..'; speed of oTarget='..M28UnitInfo.GetUnitSpeed(oTarget)) end
                                     if iAverageSize < 0.89 or ((iTimeUntilImpact >= 2 or not(EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId)) and (iTimeUntilImpact > iExpectedTimeWanted) or (oTarget and iTimeUntilImpact >= 1.2 and oWeaponBP.Damage >= 300 and iTimeUntilImpact + 0.3 > iExpectedTimeWanted and oBP.Physics.MaxSpeed >= 4 and M28UnitInfo.GetUnitSpeed(oTarget) >= 2.5))) then
                                         --Are we not underwater?
                                         if not(M28UnitInfo.IsUnitUnderwater(oTarget)) then
@@ -703,12 +703,12 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                                                     --If we have units we can hit then cancel
                                                     if oTarget:GetHealth() >= 5000 and (GetGameTimeSeconds() - (oTarget[M28UnitInfo.refiLastWeaponEvent] or 0) <= 2 or M28Utilities.IsTableEmpty(oTarget:GetAIBrain():GetUnitsAroundPoint(M28UnitInfo.refCategoryLandCombat, oTarget:GetPosition(), oTarget[M28UnitInfo.refiDFRange], 'Enemy')) == false) then
                                                         bCancelDodge = true
-                                                        if bDebugMessages == true then LOG(sFunctionRef..': Will cancel dodge as we can overcharge instead, time since last overcharge='..(GetGameTimeSeconds() - (oTarget[M28UnitInfo.refiTimeOfLastOverchargeShot] or 0))..'; Brain energy stored='..oTarget:GetAIBrain():GetEconomyStored('ENERGY')) end
+                                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will cancel dodge as we can overcharge instead, time since last overcharge='..(GetGameTimeSeconds() - (oTarget[M28UnitInfo.refiTimeOfLastOverchargeShot] or 0))..'; Brain energy stored='..oTarget:GetAIBrain():GetEconomyStored('ENERGY')) end
                                                     else
                                                         local iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oUnit:GetPosition(), true, oUnit)
                                                         local tLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][oUnit:GetAIBrain().M28Team]
                                                         if tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] >= 200 then
-                                                            if bDebugMessages == true then LOG(sFunctionRef..': Reducing dodge time drastically as have ACU that can overcharge enemies in range but it also wants to dodge a shot; will cancel if damage is very low that are dodging. oWeaponBP.Damage='..oWeaponBP.Damage) end
+                                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Reducing dodge time drastically as have ACU that can overcharge enemies in range but it also wants to dodge a shot; will cancel if damage is very low that are dodging. oWeaponBP.Damage='..oWeaponBP.Damage) end
                                                             if oWeaponBP.Damage <= 100 then
                                                                 bCancelDodge = true
                                                             else
@@ -721,19 +721,19 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                                                 --If we are a GC, Monkey or Ythotha that has an enemy experimental nearby but not in range, then cancel dodging as want to get in range to be able to  fire
                                                 local oTargetBP = oTarget:GetBlueprint()
                                                 if not(oTargetBP.SizeX) then oTargetBP = __blueprints[oTarget.UnitId] end
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Deciding if experimental wants to dodge shot, iDistToTarget='..iDistToTarget..'; Damage='..oWeaponBP.Damage..'; Experimental size='..math.max(oTargetBP.SizeX, oTargetBP.SizeZ)..'; Time since last weapon event='..GetGameTimeSeconds() - (oTarget[M28UnitInfo.refiLastWeaponEvent] or 0)) end
+                                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Deciding if experimental wants to dodge shot, iDistToTarget='..iDistToTarget..'; Damage='..oWeaponBP.Damage..'; Experimental size='..math.max(oTargetBP.SizeX, oTargetBP.SizeZ)..'; Time since last weapon event='..GetGameTimeSeconds() - (oTarget[M28UnitInfo.refiLastWeaponEvent] or 0)) end
                                                 --Dont dodge at all if we have fired recently and the damage isn't massive
                                                 if GetGameTimeSeconds() - (oTarget[M28UnitInfo.refiLastWeaponEvent] or 0) <= 5 and oWeaponBP.Damage <= 4000 then
                                                     bCancelDodge = true
-                                                    if bDebugMessages == true then LOG(sFunctionRef..': Target is an experimental that has fired recently and the damage isnt massive so we dont want to dodge, weapon damage='..(oWeaponBP.Damage or 'nil')) end
+                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Target is an experimental that has fired recently and the damage isnt massive so we dont want to dodge, weapon damage='..(oWeaponBP.Damage or 'nil')) end
                                                 elseif iDistToTarget <= 90 and math.max(oTargetBP.SizeX, oTargetBP.SizeZ) >= 7 and (GetGameTimeSeconds() - (oTarget[M28UnitInfo.refiLastWeaponEvent] or 0) <= 20 or oWeaponBP.Damage <= 4000) then --megalith and fatboy
                                                     bCancelDodge = true
-                                                    if bDebugMessages == true then LOG(sFunctionRef..': Megalith or fatboy in size so wont dodge shot') end
+                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Megalith or fatboy in size so wont dodge shot') end
                                                 else
                                                     local tLastOrder = oTarget[M28Orders.reftiLastOrders][oUnit[M28Orders.refiOrderCount]]
                                                     if tLastOrder[M28Orders.refiOrderIssueAttack] and M28UnitInfo.IsUnitValid(tLastOrder[M28Orders.subrefoOrderUnitTarget]) and EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental + categories.COMMAND, tLastOrder[M28Orders.subrefoOrderUnitTarget].UnitId) and (not(EntityCategoryContains(M28UnitInfo.refCategoryYthotha, tLastOrder[M28Orders.subrefoOrderUnitTarget].UnitId)) or oWeaponBP.Damage <= 4000) then
                                                         bCancelDodge = true
-                                                        if bDebugMessages == true then LOG(sFunctionRef..': Target '..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..' was trying to attack an enemy exp or ACU, targets target='..tLastOrder[M28Orders.subrefoOrderUnitTarget].UnitId..M28UnitInfo.GetUnitLifetimeCount(tLastOrder[M28Orders.subrefoOrderUnitTarget])..'; so will cancel dodge') end
+                                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Target '..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..' was trying to attack an enemy exp or ACU, targets target='..tLastOrder[M28Orders.subrefoOrderUnitTarget].UnitId..M28UnitInfo.GetUnitLifetimeCount(tLastOrder[M28Orders.subrefoOrderUnitTarget])..'; so will cancel dodge') end
                                                     end
                                                 end
                                                 if not(bCancelDodge) and not(oUnit[M28UnitInfo.refbCanKite]) then
@@ -743,14 +743,14 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                                                         local iAngleToAttacker = M28Utilities.GetAngleFromAToB(oTarget:GetPosition(), oUnit:GetPosition())
                                                         local iAngleDif = M28Utilities.GetAngleDifference(iCurFacingAngle, iAngleToAttacker)
                                                         if iAngleDif > 15 then bCancelDodge = true end
-                                                        if bDebugMessages == true then LOG(sFunctionRef..'; Considering whether to abort dodge, iAngleDif='..iAngleDif..'; bCancelDodge='..tostring(bCancelDodge)) end
+                                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..'; Considering whether to abort dodge, iAngleDif='..iAngleDif..'; bCancelDodge='..tostring(bCancelDodge)) end
                                                     end
                                                 end
                                             end
 
                                             if not(bCancelDodge) then
                                                 iMaxTimeToRun = math.min(2.5, iMaxTimeToRun)
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Will try to dodge shot. iTimeUntilImpact='..iTimeUntilImpact..'; iMaxTimeToRun='..iMaxTimeToRun..'; iAverageSize='..iAverageSize) end
+                                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will try to dodge shot. iTimeUntilImpact='..iTimeUntilImpact..'; iMaxTimeToRun='..iMaxTimeToRun..'; iAverageSize='..iAverageSize) end
                                                 if iHoverMaxTimeToRun and EntityCategoryContains(categories.HOVER, oTarget.UnitId) then
                                                     DodgeShot(oTarget, oUnit, oWeapon, math.min(math.max(0.95, iTimeUntilImpact), iHoverMaxTimeToRun))
                                                 elseif iAverageSize < 1 and iTimeUntilImpact <= 1.1 and oBP.Physics.MaxSpeed >= 3 and oBP.Physics.MaxAcceleration >= 3 and not(EntityCategoryContains(M28UnitInfo.refCategorySkirmisher, oTarget.UnitId)) then
@@ -775,16 +775,16 @@ end
 function DodgeShot(oTarget, oOptionalWeapon, oAttacker, iTimeToDodge)
     --Should have already checked oTarget is a valid unit that has a chance of dodging the shot in time before claling this
     --Gets unit to move at a slightly different angle to its current facing direction for iTimeToDodge
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'DodgeShot'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, time='..GetGameTimeSeconds()..'; oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..' owned by brain '..oTarget:GetAIBrain().Nickname..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oTarget))..'; oAttacker='..(oAttacker.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oAttacker) or 'nil')..'; Attacker assigned LZ for oUnit team='..(oAttacker[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][oTarget:GetAIBrain().M28Team][2] or 'nil')) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, time='..GetGameTimeSeconds()..'; oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..' owned by brain '..oTarget:GetAIBrain().Nickname..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oTarget))..'; oAttacker='..(oAttacker.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oAttacker) or 'nil')..'; Attacker assigned LZ for oUnit team='..(oAttacker[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][oTarget:GetAIBrain().M28Team][2] or 'nil')) end
 
     local bAdjustDodgeMicroCount = false
     if not(ScenarioInfo.Options.M28DodgeMicro == 1) then
         local aiBrain = oTarget:GetAIBrain()
-        if bDebugMessages == true then LOG(sFunctionRef..': Considering if have too many units dodging at once, aiBrain[refiCurUnitsDodging]='..aiBrain[refiCurUnitsDodging]..'; aiBrain[refiMaxUnitsToDodgeMicroAtOnce]='..aiBrain[refiMaxUnitsToDodgeMicroAtOnce]) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if have too many units dodging at once, aiBrain[refiCurUnitsDodging]='..aiBrain[refiCurUnitsDodging]..'; aiBrain[refiMaxUnitsToDodgeMicroAtOnce]='..aiBrain[refiMaxUnitsToDodgeMicroAtOnce]) end
         if aiBrain[refiCurUnitsDodging] >= aiBrain[refiMaxUnitsToDodgeMicroAtOnce] then
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
             return nil
@@ -840,24 +840,24 @@ function DodgeShot(oTarget, oOptionalWeapon, oAttacker, iTimeToDodge)
     local bRunAwayFromNearestEnemy = false
 
     --Non-experimental skirmishers - try to move at an adjustment to the angle to the destination rather htan the unit facing direction so less likely to move into range of enemy
-    if bDebugMessages == true then LOG(sFunctionRef..': Considering if have skirmisher or ACU; ACU time since last wanted to retreat (if this was an ACU)='..GetGameTimeSeconds() - (oTarget[M28ACU.refiTimeLastWantedToRun] or 0)..'; Time since last wanted to retreat for non-ACU='..GetGameTimeSeconds() - (oTarget[M28UnitInfo.refiTimeLastTriedRetreating] or 0)..'; oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]='..(oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck].UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]) or 'nil')) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if have skirmisher or ACU; ACU time since last wanted to retreat (if this was an ACU)='..GetGameTimeSeconds() - (oTarget[M28ACU.refiTimeLastWantedToRun] or 0)..'; Time since last wanted to retreat for non-ACU='..GetGameTimeSeconds() - (oTarget[M28UnitInfo.refiTimeLastTriedRetreating] or 0)..'; oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]='..(oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck].UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]) or 'nil')) end
     if EntityCategoryContains(M28UnitInfo.refCategorySkirmisher - categories.EXPERIMENTAL + M28UnitInfo.refCategoryLandScout, oTarget.UnitId) or (oTarget[M28UnitInfo.refiTimeLastTriedRetreating] and GetGameTimeSeconds() - oTarget[M28UnitInfo.refiTimeLastTriedRetreating] <= math.max(0.5, M28Land.iTicksPerLandCycle * 0.1 + 0.1)) or (EntityCategoryContains(categories.COMMAND, oTarget.UnitId) and oTarget[M28ACU.refiTimeLastWantedToRun] and GetGameTimeSeconds() - oTarget[M28ACU.refiTimeLastWantedToRun] <= 3)
             --MMLs - we might be near PD meaning dodging will take us in range of it
             or ((oTarget[M28UnitInfo.refiIndirectRange] or 0) > 0 and not(EntityCategoryContains(categories.TECH1, oTarget.UnitId)) and not(oTarget[M28UnitInfo.refbSpecialMicroActive]) and not(oTarget[M28Orders.reftiLastOrders][1][M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueMove)) then
-        if bDebugMessages == true then LOG(sFunctionRef..': Is oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck] valid='..tostring(M28UnitInfo.IsUnitValid(oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]))) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck] valid='..tostring(M28UnitInfo.IsUnitValid(oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]))) end
         if M28UnitInfo.IsUnitValid(oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]) and (oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck][M28UnitInfo.refiDFRange] or 0) > 0 then
             local iDistToNearestEnemy = M28Utilities.GetDistanceBetweenPositions(oTarget:GetPosition(), oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]:GetPosition())
             --If we went towards this unit are we likely getting into its DF range?
-            if bDebugMessages == true then LOG(sFunctionRef..': iDistToNearestEnemy='..iDistToNearestEnemy..'; Target[refoClosestEnemyFromLastCloseToEnemyUnitCheck] DF range='..(oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck][M28UnitInfo.refiDFRange] or 'nil')) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iDistToNearestEnemy='..iDistToNearestEnemy..'; Target[refoClosestEnemyFromLastCloseToEnemyUnitCheck] DF range='..(oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck][M28UnitInfo.refiDFRange] or 'nil')) end
             if iDistToNearestEnemy - 10 < oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck][M28UnitInfo.refiDFRange] then
                 bRunAwayFromNearestEnemy = true
             end
         end
         if not(bRunAwayFromNearestEnemy) then
             local iAngleDifToDestination = M28Utilities.GetAngleDifference(iCurFacingAngle, iAngleToDestination)
-            if bDebugMessages == true then LOG(sFunctionRef..': iAngleDifToDestination='..iAngleDifToDestination..'; iAngleAdjust='..iAngleAdjust) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iAngleDifToDestination='..iAngleDifToDestination..'; iAngleAdjust='..iAngleAdjust) end
             if iAngleDifToDestination >= math.max(iAngleAdjust, 45) then
-                if bDebugMessages == true then LOG(sFunctionRef..': Increasing angle adjust as have a skirmisher or retreating ACU, iAngleAdjust before increase='..iAngleAdjust..'; iAngleDifToDestination='..iAngleDifToDestination) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Increasing angle adjust as have a skirmisher or retreating ACU, iAngleAdjust before increase='..iAngleAdjust..'; iAngleDifToDestination='..iAngleDifToDestination) end
                 iAngleAdjust = math.max(iAngleAdjust, iAngleDifToDestination * 0.7)
             end
         end
@@ -870,12 +870,12 @@ function DodgeShot(oTarget, oOptionalWeapon, oAttacker, iTimeToDodge)
     if bRunAwayFromNearestEnemy then
         local iAngleToNearestEnemy = M28Utilities.GetAngleFromAToB(oTarget:GetPosition(), oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]:GetPosition())
         --If we move the planned angle, will that mean we get closer to this enemy significantly?
-        if bDebugMessages == true then LOG(sFunctionRef..': Deciding whether our current angle will take us too close to nearest enemy, oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]='..oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck].UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck])..'; iAngleToNearestEnemy='..iAngleToNearestEnemy..'; iAngleToMove currently='..iAngleToMove..'; Angle dif='..M28Utilities.GetAngleDifference(iAngleToNearestEnemy, iAngleToMove)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Deciding whether our current angle will take us too close to nearest enemy, oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]='..oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck].UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck])..'; iAngleToNearestEnemy='..iAngleToNearestEnemy..'; iAngleToMove currently='..iAngleToMove..'; Angle dif='..M28Utilities.GetAngleDifference(iAngleToNearestEnemy, iAngleToMove)) end
         if M28Utilities.GetAngleDifference(iAngleToNearestEnemy, iAngleToMove) <= 100 then
             --Want to move in opposite direction to nearest enemy; if we were already moving this way then want to change slightly so we hopefully dodge the shot while also still running
             local iAngleFromNearestEnemy = iAngleToNearestEnemy - 180
             if iAngleFromNearestEnemy < 0 then iAngleFromNearestEnemy = iAngleFromNearestEnemy + 360 end
-            if bDebugMessages == true then LOG(sFunctionRef..': Dif between angle from nearest enemy and angle to destination='..M28Utilities.GetAngleDifference(iAngleFromNearestEnemy, iAngleToDestination)) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dif between angle from nearest enemy and angle to destination='..M28Utilities.GetAngleDifference(iAngleFromNearestEnemy, iAngleToDestination)) end
             if M28Utilities.GetAngleDifference(iAngleFromNearestEnemy, iAngleToDestination) < 20 then
                 --Move either +15 or -15 from nearest enemy, based on which gives the greatest dif to our current angletodestination
                 if M28Utilities.GetAngleDifference(iAngleFromNearestEnemy + 15, iAngleToDestination) > M28Utilities.GetAngleDifference(iAngleFromNearestEnemy - 15, iAngleToDestination) then
@@ -883,13 +883,13 @@ function DodgeShot(oTarget, oOptionalWeapon, oAttacker, iTimeToDodge)
                 else
                     iAngleToMove = iAngleFromNearestEnemy - 15
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': iAngleToMove so we run from nearest enemy='..iAngleToMove) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iAngleToMove so we run from nearest enemy='..iAngleToMove) end
             end
         end
     end
 
     local tTempDestination = M28Utilities.MoveInDirection(oTarget:GetPosition(), iAngleToMove, iDistanceToRun, true, false, true)
-    if bDebugMessages == true then LOG(sFunctionRef..': oTarget (ie unit that is dodging)='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; clearing current orders which have a possible destination of '..repru(tCurDestination)..'; and giving an order to move to '..repru(tTempDestination)..'; Dist from our position to temp position='..M28Utilities.GetDistanceBetweenPositions(oTarget:GetPosition(), tTempDestination)..'; iAngleAdjust='..iAngleAdjust..'; Unit size='..iUnitSize..'; iTimeToDodge='..iTimeToDodge) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oTarget (ie unit that is dodging)='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; clearing current orders which have a possible destination of '..repru(tCurDestination)..'; and giving an order to move to '..repru(tTempDestination)..'; Dist from our position to temp position='..M28Utilities.GetDistanceBetweenPositions(oTarget:GetPosition(), tTempDestination)..'; iAngleAdjust='..iAngleAdjust..'; Unit size='..iUnitSize..'; iTimeToDodge='..iTimeToDodge) end
     --M28Orders.IssueTrackedClearCommands(oTarget)
     TrackTemporaryUnitMicro(oTarget, iTimeToDodge)
     if bAdjustDodgeMicroCount then
@@ -909,15 +909,15 @@ end
 
 function AltDodgeShot(oTarget, oWeapon, oAttacker, iTimeToDodge)
     --Intended for units like LABs, making use of new logic to change existing move order
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'AltDodgeShot'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, time='..GetGameTimeSeconds()..'; oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oTarget))) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, time='..GetGameTimeSeconds()..'; oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oTarget))) end
     local bAdjustDodgeMicroCount = false
     if not(ScenarioInfo.Options.M28DodgeMicro == 1) then
         local aiBrain = oTarget:GetAIBrain()
-        if bDebugMessages == true then LOG(sFunctionRef..': Considering whether have too many units dodging at once, aiBrain[refiCurUnitsDodging]='..aiBrain[refiCurUnitsDodging]..'; aiBrain[refiMaxUnitsToDodgeMicroAtOnce]='..aiBrain[refiMaxUnitsToDodgeMicroAtOnce]) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering whether have too many units dodging at once, aiBrain[refiCurUnitsDodging]='..aiBrain[refiCurUnitsDodging]..'; aiBrain[refiMaxUnitsToDodgeMicroAtOnce]='..aiBrain[refiMaxUnitsToDodgeMicroAtOnce]) end
         if aiBrain[refiCurUnitsDodging] >= aiBrain[refiMaxUnitsToDodgeMicroAtOnce] then
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
             return nil
@@ -959,8 +959,8 @@ function TrackTemporaryUnitMicro(oUnit, iSecondsActiveFor, sOptionalAdditionalTr
     --Note that air logic currently doesnt make use of this
     --bLowerPriorityMicro - if this is true then this will be ignored by 'higher priority micro'
     --if iSecondsActiveFor is 0 then treat as infinite and dont reset the flag
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'TrackTemporaryUnitMicro'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
 
@@ -972,7 +972,7 @@ function TrackTemporaryUnitMicro(oUnit, iSecondsActiveFor, sOptionalAdditionalTr
     end
     oUnit[M28UnitInfo.refiGameTimeMicroStarted] = GetGameTimeSeconds()
     oUnit[M28UnitInfo.refiGameTimeToResetMicroActive] = GetGameTimeSeconds() + iSecondsActiveFor
-    if bDebugMessages == true then LOG(sFunctionRef..': Time='..GetGameTimeSeconds()..'; oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; oUnit[M28UnitInfo.refbSpecialMicroActive]='..tostring(oUnit[M28UnitInfo.refbSpecialMicroActive] or false)..'; oUnit[M28UnitInfo.refiGameTimeMicroStarted]='..oUnit[M28UnitInfo.refiGameTimeMicroStarted]..'; oUnit[M28UnitInfo.refiGameTimeToResetMicroActive]='..oUnit[M28UnitInfo.refiGameTimeToResetMicroActive]..'; iSecondsActiveFor='..iSecondsActiveFor) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time='..GetGameTimeSeconds()..'; oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; oUnit[M28UnitInfo.refbSpecialMicroActive]='..tostring(oUnit[M28UnitInfo.refbSpecialMicroActive] or false)..'; oUnit[M28UnitInfo.refiGameTimeMicroStarted]='..oUnit[M28UnitInfo.refiGameTimeMicroStarted]..'; oUnit[M28UnitInfo.refiGameTimeToResetMicroActive]='..oUnit[M28UnitInfo.refiGameTimeToResetMicroActive]..'; iSecondsActiveFor='..iSecondsActiveFor) end
     if iSecondsActiveFor == 0 then
         --Do nothing
     else
@@ -982,8 +982,8 @@ function TrackTemporaryUnitMicro(oUnit, iSecondsActiveFor, sOptionalAdditionalTr
 end
 
 function ForkedResetMicroFlag(oUnit, iTimeToWait, sOptionalAdditionalTrackingVar, bCalledFromResetChecker)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ForkedResetMicroFlag'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
 
     oUnit[M28UnitInfo.refbSpecialMicroActive] = true --As if we are calling an action for the micro that clears commands, then that will reset the micro flag
     if iTimeToWait > 0 then
@@ -992,18 +992,18 @@ function ForkedResetMicroFlag(oUnit, iTimeToWait, sOptionalAdditionalTrackingVar
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     if M28UnitInfo.IsUnitValid(oUnit) then
 
-        if bDebugMessages == true then LOG(sFunctionRef..': Checking if micro flag can be reset to false for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' at time='..GetGameTimeSeconds()..'; Time to reset flag='..(oUnit[M28UnitInfo.refiGameTimeToResetMicroActive] or 'nil')..'; oUnit[M28UnitInfo.refbSpecialMicroActive] before reset='..tostring(oUnit[M28UnitInfo.refbSpecialMicroActive] or false)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if micro flag can be reset to false for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' at time='..GetGameTimeSeconds()..'; Time to reset flag='..(oUnit[M28UnitInfo.refiGameTimeToResetMicroActive] or 'nil')..'; oUnit[M28UnitInfo.refbSpecialMicroActive] before reset='..tostring(oUnit[M28UnitInfo.refbSpecialMicroActive] or false)) end
         if GetGameTimeSeconds() + 0.02 > oUnit[M28UnitInfo.refiGameTimeToResetMicroActive] or not(oUnit[M28UnitInfo.refbSpecialMicroActive]) then
-            if bDebugMessages == true then LOG(sFunctionRef..': Have reset flag') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have reset flag') end
             oUnit[refbMicroResetChecker] = nil
             oUnit[M28UnitInfo.refbSpecialMicroActive] = false
-            if bDebugMessages == true then LOG(sFunctionRef..': Turning off special micro1') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Turning off special micro1') end
             oUnit[M28UnitInfo.refbLowerPriorityMicroActive] = nil
             if sOptionalAdditionalTrackingVar then
                 oUnit[sOptionalAdditionalTrackingVar] = false
             end
         else
-            if bDebugMessages == true then LOG(sFunctionRef..': Will try waiting one more cycle to see if we need to reset the flag unless already got an active reset checker, MicroResetChecker='..tostring(oUnit[refbMicroResetChecker] or false)) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will try waiting one more cycle to see if we need to reset the flag unless already got an active reset checker, MicroResetChecker='..tostring(oUnit[refbMicroResetChecker] or false)) end
             if not(oUnit[refbMicroResetChecker]) or bCalledFromResetChecker then
                 oUnit[refbMicroResetChecker] = true
                 ForkThread(ForkedResetMicroFlag,oUnit, math.max(oUnit[M28UnitInfo.refiGameTimeToResetMicroActive] - GetGameTimeSeconds() - 0.01, 0.2), sOptionalAdditionalTrackingVar, true)
@@ -1015,13 +1015,13 @@ end
 
 function ForkedMoveInCircleOld(oUnit, iTimeToRun, bDontTreatAsMicroAction, bDontClearCommandsFirst, iCircleSizeOverride, iTickWaitOverride)
     --More intensive version of MoveAwayFromTargetTemporarily, intended e.g. for ACUs
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ForkedMoveInCircle'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local refbActiveCircleMicro = 'M28MicroActiveCircleMicro'
 
-    if bDebugMessages == true then LOG(sFunctionRef..': GameTime='..GetGameTimeSeconds()..'; Unit has active circle micro='..tostring(oUnit[refbActiveCircleMicro] or false)) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': GameTime='..GetGameTimeSeconds()..'; Unit has active circle micro='..tostring(oUnit[refbActiveCircleMicro] or false)) end
     if not(oUnit[refbActiveCircleMicro]) then
 
         --KEY CONFIG SETTINGS: (these will work sometimes but not always against an aeon strat)
@@ -1054,14 +1054,14 @@ function ForkedMoveInCircleOld(oUnit, iTimeToRun, bDontTreatAsMicroAction, bDont
         local iRecentMicroThreshold = 1
         local iGameTime = GetGameTimeSeconds()
         if oUnit[M28UnitInfo.refbSpecialMicroActive] and iGameTime - oUnit[M28UnitInfo.refiGameTimeMicroStarted] < iRecentMicroThreshold then bRecentMicro = true end
-        if bDebugMessages == true then LOG(sFunctionRef..': About to start main loop for move commands for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iTimeToRun='..iTimeToRun..'; iStartTime='..iStartTime..'; iCurFacingDirection='..iCurFacingDirection..'; tUnitStartPosition='..repru(tUnitStartPosition)..'; bRecentMicro='..tostring((bRecentMicro or false))..'; bDontClearCommandsFirst='..tostring(bDontClearCommandsFirst or false)..'; oUnit[M28UnitInfo.refbSpecialMicroActive]='..tostring(oUnit[M28UnitInfo.refbSpecialMicroActive])..'; oUnit[M28UnitInfo.refiGameTimeMicroStarted]='..(oUnit[M28UnitInfo.refiGameTimeMicroStarted] or 'nil')..'; GameTime='..iGameTime..'; Dif='..iGameTime-(oUnit[M28UnitInfo.refiGameTimeMicroStarted] or 0)..'; bDontTreatAsMicroAction='..tostring((bDontTreatAsMicroAction or false))) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to start main loop for move commands for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iTimeToRun='..iTimeToRun..'; iStartTime='..iStartTime..'; iCurFacingDirection='..iCurFacingDirection..'; tUnitStartPosition='..repru(tUnitStartPosition)..'; bRecentMicro='..tostring((bRecentMicro or false))..'; bDontClearCommandsFirst='..tostring(bDontClearCommandsFirst or false)..'; oUnit[M28UnitInfo.refbSpecialMicroActive]='..tostring(oUnit[M28UnitInfo.refbSpecialMicroActive])..'; oUnit[M28UnitInfo.refiGameTimeMicroStarted]='..(oUnit[M28UnitInfo.refiGameTimeMicroStarted] or 'nil')..'; GameTime='..iGameTime..'; Dif='..iGameTime-(oUnit[M28UnitInfo.refiGameTimeMicroStarted] or 0)..'; bDontTreatAsMicroAction='..tostring((bDontTreatAsMicroAction or false))) end
         if bRecentMicro == false and not(bDontClearCommandsFirst) then
             M28Orders.IssueTrackedClearCommands(oUnit)
-            if bDebugMessages == true then LOG(sFunctionRef..': Issued clear commands order to the unit') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Issued clear commands order to the unit') end
         end
         if not(bDontTreatAsMicroAction) then
             TrackTemporaryUnitMicro(oUnit, iTimeToRun, refbActiveCircleMicro)
-            if bDebugMessages == true then LOG(sFunctionRef..': Will temporarily track the unit micro. iTimeToRun='..(iTimeToRun or 'nil')) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will temporarily track the unit micro. iTimeToRun='..(iTimeToRun or 'nil')) end
         else
             TrackTemporaryUnitMicro(oUnit, iTimeToRun)
         end
@@ -1069,7 +1069,7 @@ function ForkedMoveInCircleOld(oUnit, iTimeToRun, bDontTreatAsMicroAction, bDont
         local iTempAngleDirectionToMove = iCurFacingDirection + iInitialAngleAdj * iAngleAdjFactor
         local iTempDistanceAwayToMove
         local bTimeToStop = false
-        if bDebugMessages == true then LOG(sFunctionRef..': oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; refbSpecialMicroActive='..tostring((oUnit[M28UnitInfo.refbSpecialMicroActive] or false))..'; iMaxLoop='..iMaxLoop) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; refbSpecialMicroActive='..tostring((oUnit[M28UnitInfo.refbSpecialMicroActive] or false))..'; iMaxLoop='..iMaxLoop) end
         while bTimeToStop == false do
             iLoopCount = iLoopCount + 1
             if iLoopCount > iMaxLoop then break
@@ -1094,13 +1094,13 @@ end
 
 function ForkedMoveInCircle(oUnit, iTimeToRun, bDontTreatAsMicroAction, bDontClearCommandsFirst, iCircleSizeOverride, iTickWaitOverride)
     --More intensive version of MoveAwayFromTargetTemporarily, intended e.g. for ACUs
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ForkedMoveInCircle'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local refbActiveCircleMicro = 'M28MicroActiveCircleMicro'
 
-    if bDebugMessages == true then LOG(sFunctionRef..': GameTime='..GetGameTimeSeconds()..'; Unit has active circle micro='..tostring(oUnit[refbActiveCircleMicro] or false)) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': GameTime='..GetGameTimeSeconds()..'; Unit has active circle micro='..tostring(oUnit[refbActiveCircleMicro] or false)) end
     if not(oUnit[refbActiveCircleMicro]) then
 
         --KEY CONFIG SETTINGS: (these will work sometimes but not always against an aeon strat)
@@ -1133,25 +1133,25 @@ function ForkedMoveInCircle(oUnit, iTimeToRun, bDontTreatAsMicroAction, bDontCle
         local iRecentMicroThreshold = 1
         local iGameTime = GetGameTimeSeconds()
         if oUnit[M28UnitInfo.refbSpecialMicroActive] and iGameTime - oUnit[M28UnitInfo.refiGameTimeMicroStarted] < iRecentMicroThreshold then bRecentMicro = true end
-        if bDebugMessages == true then LOG(sFunctionRef..': About to start main loop for move commands for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iTimeToRun='..iTimeToRun..'; iStartTime='..iStartTime..'; iCurFacingDirection='..iCurFacingDirection..'; tUnitStartPosition='..repru(tUnitStartPosition)..'; bRecentMicro='..tostring((bRecentMicro or false))..'; bDontClearCommandsFirst='..tostring(bDontClearCommandsFirst or false)..'; oUnit[M28UnitInfo.refbSpecialMicroActive]='..tostring(oUnit[M28UnitInfo.refbSpecialMicroActive])..'; oUnit[M28UnitInfo.refiGameTimeMicroStarted]='..(oUnit[M28UnitInfo.refiGameTimeMicroStarted] or 'nil')..'; GameTime='..iGameTime..'; Dif='..iGameTime-(oUnit[M28UnitInfo.refiGameTimeMicroStarted] or 0)..'; bDontTreatAsMicroAction='..tostring((bDontTreatAsMicroAction or false))..'; iAngleMaxSingleAdj='..iAngleMaxSingleAdj..'; iTicksBetweenOrders='..iTicksBetweenOrders) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to start main loop for move commands for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iTimeToRun='..iTimeToRun..'; iStartTime='..iStartTime..'; iCurFacingDirection='..iCurFacingDirection..'; tUnitStartPosition='..repru(tUnitStartPosition)..'; bRecentMicro='..tostring((bRecentMicro or false))..'; bDontClearCommandsFirst='..tostring(bDontClearCommandsFirst or false)..'; oUnit[M28UnitInfo.refbSpecialMicroActive]='..tostring(oUnit[M28UnitInfo.refbSpecialMicroActive])..'; oUnit[M28UnitInfo.refiGameTimeMicroStarted]='..(oUnit[M28UnitInfo.refiGameTimeMicroStarted] or 'nil')..'; GameTime='..iGameTime..'; Dif='..iGameTime-(oUnit[M28UnitInfo.refiGameTimeMicroStarted] or 0)..'; bDontTreatAsMicroAction='..tostring((bDontTreatAsMicroAction or false))..'; iAngleMaxSingleAdj='..iAngleMaxSingleAdj..'; iTicksBetweenOrders='..iTicksBetweenOrders) end
         if bRecentMicro == false and not(bDontClearCommandsFirst) then
             M28Orders.UpdateRecordedOrders(oUnit)
             local tLastOrder = oUnit[M28Orders.reftiLastOrders][oUnit[M28Orders.refiOrderCount]]
             if not(tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueMove) then
                 M28Orders.IssueTrackedClearCommands(oUnit)
-                if bDebugMessages == true then LOG(sFunctionRef..': Issued clear commands order to the unit') end
-            elseif bDebugMessages == true then LOG(sFunctionRef..': Unit last order was a move order so wont clear orders')
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Issued clear commands order to the unit') end
+            elseif bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit last order was a move order so wont clear orders')
             end
         end
         if not(bDontTreatAsMicroAction) then
             TrackTemporaryUnitMicro(oUnit, iTimeToRun, refbActiveCircleMicro)
-            if bDebugMessages == true then LOG(sFunctionRef..': Will temporarily track the unit micro. iTimeToRun='..(iTimeToRun or 'nil')) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will temporarily track the unit micro. iTimeToRun='..(iTimeToRun or 'nil')) end
         else
             TrackTemporaryUnitMicro(oUnit, iTimeToRun)
         end
 
         local bTimeToStop = false
-        if bDebugMessages == true then LOG(sFunctionRef..': oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; refbSpecialMicroActive='..tostring((oUnit[M28UnitInfo.refbSpecialMicroActive] or false))..'; iMaxLoop='..iMaxLoop) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; refbSpecialMicroActive='..tostring((oUnit[M28UnitInfo.refbSpecialMicroActive] or false))..'; iMaxLoop='..iMaxLoop) end
         while bTimeToStop == false do
             iLoopCount = iLoopCount + 1
             if iLoopCount > iMaxLoop then break
@@ -1176,11 +1176,11 @@ end
 
 function GetOverchargeTarget(tLZData, aiBrain, oUnitWithOvercharge, bOnlyConsiderEnemiesInRange)
     --should have already confirmed overcharge action is available using CanUnitUseOvercharge
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'GetOverchargeTarget'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, oUnitWithOvercharge[refbOnlyOverchargeHighValueTargets]='..tostring(oUnitWithOvercharge[M28ACU.refbOnlyOverchargeHighValueTargets]  or false)..'; Brain='..oUnitWithOvercharge:GetAIBrain().Nickname) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, oUnitWithOvercharge[refbOnlyOverchargeHighValueTargets]='..tostring(oUnitWithOvercharge[M28ACU.refbOnlyOverchargeHighValueTargets]  or false)..'; Brain='..oUnitWithOvercharge:GetAIBrain().Nickname) end
     local oOverchargeTarget
     if not(oUnitWithOvercharge[M28UnitInfo.refbEasyBrain]) then
         --Do we have positive energy income? If not, then only overcharge if ACU is low on health as an emergency
@@ -1191,24 +1191,24 @@ function GetOverchargeTarget(tLZData, aiBrain, oUnitWithOvercharge, bOnlyConside
         --Subfunction
         function IsBuildingOrACUBlockingShot(oFiringUnit, oTargetUnit)
             --Assumes have already been through tBlockingUnits and set their angle to the firing unit, so we just need to compare to firing unit
-            if bDebugMessages == true then LOG(sFunctionRef..': Will see if any buildings or ACU are blocking the shot; if dont get log saying result was false then means was true') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will see if any buildings or ACU are blocking the shot; if dont get log saying result was false then means was true') end
             if M28Utilities.IsTableEmpty(toStructuresAndACU) == false then
                 local iAngleToTargetUnit = M28Utilities.GetAngleFromAToB(oFiringUnit:GetPosition(), oTargetUnit:GetPosition())
                 local iDistToTargetUnit = M28Utilities.GetDistanceBetweenPositions(oFiringUnit:GetPosition(), oTargetUnit:GetPosition())
                 local iCurAngleDif
-                if bDebugMessages == true then LOG(sFunctionRef..': iAngleToTargetUnit='..iAngleToTargetUnit..'; iDistToTargetUnit='..iDistToTargetUnit) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iAngleToTargetUnit='..iAngleToTargetUnit..'; iDistToTargetUnit='..iDistToTargetUnit) end
                 for iUnit, oUnit in toStructuresAndACU do
                     if not(oUnit == oTargetUnit) and iDistToTargetUnit > oUnit[reftiDistFromACUToUnit][aiBrain:GetArmyIndex()] then
                         iCurAngleDif = iAngleToTargetUnit - oUnit[reftiAngleFromACUToUnit][aiBrain:GetArmyIndex()]
                         if iCurAngleDif < 0 then iCurAngleDif = iCurAngleDif + 360 end
-                        if bDebugMessages == true then LOG(sFunctionRef..': Checking if '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' will block a shot from the ACU to the target '..oTargetUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTargetUnit)..'; iCurAngleDif='..iCurAngleDif..'; 180 / iDistToTargetUnit='..180 / iDistToTargetUnit..'; oUnit[reftiAngleFromACUToUnit][aiBrain:GetArmyIndex()]='..oUnit[reftiAngleFromACUToUnit][aiBrain:GetArmyIndex()]..'; oUnit[reftiDistFromACUToUnit]='..oUnit[reftiDistFromACUToUnit][aiBrain:GetArmyIndex()]..'; angle from ACU to unit='..oUnit[reftiAngleFromACUToUnit][aiBrain:GetArmyIndex()]) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' will block a shot from the ACU to the target '..oTargetUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTargetUnit)..'; iCurAngleDif='..iCurAngleDif..'; 180 / iDistToTargetUnit='..180 / iDistToTargetUnit..'; oUnit[reftiAngleFromACUToUnit][aiBrain:GetArmyIndex()]='..oUnit[reftiAngleFromACUToUnit][aiBrain:GetArmyIndex()]..'; oUnit[reftiDistFromACUToUnit]='..oUnit[reftiDistFromACUToUnit][aiBrain:GetArmyIndex()]..'; angle from ACU to unit='..oUnit[reftiAngleFromACUToUnit][aiBrain:GetArmyIndex()]) end
                         if iCurAngleDif <= math.max(8, 180 / iDistToTargetUnit) then
                             return true
                         end
                     end
                 end
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': End of code, will return false') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': End of code, will return false') end
             return false
         end
 
@@ -1216,7 +1216,7 @@ function GetOverchargeTarget(tLZData, aiBrain, oUnitWithOvercharge, bOnlyConside
         function WillShotHit(oFiringUnit, oTargetUnit)
             --Check for units in a transport
             if oTargetUnit:IsUnitState('Attached') or M28Logic.IsShotBlocked(oFiringUnit, oTargetUnit) or IsBuildingOrACUBlockingShot(oFiringUnit, oTargetUnit) then
-                if bDebugMessages == true then LOG(sFunctionRef..': oTargetUnit='..oTargetUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTargetUnit)..'; shot is blocked so wont hit. IsShotBlocked='..tostring(M28Logic.IsShotBlocked(oFiringUnit, oTargetUnit))) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oTargetUnit='..oTargetUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTargetUnit)..'; shot is blocked so wont hit. IsShotBlocked='..tostring(M28Logic.IsShotBlocked(oFiringUnit, oTargetUnit))) end
                 return false
             else return true
             end
@@ -1231,7 +1231,7 @@ function GetOverchargeTarget(tLZData, aiBrain, oUnitWithOvercharge, bOnlyConside
             if oUnitWithOvercharge[M28ACU.refiUpgradeCount] >= 2 and not(oUnitWithOvercharge[M28ACU.refbOnlyOverchargeHighValueTargets]) and (oUnitWithOvercharge:HasEnhancement('MicrowaveLaserGenerator') or oUnitWithOvercharge:HasEnhancement('BlastAttack')) then
                 oUnitWithOvercharge[M28ACU.refbOnlyOverchargeHighValueTargets] = true
             end
-            if bDebugMessages == true then LOG(sFunctionRef..' FInished considering if want to set to only OC high value targets due to big gun, oUnitWithOvercharge[M28ACU.refbOnlyOverchargeHighValueTargets]='..tostring(oUnitWithOvercharge[M28ACU.refbOnlyOverchargeHighValueTargets] or false)..'; Upgrade count='..(oUnitWithOvercharge[M28ACU.refiUpgradeCount] or 'nil')..'; Unit has laser or splash='..tostring((oUnitWithOvercharge:HasEnhancement('MicrowaveLaserGenerator') or oUnitWithOvercharge:HasEnhancement('BlastAttack')))) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..' FInished considering if want to set to only OC high value targets due to big gun, oUnitWithOvercharge[M28ACU.refbOnlyOverchargeHighValueTargets]='..tostring(oUnitWithOvercharge[M28ACU.refbOnlyOverchargeHighValueTargets] or false)..'; Upgrade count='..(oUnitWithOvercharge[M28ACU.refiUpgradeCount] or 'nil')..'; Unit has laser or splash='..tostring((oUnitWithOvercharge:HasEnhancement('MicrowaveLaserGenerator') or oUnitWithOvercharge:HasEnhancement('BlastAttack')))) end
 
             --First locate where any blocking units are - will assume non-wall structures larger than a T1 pgen will block the shot, and ACUs will block
             local iMaxSearchDistance
@@ -1240,7 +1240,7 @@ function GetOverchargeTarget(tLZData, aiBrain, oUnitWithOvercharge, bOnlyConside
             end
             toStructuresAndACU = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryStructure - categories.SIZE4 + categories.COMMAND, tUnitPosition, iMaxSearchDistance, 'Enemy')
 
-            if bDebugMessages == true then LOG(sFunctionRef..': First locating blocking units; is table empty='..tostring(M28Utilities.IsTableEmpty(toStructuresAndACU))..'; iACURange='..iACURange..'; iOverchargeArea='..iOverchargeArea) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': First locating blocking units; is table empty='..tostring(M28Utilities.IsTableEmpty(toStructuresAndACU))..'; iACURange='..iACURange..'; iOverchargeArea='..iOverchargeArea) end
             if M28Utilities.IsTableEmpty(toStructuresAndACU) == false then
                 for iUnit, oUnit in toStructuresAndACU do
                     if not(oUnit[reftiAngleFromACUToUnit]) then
@@ -1249,7 +1249,7 @@ function GetOverchargeTarget(tLZData, aiBrain, oUnitWithOvercharge, bOnlyConside
                     end
                     oUnit[reftiAngleFromACUToUnit][aiBrain:GetArmyIndex()] = M28Utilities.GetAngleFromAToB(tUnitPosition, oUnit:GetPosition())
                     oUnit[reftiDistFromACUToUnit][aiBrain:GetArmyIndex()] = M28Utilities.GetDistanceBetweenPositions(tUnitPosition, oUnit:GetPosition())
-                    if bDebugMessages == true then LOG(sFunctionRef..': Angle from oUnit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' to our ACU='..repru(oUnit[reftiAngleFromACUToUnit])..'; distance='..repru(oUnit[reftiDistFromACUToUnit])) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Angle from oUnit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' to our ACU='..repru(oUnit[reftiAngleFromACUToUnit])..'; distance='..repru(oUnit[reftiDistFromACUToUnit])) end
 
                     --If enemy ACU is nearby and low health then target as top priority
                     if oUnit[reftiDistFromACUToUnit][aiBrain:GetArmyIndex()] < (iACURange - 2) and EntityCategoryContains(categories.COMMAND, oUnit.UnitId) and oUnit:GetHealth() < 1400 then
@@ -1267,15 +1267,15 @@ function GetOverchargeTarget(tLZData, aiBrain, oUnitWithOvercharge, bOnlyConside
                 local oMostMassDamage, iKillsExpected
                 local iMaxOverchargeDamage = (aiBrain:GetEconomyStored('ENERGY') * 0.9) * 0.25
                 local iCurDamageDealt, iCurKillsExpected
-                if bDebugMessages == true then LOG(sFunctionRef..': Will consider enemy mobile units and PD within 2 of the ACU max range; is the table empty='..tostring(M28Utilities.IsTableEmpty(tEnemyUnits))) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will consider enemy mobile units and PD within 2 of the ACU max range; is the table empty='..tostring(M28Utilities.IsTableEmpty(tEnemyUnits))) end
                 if M28Utilities.IsTableEmpty(tEnemyUnits) == false then
                     for iUnit, oUnit in tEnemyUnits do
                         --Reduce range to consider if unit is moving and isn't moving towards ACU
                         if not(oUnit:IsUnitState('Moving')) or M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oUnitWithOvercharge:GetPosition()) < iACURange - 1 or M28Utilities.GetAngleDifference(M28UnitInfo.GetUnitFacingAngle(oUnit), M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oUnitWithOvercharge:GetPosition())) <= 25 then
-                            if bDebugMessages == true then LOG(sFunctionRef..': Considering if shot will hit for ACU '..(oUnitWithOvercharge.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oUnitWithOvercharge) or 'nil')..' to hit oUnit='..(oUnit.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oUnit) or 'nil')..' unit position='..repru(oUnit:GetPosition())..'; Is unit underwater='..tostring(M28UnitInfo.IsUnitUnderwater(oUnit))..'; Will shot hit='..tostring(WillShotHit(oUnitWithOvercharge, oUnit))) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if shot will hit for ACU '..(oUnitWithOvercharge.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oUnitWithOvercharge) or 'nil')..' to hit oUnit='..(oUnit.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oUnit) or 'nil')..' unit position='..repru(oUnit:GetPosition())..'; Is unit underwater='..tostring(M28UnitInfo.IsUnitUnderwater(oUnit))..'; Will shot hit='..tostring(WillShotHit(oUnitWithOvercharge, oUnit))) end
                             if WillShotHit(oUnitWithOvercharge, oUnit) then
                                 iCurDamageDealt, iCurKillsExpected = M28Logic.GetDamageFromOvercharge(aiBrain, oUnit, iOverchargeArea, iMaxOverchargeDamage)
-                                if bDebugMessages == true then LOG(sFunctionRef..': Shot will hit enemy unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; damage result='..iCurDamageDealt) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Shot will hit enemy unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; damage result='..iCurDamageDealt) end
                                 if iCurDamageDealt > iMostMassDamage then
                                     iMostMassDamage = iCurDamageDealt
                                     oMostMassDamage = oUnit
@@ -1286,14 +1286,14 @@ function GetOverchargeTarget(tLZData, aiBrain, oUnitWithOvercharge, bOnlyConside
                         end
                     end
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': Finished searching through enemy mobile untis and PD in range, iMostMassDamage='..iMostMassDamage..'; iKillsExpected='..(iKillsExpected or 0)..'; Energy stored %='..aiBrain:GetEconomyStoredRatio('ENERGY')..'; E stored='..aiBrain:GetEconomyStored('ENERGY')) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished searching through enemy mobile untis and PD in range, iMostMassDamage='..iMostMassDamage..'; iKillsExpected='..(iKillsExpected or 0)..'; Energy stored %='..aiBrain:GetEconomyStoredRatio('ENERGY')..'; E stored='..aiBrain:GetEconomyStored('ENERGY')) end
 
                 --if iMostMobileCombatMassDamage >= 80 then
                 --    oOverchargeTarget = oMostCombatMassDamage
                 if (not(oUnitWithOvercharge[M28ACU.refbOnlyOverchargeHighValueTargets]) and iMostMassDamage >= 200 or iKillsExpected >= 3 or (iKillsExpected >= 1 and iMostMassDamage >= 100) or (iMostMassDamage >= 60 and aiBrain:GetEconomyStoredRatio('ENERGY') >= 0.9 and (aiBrain:GetEconomyStored('ENERGY') >= 10000 or (aiBrain[M28Economy.refiNetEnergyBaseIncome] >= 1 and aiBrain:GetEconomyStored('ENERGY') >= 8000))))
                         or (oUnitWithOvercharge[M28ACU.refbOnlyOverchargeHighValueTargets] and (iMostMassDamage >= 500 or iKillsExpected >= 6 or (oOverchargeTarget and EntityCategoryContains(M28UnitInfo.refCategoryPD, oOverchargeTarget.UnitId)))) then --e.g. striker is 56 mass; lobo is 36
                     oOverchargeTarget = oMostMassDamage
-                    if bDebugMessages == true then LOG(sFunctionRef..': Have a mobile or PD unit in range that will do enough damage to, oOverchargeTarget='..oOverchargeTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oOverchargeTarget)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have a mobile or PD unit in range that will do enough damage to, oOverchargeTarget='..oOverchargeTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oOverchargeTarget)) end
                 else
                     --Check we aren't running before considering whether to target walls or T2 PDs
                     if GetGameTimeSeconds() - (oUnitWithOvercharge[M28ACU.refiTimeLastWantedToRun] or -30) >= 30 then
@@ -1303,14 +1303,14 @@ function GetOverchargeTarget(tLZData, aiBrain, oUnitWithOvercharge, bOnlyConside
                             local tAllEnemies = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryMobileLand + M28UnitInfo.refCategoryStructure + M28UnitInfo.refCategoryNavalSurface, tUnitPosition, math.min(iMaxSearchDistance, iACURange + 3), 'Enemy')
                             if M28Utilities.IsTableEmpty(tAllEnemies) then
                                 tEnemyUnits = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryWall, tUnitPosition, iACURange, 'Enemy')
-                                if bDebugMessages == true then LOG(sFunctionRef..': iMostMassDamage='..iMostMassDamage..'; so will check for walls and other structure targets; is table of wall units empty='..tostring(M28Utilities.IsTableEmpty(tEnemyUnits))) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iMostMassDamage='..iMostMassDamage..'; so will check for walls and other structure targets; is table of wall units empty='..tostring(M28Utilities.IsTableEmpty(tEnemyUnits))) end
                                 if M28Utilities.IsTableEmpty(tEnemyUnits) == false and table.getn(tEnemyUnits) >= 5 then
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Have at least 5 wall units in range, so potential blockage; size='..table.getn(tEnemyUnits)) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have at least 5 wall units in range, so potential blockage; size='..table.getn(tEnemyUnits)) end
                                     local bSuspectedPathBlock = false
                                     --If more than 10 then assume blocking our path
 
                                     if table.getn(tEnemyUnits) >= 10 then
-                                        if bDebugMessages == true then LOG(sFunctionRef..': At least 10 wall units so assuming a blockage') end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': At least 10 wall units so assuming a blockage') end
                                         bSuspectedPathBlock = true
                                     else
                                         local tFirstWall = tEnemyUnits[1]:GetPosition()
@@ -1324,7 +1324,7 @@ function GetOverchargeTarget(tLZData, aiBrain, oUnitWithOvercharge, bOnlyConside
                                         end
                                     end
                                     if bSuspectedPathBlock then
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Think enemy has walls in a line so will overcharge them unless they are all closer to our base than us') end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Think enemy has walls in a line so will overcharge them unless they are all closer to our base than us') end
                                         iMostMassDamage = 0
                                         oMostMassDamage = nil
                                         bSuspectedPathBlock = false
@@ -1348,19 +1348,19 @@ function GetOverchargeTarget(tLZData, aiBrain, oUnitWithOvercharge, bOnlyConside
                                                 end
                                             end
                                             if oMostMassDamage then oOverchargeTarget = oMostMassDamage end
-                                        elseif bDebugMessages == true then LOG(sFunctionRef..': Walls are all closer to our base than we are so probably not blocking us')
+                                        elseif bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Walls are all closer to our base than we are so probably not blocking us')
                                         end
-                                    elseif bDebugMessages == true then LOG(sFunctionRef..': Dont think the walls are in a line so wont try and OC')
+                                    elseif bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dont think the walls are in a line so wont try and OC')
                                     end
                                 end
                             end
                         end
                         if not(oOverchargeTarget) and not(oUnitWithOvercharge[M28ACU.refbOnlyOverchargeHighValueTargets]) then
                             --Check further away incase enemy has T2 PD that can see us
-                            if bDebugMessages == true then LOG(sFunctionRef..': Checking if any T2 PD further away') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if any T2 PD further away') end
                             tEnemyUnits = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryT2PlusPD, tUnitPosition, iMaxSearchDistance, 'Enemy')
                             if M28Utilities.IsTableEmpty(tEnemyUnits) == false then
-                                if bDebugMessages == true then LOG(sFunctionRef..': Have enemy T2 defence that can hit us but is out of our range - considering if OC it will bring us in range of T1 PD, and/or if shot is blocked, and/or if the T2PD cant even see us') end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have enemy T2 defence that can hit us but is out of our range - considering if OC it will bring us in range of T1 PD, and/or if shot is blocked, and/or if the T2PD cant even see us') end
                                 local tNearbyT1PD
                                 local iNearestT1PD = 10000
                                 local iCurDistance
@@ -1378,11 +1378,11 @@ function GetOverchargeTarget(tLZData, aiBrain, oUnitWithOvercharge, bOnlyConside
                                         if M28Logic.IsShotBlocked(oUnitWithOvercharge, oEnemyT2PD) == false then
                                             --Can the T2 PD see us?
                                             if M28UnitInfo.CanSeeUnit(oEnemyT2PD:GetAIBrain(), oUnitWithOvercharge) then
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Setting target to T2 PD') end
+                                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Setting target to T2 PD') end
                                                 oOverchargeTarget = oEnemyT2PD
                                                 break
                                             else
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Enemy T2 PDs owner can see our ACU') end
+                                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Enemy T2 PDs owner can see our ACU') end
                                             end
                                         end
                                     end
@@ -1392,15 +1392,15 @@ function GetOverchargeTarget(tLZData, aiBrain, oUnitWithOvercharge, bOnlyConside
                         if not(oOverchargeTarget) and not(oUnitWithOvercharge[M28ACU.refbOnlyOverchargeHighValueTargets]) then
                             --Consider all structures (can do ACU max range since before when structures were considered we were looking at reduced range)
                             tEnemyUnits = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryStructure, tUnitPosition, iACURange, 'Enemy')
-                            if bDebugMessages == true then LOG(sFunctionRef..': Considering all enemy structures within range of ACU; is table empty='..tostring(M28Utilities.IsTableEmpty(tEnemyUnits))) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering all enemy structures within range of ACU; is table empty='..tostring(M28Utilities.IsTableEmpty(tEnemyUnits))) end
                             --local iMostMobileCombatMassDamage = 0
                             --local oMostCombatMassDamage
                             if M28Utilities.IsTableEmpty(tEnemyUnits) == false then
-                                if bDebugMessages == true then LOG(sFunctionRef..': Considering other enemy structures in range; iMostMassDamage before looking='..iMostMassDamage) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering other enemy structures in range; iMostMassDamage before looking='..iMostMassDamage) end
                                 for iUnit, oUnit in tEnemyUnits do
                                     if WillShotHit(oUnitWithOvercharge, oUnit) then
                                         iCurDamageDealt, iCurKillsExpected = M28Logic.GetDamageFromOvercharge(aiBrain, oUnit, iOverchargeArea, iMaxOverchargeDamage)
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Shot will hit enemy unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; damage result='..iCurDamageDealt) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Shot will hit enemy unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; damage result='..iCurDamageDealt) end
                                         if iCurDamageDealt > iMostMassDamage then
                                             iMostMassDamage = iCurDamageDealt
                                             oMostMassDamage = oUnit
@@ -1418,9 +1418,9 @@ function GetOverchargeTarget(tLZData, aiBrain, oUnitWithOvercharge, bOnlyConside
             end
         end
         if oOverchargeTarget == nil then
-            if bDebugMessages == true then LOG(sFunctionRef..': No OC targets found') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': No OC targets found') end
         else
-            if bDebugMessages == true then LOG(sFunctionRef..': Overcharge target='..oOverchargeTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oOverchargeTarget)) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Overcharge target='..oOverchargeTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oOverchargeTarget)) end
         end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -1429,18 +1429,18 @@ end
 
 function TurnAirUnitAndMoveToTarget(oBomber, tDirectionToMoveTo, iMaxAcceptableAngleDif, iOptionalSecondsToMoveAtEndIfFarFromTarget)
     --Based on hoverbomb logic - may give unexpected results if not using with T3 bombers
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'TurnAirUnitAndMoveToTarget'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, oBomber='..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; Does bomber fire salvo='..tostring(M28UnitInfo.DoesBomberFireSalvo(oBomber) or false)..'; GameTime='..GetGameTimeSeconds()) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, oBomber='..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; Does bomber fire salvo='..tostring(M28UnitInfo.DoesBomberFireSalvo(oBomber) or false)..'; GameTime='..GetGameTimeSeconds()) end
     --First delay microing until finished our salvo if dealing with T1-T3 bomber
     if M28UnitInfo.DoesBomberFireSalvo(oBomber) and EntityCategoryContains(M28UnitInfo.refCategoryBomber - categories.EXPERIMENTAL, oBomber.UnitId) then
-        if bDebugMessages == true then LOG(sFunctionRef..': Will wait a second so bomber can finish firing') end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will wait a second so bomber can finish firing') end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         WaitSeconds(1.1)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-        if bDebugMessages == true then LOG(sFunctionRef..': Finished waiting for bomber '..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; is bomber valid='..tostring(M28UnitInfo.IsUnitValid(oBomber))) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished waiting for bomber '..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; is bomber valid='..tostring(M28UnitInfo.IsUnitValid(oBomber))) end
     end
     if M28UnitInfo.IsUnitValid(oBomber) then
         local bContinue = true
@@ -1457,7 +1457,7 @@ function TurnAirUnitAndMoveToTarget(oBomber, tDirectionToMoveTo, iMaxAcceptableA
         if bContinue then
             aiBrain = oBomber:GetAIBrain()
             if aiBrain[refiMaxUnitsToHoverMicroAtOnce] then
-                if bDebugMessages == true then LOG(sFunctionRef..': Checking if reached hover micro limit, aiBrain[refiMaxUnitsToHoverMicroAtOnce]='..aiBrain[refiMaxUnitsToHoverMicroAtOnce]..'; aiBrain[refiCurUnitsHoverMicroing]='..aiBrain[refiCurUnitsHoverMicroing]..'; oBomber='..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; Time='..GetGameTimeSeconds()) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if reached hover micro limit, aiBrain[refiMaxUnitsToHoverMicroAtOnce]='..aiBrain[refiMaxUnitsToHoverMicroAtOnce]..'; aiBrain[refiCurUnitsHoverMicroing]='..aiBrain[refiCurUnitsHoverMicroing]..'; oBomber='..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; Time='..GetGameTimeSeconds()) end
                 if aiBrain[refiCurUnitsHoverMicroing] >= aiBrain[refiMaxUnitsToHoverMicroAtOnce] then
                     M28Orders.IssueTrackedMove(oBomber, tDirectionToMoveTo, 2, false, 'NoMiAirMv', false)
                     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -1536,7 +1536,7 @@ function TurnAirUnitAndMoveToTarget(oBomber, tDirectionToMoveTo, iMaxAcceptableA
                             iActualAngleToUse = iFacingDirection + iAngleAdjustToUse
                             tTempTarget = M28Utilities.MoveInDirection(oBomber:GetPosition(), iActualAngleToUse, iDistanceAwayToMove, true, false, true)
                             M28Orders.IssueTrackedMove(oBomber, tTempTarget, 0, false, 'BMicrM1', true)
-                            if bDebugMessages == true then LOG(sFunctionRef..': Just issued move order, iFacingDirection='..iFacingDirection..'; iCurAngleDif='..iCurAngleDif..'; iAngleAdjustToUse='..iAngleAdjustToUse..'; iActualAngleToUse='..iActualAngleToUse..'; angle from bomber to target='..M28Utilities.GetAngleFromAToB(oBomber:GetPosition(), tDirectionToMoveTo)) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just issued move order, iFacingDirection='..iFacingDirection..'; iCurAngleDif='..iCurAngleDif..'; iAngleAdjustToUse='..iAngleAdjustToUse..'; iActualAngleToUse='..iActualAngleToUse..'; angle from bomber to target='..M28Utilities.GetAngleFromAToB(oBomber:GetPosition(), tDirectionToMoveTo)) end
                         elseif iCurTick >= iTicksBetweenOrders then iCurTick = 0
                         end
 
@@ -1557,7 +1557,7 @@ function TurnAirUnitAndMoveToTarget(oBomber, tDirectionToMoveTo, iMaxAcceptableA
 
             if M28UnitInfo.IsUnitValid(oBomber) then
                 M28Orders.IssueTrackedMove(oBomber, tDirectionToMoveTo, 5, false, 'BMicMTR', true)
-                if bDebugMessages == true then LOG(sFunctionRef..': Just cleared bomber '..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..' commands and told it to move to '..repru(tDirectionToMoveTo)..'; Dist to target='..M28Utilities.GetDistanceBetweenPositions(tDirectionToMoveTo, oBomber:GetPosition())..'; GameTime='..GetGameTimeSeconds()..'; iOptionalSecondsToMoveAtEndIfFarFromTarget='..(iOptionalSecondsToMoveAtEndIfFarFromTarget or 'nil')) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just cleared bomber '..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..' commands and told it to move to '..repru(tDirectionToMoveTo)..'; Dist to target='..M28Utilities.GetDistanceBetweenPositions(tDirectionToMoveTo, oBomber:GetPosition())..'; GameTime='..GetGameTimeSeconds()..'; iOptionalSecondsToMoveAtEndIfFarFromTarget='..(iOptionalSecondsToMoveAtEndIfFarFromTarget or 'nil')) end
                 if iOptionalSecondsToMoveAtEndIfFarFromTarget then
                     local iTimeToWait = math.min(iOptionalSecondsToMoveAtEndIfFarFromTarget, M28Utilities.GetDistanceBetweenPositions(oBomber:GetPosition(), tDirectionToMoveTo) / (oBomber:GetBlueprint().Physics.MaxSpeed or 10))
                     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -1566,7 +1566,7 @@ function TurnAirUnitAndMoveToTarget(oBomber, tDirectionToMoveTo, iMaxAcceptableA
                 end
 
                 oBomber[M28UnitInfo.refbSpecialMicroActive] = false
-                if bDebugMessages == true then LOG(sFunctionRef..': Turning off special micro2') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Turning off special micro2') end
                 oBomber[M28UnitInfo.refiGameTimeToResetMicroActive] = GetGameTimeSeconds()
             end
         end
@@ -1576,11 +1576,11 @@ end
 
 function TurnAirUnitAndAttackTarget(oBomber, oTarget, bDontAdjustMicroFlag, bContinueAttackingUntilTargetDead, bContinueAttackUntilFiredBomb, iAcceptableAngleDifOverride)
     --Currently just used for ahwassa and T1 bomber
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'TurnAirUnitAndAttackTarget'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, oBomber='..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; bDontAdjustMicroFlag='..tostring(bDontAdjustMicroFlag or false)..'; bContinueAttackUntilFiredBomb='..tostring((bContinueAttackUntilFiredBomb or false))..'; GameTime='..GetGameTimeSeconds()) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, oBomber='..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; bDontAdjustMicroFlag='..tostring(bDontAdjustMicroFlag or false)..'; bContinueAttackUntilFiredBomb='..tostring((bContinueAttackUntilFiredBomb or false))..'; GameTime='..GetGameTimeSeconds()) end
     if M28UnitInfo.IsUnitValid(oBomber) and M28UnitInfo.IsUnitValid(oTarget) then
         local aiBrain = oBomber:GetAIBrain()
         local bAdjustHoverMicroCount = false
@@ -1672,32 +1672,32 @@ function TurnAirUnitAndAttackTarget(oBomber, oTarget, bDontAdjustMicroFlag, bCon
                     local tPotentialTarget = M28Utilities.MoveInDirection(oBomber:GetPosition(), iFacingDirection, iBombStraightLineDistance, true, false, true)
                     iStraightLineLeeway = -(M28Utilities.GetDistanceBetweenPositions(tPotentialTarget, oTarget:GetPosition()) - iAOE + 1)
                     if tPotentialTarget and iStraightLineLeeway >= 0 then
-                        if bDebugMessages == true then LOG(sFunctionRef..': If we drop infront of the bomber the aoe should hit the target, so setting the ground target based on bomber direction, iStraightLineLeeway='..iStraightLineLeeway) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': If we drop infront of the bomber the aoe should hit the target, so setting the ground target based on bomber direction, iStraightLineLeeway='..iStraightLineLeeway) end
                         if EntityCategoryContains(categories.TECH3, oBomber.UnitId) then --strat bomber failed at the default (which is currently as of v141 a dist of 8.5); however when increased by leeway of 2.5 it dropped; so if change the 8.5 value for strats probably want to increase slightly to somewhere between the two
                             local tAltPotentialTarget = M28Utilities.MoveInDirection(oBomber:GetPosition(), iFacingDirection, iBombStraightLineDistance + iStraightLineLeeway, true, false, true)
                             if tAltPotentialTarget then
                                 tPotentialTarget = {tAltPotentialTarget[1],tAltPotentialTarget[2],tAltPotentialTarget[3]}
-                                if bDebugMessages == true then LOG(sFunctionRef..': Adjusting further to increase the dist by the leeway') end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adjusting further to increase the dist by the leeway') end
                             end
                         end
                         tGroundTarget = {tPotentialTarget[1], tPotentialTarget[2], tPotentialTarget[3]}
                     elseif iCurAngleDif <= (iMaxAcceptableAngleDif or 15) * 0.6 then
                         --We are fairly close and aiming in the right direction so just attack rather than trying aoe attack to reduce the risk we just stay hovering in the air never attacking
-                        if bDebugMessages == true then LOG(sFunctionRef..': Angle dif is within acceptable range so will try and ground-fire the target') end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Angle dif is within acceptable range so will try and ground-fire the target') end
                         tGroundTarget = oTarget:GetPosition()
                     end
                 else
                     tGroundTarget = oTarget:GetPosition()
                 end
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': iCurAngleDif='..iCurAngleDif..'; iMaxAcceptableAngleDif='..iMaxAcceptableAngleDif..'; iDistToTarget='..iDistToTarget..'; iTooCloseIfFastDist='..(iTooCloseIfFastDist or 'nil')..'; iPotentialAbortDistance='..iPotentialAbortDistance..'; Is tGroundTarget empty='..tostring(M28Utilities.IsTableEmpty(tGroundTarget))..'; Time='..GetGameTimeSeconds()) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurAngleDif='..iCurAngleDif..'; iMaxAcceptableAngleDif='..iMaxAcceptableAngleDif..'; iDistToTarget='..iDistToTarget..'; iTooCloseIfFastDist='..(iTooCloseIfFastDist or 'nil')..'; iPotentialAbortDistance='..iPotentialAbortDistance..'; Is tGroundTarget empty='..tostring(M28Utilities.IsTableEmpty(tGroundTarget))..'; Time='..GetGameTimeSeconds()) end
             if tGroundTarget and M28UnitInfo.GetTimeUntilReadyToFireBomb(oBomber) > 0 then
                 --If we cant fire yet then clear the ground target and keep microing
                 tGroundTarget = nil
-                if bDebugMessages == true then LOG(sFunctionRef..': We cant fire yet so wont do ground attack yet, time until can fire='..M28UnitInfo.GetTimeUntilReadyToFireBomb(oBomber)..'; oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We cant fire yet so wont do ground attack yet, time until can fire='..M28UnitInfo.GetTimeUntilReadyToFireBomb(oBomber)..'; oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)) end
             elseif bConsiderIfTooFast and iDistToTarget < iTooCloseIfFastDist then
                 iCurSpeed = M28UnitInfo.GetUnitSpeed(oBomber)
-                if bDebugMessages == true then LOG(sFunctionRef..': iCurSpeed='..iCurSpeed..'; iFastSpeedThreshold='..iFastSpeedThreshold..'; Will we clear target due to going too fast='..tostring(iCurSpeed > iFastSpeedThreshold)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurSpeed='..iCurSpeed..'; iFastSpeedThreshold='..iFastSpeedThreshold..'; Will we clear target due to going too fast='..tostring(iCurSpeed > iFastSpeedThreshold)) end
                 if iCurSpeed > iFastSpeedThreshold then
 
                     tGroundTarget = nil
@@ -1711,7 +1711,7 @@ function TurnAirUnitAndAttackTarget(oBomber, oTarget, bDontAdjustMicroFlag, bCon
                     iActualAngleToUse = iFacingDirection + iAngleAdjustToUse
                     tTempTarget = M28Utilities.MoveInDirection(oBomber:GetPosition(), iActualAngleToUse, iDistanceAwayToMove, true, false, true)
                     M28Orders.IssueTrackedMove(oBomber, tTempTarget, 0, false, 'BMicrM2', true)
-                    if bDebugMessages == true then LOG(sFunctionRef..': Just issued move order, iFacingDirection='..iFacingDirection..'; iCurAngleDif='..iCurAngleDif..'; iAngleAdjustToUse='..iAngleAdjustToUse..'; iActualAngleToUse='..iActualAngleToUse..'; angle from bomber to target='..M28Utilities.GetAngleFromAToB(oBomber:GetPosition(), tTempTarget)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just issued move order, iFacingDirection='..iFacingDirection..'; iCurAngleDif='..iCurAngleDif..'; iAngleAdjustToUse='..iAngleAdjustToUse..'; iActualAngleToUse='..iActualAngleToUse..'; angle from bomber to target='..M28Utilities.GetAngleFromAToB(oBomber:GetPosition(), tTempTarget)) end
                 elseif iCurTick >= iTicksBetweenOrders then iCurTick = 0
                 end
 
@@ -1723,22 +1723,22 @@ function TurnAirUnitAndAttackTarget(oBomber, oTarget, bDontAdjustMicroFlag, bCon
                 end
             end
         end
-        if bDebugMessages == true then LOG(sFunctionRef..': end of loop for turning to face the target, is tGroundTarget empty='..tostring(M28Utilities.IsTableEmpty(tGroundTarget))..'; Is bomber valid='..tostring(M28UnitInfo.IsUnitValid(oBomber))..'; Is target valid='..tostring(M28UnitInfo.IsUnitValid(oTarget))) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': end of loop for turning to face the target, is tGroundTarget empty='..tostring(M28Utilities.IsTableEmpty(tGroundTarget))..'; Is bomber valid='..tostring(M28UnitInfo.IsUnitValid(oBomber))..'; Is target valid='..tostring(M28UnitInfo.IsUnitValid(oTarget))) end
         if bAdjustHoverMicroCount then aiBrain[refiCurUnitsHoverMicroing] = aiBrain[refiCurUnitsHoverMicroing] - 1 end
         if tGroundTarget and M28UnitInfo.IsUnitValid(oBomber) and M28UnitInfo.IsUnitValid(oTarget) then
             --Fire the bomb
             --T1 bombers - dont ground-fire engineers that are moving or else we wont hit them
             if iAOE <= 4 and oTarget:IsUnitState('Moving') and M28UnitInfo.GetUnitSpeed(oTarget) >= 0.5 then
                 M28Orders.IssueTrackedAttack(oBomber, oTarget, false, 'BMicMA', true)
-                if bDebugMessages == true then LOG(sFunctionRef..': Will do manual attack order') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will do manual attack order') end
             else
                 M28Orders.IssueTrackedGroundAttack(oBomber, tGroundTarget, 1, false, 'BMicGA', true, oTarget)
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': Just cleared bomber '..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..' commands and told it to attack tGroundTarget='..repru(tGroundTarget)..'which is expected to hit oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; bContinueAttackingUntilTargetDead='..tostring(bContinueAttackingUntilTargetDead or false)..'; bDontAdjustMicroFlag='..tostring(bDontAdjustMicroFlag or false)..'; oBomber[M28UnitInfo.refbSpecialMicroActive]='..tostring(oBomber[M28UnitInfo.refbSpecialMicroActive] or false)..'; GameTime='..GetGameTimeSeconds()) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just cleared bomber '..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..' commands and told it to attack tGroundTarget='..repru(tGroundTarget)..'which is expected to hit oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; bContinueAttackingUntilTargetDead='..tostring(bContinueAttackingUntilTargetDead or false)..'; bDontAdjustMicroFlag='..tostring(bDontAdjustMicroFlag or false)..'; oBomber[M28UnitInfo.refbSpecialMicroActive]='..tostring(oBomber[M28UnitInfo.refbSpecialMicroActive] or false)..'; GameTime='..GetGameTimeSeconds()) end
             if bContinueAttackingUntilTargetDead then
                 local iDelayForHoverBomb = 0
                 if M28UnitInfo.DoesBomberFireSalvo(oBomber) then iDelayForHoverBomb = 2 end
-                if bDebugMessages == true then LOG(sFunctionRef..': Will wait '..iDelayForHoverBomb..' seconds (or 1, if higher), does bomber fire salvo='..tostring(M28UnitInfo.DoesBomberFireSalvo(oBomber) or false)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will wait '..iDelayForHoverBomb..' seconds (or 1, if higher), does bomber fire salvo='..tostring(M28UnitInfo.DoesBomberFireSalvo(oBomber) or false)) end
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                 WaitSeconds(math.max(1, iDelayForHoverBomb))
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -1748,10 +1748,10 @@ function TurnAirUnitAndAttackTarget(oBomber, oTarget, bDontAdjustMicroFlag, bCon
                     WaitSeconds(iDelayForHoverBomb - (GetGameTimeSeconds() - oBomber[M28UnitInfo.refiLastBombFired]))
                     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': want to keep attacking target so will call this function again') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': want to keep attacking target so will call this function again') end
                 if not(bDontAdjustMicroFlag) then
                     oBomber[M28UnitInfo.refbSpecialMicroActive] = false
-                    if bDebugMessages == true then LOG(sFunctionRef..': Turning off special micro3a') end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Turning off special micro3a') end
                     oBomber[M28UnitInfo.refiGameTimeToResetMicroActive] = GetGameTimeSeconds()
                 end
                 TurnAirUnitAndAttackTarget(oBomber, oTarget, bDontAdjustMicroFlag, bContinueAttackingUntilTargetDead)
@@ -1760,9 +1760,9 @@ function TurnAirUnitAndAttackTarget(oBomber, oTarget, bDontAdjustMicroFlag, bCon
                 local iTimeOfOrder = GetGameTimeSeconds()
                 while M28UnitInfo.IsUnitValid(oBomber) and M28UnitInfo.IsUnitValid(oTarget) do
                     if not(oBomber[M28UnitInfo.refiLastBombFired]) or oBomber[M28UnitInfo.refiLastBombFired] < iTimeOfOrder then
-                        if bDebugMessages == true then LOG(sFunctionRef..': Not fired bomb yet so will wait for bomber to fire, unless we think we have gone passed the target, facing direction='..M28UnitInfo.GetUnitFacingAngle(oBomber)..'; Angle to target='..M28Utilities.GetAngleFromAToB(oBomber:GetPosition(), tGroundTarget)..'; Special micro flag='..tostring(oBomber[M28UnitInfo.refbSpecialMicroActive] or false)) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Not fired bomb yet so will wait for bomber to fire, unless we think we have gone passed the target, facing direction='..M28UnitInfo.GetUnitFacingAngle(oBomber)..'; Angle to target='..M28Utilities.GetAngleFromAToB(oBomber:GetPosition(), tGroundTarget)..'; Special micro flag='..tostring(oBomber[M28UnitInfo.refbSpecialMicroActive] or false)) end
                         if M28Utilities.GetAngleDifference(M28UnitInfo.GetUnitFacingAngle(oBomber), M28Utilities.GetAngleFromAToB(oBomber:GetPosition(), tGroundTarget)) >= 90 then
-                            if bDebugMessages == true then LOG(sFunctionRef..': think we have overshot the target, will increase refiBombMissedCount by 1 and abort') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': think we have overshot the target, will increase refiBombMissedCount by 1 and abort') end
                             oTarget[M28UnitInfo.refiBombMissedCount] = (oTarget[M28UnitInfo.refiBombMissedCount] or 0) + 1
                             break
                         else
@@ -1777,17 +1777,17 @@ function TurnAirUnitAndAttackTarget(oBomber, oTarget, bDontAdjustMicroFlag, bCon
                 if not(bDontAdjustMicroFlag) then
                     oBomber[M28UnitInfo.refbSpecialMicroActive] = false
                     oBomber[M28UnitInfo.refiGameTimeToResetMicroActive] = GetGameTimeSeconds()
-                    if bDebugMessages == true then LOG(sFunctionRef..': Turning off special micro3b') end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Turning off special micro3b') end
                 end
             elseif not(bDontAdjustMicroFlag) then
-                if bDebugMessages == true then LOG(sFunctionRef..': Turning off special micro4') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Turning off special micro4') end
                 oBomber[M28UnitInfo.refbSpecialMicroActive] = false
                 oBomber[M28UnitInfo.refiGameTimeToResetMicroActive] = GetGameTimeSeconds()
             end
         elseif not(bDontAdjustMicroFlag) then
             oBomber[M28UnitInfo.refbSpecialMicroActive] = false
             oBomber[M28UnitInfo.refiGameTimeToResetMicroActive] = GetGameTimeSeconds()
-            if bDebugMessages == true then LOG(sFunctionRef..': Turning off special micro5') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Turning off special micro5') end
         end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -1795,8 +1795,8 @@ end
 
 function MoveAwayFromFactory(oUnit, oFactory)
     if EntityCategoryContains(categories.STRUCTURE, oFactory.UnitId) then --and not(EntityCategoryContains(M28UnitInfo.refCategoryEngineer, oUnit.UnitId)) then
-        local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
         local sFunctionRef = 'MoveAwayFromFactory'
+        local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
 
@@ -1837,7 +1837,7 @@ function MoveAwayFromFactory(oUnit, oFactory)
 
             end
         end
-        if bDebugMessages == true then LOG(sFunctionRef..': Finished for oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' built from factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..' at time='..GetGameTimeSeconds()) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished for oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' built from factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..' at time='..GetGameTimeSeconds()) end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     end
 end
@@ -1852,13 +1852,13 @@ end
 
 function MegalithRetreatMicro(oUnit, tRallyPoint, tClosestFriendlyBase, oClosestEnemyUnit)
     --Tries to retreat the unit, returns false if couldnt find suitable retreat location
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'MegalithRetreatMicro'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local bGivenOrder = false
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Time since last weapon event='..(GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastWeaponEvent] or 0))..'; refiTimeBetweenDFShots='..(oUnit[M28UnitInfo.refiTimeBetweenDFShots] or 'nil')) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Time since last weapon event='..(GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastWeaponEvent] or 0))..'; refiTimeBetweenDFShots='..(oUnit[M28UnitInfo.refiTimeBetweenDFShots] or 'nil')) end
     if not(oUnit[M28UnitInfo.refbEasyBrain]) and (oUnit[M28UnitInfo.refiLastWeaponEvent] and GetGameTimeSeconds() - oUnit[M28UnitInfo.refiLastWeaponEvent]) < (oUnit[M28UnitInfo.refiTimeBetweenDFShots] or 1.2) + 0.5 then
 
         --Only consider applying micro if moving in opposite direction to that which we are facing should result in us moving in similar direction to rally point or closest base
@@ -1881,14 +1881,14 @@ function MegalithRetreatMicro(oUnit, tRallyPoint, tClosestFriendlyBase, oClosest
             end
             local bFacingEnemy = false
             if M28UnitInfo.IsUnitValid(oClosestEnemyUnit) and M28Utilities.GetAngleDifference(iFacingDirection, M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oClosestEnemyUnit:GetPosition())) <= iMaxAngleDif then
-                if bDebugMessages == true then LOG(sFunctionRef..': Angle to closest enemy='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oClosestEnemyUnit:GetPosition())..'; iFacingDirection='..iFacingDirection..'; ANgle dif='..M28Utilities.GetAngleDifference(iFacingDirection, M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oClosestEnemyUnit:GetPosition()))) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Angle to closest enemy='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oClosestEnemyUnit:GetPosition())..'; iFacingDirection='..iFacingDirection..'; ANgle dif='..M28Utilities.GetAngleDifference(iFacingDirection, M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oClosestEnemyUnit:GetPosition()))) end
                 bFacingEnemy = true
             else
                 --Check all nearby enemies
                 local tNearbyEnemyUnits = oUnit:GetAIBrain():GetUnitsAroundPoint(categories.DIRECTFIRE + categories.INDIRECTFIRE + M28UnitInfo.refCategoryExperimentalLevel - categories.AIR * categories.MOBILE, oUnit:GetPosition(), oUnit[M28UnitInfo.refiDFRange], 'Enemy')
                 if M28Utilities.IsTableEmpty(tNearbyEnemyUnits) == false then
                     for iEnemy, oEnemy in tNearbyEnemyUnits do
-                        if bDebugMessages == true then LOG(sFunctionRef..': Considering oEnemy='..oEnemy.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEnemy)..'; Angle to enemy='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oEnemy:GetPosition())..'; iFacingDirection='..iFacingDirection..'; ANgle dif='..M28Utilities.GetAngleDifference(iFacingDirection, M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oEnemy:GetPosition()))..'; iMaxAngleDif='..iMaxAngleDif) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering oEnemy='..oEnemy.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEnemy)..'; Angle to enemy='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oEnemy:GetPosition())..'; iFacingDirection='..iFacingDirection..'; ANgle dif='..M28Utilities.GetAngleDifference(iFacingDirection, M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oEnemy:GetPosition()))..'; iMaxAngleDif='..iMaxAngleDif) end
                         if M28Utilities.GetAngleDifference(iFacingDirection, M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oEnemy:GetPosition())) <= iMaxAngleDif and not(M28UnitInfo.IsUnitUnderwater(oEnemy)) then
                             bFacingEnemy = true
                             break
@@ -1896,7 +1896,7 @@ function MegalithRetreatMicro(oUnit, tRallyPoint, tClosestFriendlyBase, oClosest
                     end
                 end
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': bFacingEnemy='..tostring(bFacingEnemy or false)) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bFacingEnemy='..tostring(bFacingEnemy or false)) end
             if bFacingEnemy then
                 local iDistanceToMove = 8 --worked ok with value of 5
                 tMoveDirection = M28Utilities.MoveInDirection(oUnit:GetPosition(), iAngleIfMoving, iDistanceToMove, true, false, true)
@@ -1922,22 +1922,22 @@ function MegalithRetreatMicro(oUnit, tRallyPoint, tClosestFriendlyBase, oClosest
 
                             end
                             if bClearAndWait then
-                                if bDebugMessages == true then LOG(sFunctionRef..': Will clear orders then do delayed move') end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will clear orders then do delayed move') end
                                 M28Orders.IssueTrackedClearCommands(oUnit)
                                 ForkThread(DelayedUnitMove, oUnit, tMoveDirection, iDistanceToMove * 0.45, false, 'MegDelM', false, 0.75) --tried with 0.25s delay and led to megalith turning around; 0.75 worked in the replay where megalith moved in a circle before; if find it doesnt work in other caess though the nincrease to 1s and add unit micro tracking
                             else
-                                if bDebugMessages == true then LOG(sFunctionRef..': Are already trying to kite so will just check if move order needs updating') end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Are already trying to kite so will just check if move order needs updating') end
                                 M28Orders.IssueTrackedMove(oUnit, tMoveDirection, iDistanceToMove * 0.45, false, 'MegMiRM', false)
                             end
                             bGivenOrder = true
                         else
-                            if bDebugMessages == true then LOG(sFunctionRef..': Have buildings around the target destination so dont want to try and move there') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have buildings around the target destination so dont want to try and move there') end
                         end
                     end
                 end
             end
         end
-        if bDebugMessages == true then LOG(sFunctionRef..': Near end of code, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; bGivenOrder='..tostring(bGivenOrder or false)..'; tMoveDirection='..repru(tMoveDirection)..'; iFacingDirection='..iFacingDirection..'; iAngleToRally='..iAngleToRally..'; iAngleToClosestBase='..iAngleToClosestBase..'; iAngleIfMoving='..iAngleIfMoving..'; oClosestEnemyUnit='..(oClosestEnemyUnit.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oClosestEnemyUnit) or 'nil')..'; Time since last fired weapon='..GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastWeaponEvent] or 0)..'; Time='..GetGameTimeSeconds()) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Near end of code, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; bGivenOrder='..tostring(bGivenOrder or false)..'; tMoveDirection='..repru(tMoveDirection)..'; iFacingDirection='..iFacingDirection..'; iAngleToRally='..iAngleToRally..'; iAngleToClosestBase='..iAngleToClosestBase..'; iAngleIfMoving='..iAngleIfMoving..'; oClosestEnemyUnit='..(oClosestEnemyUnit.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oClosestEnemyUnit) or 'nil')..'; Time since last fired weapon='..GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastWeaponEvent] or 0)..'; Time='..GetGameTimeSeconds()) end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     return bGivenOrder
@@ -1945,8 +1945,8 @@ end
 
 function MonkeylordRetreatMicro(oUnit, tRallyPoint, tClosestFriendlyBase, oClosestEnemyUnit)
     --Tries to retreat the unit, returns false if couldnt find suitable retreat location
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'MonkeylordRetreatMicro'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local bGivenOrder = false
@@ -1976,7 +1976,7 @@ function MonkeylordRetreatMicro(oUnit, tRallyPoint, tClosestFriendlyBase, oClose
                 iAngleToRallyOrBase = iAngleToClosestBase
             end
         end
-        if bDebugMessages == true then LOG(sFunctionRef..': iAngleToRallyOrBase='..(iAngleToRallyOrBase or 'nil')..'; iAngleDifToRallyOrBase='..(iAngleDifToRallyOrBase or 'nil')..'; iAngleIfMoving='..iAngleIfMoving..'; tRallyOrBaseToGoTo='..repru(tRallyOrBaseToGoTo)..'; oUnit:GetPosition()='..repru(oUnit:GetPosition())..'; Time='..GetGameTimeSeconds()) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iAngleToRallyOrBase='..(iAngleToRallyOrBase or 'nil')..'; iAngleDifToRallyOrBase='..(iAngleDifToRallyOrBase or 'nil')..'; iAngleIfMoving='..iAngleIfMoving..'; tRallyOrBaseToGoTo='..repru(tRallyOrBaseToGoTo)..'; oUnit:GetPosition()='..repru(oUnit:GetPosition())..'; Time='..GetGameTimeSeconds()) end
         if tRallyOrBaseToGoTo then
             --Do we have an enemy in our range that we are near facing?
             local iMaxAngleDif
@@ -1987,14 +1987,14 @@ function MonkeylordRetreatMicro(oUnit, tRallyPoint, tClosestFriendlyBase, oClose
             end
             local bFacingEnemy = false
             if M28UnitInfo.IsUnitValid(oClosestEnemyUnit) and M28Utilities.GetAngleDifference(iFacingDirection, M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oClosestEnemyUnit:GetPosition())) <= iMaxAngleDif then
-                if bDebugMessages == true then LOG(sFunctionRef..': Angle to closest enemy='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oClosestEnemyUnit:GetPosition())..'; iFacingDirection='..iFacingDirection..'; ANgle dif='..M28Utilities.GetAngleDifference(iFacingDirection, M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oClosestEnemyUnit:GetPosition()))) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Angle to closest enemy='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oClosestEnemyUnit:GetPosition())..'; iFacingDirection='..iFacingDirection..'; ANgle dif='..M28Utilities.GetAngleDifference(iFacingDirection, M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oClosestEnemyUnit:GetPosition()))) end
                 bFacingEnemy = true
             else
                 --Check all nearby enemies
                 local tNearbyEnemyUnits = oUnit:GetAIBrain():GetUnitsAroundPoint(categories.DIRECTFIRE + categories.INDIRECTFIRE + M28UnitInfo.refCategoryExperimentalLevel - categories.AIR * categories.MOBILE, oUnit:GetPosition(), math.max(64, oUnit[M28UnitInfo.refiDFRange]) + 12, 'Enemy')
                 if M28Utilities.IsTableEmpty(tNearbyEnemyUnits) == false then
                     for iEnemy, oEnemy in tNearbyEnemyUnits do
-                        if bDebugMessages == true then LOG(sFunctionRef..': Considering oEnemy='..oEnemy.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEnemy)..'; Angle to enemy='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oEnemy:GetPosition())..'; iFacingDirection='..iFacingDirection..'; ANgle dif='..M28Utilities.GetAngleDifference(iFacingDirection, M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oEnemy:GetPosition()))..'; iMaxAngleDif='..iMaxAngleDif) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering oEnemy='..oEnemy.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEnemy)..'; Angle to enemy='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oEnemy:GetPosition())..'; iFacingDirection='..iFacingDirection..'; ANgle dif='..M28Utilities.GetAngleDifference(iFacingDirection, M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oEnemy:GetPosition()))..'; iMaxAngleDif='..iMaxAngleDif) end
                         if M28Utilities.GetAngleDifference(iFacingDirection, M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oEnemy:GetPosition())) <= iMaxAngleDif and not(M28UnitInfo.IsUnitUnderwater(oEnemy)) then
                             bFacingEnemy = true
                             break
@@ -2002,7 +2002,7 @@ function MonkeylordRetreatMicro(oUnit, tRallyPoint, tClosestFriendlyBase, oClose
                     end
                 end
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': bFacingEnemy='..tostring(bFacingEnemy or false)) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bFacingEnemy='..tostring(bFacingEnemy or false)) end
             if bFacingEnemy then
                 local iDistanceToMove = 8
                 --Monkeylord - want to move/rotate to one side to move backwards
@@ -2021,7 +2021,7 @@ function MonkeylordRetreatMicro(oUnit, tRallyPoint, tClosestFriendlyBase, oClose
                     if M28Utilities.IsTableEmpty(t60thpoint) == false then
                         --If there are buildings around here then megalith wont go backwards but instead will turn around; so a good chance monkeylord will also suffer problems
                         local tUnitsAroundDestination = GetUnitsInRect(M28Utilities.GetRectAroundLocation(t60thpoint, 5))
-                        if bDebugMessages == true then LOG(sFunctionRef..': Is tUnitsAroundDestination empty='..tostring(M28Utilities.IsTableEmpty(tUnitsAroundDestination))) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is tUnitsAroundDestination empty='..tostring(M28Utilities.IsTableEmpty(tUnitsAroundDestination))) end
                         if M28Utilities.IsTableEmpty(tUnitsAroundDestination) or M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryStructure, tUnitsAroundDestination)) then
 
 
@@ -2030,7 +2030,7 @@ function MonkeylordRetreatMicro(oUnit, tRallyPoint, tClosestFriendlyBase, oClose
                             --If monkeylord is advancing and then starts doing this micro, it causes it to keep moving forwards when turning
                             if tCurOrder then
                                 if tCurOrder[M28Orders.refiOrderIssueMove] == M28Orders.refiOrderIssueMove and M28Utilities.IsTableEmpty(tCurOrder[M28Orders.subreftOrderPosition]) == false then
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Monkeylord last order was a move order, dist from cur position to order position='..M28Utilities.GetDistanceBetweenPositions(tMoveDirection, tCurOrder[M28Orders.subreftOrderPosition])..'; Monkeylord speed='..M28UnitInfo.GetUnitSpeed(oUnit)) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Monkeylord last order was a move order, dist from cur position to order position='..M28Utilities.GetDistanceBetweenPositions(tMoveDirection, tCurOrder[M28Orders.subreftOrderPosition])..'; Monkeylord speed='..M28UnitInfo.GetUnitSpeed(oUnit)) end
                                     if M28Utilities.GetDistanceBetweenPositions(tMoveDirection, tCurOrder[M28Orders.subreftOrderPosition]) > iDistanceToMove and M28UnitInfo.GetUnitSpeed(oUnit) > 0  then
                                         bClearAndWait = true
                                     end
@@ -2050,12 +2050,12 @@ function MonkeylordRetreatMicro(oUnit, tRallyPoint, tClosestFriendlyBase, oClose
                                         --Want negative Z or almost 0
                                         if iVelocityZ > 0 then
                                             bClearAndWait = true
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Z movement is in the wrong direction (we are going south and want to go north)') end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Z movement is in the wrong direction (we are going south and want to go north)') end
                                         end
                                     elseif iAngleToRallyOrBase <= 260 and iAngleToRallyOrBase >= 100 then --we want to go down, so want Z to be positive
                                         if iVelocityZ < 0 then
                                             bClearAndWait = true
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Z movement is in the wrong direction (we are going north and want to go south)') end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Z movement is in the wrong direction (we are going north and want to go south)') end
                                         end
                                     end
                                 end
@@ -2064,20 +2064,20 @@ function MonkeylordRetreatMicro(oUnit, tRallyPoint, tClosestFriendlyBase, oClose
                                         --Want to move east, i.e. want X to be positive
                                         if iVelocityX < 0 then
                                             bClearAndWait = true
-                                            if bDebugMessages == true then LOG(sFunctionRef..': X movement is in wrong direction (we are going west when want to go east') end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': X movement is in wrong direction (we are going west when want to go east') end
                                         end
                                     elseif iAngleToRallyOrBase >= 190 and iAngleToRallyOrBase <= 350 then
                                         --Want to move west, i.e. want X to be negative
                                         if iVelocityX > 0 then
                                             bClearAndWait = true
-                                            if bDebugMessages == true then LOG(sFunctionRef..': X movement is in wrong direction (we are going east when want to go west') end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': X movement is in wrong direction (we are going east when want to go west') end
                                         end
                                     end
                                 end
-                                if bDebugMessages == true then LOG(sFunctionRef..': iVelocityX='..iVelocityX..'; iVelocityZ='..iVelocityZ..'; bClearAndWait after checks='..tostring(bClearAndWait)) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iVelocityX='..iVelocityX..'; iVelocityZ='..iVelocityZ..'; bClearAndWait after checks='..tostring(bClearAndWait)) end
                             end
                             if bClearAndWait then
-                                if bDebugMessages == true then LOG(sFunctionRef..': Will clear orders then do delayed move') end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will clear orders then do delayed move') end
                                 M28Orders.IssueTrackedClearCommands(oUnit)
                                 ForkThread(DelayedUnitMove, oUnit, tMoveDirection, iDistanceToMove * 0.45, false, 'MonkDelM', false, 0.75) --tried with 0.25s delay and led to megalith turning around; 0.75 worked in the replay where megalith moved in a circle before; if find it doesnt work in other caess though the nincrease to 1s and add unit micro tracking
                                 bGivenOrder = true
@@ -2087,19 +2087,19 @@ function MonkeylordRetreatMicro(oUnit, tRallyPoint, tClosestFriendlyBase, oClose
                                 --Revise move direction
 
 
-                                if bDebugMessages == true then LOG(sFunctionRef..': will just check if move order needs updating') end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': will just check if move order needs updating') end
                                 M28Orders.IssueTrackedMove(oUnit, tMoveDirection, iDistanceToMove * 0.45, false, 'MonMiRM', false)
                                 --end
                                 bGivenOrder = true
                             end
                         else
-                            if bDebugMessages == true then LOG(sFunctionRef..': Have buildings around the target destination so dont want to try and move there') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have buildings around the target destination so dont want to try and move there') end
                         end
                     end
                 end
             end
         end
-        if bDebugMessages == true then LOG(sFunctionRef..': Near end of code, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; bGivenOrder='..tostring(bGivenOrder or false)..'; tMoveDirection='..repru(tMoveDirection)..'; iFacingDirection='..iFacingDirection..'; iAngleToRally='..iAngleToRally..'; iAngleIfMoving='..iAngleIfMoving..'; oClosestEnemyUnit='..(oClosestEnemyUnit.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oClosestEnemyUnit) or 'nil')..'; Time since last fired weapon='..GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastWeaponEvent] or 0)..'; Time='..GetGameTimeSeconds()) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Near end of code, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; bGivenOrder='..tostring(bGivenOrder or false)..'; tMoveDirection='..repru(tMoveDirection)..'; iFacingDirection='..iFacingDirection..'; iAngleToRally='..iAngleToRally..'; iAngleIfMoving='..iAngleIfMoving..'; oClosestEnemyUnit='..(oClosestEnemyUnit.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oClosestEnemyUnit) or 'nil')..'; Time since last fired weapon='..GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastWeaponEvent] or 0)..'; Time='..GetGameTimeSeconds()) end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     return bGivenOrder
@@ -2107,12 +2107,12 @@ end
 
 function MoveAndKillAirUnit(oUnit)
     --Move to a random nearby positionand then ctrl-k; reason is to reduce likelihood we are detsroying existing wrecks
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'MoveAndKillAirUnit'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     if M28UnitInfo.IsUnitValid(oUnit) then --redundancy
-        if bDebugMessages == true then LOG(sFunctionRef..': About to give more and kill order to unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; time='..GetGameTimeSeconds()) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to give more and kill order to unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; time='..GetGameTimeSeconds()) end
         if oUnit[M28UnitInfo.refbEasyBrain] then
             M28Orders.IssueTrackedKillUnit(oUnit)
         else
@@ -2151,7 +2151,7 @@ function MoveAndKillAirUnit(oUnit)
                     end
                 end
                 if not(bHaveLowHealthUnitOrReclaim) then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Have got location to move to for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; .Dead='..tostring(oUnit.Dead or false)..'; been destroyed='..tostring(oUnit:BeenDestroyed())..'; tPotentialPosition='..repru(tPotentialPosition)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have got location to move to for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; .Dead='..tostring(oUnit.Dead or false)..'; been destroyed='..tostring(oUnit:BeenDestroyed())..'; tPotentialPosition='..repru(tPotentialPosition)) end
                     M28Orders.IssueTrackedMove(oUnit, tPotentialPosition, 0, false, 'MveToDie', true)
                     TrackTemporaryUnitMicro(oUnit, 3)
                     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -2169,15 +2169,15 @@ function MoveAndKillAirUnit(oUnit)
 end
 
 function MonitorNukeTargetForNukeWeHaveIntelOf(oProjectile, oLauncher, iTeam, bEnemyNuke)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'MonitorNukeTargetForNukeWeHaveIntelOf'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     if not(oProjectile:BeenDestroyed()) and oProjectile.GetCurrentTargetPosition then
         --LOG('Blueprint for projectile repru='..repru(oProjectile.Blueprint))
         local aiBrain = M28Team.GetFirstActiveM28Brain(iTeam)
         if aiBrain then
-            if bDebugMessages == true then LOG(sFunctionRef..': Outer ring='..repru(oProjectile.OuterRing)..'; Inner ring='..repru(oProjectile.InnerRing)..'; oLauncher='..(oLauncher.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oLauncher) or 'nil')) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Outer ring='..repru(oProjectile.OuterRing)..'; Inner ring='..repru(oProjectile.InnerRing)..'; oLauncher='..(oLauncher.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oLauncher) or 'nil')) end
             --Record in friendly nuke table
             local tTarget = oProjectile:GetCurrentTargetPosition()
             ForkThread(M28Building.RecordNukeTarget, iTeam, tTarget)
@@ -2186,7 +2186,7 @@ function MonitorNukeTargetForNukeWeHaveIntelOf(oProjectile, oLauncher, iTeam, bE
             local iSpeed = (oProjectile.Blueprint.Physics.MaxSpeed or 10)
             local iDistToTarget = M28Utilities.GetDistanceBetweenPositions(tTarget, oProjectile:GetPosition())
             local iTimeToTarget = iDistToTarget / iSpeed
-            if bDebugMessages == true then LOG(sFunctionRef..': iSpeed='..iSpeed..'; iDistToTarget='..iDistToTarget..'; iTimeToTarget='..iTimeToTarget..'; iSearchArea='..iSearchArea..'; Excess time='..(iTimeToTarget - iSearchArea / 2)*10) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iSpeed='..iSpeed..'; iDistToTarget='..iDistToTarget..'; iTimeToTarget='..iTimeToTarget..'; iSearchArea='..iSearchArea..'; Excess time='..(iTimeToTarget - iSearchArea / 2)*10) end
             if iTimeToTarget >= iSearchArea / 2 then --want to allow enough time for a unit in the middle of the target to get out of the way
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                 WaitTicks(math.floor((iTimeToTarget - iSearchArea / 2)*10))
@@ -2220,11 +2220,11 @@ end
 
 function MonitorEnemyNukeForIntel(oProjectile, iTeam)
     --Intended for hostile nuke - want to try and take evasive action once we see hten uke being launched
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'MonitorEnemyNukeForIntel'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of loop for iTeam='..iTeam..'; oProjectile.Launcher='..(oProjectile.Launcher.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oProjectile.Launcher) or 'nil')..'; Time='..GetGameTimeSeconds()) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of loop for iTeam='..iTeam..'; oProjectile.Launcher='..(oProjectile.Launcher.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oProjectile.Launcher) or 'nil')..'; Time='..GetGameTimeSeconds()) end
     if not(oProjectile:BeenDestroyed()) and oProjectile.GetCurrentTargetPosition then
         local aiBrain = M28Team.GetFirstActiveM28Brain(iTeam)
         if aiBrain then
@@ -2244,9 +2244,9 @@ function MonitorEnemyNukeForIntel(oProjectile, iTeam)
                     for iUnit, oUnit in tCurLZTeamData[M28Map.subreftoLZOrWZAlliedUnits] do
                         if M28UnitInfo.IsUnitValid(oUnit) then
                             iCurDist = M28Utilities.GetDistanceBetweenPositions(tCurMissilePosition, oUnit:GetPosition())
-                            if bDebugMessages == true then LOG(sFunctionRef..': oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iCurDist='..iCurDist..'; Dist less vision='..iCurDist - (oUnit:GetBlueprint().Intel.VisionRadius or 0)) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iCurDist='..iCurDist..'; Dist less vision='..iCurDist - (oUnit:GetBlueprint().Intel.VisionRadius or 0)) end
                             if iCurDist <= 100 and iCurDist - (oUnit:GetBlueprint().Intel.VisionRadius or 0) < 0 then
-                                if bDebugMessages == true then LOG(sFunctionRef..': We have intel so aborting') end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We have intel so aborting') end
                                 bHaveIntel = true
                                 break
                             end
@@ -2258,7 +2258,7 @@ function MonitorEnemyNukeForIntel(oProjectile, iTeam)
                 WaitTicks(iTickDelayBetweenChecks)
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': Exited the projectile monitor loop, bHaveIntel='..tostring(bHaveIntel)..'; Time='..GetGameTimeSeconds()) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Exited the projectile monitor loop, bHaveIntel='..tostring(bHaveIntel)..'; Time='..GetGameTimeSeconds()) end
             if bHaveIntel then
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                 MonitorNukeTargetForNukeWeHaveIntelOf(oProjectile, oProjectile.Launcher, iTeam, true)
@@ -2270,8 +2270,8 @@ function MonitorEnemyNukeForIntel(oProjectile, iTeam)
 end
 
 function ConsiderAirAAHoverAttackTowardsTarget(oUnit, oWeapon)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ConsiderAirAAHoverAttackTowardsTarget'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local oTarget = oWeapon:GetCurrentTarget()
@@ -2295,11 +2295,11 @@ function ConsiderAirAAHoverAttackTowardsTarget(oUnit, oWeapon)
             local iEnemySpeed = oTarget:GetBlueprint().Air.MaxAirspeed
             --Want to consider hover-turning against enemy asfs if we have same speed as them and we arent chasing them (suggesting they might be turning or they might be facing us)
             --(wont use hover-logic on enemy asfs once we have reached 100+ asfs to avoid massive slowdown)
-            if bDebugMessages == true then LOG(sFunctionRef..': iOurSpeed='..(iOurSpeed or 'nil')..'; iEnemySpeed='..(iEnemySpeed or 'nil')..'; Our facing angle='..M28UnitInfo.GetUnitFacingAngle(oUnit)..'; Enemy unit facing angle='..M28UnitInfo.GetUnitFacingAngle(oTarget)..'; Angle dif='..M28Utilities.GetAngleDifference(M28UnitInfo.GetUnitFacingAngle(oUnit), M28UnitInfo.GetUnitFacingAngle(oTarget))..'; Dist to enemy='..M28Utilities.GetDistanceBetweenPositions(oTarget:GetPosition(), oUnit:GetPosition())) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iOurSpeed='..(iOurSpeed or 'nil')..'; iEnemySpeed='..(iEnemySpeed or 'nil')..'; Our facing angle='..M28UnitInfo.GetUnitFacingAngle(oUnit)..'; Enemy unit facing angle='..M28UnitInfo.GetUnitFacingAngle(oTarget)..'; Angle dif='..M28Utilities.GetAngleDifference(M28UnitInfo.GetUnitFacingAngle(oUnit), M28UnitInfo.GetUnitFacingAngle(oTarget))..'; Dist to enemy='..M28Utilities.GetDistanceBetweenPositions(oTarget:GetPosition(), oUnit:GetPosition())) end
             --If our max speed isnt much dif to enemy, and we are facing them, and they are facing away from us, then dont consider hovering (as we are better off with normal logic that sees us close in to them)
             if iOurSpeed and iEnemySpeed and iOurSpeed >= iEnemySpeed and (iOurSpeed >= iEnemySpeed * 1.2 or (M28UnitInfo.GetUnitLifetimeCount(oUnit) <= 100 and M28Utilities.GetAngleDifference(M28UnitInfo.GetUnitFacingAngle(oUnit), M28UnitInfo.GetUnitFacingAngle(oTarget)) <= 130)) then
                 local iOurRange = (oUnit[M28UnitInfo.refiAARange] or 0)
-                if bDebugMessages == true then LOG(sFunctionRef..': iOurRange='..iOurRange..'; oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; Is it an air unit='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryAllAir, oTarget.UnitId))) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iOurRange='..iOurRange..'; oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; Is it an air unit='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryAllAir, oTarget.UnitId))) end
                 if iOurRange > 0 and EntityCategoryContains(M28UnitInfo.refCategoryAllAir, oTarget.UnitId) then
                     --Want to try and do hover-micro
                     EnableUnitMicroUntilManuallyTurnOff(oUnit)
@@ -2328,30 +2328,30 @@ function ConsiderAirAAHoverAttackTowardsTarget(oUnit, oWeapon)
                         --First decide if we want to move towards target
                         iCurDistToTarget = VDist3(oUnit:GetPosition(), oTarget:GetPosition())
 
-                        if bDebugMessages == true then LOG(sFunctionRef..': iCurDistToTarget (using vdist3)='..iCurDistToTarget..'; Straightline dist='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oTarget:GetPosition())..'; Time='..GetGameTimeSeconds()) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurDistToTarget (using vdist3)='..iCurDistToTarget..'; Straightline dist='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oTarget:GetPosition())..'; Time='..GetGameTimeSeconds()) end
                         if iCurDistToTarget > iMinDistToTarget then
                             tMoveViaPoint = oTarget:GetPosition()
                             iReorderDist = 0.5
-                            if bDebugMessages == true then LOG(sFunctionRef..': Too far from target so want to move to target, iCurDistToTarget='..iCurDistToTarget..'; Target unit state='..M28UnitInfo.GetUnitState(oTarget)) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Too far from target so want to move to target, iCurDistToTarget='..iCurDistToTarget..'; Target unit state='..M28UnitInfo.GetUnitState(oTarget)) end
                         else
                             --Move towards target
                             --Check target is in the air not on the ground (if on the ground then want to issue manual attack order)
                             bManualAttack = false
                             if not(oTarget:IsUnitState('Moving') or oTarget:IsUnitState('Attacking')) then
                                 local tCurTargetPosition = oTarget:GetPosition()
-                                if bDebugMessages == true then LOG(sFunctionRef..': Consideringi f want manual attack, target vertical dist from surface='..tCurTargetPosition[2] - GetSurfaceHeight(tCurTargetPosition[1], tCurTargetPosition[3])) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Consideringi f want manual attack, target vertical dist from surface='..tCurTargetPosition[2] - GetSurfaceHeight(tCurTargetPosition[1], tCurTargetPosition[3])) end
                                 if tCurTargetPosition[2] - GetSurfaceHeight(tCurTargetPosition[1], tCurTargetPosition[3]) <= 1 then
                                     bManualAttack = true
                                 end
                             end
                             if bManualAttack then
-                                if bDebugMessages == true then LOG(sFunctionRef..': Target appears to be on ground so will do manual attack') end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Target appears to be on ground so will do manual attack') end
                                 tMoveViaPoint = nil
                             else
                                 iCurAngleToTarget = M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oTarget:GetPosition())
                                 iCurFacingAngle = M28UnitInfo.GetUnitFacingAngle(oUnit)
                                 iCurAngleDif = M28Utilities.GetAngleDifference(iCurAngleToTarget, iCurFacingAngle)
-                                if bDebugMessages == true then LOG(sFunctionRef..': iCurDistToTarget='..iCurDistToTarget..'; iCurAngleToTarget='..iCurAngleToTarget..'; iCurFacingAngle='..iCurFacingAngle..'; iCurAngleDif='..iCurAngleDif..'; Target unit state='..M28UnitInfo.GetUnitState(oTarget)..'; Dist from ground='..(oTarget:GetPosition()[2] - GetSurfaceHeight(oTarget:GetPosition()[1], oTarget:GetPosition()[3]))..'; Time since last fired weapon='..GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastWeaponEvent] or 0)) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurDistToTarget='..iCurDistToTarget..'; iCurAngleToTarget='..iCurAngleToTarget..'; iCurFacingAngle='..iCurFacingAngle..'; iCurAngleDif='..iCurAngleDif..'; Target unit state='..M28UnitInfo.GetUnitState(oTarget)..'; Dist from ground='..(oTarget:GetPosition()[2] - GetSurfaceHeight(oTarget:GetPosition()[1], oTarget:GetPosition()[3]))..'; Time since last fired weapon='..GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastWeaponEvent] or 0)) end
                                 if iCurAngleDif > 15 then
                                     iReorderDist = 0.1
                                     --Turn towards target - decide which is closest way
@@ -2371,7 +2371,7 @@ function ConsiderAirAAHoverAttackTowardsTarget(oUnit, oWeapon)
                                             bTurnClockwise = false
                                         end
                                     end
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Will turn towards target, bTurnClockwise='..tostring(bTurnClockwise)) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will turn towards target, bTurnClockwise='..tostring(bTurnClockwise)) end
 
                                     if GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastWeaponEvent] or 0) > iMaxTimeBetweenShotsWanted then
                                         if iCurDistToTarget >= 10 then
@@ -2386,7 +2386,7 @@ function ConsiderAirAAHoverAttackTowardsTarget(oUnit, oWeapon)
                                     end
                                     if bManualAttack then
                                         tMoveViaPoint = nil
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Will switch to manual attack as been a while since we have moved') end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will switch to manual attack as been a while since we have moved') end
                                     else
                                         if bTurnClockwise then
                                             tMoveViaPoint = M28Utilities.MoveInDirection(oUnit:GetPosition(), iCurFacingAngle + iAngleToMove, iDistToMoveTowardsTarget, true, false, false)
@@ -2400,26 +2400,26 @@ function ConsiderAirAAHoverAttackTowardsTarget(oUnit, oWeapon)
                                         end
                                     end
                                 elseif bEnemyIsCloseToOurSpeed and iCurDistToTarget + 2 >= oUnit[M28UnitInfo.refiAARange] then
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Will try and move to target since are almost out of range and enemy is similar speed to us') end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will try and move to target since are almost out of range and enemy is similar speed to us') end
                                     tMoveViaPoint = oTarget:GetPosition()
 
                                 elseif iCurDistToTarget < iHalfDistThreshold then
                                     --Move a fraction of the way towards target
                                     iReorderDist = 0.1
                                     tMoveViaPoint = M28Utilities.MoveInDirection(oUnit:GetPosition(), iCurAngleToTarget, 0.1, true, false, false)
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Will move towards unti by 0.1 distance but with the correct angle') end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will move towards unti by 0.1 distance but with the correct angle') end
                                 else
                                     --Move 25% towards target
                                     iReorderDist = math.min(iCurDistToTarget * 0.25, iCurDistToTarget - iHalfDistThreshold)
 
                                     tMoveViaPoint = M28Utilities.MoveInDirection(oUnit:GetPosition(), iCurAngleToTarget, iReorderDist, true, false, false)
                                     if iReorderDist > 5 then iReorderDist = 5 end
-                                    if bDebugMessages == true then LOG(sFunctionRef..': will move 25% of the way towards the target') end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': will move 25% of the way towards the target') end
                                 end
                             end
                         end
                         iReorderDist = nil
-                        if bDebugMessages == true then LOG(sFunctionRef..': Unit cur position='..repru(oUnit:GetPosition())..'; tMoveViaPoint='..repru(tMoveViaPoint)..'; Time='..GetGameTimeSeconds()..'; Time since last weapon event='..GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastWeaponEvent] or 0)) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit cur position='..repru(oUnit:GetPosition())..'; tMoveViaPoint='..repru(tMoveViaPoint)..'; Time='..GetGameTimeSeconds()..'; Time since last weapon event='..GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastWeaponEvent] or 0)) end
                         if tMoveViaPoint then
                             M28Orders.IssueTrackedMove(oUnit, tMoveViaPoint, iReorderDist, false, 'AAHvM', true)
                         elseif bManualAttack then
@@ -2431,14 +2431,14 @@ function ConsiderAirAAHoverAttackTowardsTarget(oUnit, oWeapon)
                         end
                         --Abort if enemy same speed as us and out of our range
                         if bEnemyIsCloseToOurSpeed and iCurDistToTarget > iOurRange and (iCurDistToTarget > iOurRange + 15 or iEnemySpeed >= iOurSpeed or not(EntityCategoryContains(M28UnitInfo.refCategoryTransport, oTarget.UnitId)) or not(oTarget.GetCargo) or M28Utilities.IsTableEmpty(oTarget:GetCargo())) then
-                            if bDebugMessages == true then LOG(sFunctionRef..': enemy is similar speed and outside our range so will abort the loop') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': enemy is similar speed and outside our range so will abort the loop') end
                             break
                         end
                         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                         WaitTicks(1)
                         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
                     end
-                    if bDebugMessages == true then LOG(sFunctionRef..': Turning off special micro6') end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Turning off special micro6') end
                     oUnit[M28UnitInfo.refbSpecialMicroActive] = false
                 end
             end
@@ -2449,11 +2449,11 @@ end
 
 function T1OrT3HoverBombTarget(oBomber, oTarget, bDontAdjustMicroFlag, bContinueAttackingUntilTargetDead, bAbortForGroundAAUnlessTargetIsEngineer, bAbortOnceDroppedBomb)
     --Based on combination of ahwassa approach and hoverAA approach
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'T1OrT3HoverBombTarget'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, oBomber='..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; bDontAdjustMicroFlag='..tostring(bDontAdjustMicroFlag or false)..'; bContinueAttackingUntilTargetDead='..tostring(bContinueAttackingUntilTargetDead or false)..'; bAbortForGroundAAUnlessTargetIsEngineer='..tostring(bAbortForGroundAAUnlessTargetIsEngineer or false)..'; refbSpecialMicroActive='..tostring((oBomber[M28UnitInfo.refbSpecialMicroActive] or false))..'; GameTime='..GetGameTimeSeconds()) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, oBomber='..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; bDontAdjustMicroFlag='..tostring(bDontAdjustMicroFlag or false)..'; bContinueAttackingUntilTargetDead='..tostring(bContinueAttackingUntilTargetDead or false)..'; bAbortForGroundAAUnlessTargetIsEngineer='..tostring(bAbortForGroundAAUnlessTargetIsEngineer or false)..'; refbSpecialMicroActive='..tostring((oBomber[M28UnitInfo.refbSpecialMicroActive] or false))..'; GameTime='..GetGameTimeSeconds()) end
     if M28UnitInfo.IsUnitValid(oBomber) and M28UnitInfo.IsUnitValid(oTarget) and (not(oBomber[M28UnitInfo.refbSpecialMicroActive]) or oBomber[M28UnitInfo.refbLowerPriorityMicroActive]) then
         local iStartTime = GetGameTimeSeconds()
         local iCurAngleDif
@@ -2462,7 +2462,7 @@ function T1OrT3HoverBombTarget(oBomber, oTarget, bDontAdjustMicroFlag, bContinue
 
         if not(bDontAdjustMicroFlag) then
             TrackTemporaryUnitMicro(oBomber, iMaxMicroTime)
-            if bDebugMessages == true then LOG(sFunctionRef..': Will track temporary unit micro for '..iMaxMicroTime..' or until this logic ends') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will track temporary unit micro for '..iMaxMicroTime..' or until this logic ends') end
         end --60s is redundancy
         local iMaxTimeBetweenShotsWanted = oBomber[M28UnitInfo.refiTimeBetweenBombs]
         local iCurAngleToTarget, iCurFacingAngle, iReorderDist, iCurDistToTarget, bTurnClockwise, iDistToMoveTowardsTarget, bManualAttack, iAngleToMove, tMoveViaPoint
@@ -2478,7 +2478,7 @@ function T1OrT3HoverBombTarget(oBomber, oTarget, bDontAdjustMicroFlag, bContinue
         local bAbortForGroundAA = (bAbortForGroundAAUnlessTargetIsEngineer and not(EntityCategoryContains(M28UnitInfo.refCategoryEngineer, oTarget.UnitId)))
         local iBomberSpeed
         local iTimeSinceLastFiredBomb
-        if bDebugMessages == true then LOG(sFunctionRef..': About to start main loop, bAbortForGroundAA='..tostring(bAbortForGroundAA or false)..'; iStartTime='..iStartTime..'; Cur time='..GetGameTimeSeconds()..'; iMaxMicroTime='..iMaxMicroTime..'; Is bomber valid='..tostring(M28UnitInfo.IsUnitValid(oBomber) )..'; Is target valid='..tostring(M28UnitInfo.IsUnitValid(oTarget))..'; iMinTimeAfterFiringBeforeGivingNewOrders='..(iMinTimeAfterFiringBeforeGivingNewOrders or 'nil')..'; Does bomber fire salv='..tostring(M28UnitInfo.DoesBomberFireSalvo(oBomber) or false)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to start main loop, bAbortForGroundAA='..tostring(bAbortForGroundAA or false)..'; iStartTime='..iStartTime..'; Cur time='..GetGameTimeSeconds()..'; iMaxMicroTime='..iMaxMicroTime..'; Is bomber valid='..tostring(M28UnitInfo.IsUnitValid(oBomber) )..'; Is target valid='..tostring(M28UnitInfo.IsUnitValid(oTarget))..'; iMinTimeAfterFiringBeforeGivingNewOrders='..(iMinTimeAfterFiringBeforeGivingNewOrders or 'nil')..'; Does bomber fire salv='..tostring(M28UnitInfo.DoesBomberFireSalvo(oBomber) or false)) end
         while GetGameTimeSeconds() - iStartTime < iMaxMicroTime and M28UnitInfo.IsUnitValid(oBomber) and M28UnitInfo.IsUnitValid(oTarget) do
             --Abort if recently dropped bomb and we think it will kill the target
             iTimeSinceLastFiredBomb = GetGameTimeSeconds() - (oBomber[M28UnitInfo.refiLastBombFired] or 0)
@@ -2486,15 +2486,15 @@ function T1OrT3HoverBombTarget(oBomber, oTarget, bDontAdjustMicroFlag, bContinue
             --If have recently fired then dont want to give orders if have a salvo
             if iMinTimeAfterFiringBeforeGivingNewOrders > 0 and iTimeSinceLastFiredBomb < iMinTimeAfterFiringBeforeGivingNewOrders then
                 --Just wait, dont give orders, so all our bombs can drop
-                if bDebugMessages == true then LOG(sFunctionRef..': Bomber fired recently so wont give new orders, time since last fired='..iTimeSinceLastFiredBomb) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Bomber fired recently so wont give new orders, time since last fired='..iTimeSinceLastFiredBomb) end
             elseif bAbortOnceDroppedBomb and iTimeSinceLastFiredBomb <= 0.2 and GetGameTimeSeconds() - iStartTime > 0.2 then
-                if bDebugMessages == true then LOG(sFunctionRef..': Aborting as we have recently dropped a bomb, iTimeSinceLastFiredBomb='..iTimeSinceLastFiredBomb) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Aborting as we have recently dropped a bomb, iTimeSinceLastFiredBomb='..iTimeSinceLastFiredBomb) end
                 break
             else
                 --Do we want to abort  micro?
                 if bAbortForGroundAA then
                     local tTargetLZData, tTargetLZTeamData = M28Map.GetLandOrWaterZoneData(oTarget:GetPosition(), true, iTeam)
-                    if bDebugMessages == true then LOG(sFunctionRef..': Considering if want to abort due to enemy groundAA='..tTargetLZTeamData[M28Map.subrefiThreatEnemyGroundAA]..'; Does the zone have too much AA for base bomber='..tostring(M28Conditions.EnemyZoneHasTooMuchAAForBaseBomber(tTargetLZTeamData, tTargetLZData, oBomber) or false)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if want to abort due to enemy groundAA='..tTargetLZTeamData[M28Map.subrefiThreatEnemyGroundAA]..'; Does the zone have too much AA for base bomber='..tostring(M28Conditions.EnemyZoneHasTooMuchAAForBaseBomber(tTargetLZTeamData, tTargetLZData, oBomber) or false)) end
                     if M28Conditions.EnemyZoneHasTooMuchAAForBaseBomber(tTargetLZTeamData, tTargetLZData, oBomber) then
                         --Return to nearest base
                         if oBomber[M28Air.rebEarlyBomberTargetBase] then oBomber[M28Air.rebEarlyBomberTargetBase] = false end
@@ -2510,7 +2510,7 @@ function T1OrT3HoverBombTarget(oBomber, oTarget, bDontAdjustMicroFlag, bContinue
                 bManualAttack = false
 
                 --Are we facing the target? if not, then turn towards them
-                if bDebugMessages == true then LOG(sFunctionRef..': iCurDistToTarget='..iCurDistToTarget..'; iCurAngleToTarget='..iCurAngleToTarget..'; iCurFacingAngle='..iCurFacingAngle..'; iCurAngleDif='..iCurAngleDif..'; Target unit state='..M28UnitInfo.GetUnitState(oTarget)..'; Dist from ground='..(oTarget:GetPosition()[2] - GetSurfaceHeight(oTarget:GetPosition()[1], oTarget:GetPosition()[3]))..'; Time since last fired weapon='..GetGameTimeSeconds() - (oBomber[M28UnitInfo.refiLastWeaponEvent] or 0)..'; time since last fired bomb='..(GetGameTimeSeconds() - (oBomber[M28UnitInfo.refiLastBombFired] or 0))..'; oBomber[M28UnitInfo.refiTimeBetweenBombs]='..(oBomber[M28UnitInfo.refiTimeBetweenBombs] or 'nil')..'; iHalfDistThreshold='..iHalfDistThreshold) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurDistToTarget='..iCurDistToTarget..'; iCurAngleToTarget='..iCurAngleToTarget..'; iCurFacingAngle='..iCurFacingAngle..'; iCurAngleDif='..iCurAngleDif..'; Target unit state='..M28UnitInfo.GetUnitState(oTarget)..'; Dist from ground='..(oTarget:GetPosition()[2] - GetSurfaceHeight(oTarget:GetPosition()[1], oTarget:GetPosition()[3]))..'; Time since last fired weapon='..GetGameTimeSeconds() - (oBomber[M28UnitInfo.refiLastWeaponEvent] or 0)..'; time since last fired bomb='..(GetGameTimeSeconds() - (oBomber[M28UnitInfo.refiLastBombFired] or 0))..'; oBomber[M28UnitInfo.refiTimeBetweenBombs]='..(oBomber[M28UnitInfo.refiTimeBetweenBombs] or 'nil')..'; iHalfDistThreshold='..iHalfDistThreshold) end
                 if iCurAngleDif > 15 then
                     if iBomberSpeed <= 0.1 and iCurDistToTarget > iQuarterDistThreshold and (iBomberSpeed <= 0.05 or iCurDistToTarget >= iHalfDistThreshold) then
                         iReorderDist = 1
@@ -2534,12 +2534,12 @@ function T1OrT3HoverBombTarget(oBomber, oTarget, bDontAdjustMicroFlag, bContinue
                             bTurnClockwise = false
                         end
                     end
-                    if bDebugMessages == true then LOG(sFunctionRef..': Will turn towards target, bTurnClockwise='..tostring(bTurnClockwise)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will turn towards target, bTurnClockwise='..tostring(bTurnClockwise)) end
 
                     if iTimeSinceLastFiredBomb > iMaxTimeBetweenShotsWanted then
                         if iCurDistToTarget >= 10 then
                             iDistToMoveTowardsTarget = math.max(2, iCurDistToTarget * 0.3)
-                            if bDebugMessages == true then LOG(sFunctionRef..': Will move 30% towards target') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will move 30% towards target') end
                         else
                             bManualAttack = true --issues with asfs not turning properly when facing a target when they have got too close, so if we are close to a taret and facing the wrong direction, will switch to a manual attack
                         end
@@ -2553,7 +2553,7 @@ function T1OrT3HoverBombTarget(oBomber, oTarget, bDontAdjustMicroFlag, bContinue
                     end
                     if bManualAttack then
                         tMoveViaPoint = nil
-                        if bDebugMessages == true then LOG(sFunctionRef..': Will switch to manual attack as been a while since we have moved') end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will switch to manual attack as been a while since we have moved') end
                     else
                         if bTurnClockwise then
                             tMoveViaPoint = M28Utilities.MoveInDirection(oBomber:GetPosition(), iCurFacingAngle + iAngleToMove, iDistToMoveTowardsTarget, true, false, false)
@@ -2572,13 +2572,13 @@ function T1OrT3HoverBombTarget(oBomber, oTarget, bDontAdjustMicroFlag, bContinue
                     --First time we are at the right angle - consider slowing down slightly if we dont have that far to reach target and are going quite fast
                     if not(iFurthestDistWhenAtCorrectAngle) then iFurthestDistWhenAtCorrectAngle = iCurDistToTarget end
                     iSlowestSpeedWhenAtCorrectAngle = math.min((iSlowestSpeedWhenAtCorrectAngle or 100), iBomberSpeed)
-                    if bDebugMessages == true then LOG(sFunctionRef..': Enemy at right angle, and we should be able to fire bomb, so switching to manual attack unless want to slow down, iFurthestDistWhenAtCorrectAngle='..iFurthestDistWhenAtCorrectAngle..'; iFastSpeedDistThreshold='..iFastSpeedDistThreshold..'; iSlowestSpeedWhenAtCorrectAngle='..iSlowestSpeedWhenAtCorrectAngle) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Enemy at right angle, and we should be able to fire bomb, so switching to manual attack unless want to slow down, iFurthestDistWhenAtCorrectAngle='..iFurthestDistWhenAtCorrectAngle..'; iFastSpeedDistThreshold='..iFastSpeedDistThreshold..'; iSlowestSpeedWhenAtCorrectAngle='..iSlowestSpeedWhenAtCorrectAngle) end
                     if iFurthestDistWhenAtCorrectAngle < iFastSpeedDistThreshold and iSlowestSpeedWhenAtCorrectAngle > iFastSpeedThreshold then
                         --Want to slow down
                         iReorderDist = 0.1
                         if iCurDistToTarget > iQuarterDistThreshold and iBomberSpeed <= 4 then iReorderDist = 4 end
                         tMoveViaPoint = M28Utilities.MoveInDirection(oBomber:GetPosition(), iCurAngleToTarget, iReorderDist, true, false, false)
-                        if bDebugMessages == true then LOG(sFunctionRef..': Will move towards unti by 0.1 distance, with the correct angle, to slow down') end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will move towards unti by 0.1 distance, with the correct angle, to slow down') end
                     else
                         --if iBomberSpeed < iFastestSpeedWhenAtCorreectAngle
                         bManualAttack = true
@@ -2588,15 +2588,15 @@ function T1OrT3HoverBombTarget(oBomber, oTarget, bDontAdjustMicroFlag, bContinue
                     --Facing the right direction but unable to fire, so move closer
                     if iCurDistToTarget > oBomber[M28UnitInfo.refiBomberRange] + 5 then
                         bManualAttack = true
-                        if bDebugMessages == true then LOG(sFunctionRef..': Enemy at right angle, and outside bomber range, so will do manual attack') end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Enemy at right angle, and outside bomber range, so will do manual attack') end
                     elseif iCurDistToTarget < iHalfDistThreshold then
                         --Move a fraction of the way towards target, unless we are greater than quarter dist and moving slow
                         iReorderDist = 0.1
                         if iCurDistToTarget > iQuarterDistThreshold and iBomberSpeed <= 4 then iReorderDist = 4 end
                         tMoveViaPoint = M28Utilities.MoveInDirection(oBomber:GetPosition(), iCurAngleToTarget, iReorderDist, true, false, false)
-                        if bDebugMessages == true then LOG(sFunctionRef..': Will move towards unti by 0.1 distance but with the correct angle') end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will move towards unti by 0.1 distance but with the correct angle') end
                     elseif iBomberSpeed <= 4 and (iCurDistToTarget >= 60 or (oBomber[M28UnitInfo.refiLastBombFired] and iMaxTimeBetweenShotsWanted - iTimeSinceLastFiredBomb  <= 2) or (iMaxTimeBetweenShotsWanted - iTimeSinceLastFiredBomb) <= 3 and iBomberSpeed <= 0.5) then
-                        if bDebugMessages == true then LOG(sFunctionRef..': We are going slowly and cant yet fire our bomb so want to move to target and not reissue order if last order was to do the same') end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We are going slowly and cant yet fire our bomb so want to move to target and not reissue order if last order was to do the same') end
                         iReorderDist = math.min(iCurDistToTarget * 0.2, iCurDistToTarget - iHalfDistThreshold)
                         tMoveViaPoint = M28Utilities.MoveInDirection(oBomber:GetPosition(), iCurAngleToTarget, iReorderDist, true, false, false)
                     else
@@ -2604,49 +2604,49 @@ function T1OrT3HoverBombTarget(oBomber, oTarget, bDontAdjustMicroFlag, bContinue
                         iReorderDist = math.min(iCurDistToTarget * 0.25, iCurDistToTarget - iHalfDistThreshold)
                         tMoveViaPoint = M28Utilities.MoveInDirection(oBomber:GetPosition(), iCurAngleToTarget, iReorderDist, true, false, false)
                         if iReorderDist > 5 then iReorderDist = 5 end
-                        if bDebugMessages == true then LOG(sFunctionRef..': will move 25% of the way towards the target') end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': will move 25% of the way towards the target') end
                     end
                 end
                 if bManualAttack then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Given order to attack oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Given order to attack oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)) end
                     M28Orders.IssueTrackedAttack(oBomber, oTarget, false, 'HoverBmA', true)
                 elseif tMoveViaPoint then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Given order to move to via point, iReorderDist='..iReorderDist) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Given order to move to via point, iReorderDist='..iReorderDist) end
                     M28Orders.IssueTrackedMove(oBomber, tMoveViaPoint, iReorderDist, false, 'HverBmM', true)
                 else
                     M28Utilities.ErrorHandler('Made mistake have nil move via point')
                 end
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': end of loop, will repeat unless have reached max microing time, Time='..GetGameTimeSeconds()..'; iMaxMicroTime is '..iMaxMicroTime..'; Time spent so far='..GetGameTimeSeconds() - iStartTime..'; Bomber speed='..iBomberSpeed..'; oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': end of loop, will repeat unless have reached max microing time, Time='..GetGameTimeSeconds()..'; iMaxMicroTime is '..iMaxMicroTime..'; Time spent so far='..GetGameTimeSeconds() - iStartTime..'; Bomber speed='..iBomberSpeed..'; oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)) end
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
             WaitTicks(1)
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
         end
         if oBomber[M28UnitInfo.refbSpecialMicroActive] and not(bDontAdjustMicroFlag) then
-            if bDebugMessages == true then LOG(sFunctionRef..': Turning off special micro8') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Turning off special micro8') end
             oBomber[M28UnitInfo.refbSpecialMicroActive] = false
         end
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': End of hover bomb code, is bomber valid='..tostring(M28UnitInfo.IsUnitValid(oBomber))..'; Is target valid='..tostring(M28UnitInfo.IsUnitValid(oTarget))..'; Time='..GetGameTimeSeconds()) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': End of hover bomb code, is bomber valid='..tostring(M28UnitInfo.IsUnitValid(oBomber))..'; Is target valid='..tostring(M28UnitInfo.IsUnitValid(oTarget))..'; Time='..GetGameTimeSeconds()) end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
 function SuicideExperimentalIntoEnemyACU(oUnit, oClosestACUNearUnit)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'SuicideExperimentalIntoEnemyACU'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, oUnit='..(oUnit.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oUnit) or 'nil')..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oUnit))..'; Time='..GetGameTimeSeconds()) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, oUnit='..(oUnit.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oUnit) or 'nil')..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oUnit))..'; Time='..GetGameTimeSeconds()) end
     if M28UnitInfo.IsUnitValid(oUnit) and M28UnitInfo.IsUnitValid(oClosestACUNearUnit) and not(oUnit[M28UnitInfo.refbSpecialMicroActive]) then
         EnableUnitMicroUntilManuallyTurnOff(oUnit, false)
         --Set weapon prioritisation
         M28UnitInfo.SetUnitWeaponTargetPriorities(oUnit, M28UnitInfo.refWeaponPriorityExpSnipeACU, false)
         local iCurDist
         local bLastOrderWasManualAttack
-        if bDebugMessages == true then LOG(sFunctionRef..': About to start main loop, oUnit (experimental)='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by brain '..oUnit:GetAIBrain().Nickname..'; oClosestACUNearUnit='..oClosestACUNearUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oClosestACUNearUnit)..' owned by '..oClosestACUNearUnit:GetAIBrain().Nickname..'; Dist between them='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestACUNearUnit:GetPosition())) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to start main loop, oUnit (experimental)='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by brain '..oUnit:GetAIBrain().Nickname..'; oClosestACUNearUnit='..oClosestACUNearUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oClosestACUNearUnit)..' owned by '..oClosestACUNearUnit:GetAIBrain().Nickname..'; Dist between them='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestACUNearUnit:GetPosition())) end
         while M28UnitInfo.IsUnitValid(oUnit) and M28UnitInfo.IsUnitValid(oClosestACUNearUnit) and not(oClosestACUNearUnit:IsUnitState('Attached')) and not(M28UnitInfo.IsUnitUnderwater(oClosestACUNearUnit)) do
             --Move towards the ACU
             iCurDist = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestACUNearUnit:GetPosition())
-            if bDebugMessages == true then LOG(sFunctionRef..': oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by '..oUnit:GetAIBrain().Nickname..'; iCurDist='..iCurDist..'; bLastOrderWasManualAttack='..tostring(bLastOrderWasManualAttack)..'; Will do attack move intead of manual attack this time='..tostring(iCurDist >= 8 or (iCurDist >= 5 and not(bLastOrderWasManualAttack)))..'; Time='..GetGameTimeSeconds()) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by '..oUnit:GetAIBrain().Nickname..'; iCurDist='..iCurDist..'; bLastOrderWasManualAttack='..tostring(bLastOrderWasManualAttack)..'; Will do attack move intead of manual attack this time='..tostring(iCurDist >= 8 or (iCurDist >= 5 and not(bLastOrderWasManualAttack)))..'; Time='..GetGameTimeSeconds()) end
             if iCurDist >= 8 or (iCurDist >= 5 and not(bLastOrderWasManualAttack)) then
                 M28Orders.IssueTrackedMove(oUnit, oClosestACUNearUnit:GetPosition(), 0.5, false, 'ExpKACUM', true)
                 bLastOrderWasManualAttack = false
@@ -2669,22 +2669,22 @@ function SuicideExperimentalIntoEnemyACU(oUnit, oClosestACUNearUnit)
 end
 
 function ConsiderAllInLandPushOnACU(aiBrain, oACU)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ConsiderAllInLandPushOnACU'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     --Separate to the snipe logic, this instead considers if we have enough threat in the vicinity to do an all-in push with just our tanks
     if M28UnitInfo.IsUnitValid(oACU) and not(aiBrain.M28IsDefeated) then
         local iEnemyACUThreat = M28UnitInfo.GetCombatThreatRating({ oACU}, true)
-        if bDebugMessages == true then LOG(sFunctionRef..': iEnemyACUThreat='..iEnemyACUThreat..'; ACU owner='..oACU:GetAIBrain().Nickname..'; our brain='..aiBrain.Nickname..'; Time='..GetGameTimeSeconds()) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iEnemyACUThreat='..iEnemyACUThreat..'; ACU owner='..oACU:GetAIBrain().Nickname..'; our brain='..aiBrain.Nickname..'; Time='..GetGameTimeSeconds()) end
         if iEnemyACUThreat <= 3000 then
             local tNearbyFriendlyTanks = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher - categories.COMMAND, oACU:GetPosition(), 60, 'Ally')
             if M28Utilities.IsTableEmpty(tNearbyFriendlyTanks) == false then
                 local iFriendlyTankThreat = M28UnitInfo.GetCombatThreatRating(tNearbyFriendlyTanks, false)
-                if bDebugMessages == true then LOG(sFunctionRef..': iFriendlyTankThreat='..iFriendlyTankThreat) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iFriendlyTankThreat='..iFriendlyTankThreat) end
                 if iFriendlyTankThreat > math.max(800, iEnemyACUThreat + math.max(400, iEnemyACUThreat * 0.4)) then --Min wanted for an unupgraded enemy ACU
                     local tEnemyThreat = oACU:GetAIBrain():GetUnitsAroundPoint(M28UnitInfo.refCategoryMobileDFLand + M28UnitInfo.refCategoryPD  - M28UnitInfo.refCategorySkirmisher + categories.COMMAND, oACU:GetPosition(), 90, 'Ally')
                     local iEnemyTotalThreat = M28UnitInfo.GetCombatThreatRating(tEnemyThreat, true)
-                    if bDebugMessages == true then LOG(sFunctionRef..': iEnemyTotalThreat='..iEnemyTotalThreat) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iEnemyTotalThreat='..iEnemyTotalThreat) end
                     if iFriendlyTankThreat > iEnemyTotalThreat then
                         --Doublecheck the threat incase we have lost intel of the units near the ACU
                         local iTeam = aiBrain.M28Team
@@ -2717,18 +2717,18 @@ function ConsiderAllInLandPushOnACU(aiBrain, oACU)
                             if M28Utilities.IsTableEmpty(toNearbyEnemies) == false then
                                 local iEnemyNearbyThreat = M28UnitInfo.GetCombatThreatRating(toNearbyEnemies, true)
                                 if iEnemyNearbyThreat > iEnemyTotalThreat then
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Going on our memory the enemy has a larger threat than getunitsaroundpoint would indicate, iEnemyTotalThreat before update='..iEnemyTotalThreat..'; iEnemyNearbyThreat='..iEnemyNearbyThreat) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Going on our memory the enemy has a larger threat than getunitsaroundpoint would indicate, iEnemyTotalThreat before update='..iEnemyTotalThreat..'; iEnemyNearbyThreat='..iEnemyNearbyThreat) end
                                     iEnemyTotalThreat = iEnemyNearbyThreat
                                 end
                             end
                             if iFriendlyTankThreat > iEnemyTotalThreat then
                                 --Suicide all the tanks into the ACU
-                                if bDebugMessages == true then LOG(sFunctionRef..': Will suicide tanks into enemy ACU') end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will suicide tanks into enemy ACU') end
                                 AssignACUAttackGridSlot(tNearbyFriendlyTanks, oACU)
                                 for iUnit, oUnit in tNearbyFriendlyTanks do
                                     if not(oUnit[M28UnitInfo.refbSpecialMicroActive]) then
                                         ForkThread(MoveLandUnitNearACU, oUnit, oACU)
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Will send unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' to suicide into enemy ACU') end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will send unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' to suicide into enemy ACU') end
                                     end
                                 end
                             end
@@ -2794,8 +2794,8 @@ function MoveLandUnitNearACU(oUnit, oACU)
 end
 
 function AssignACUAttackGridSlot(tUnits, oACU)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'AssignACUAttackGridSlot'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     --First setup the grid slots for the ACU - for now will just do the same every time, but in theory could adjust these baesd on the size of tUnits
@@ -2850,7 +2850,7 @@ function AssignACUAttackGridSlot(tUnits, oACU)
 
             iCurSlot = iCurSlot + 1
         end
-        if bDebugMessages == true then LOG(sFunctionRef..': Finished recording, iMaxGridSize='..iMaxGridSize..'; iCurX and Z for this=X'..oACU[M28UnitInfo.reftoGridXZAdjust][iMaxGridSize][1]..'Z'..oACU[M28UnitInfo.reftoGridXZAdjust][iMaxGridSize][2]) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished recording, iMaxGridSize='..iMaxGridSize..'; iCurX and Z for this=X'..oACU[M28UnitInfo.reftoGridXZAdjust][iMaxGridSize][1]..'Z'..oACU[M28UnitInfo.reftoGridXZAdjust][iMaxGridSize][2]) end
     end
 
     local iUnitsWithoutAssignment = 0
@@ -2869,7 +2869,7 @@ function AssignACUAttackGridSlot(tUnits, oACU)
         local iSlotsAvailable = 0
         local iSlotsWanted = math.max(30, iUnitsWithoutAssignment) --i.e. 8+8+7+7
         local iCurUnitCount = table.getn(tUnits)
-        if bDebugMessages == true then LOG(sFunctionRef..': iCurUnitCount='..iCurUnitCount..'; Do we have a slot for this already? repru='..repru(oACU[M28UnitInfo.reftoGridXZAdjust][iCurUnitCount] or 'nil')) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurUnitCount='..iCurUnitCount..'; Do we have a slot for this already? repru='..repru(oACU[M28UnitInfo.reftoGridXZAdjust][iCurUnitCount] or 'nil')) end
 
         --Record available slots
         local iCurSlot = 0
@@ -2881,7 +2881,7 @@ function AssignACUAttackGridSlot(tUnits, oACU)
                 oACU[M28UnitInfo.reftoUnitAssignedToGridSlot][iCurSlot] = nil
                 iSlotsAvailable = iSlotsAvailable + 1
                 table.insert(tiAvailableSlots, iCurSlot)
-                if bDebugMessages == true then LOG(sFunctionRef..': No valid unit is assigned to slot '..iCurSlot..' so will increase available slots by 1 to '..iSlotsAvailable) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': No valid unit is assigned to slot '..iCurSlot..' so will increase available slots by 1 to '..iSlotsAvailable) end
             end
             if not(oACU[M28UnitInfo.reftoGridXZAdjust][iCurSlot]) then
                 iLastAvailableSlot = iCurSlot - 1
@@ -2898,16 +2898,16 @@ function AssignACUAttackGridSlot(tUnits, oACU)
             end
             iRecordedSize = iRecordedSize - iMaxGridSize
             local iSizeToRecord = math.round(iExtraSlotsWanted / iMaxGridSize) * iMaxGridSize + iRecordedSize
-            if bDebugMessages == true then LOG(sFunctionRef..': iRecordedSize by interval='..iRecordedSize..'; iSizeToRecord='..iSizeToRecord..'; iSlotsWanted='..iSlotsWanted..'; iLastAvailableSlot='..iLastAvailableSlot..'; iExtraSlotsWanted='..iExtraSlotsWanted) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iRecordedSize by interval='..iRecordedSize..'; iSizeToRecord='..iSizeToRecord..'; iSlotsWanted='..iSlotsWanted..'; iLastAvailableSlot='..iLastAvailableSlot..'; iExtraSlotsWanted='..iExtraSlotsWanted) end
             for iCurSlot = iRecordedSize + 1, iSizeToRecord, 1 do
                 oACU[M28UnitInfo.reftoGridXZAdjust][iCurSlot] = {oACU[M28UnitInfo.reftoGridXZAdjust][iCurSlot - iMaxGridSize][1], oACU[M28UnitInfo.reftoGridXZAdjust][iCurSlot - iMaxGridSize][2]}
                 if iSlotsAvailable <= iSlotsWanted then
                     table.insert(tiAvailableSlots, iCurSlot)
                     iSlotsAvailable = iSlotsAvailable + 1
-                    if bDebugMessages == true then LOG(sFunctionRef..': Recording new slot as available, iCurSLot='..iCurSlot..'; oACU[M28UnitInfo.reftoGridXZAdjust][iCurSlot]=X'..oACU[M28UnitInfo.reftoGridXZAdjust][iCurSlot][1]..'Z'..oACU[M28UnitInfo.reftoGridXZAdjust][iCurSlot][2]) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Recording new slot as available, iCurSLot='..iCurSlot..'; oACU[M28UnitInfo.reftoGridXZAdjust][iCurSlot]=X'..oACU[M28UnitInfo.reftoGridXZAdjust][iCurSlot][1]..'Z'..oACU[M28UnitInfo.reftoGridXZAdjust][iCurSlot][2]) end
                 end
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': Finished recording extra slots, iSizeToRecord='..iSizeToRecord..'; oACU[M28UnitInfo.reftoGridXZAdjust][iSizeToRecord]='..repru(oACU[M28UnitInfo.reftoGridXZAdjust][iSizeToRecord] or 'nil')..'; iSlotsAvailable (stopping once reach iSlotsWanted)='..iSlotsAvailable..'; iSlotsWanted='..iSlotsWanted) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished recording extra slots, iSizeToRecord='..iSizeToRecord..'; oACU[M28UnitInfo.reftoGridXZAdjust][iSizeToRecord]='..repru(oACU[M28UnitInfo.reftoGridXZAdjust][iSizeToRecord] or 'nil')..'; iSlotsAvailable (stopping once reach iSlotsWanted)='..iSlotsAvailable..'; iSlotsWanted='..iSlotsWanted) end
         end
 
 
@@ -2918,7 +2918,7 @@ function AssignACUAttackGridSlot(tUnits, oACU)
         local iBaseX = oACU:GetPosition()[1]
         local iBaseZ = oACU:GetPosition()[3]
         local tGrid = oACU[M28UnitInfo.reftoGridXZAdjust]
-        if bDebugMessages == true then LOG(sFunctionRef..': iSlotsAvailable='..iSlotsAvailable..'; iUnitsWithoutAssignment='..iUnitsWithoutAssignment) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iSlotsAvailable='..iSlotsAvailable..'; iUnitsWithoutAssignment='..iUnitsWithoutAssignment) end
         for iUnitRef, iDistance in M28Utilities.SortTableByValue(toUnassignedRefByDistance, true) do
             local oUnit = toUnassignedUnits[iUnitRef]
             --Find the closest available slot
@@ -2926,9 +2926,9 @@ function AssignACUAttackGridSlot(tUnits, oACU)
             iClosestAvailableSlotRef = nil
             iClosestDist = 10000
             if iSlotsAvailable > 0 then
-                if bDebugMessages == true then LOG(sFunctionRef..': Sorting through available slots for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Sorting through available slots for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
                 for iAvailableTableEntry, iSlot in tiAvailableSlots do
-                    if bDebugMessages == true then LOG(sFunctionRef..': Considering iAvailableTableEntry='..iAvailableTableEntry..'; iSlot='..iSlot..'; Is tGrid[iSlot] nil='..tostring(tGrid[iSlot] == nil)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering iAvailableTableEntry='..iAvailableTableEntry..'; iSlot='..iSlot..'; Is tGrid[iSlot] nil='..tostring(tGrid[iSlot] == nil)) end
                     if tGrid[iSlot] then --Im guessing that removing slots can lead to the table having nil entries at the end
                         iCurDist = M28Utilities.GetDistanceBetweenPositions({iBaseX + tGrid[iSlot][1], 0, iBaseZ + tGrid[iSlot][2]}, oUnit:GetPosition())
                         if iCurDist < iClosestDist then
@@ -2937,14 +2937,14 @@ function AssignACUAttackGridSlot(tUnits, oACU)
                             iClosestAvailableSlotRef = iAvailableTableEntry
                         end
                     else
-                        if bDebugMessages == true then LOG(sFunctionRef..': No valid ref so will abort if have a valid ref from earlier') end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': No valid ref so will abort if have a valid ref from earlier') end
                         if iClosestAvailableSlotRef then break end
                     end
                 end
                 if iClosestSlot and iClosestAvailableSlotRef then
                     oUnit[M28UnitInfo.refiACUGridSlot] = iClosestSlot
                     oACU[M28UnitInfo.reftoUnitAssignedToGridSlot][iClosestSlot] = oUnit
-                    if bDebugMessages == true then LOG(sFunctionRef..': removing entry '..iClosestAvailableSlotRef..' from the table of available slots, iClosestSlot='..iClosestSlot) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': removing entry '..iClosestAvailableSlotRef..' from the table of available slots, iClosestSlot='..iClosestSlot) end
                     table.remove(tiAvailableSlots, iClosestAvailableSlotRef)
                 else
                     --Redundancy
@@ -2960,8 +2960,8 @@ function AssignACUAttackGridSlot(tUnits, oACU)
 end
 
 function SuicideExperimentalIntoFatboy(oUnit, oFatboy, iTeam, iPlateau)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'SuicideExperimentalIntoFatboy'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local iDistanceFromFatboyWanted = math.max(oUnit[M28UnitInfo.refiDFRange], 40)
@@ -2979,7 +2979,7 @@ function SuicideExperimentalIntoFatboy(oUnit, oFatboy, iTeam, iPlateau)
 
         while M28UnitInfo.IsUnitValid(oUnit) and M28UnitInfo.IsUnitValid(oFatboy) and not(M28UnitInfo.IsUnitUnderwater(oFatboy)) do
             iCurDist = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oFatboy:GetPosition())
-            if bDebugMessages == true then LOG(sFunctionRef..': iCurDist='..iCurDist) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurDist='..iCurDist) end
             if iCurDist > iDistanceFromFatboyWanted then
                 iCurFacingAngle = M28UnitInfo.GetUnitFacingAngle(oUnit)
                 iAngleToFatboy = M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oFatboy:GetPosition())
@@ -2997,7 +2997,7 @@ function SuicideExperimentalIntoFatboy(oUnit, oFatboy, iTeam, iPlateau)
                         break
                     end
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': iCurFacingAngle='..iCurFacingAngle..'; iAngleToFatboy='..iAngleToFatboy..'; iCurAngleAdjust='..iCurAngleAdjust..'; Angle to potential move location='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), tPotentialMoveLocation)..'; Time='..GetGameTimeSeconds()) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurFacingAngle='..iCurFacingAngle..'; iAngleToFatboy='..iAngleToFatboy..'; iCurAngleAdjust='..iCurAngleAdjust..'; Angle to potential move location='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), tPotentialMoveLocation)..'; Time='..GetGameTimeSeconds()) end
                 M28Orders.IssueTrackedMove(oUnit, tPotentialMoveLocation, 5, false, 'SuicFBM', true)
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                 WaitSeconds(iReadjustInterval)

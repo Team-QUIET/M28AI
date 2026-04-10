@@ -402,15 +402,15 @@ function PatrolPath(oUnit, tPath, bAddToExistingQueue, sOptionalOrderDesc, bOver
     --bCheckIfStuck - put in due to issues where megalith would get stuck with valid orders for the AI; this will check if unit hasnt moved a while, and if so will reset its orders
     if bDontConsiderCombinedArmy or oUnit.M28Active then
         local sFunctionRef = 'PatrolPath'
-        local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
+        local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelOrders, sFunctionRef)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-        if bDebugMessages == true then LOG(sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Last orders='..repru(oUnit[reftiLastOrders])..'; First point on path='..repru(tPath[1])..'; Will now refresh last orders') end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Last orders='..repru(oUnit[reftiLastOrders])..'; First point on path='..repru(tPath[1])..'; Will now refresh last orders') end
         UpdateRecordedOrders(oUnit)
 
         local tLastOrder
         if oUnit[reftiLastOrders] then tLastOrder = oUnit[reftiLastOrders][oUnit[refiOrderCount]] end
-        if bDebugMessages == true then LOG(sFunctionRef..': Unit orders after update='..repru(oUnit[reftiLastOrders])..'; Last order='..repru(tLastOrder)..'; Is the last order a move order='..tostring(tLastOrder[subrefiOrderType] == refiOrderIssueMove)..'; Last order position='..repru(tLastOrder[subreftOrderPosition])..'; tLastOrder pos 2 of table='..repru(tLastOrder[2])..'; Dist between path1 nd last order position='..M28Utilities.GetDistanceBetweenPositions(tPath[1], (tLastOrder[subreftOrderPosition] or {0,0,0}))..'; oUnit[M28UnitInfo.refbSpecialMicroActive]='..tostring(oUnit[M28UnitInfo.refbSpecialMicroActive] or false)..'; Unit state='..M28UnitInfo.GetUnitState(oUnit)..'; oUnit[M28UnitInfo.refiPatrolStuckCount]='..(oUnit[M28UnitInfo.refiPatrolStuckCount] or 'nil')) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit orders after update='..repru(oUnit[reftiLastOrders])..'; Last order='..repru(tLastOrder)..'; Is the last order a move order='..tostring(tLastOrder[subrefiOrderType] == refiOrderIssueMove)..'; Last order position='..repru(tLastOrder[subreftOrderPosition])..'; tLastOrder pos 2 of table='..repru(tLastOrder[2])..'; Dist between path1 nd last order position='..M28Utilities.GetDistanceBetweenPositions(tPath[1], (tLastOrder[subreftOrderPosition] or {0,0,0}))..'; oUnit[M28UnitInfo.refbSpecialMicroActive]='..tostring(oUnit[M28UnitInfo.refbSpecialMicroActive] or false)..'; Unit state='..M28UnitInfo.GetUnitState(oUnit)..'; oUnit[M28UnitInfo.refiPatrolStuckCount]='..(oUnit[M28UnitInfo.refiPatrolStuckCount] or 'nil')) end
         local bMoveNotAttackMove = (oUnit[M28UnitInfo.refiCombatRange] or 0) <= 0
         local iOrderType
         if bMoveNotAttackMove then iOrderType = refiOrderIssueMove else iOrderType = refiOrderIssueAggressiveMove end
@@ -418,10 +418,10 @@ function PatrolPath(oUnit, tPath, bAddToExistingQueue, sOptionalOrderDesc, bOver
         if bCheckIfStuck then
             if not(tLastOrder) or not(tLastOrder[subrefiOrderType] == iOrderType) or M28Utilities.IsTableEmpty(oUnit[reftiLastOrders][1][subreftOrderPosition]) then
                 --Dont have orders so ignore stuck check
-                if bDebugMessages == true then LOG(sFunctionRef..': Dont have correct orders so will get new ones') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dont have correct orders so will get new ones') end
             else
                 local iDistToCurTarget = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oUnit[reftiLastOrders][1][subreftOrderPosition])
-                if bDebugMessages == true then LOG(sFunctionRef..': Unit dist to target='..iDistToCurTarget) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit dist to target='..iDistToCurTarget) end
                 if iDistToCurTarget < 12 then --have had megalith stuck at a distance of 8.6
                     if iDistToCurTarget < 6 then
                         oUnit[M28UnitInfo.refiPatrolStuckCount] = (oUnit[M28UnitInfo.refiPatrolStuckCount] or 0) + 1
@@ -442,7 +442,7 @@ function PatrolPath(oUnit, tPath, bAddToExistingQueue, sOptionalOrderDesc, bOver
 
         if (not(tLastOrder) or bUnitIsStuck or not(tLastOrder[subrefiOrderType] == iOrderType) or M28Utilities.GetDistanceBetweenPositions(tPath[1], tLastOrder[subreftOrderPosition]) > 1) and (bOverrideMicroOrder or not(oUnit[M28UnitInfo.refbSpecialMicroActive])) then
             --Our last active order isn't to move to the first point in the path, so will be reissuing the path
-            if bDebugMessages == true then LOG(sFunctionRef..'; Will reissue orders to move along the path based on the closest point') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..'; Will reissue orders to move along the path based on the closest point') end
 
 
 
@@ -490,7 +490,7 @@ function PatrolPath(oUnit, tPath, bAddToExistingQueue, sOptionalOrderDesc, bOver
             else
                 IssueAggressiveMove({oUnit}, tOrderPosition)
             end
-        elseif bDebugMessages == true then LOG(sFunctionRef..': Dont want to refresh unit patrol orders')
+        elseif bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dont want to refresh unit patrol orders')
         end
         if M28Config.M28ShowUnitNames then UpdateUnitNameForOrder(oUnit, sOptionalOrderDesc) end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -862,9 +862,10 @@ end
 
 function IssueTrackedUpgrade(oUnit, sUpgradeRef, bAddToExistingQueue, sOptionalOrderDesc)
     if bDontConsiderCombinedArmy or oUnit.M28Active then
-        local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
+        local sFunctionRef = 'IssueTrackedUpgrade'
+        local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelOrders, sFunctionRef)
         UpdateRecordedOrders(oUnit)
-        if bDebugMessages == true then LOG('IssueTrackedUpgrade: Considering upgrade order, time='..GetGameTimeSeconds()..'; armyIndex='..oUnit:GetAIBrain():GetArmyIndex()..'; unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; upgrade='..(sUpgradeRef or 'nil')..'; bAddToExistingQueue='..tostring(bAddToExistingQueue or false)..'; state='..M28UnitInfo.GetUnitState(oUnit)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, 'IssueTrackedUpgrade: Considering upgrade order, time='..GetGameTimeSeconds()..'; armyIndex='..oUnit:GetAIBrain():GetArmyIndex()..'; unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; upgrade='..(sUpgradeRef or 'nil')..'; bAddToExistingQueue='..tostring(bAddToExistingQueue or false)..'; state='..M28UnitInfo.GetUnitState(oUnit)) end
         --Issue order if we arent already trying to attack them
         local tLastOrder
         if oUnit[reftiLastOrders] then
@@ -878,7 +879,7 @@ function IssueTrackedUpgrade(oUnit, sUpgradeRef, bAddToExistingQueue, sOptionalO
             if not(oUnit[reftiLastOrders]) then oUnit[reftiLastOrders] = {} oUnit[refiOrderCount] = 0 end
             oUnit[refiOrderCount] = oUnit[refiOrderCount] + 1
             table.insert(oUnit[reftiLastOrders], {[subrefiOrderType] = refiOrderUpgrade, [subrefsOrderBlueprint] = sUpgradeRef})
-            if bDebugMessages == true then LOG('IssueTrackedUpgrade: Issuing upgrade order, time='..GetGameTimeSeconds()..'; armyIndex='..oUnit:GetAIBrain():GetArmyIndex()..'; unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; upgrade='..(sUpgradeRef or 'nil')..'; bAddToExistingQueue='..tostring(bAddToExistingQueue or false)..'; orderDesc='..(sOptionalOrderDesc or 'nil')) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, 'IssueTrackedUpgrade: Issuing upgrade order, time='..GetGameTimeSeconds()..'; armyIndex='..oUnit:GetAIBrain():GetArmyIndex()..'; unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; upgrade='..(sUpgradeRef or 'nil')..'; bAddToExistingQueue='..tostring(bAddToExistingQueue or false)..'; orderDesc='..(sOptionalOrderDesc or 'nil')) end
             IssueUpgrade({oUnit}, sUpgradeRef)
             oUnit[M28UnitInfo.refbIssuedUpgrade] = true
         elseif bDebugMessages == true then
@@ -898,7 +899,7 @@ end
 function IssueTrackedEnhancement(oUnit, sUpgradeRef, bAddToExistingQueue, sOptionalOrderDesc)
     if bDontConsiderCombinedArmy or oUnit.M28Active then
         local sFunctionRef = 'IssueTrackedEnhancement'
-        local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
+        local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelOrders, sFunctionRef)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
         if bDebugMessages == true then
@@ -928,7 +929,7 @@ function IssueTrackedEnhancement(oUnit, sUpgradeRef, bAddToExistingQueue, sOptio
                 local sPreReq
                 if oUnit.HasEnhancement then
                     for sEnhancement, tEnhancementData in tEnhancements do
-                        if bDebugMessages == true then LOG(sFunctionRef..': Does unit have sEnhancement='..sEnhancement..'='..tostring(oUnit:HasEnhancement(sEnhancement))) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Does unit have sEnhancement='..sEnhancement..'='..tostring(oUnit:HasEnhancement(sEnhancement))) end
                         if oUnit:HasEnhancement(sEnhancement) then
                             tsUpgradeSlotUsed[sEnhancement] = tEnhancementData.Slot
                             tbSlotInUse[tEnhancementData.Slot] = true
@@ -938,31 +939,31 @@ function IssueTrackedEnhancement(oUnit, sUpgradeRef, bAddToExistingQueue, sOptio
                         end
                     end
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': sSlotWanted='..(sSlotWanted or 'nil')..'; tbSlotInUse='..repru(tbSlotInUse)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': sSlotWanted='..(sSlotWanted or 'nil')..'; tbSlotInUse='..repru(tbSlotInUse)) end
                 if sSlotWanted and tbSlotInUse[sSlotWanted] then
                     local bValidRemovalEnhancement
                     for sExistingEnhancement, sSlotUsed in tsUpgradeSlotUsed do
-                        if bDebugMessages == true then LOG(sFunctionRef..': sExistingEnhancement='..sExistingEnhancement..'; sSlotUsed='..sSlotUsed) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': sExistingEnhancement='..sExistingEnhancement..'; sSlotUsed='..sSlotUsed) end
                         if sSlotUsed == sSlotWanted then
                             --Check if the existing enhancement is a prereq. of the desired enhancement
                             --Find the first upgrade that removes sEnhancement
                             if not(sPreReq) or not(sPreReq == sExistingEnhancement) then
 
-                                if bDebugMessages == true then LOG(sFunctionRef..': Have an enhancement in the slot that we want, will search for its removal entry') end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have an enhancement in the slot that we want, will search for its removal entry') end
                                 for sEnhancement, tEnhancementData in tEnhancements do
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Is remove enhancements empty for sEnhancents='..tostring(tEnhancementData.RemoveEnhancements == nil)..'; sEnhancement='..sEnhancement..'; tEnhancementData.Slot='..(tEnhancementData.Slot or 'nil')..'; Prerequ='..(tEnhancementData.Prerequisite or 'nil')) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is remove enhancements empty for sEnhancents='..tostring(tEnhancementData.RemoveEnhancements == nil)..'; sEnhancement='..sEnhancement..'; tEnhancementData.Slot='..(tEnhancementData.Slot or 'nil')..'; Prerequ='..(tEnhancementData.Prerequisite or 'nil')) end
                                     if tEnhancementData.Slot == sSlotWanted and tEnhancementData.RemoveEnhancements and (tEnhancementData.Prerequisite == nil or oUnit:HasEnhancement(tEnhancementData.Prerequisite)) then
                                         bValidRemovalEnhancement = false
-                                        if bDebugMessages == true then LOG(sFunctionRef..': tEnhancementData.RemoveEnhancements='..repru(tEnhancementData.RemoveEnhancements)) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tEnhancementData.RemoveEnhancements='..repru(tEnhancementData.RemoveEnhancements)) end
                                         for iEntry, sRemovedEnhancement in tEnhancementData.RemoveEnhancements do
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Considering if sRemovedEnhancement '..sRemovedEnhancement..' equals sExistingEnhancement='..sExistingEnhancement) end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if sRemovedEnhancement '..sRemovedEnhancement..' equals sExistingEnhancement='..sExistingEnhancement) end
                                             if sRemovedEnhancement == sExistingEnhancement then
                                                 --Do we have the rerequisite for this removal (since later upgrades can remove all in the chain)
                                                 bValidRemovalEnhancement = true
                                                 break
                                             end
                                         end
-                                        if bDebugMessages == true then LOG(sFunctionRef..': bValidRemovalEnhancement='..tostring(bValidRemovalEnhancement)) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bValidRemovalEnhancement='..tostring(bValidRemovalEnhancement)) end
                                         if bValidRemovalEnhancement then
                                             sEnhancementOverride = sEnhancement
                                             break
@@ -982,7 +983,7 @@ function IssueTrackedEnhancement(oUnit, sUpgradeRef, bAddToExistingQueue, sOptio
             end
             --if oUnit.SetAutoOvercharge and EntityCategoryContains(categories.COMMAND, oUnit.UnitId) then oUnit:SetAutoOvercharge(true) end -After testing, although this owrked, the ACU wouldnt fire overcharge shots hwne upgrading for some reason
             if sEnhancementOverride then
-                if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade with sEnhancementOverride='..sEnhancementOverride) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will upgrade with sEnhancementOverride='..sEnhancementOverride) end
                 if not(bAddToExistingQueue) then IssueTrackedClearCommands(oUnit) end
                 if not(oUnit[reftiLastOrders]) then oUnit[reftiLastOrders] = {} oUnit[refiOrderCount] = 0 end
                 oUnit[refiOrderCount] = oUnit[refiOrderCount] + 1
@@ -997,7 +998,7 @@ function IssueTrackedEnhancement(oUnit, sUpgradeRef, bAddToExistingQueue, sOptio
                 table.insert(oUnit[reftiLastOrders], {[subrefiOrderType] = refiOrderEnhancement, [subrefsOrderBlueprint] = sUpgradeRef})
                 --LOG('About ot tell unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; owned by '..oUnit:GetAIBrain().Nickname..' to get enhancement upgrade '..sUpgradeRef..'; ACU upgrade count='..(oUnit[import('/mods/M28AI/lua/AI/M28ACU.lua').refiUpgradeCount] or 'nil'))
                 IssueScript({oUnit}, {TaskName = 'EnhanceTask', Enhancement = sUpgradeRef})
-                if bDebugMessages == true then LOG(sFunctionRef..': WIll ugprade unit with actual upgrade '..sUpgradeRef..'; just tried running issuescript for the unit') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': WIll ugprade unit with actual upgrade '..sUpgradeRef..'; just tried running issuescript for the unit') end
                 M28Team.UpdateUpgradeTrackingOfUnit(oUnit, false, sUpgradeRef)
                 if oUnit[refiTimeOfLastRemovalUpgrade] and GetGameTimeSeconds() - oUnit[refiTimeOfLastRemovalUpgrade] <= 1 then
                     ForkThread(DelayedUpgradeTracking, oUnit, sUpgradeRef)
@@ -1006,18 +1007,18 @@ function IssueTrackedEnhancement(oUnit, sUpgradeRef, bAddToExistingQueue, sOptio
                 --Campaign specific - remove unit from platoon if it has one
                 if M28Map.bIsCampaignMap and oUnit:GetAIBrain().CampaignAI then
                     local oExistingPlatoon = oUnit.PlatoonHandle
-                    if bDebugMessages == true then LOG(sFunctionRef..': Considering if have existing platoon for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; oExistingPlatoon is nil?='..tostring(oExistingPlatoon == nil)..'; Is getplan nil='..tostring(oExistingPlatoon.GetPlan == nil)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if have existing platoon for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; oExistingPlatoon is nil?='..tostring(oExistingPlatoon == nil)..'; Is getplan nil='..tostring(oExistingPlatoon.GetPlan == nil)) end
                     if oExistingPlatoon then
                         local M28Overseer = import('/mods/M28AI/lua/AI/M28Overseer.lua')
                         ForkThread(M28Overseer.RemoveUnitsFromPlatoon, oExistingPlatoon, { oUnit }, false, nil)
-                        if bDebugMessages == true then LOG(sFunctionRef..': Tried to remove unit from existing platoon') end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Tried to remove unit from existing platoon') end
                     end
                 end
             end
 
         end
         if M28Config.M28ShowUnitNames then UpdateUnitNameForOrder(oUnit, sOptionalOrderDesc) end
-        if bDebugMessages == true then LOG(sFunctionRef..': End of code for oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' at time='..GetGameTimeSeconds()) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': End of code for oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' at time='..GetGameTimeSeconds()) end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     end
 end
@@ -1025,14 +1026,14 @@ end
 function DestroyUnitAfterDelay(oUnit, iSecondsToWait)
     if bDontConsiderCombinedArmy or oUnit.M28Active then
         local sFunctionRef = 'DestroyUnitAfterDelay'
-        local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
+        local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelOrders, sFunctionRef)
 
 
         WaitSeconds(1)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
         if M28UnitInfo.IsUnitValid(oUnit) then
 
-            if bDebugMessages == true then LOG(sFunctionRef..': Failed to kill unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' with unit state '..M28UnitInfo.GetUnitState(oUnit)) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Failed to kill unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' with unit state '..M28UnitInfo.GetUnitState(oUnit)) end
             oUnit:DestroyUnit(0)
         end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -1263,7 +1264,7 @@ function DelayedTransportReloadCheck(oUnit, oOrderTarget)
     --Ended up abandoning this as it didnt solve the issue and causes other issues
     if bDontConsiderCombinedArmy or oUnit.M28Active then
         local sFunctionRef = 'DelayedTransportReloadCheck'
-        local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
+        local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelOrders, sFunctionRef)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
         local tTransportPositionAtStart = {oOrderTarget:GetPosition()[1], oOrderTarget:GetPosition()[2], oOrderTarget:GetPosition()[3]}
@@ -1288,14 +1289,14 @@ function DelayedTransportReloadCheck(oUnit, oOrderTarget)
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
             iTotalLoopWait = iTotalLoopWait + 1
             if iTotalLoopWait >= 5 then
-                if bDebugMessages == true then LOG(sFunctionRef..': iTotalLoopWait='..iTotalLoopWait..'; Transport position='..repru(oOrderTarget:GetPosition())) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iTotalLoopWait='..iTotalLoopWait..'; Transport position='..repru(oOrderTarget:GetPosition())) end
                 if oOrderTarget:GetPosition()[2] - GetSurfaceHeight(oOrderTarget:GetPosition()[1], oOrderTarget:GetPosition()[3]) <= 1 then
                     bSuspectedFailedLoad = true
                     break
                 end
             end
         end
-        if bDebugMessages == true then LOG(sFunctionRef..': bSuspectedFailedLoad='..tostring(bSuspectedFailedLoad or false)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bSuspectedFailedLoad='..tostring(bSuspectedFailedLoad or false)) end
         if bSuspectedFailedLoad and M28UnitInfo.IsUnitValid(oOrderTarget) then
             --Warp to the transport then retry
             local tWarpLocation = oOrderTarget:GetPosition()
@@ -1314,7 +1315,7 @@ function IssueTrackedTransportLoad(oUnit, oOrderTarget, bAddToExistingQueue, sOp
     --oOrderTarget is the transport
     if bDontConsiderCombinedArmy or oUnit.M28Active then
         local sFunctionRef = 'IssueTrackedTransportLoad'
-        local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
+        local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelOrders, sFunctionRef)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
 
@@ -1327,12 +1328,12 @@ function IssueTrackedTransportLoad(oUnit, oOrderTarget, bAddToExistingQueue, sOp
         --If the transport already has a unit told to load onto it, then this sends the assigned unit to move to that unit's position, and then to queue up the transport load order
         local bMoveIntoPositionInstead = false
         --local bDontUpdateUnitBeingLoaded = false
-        if bDebugMessages == true then LOG(sFunctionRef..': oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; oOrderTarget='..oOrderTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oOrderTarget)..'; Dist to target='..M28Utilities.GetDistanceBetweenPositions(oOrderTarget:GetPosition(), oUnit:GetPosition())..'; oOrderTarget[M28Air.refoTransportUnitTryingToLoad]='..(oOrderTarget[M28Air.refoTransportUnitTryingToLoad].UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oOrderTarget[M28Air.refoTransportUnitTryingToLoad]) or 'nil')) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; oOrderTarget='..oOrderTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oOrderTarget)..'; Dist to target='..M28Utilities.GetDistanceBetweenPositions(oOrderTarget:GetPosition(), oUnit:GetPosition())..'; oOrderTarget[M28Air.refoTransportUnitTryingToLoad]='..(oOrderTarget[M28Air.refoTransportUnitTryingToLoad].UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oOrderTarget[M28Air.refoTransportUnitTryingToLoad]) or 'nil')) end
         if not(oOrderTarget[M28Air.refoTransportUnitTryingToLoad] == oUnit) and M28UnitInfo.IsUnitValid(oOrderTarget[M28Air.refoTransportUnitTryingToLoad]) and not(oOrderTarget[M28Air.refoTransportUnitTryingToLoad]:IsUnitState('Attached')) then
             --If already have an engineer/other unit trying to move here that is valid, then want to move to this engineer then queue up a transport order
-            if bDebugMessages == true then LOG('Already have an engineer as the first transport load target='..oOrderTarget[M28Air.refoTransportUnitTryingToLoad].UnitId..M28UnitInfo.GetUnitLifetimeCount(oOrderTarget[M28Air.refoTransportUnitTryingToLoad])..'; Unit state='..M28UnitInfo.GetUnitState(oOrderTarget[M28Air.refoTransportUnitTryingToLoad])) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, 'Already have an engineer as the first transport load target='..oOrderTarget[M28Air.refoTransportUnitTryingToLoad].UnitId..M28UnitInfo.GetUnitLifetimeCount(oOrderTarget[M28Air.refoTransportUnitTryingToLoad])..'; Unit state='..M28UnitInfo.GetUnitState(oOrderTarget[M28Air.refoTransportUnitTryingToLoad])) end
             if M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oOrderTarget:GetPosition()) >= 5 then
-                if bDebugMessages == true then LOG(sFunctionRef..': Are fairly close to transport, will move engineer towards transport so it is ready to be loaded') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Are fairly close to transport, will move engineer towards transport so it is ready to be loaded') end
                 IssueTrackedMove(oUnit, oOrderTarget[M28Air.refoTransportUnitTryingToLoad]:GetPosition(), 3, bAddToExistingQueue, sOptionalOrderDesc..'Mov', bOverrideMicroOrder)
                 bMoveIntoPositionInstead = true
                 --else
@@ -1344,7 +1345,7 @@ function IssueTrackedTransportLoad(oUnit, oOrderTarget, bAddToExistingQueue, sOp
         elseif not(oOrderTarget[M28Air.refoTransportUnitTryingToLoad]) and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oOrderTarget:GetPosition()) > 12 then
             local NavUtils = M28Utilities.NavUtils
             local iHoverLabelWanted = NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, oUnit:GetPosition())
-            if bDebugMessages == true then LOG(sFunctionRef..': iHoverLabelWanted='..(iHoverLabelWanted or 'nil')) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iHoverLabelWanted='..(iHoverLabelWanted or 'nil')) end
             if iHoverLabelWanted then
                 local tMoveTowardsTransportPosition
                 local iAngleToTransport = M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), oOrderTarget:GetPosition())
@@ -1353,7 +1354,7 @@ function IssueTrackedTransportLoad(oUnit, oOrderTarget, bAddToExistingQueue, sOp
                     if iCurDist == 0 then tMoveTowardsTransportPosition = {oUnit:GetPosition()[1], oUnit:GetPosition()[2], oUnit:GetPosition()[3]} break
                     else
                         tMoveTowardsTransportPosition = M28Utilities.MoveInDirection(oUnit:GetPosition(), iAngleToTransport, iCurDist, true, false)
-                        if bDebugMessages == true then LOG(sFunctionRef..': iCurDist='..iCurDist..'; tMoveTowardsTransportPosition='..repru(tMoveTowardsTransportPosition)..'; iAngleToTransport='..iAngleToTransport..'; iHoverLabelWanted='..iHoverLabelWanted..'; Terrain label='..NavUtils.GetTerrainLabel(M28Map.refPathingTypeLand, tMoveTowardsTransportPosition)) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurDist='..iCurDist..'; tMoveTowardsTransportPosition='..repru(tMoveTowardsTransportPosition)..'; iAngleToTransport='..iAngleToTransport..'; iHoverLabelWanted='..iHoverLabelWanted..'; Terrain label='..NavUtils.GetTerrainLabel(M28Map.refPathingTypeLand, tMoveTowardsTransportPosition)) end
                         if iHoverLabelWanted == NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, tMoveTowardsTransportPosition) then
                             break
                         end
@@ -1374,7 +1375,7 @@ function IssueTrackedTransportLoad(oUnit, oOrderTarget, bAddToExistingQueue, sOp
             UpdateRecordedOrders(oUnit)
         end
 
-        if bDebugMessages == true then LOG(sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; bMoveIntoPositionInstead='..tostring(bMoveIntoPositionInstead or false)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; bMoveIntoPositionInstead='..tostring(bMoveIntoPositionInstead or false)) end
 
         if not(bMoveIntoPositionInstead) then
             local tLastOrder
@@ -1385,7 +1386,7 @@ function IssueTrackedTransportLoad(oUnit, oOrderTarget, bAddToExistingQueue, sOp
                 end
             end
 
-            if bDebugMessages == true then LOG(sFunctionRef..': Unit last order='..reprs(tLastOrder)..'; tLastOrder[subrefiOrderType]='..(tLastOrder[subrefiOrderType] or 'nil')..'; Special micro active='..tostring(oUnit[M28UnitInfo.refbSpecialMicroActive] or false)..'; bOverrideMicroOrder='..tostring(bOverrideMicroOrder or false)..'; Unit state='..M28UnitInfo.GetUnitState(oUnit)..'; Transport state='..M28UnitInfo.GetUnitState(oOrderTarget)) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit last order='..reprs(tLastOrder)..'; tLastOrder[subrefiOrderType]='..(tLastOrder[subrefiOrderType] or 'nil')..'; Special micro active='..tostring(oUnit[M28UnitInfo.refbSpecialMicroActive] or false)..'; bOverrideMicroOrder='..tostring(bOverrideMicroOrder or false)..'; Unit state='..M28UnitInfo.GetUnitState(oUnit)..'; Transport state='..M28UnitInfo.GetUnitState(oOrderTarget)) end
 
             if bDontTryBackup or (not(tLastOrder[subrefiOrderType] == refiOrderLoadOntoTransport and oOrderTarget == tLastOrder[subrefoOrderUnitTarget]) and (bOverrideMicroOrder or not(oUnit[M28UnitInfo.refbSpecialMicroActive]))) or
                 --Further redudnancy added v138 to try and combat another case where an engineer was stuck trying to load onto a transport from 7 dist away; the transport unit state showed as blank, the engi state showed as loading, and the transport would just bob up and down for minutes
@@ -1394,7 +1395,7 @@ function IssueTrackedTransportLoad(oUnit, oOrderTarget, bAddToExistingQueue, sOp
                     --if not(bDontUpdateUnitBeingLoaded) then
                     IssueTrackedClearCommands(oOrderTarget) --Jip mentioned you can need to clear a transport's existing queue for a new load order to work
                     oOrderTarget[M28Air.refoTransportUnitTryingToLoad] = oUnit
-                    if bDebugMessages == true then LOG(sFunctionRef..': Recording that transport is trying to load this unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Recording that transport is trying to load this unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
                     --end
                 end
                 if not(bAddToExistingQueue) then IssueTrackedClearCommands(oUnit) end
@@ -1404,7 +1405,7 @@ function IssueTrackedTransportLoad(oUnit, oOrderTarget, bAddToExistingQueue, sOp
                 IssueTransportLoad({oUnit}, oOrderTarget)
                 oOrderTarget[M28Air.refiTransportTimeSpentWaiting] = math.max(0, (oOrderTarget[M28Air.refiTransportTimeSpentWaiting] or 0) - 15)
                 oUnit[M28Air.refiTimeLastGivenOrderToLoadOntoTransport] = GetGameTimeSeconds()
-                if bDebugMessages == true then LOG(sFunctionRef..': Just sent transport load order') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just sent transport load order') end
                 if not(bDontTryBackup) then ForkThread(DelayedTransportReloadCheck, oUnit, oOrderTarget) end --Found this caused more problems than it solved when it  just reissued the order; however per sprouto's suggestion warping the engineer first solves most issues where this happens; is on a 10s delay so should be slower than a human
                 --Treat engi as having a high priority action now
                 M28Engineer.TrackEngineerAction(oUnit, M28Engineer.refActionLoadOntoTransport, false, 1)
@@ -1529,7 +1530,7 @@ end
 function IssueTrackedTeleport(oUnit, tOrderPosition, iDistanceToReissueOrder, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder)
     if bDontConsiderCombinedArmy or oUnit.M28Active then
         local sFunctionRef = 'IssueTrackedTeleport'
-        local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
+        local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelOrders, sFunctionRef)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
         UpdateRecordedOrders(oUnit)
@@ -1543,7 +1544,7 @@ function IssueTrackedTeleport(oUnit, tOrderPosition, iDistanceToReissueOrder, bA
             end
         end
         --if EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId) then LOG('IssueTrackedMove: Time='..GetGameTimeSeconds()..'; reprs of tLastOrder='..reprs(tLastOrder)..'; tOrderPosition='..repru(tOrderPosition)..'; iDistanceToReissueOrder='..iDistanceToReissueOrder..'; bAddToExistingQueue='..tostring(bAddToExistingQueue or false)..'; sOptionalOrderDesc='..(sOptionalOrderDesc or 'nil')..'; bOverrideMicroOrder='..tostring(bOverrideMicroOrder or false)) end
-        if bDebugMessages == true then LOG(sFunctionRef..': Near start, time='..GetGameTimeSeconds()..'; reprs of tLastOrder='..reprs(tLastOrder)..'; tOrderPosition='..repru(tOrderPosition)..'; iDistanceToReissueOrder='..iDistanceToReissueOrder..'; bAddToExistingQueue='..tostring(bAddToExistingQueue or false)..'; sOptionalOrderDesc='..(sOptionalOrderDesc or 'nil')..'; bOverrideMicroOrder='..tostring(bOverrideMicroOrder or false)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Near start, time='..GetGameTimeSeconds()..'; reprs of tLastOrder='..reprs(tLastOrder)..'; tOrderPosition='..repru(tOrderPosition)..'; iDistanceToReissueOrder='..iDistanceToReissueOrder..'; bAddToExistingQueue='..tostring(bAddToExistingQueue or false)..'; sOptionalOrderDesc='..(sOptionalOrderDesc or 'nil')..'; bOverrideMicroOrder='..tostring(bOverrideMicroOrder or false)) end
         if not(tLastOrder and tLastOrder[subrefiOrderType] == refiOrderIssueTeleport and iDistanceToReissueOrder and M28Utilities.GetDistanceBetweenPositions(tOrderPosition, tLastOrder[subreftOrderPosition]) < iDistanceToReissueOrder) and (bOverrideMicroOrder or not(oUnit[M28UnitInfo.refbSpecialMicroActive]))  then
             if not(bAddToExistingQueue) then IssueTrackedClearCommands(oUnit) end
             if not(oUnit[reftiLastOrders]) then oUnit[reftiLastOrders] = {} oUnit[refiOrderCount] = 0 end
@@ -1552,7 +1553,7 @@ function IssueTrackedTeleport(oUnit, tOrderPosition, iDistanceToReissueOrder, bA
             IssueTeleport({oUnit}, tOrderPosition)
             oUnit[M28UnitInfo.reftLastLocationWhenGaveTeleportOrder] = {oUnit:GetPosition()[1], oUnit:GetPosition()[2], oUnit:GetPosition()[3]}
             import('/mods/M28AI/lua/AI/M28Micro.lua').TrackTemporaryUnitMicro(oUnit, 10) --Additional redundancy to reduce risk we cancel ACU orders while its teleporting
-            if bDebugMessages == true then LOG(sFunctionRef..': Have given teleport order to unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have given teleport order to unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
 
         end
         if M28Config.M28ShowUnitNames and oUnit[reftiLastOrders][1] and (not(oUnit[M28UnitInfo.refbSpecialMicroActive]) or bOverrideMicroOrder) then UpdateUnitNameForOrder(oUnit, sOptionalOrderDesc) end

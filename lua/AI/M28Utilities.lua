@@ -43,7 +43,7 @@ bCPUPerformanceMode = false
 function ConsiderIfLoudActive()
     local bDebugMessages = false --simplified setup/no profiling as dont want to call profiler at this stage since hardly anything will have loaded and might cause compatibility headaches
     local sFunctionRef = 'ConsiderIfLoudActive'
-    if bDebugMessages == true then LOG(sFunctionRef..': About to consider whether LOUD or Steam is active, bFAFActive='..tostring(bFAFActive)..'; bSteamActive='..tostring(bSteamActive)) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to consider whether LOUD or Steam is active, bFAFActive='..tostring(bFAFActive)..'; bSteamActive='..tostring(bSteamActive)) end
     if not(bFAFActive) and not(bSteamActive) then
         --Further check for if FAF active
         local file_exists = function(name)
@@ -57,7 +57,7 @@ function ConsiderIfLoudActive()
         local NavUtilsCheck
         local bAddNonFafFunctions = false
         if file_exists('/lua/sim/navutils.lua') then
-            if bDebugMessages == true then LOG(sFunctionRef..': NavUtils exists, so either FAF or a mod with FAF characteristics') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': NavUtils exists, so either FAF or a mod with FAF characteristics') end
             NavUtilsCheck = import('/lua/sim/navutils.lua')
             if NavUtilsCheck and rawget(NavUtilsCheck, 'DetailedPathTo') then
                 bFAFActive = true
@@ -86,16 +86,16 @@ function ConsiderIfLoudActive()
                 LOG('M28AI: Flagging that QUIET mod is active')
             elseif file_exists('/lua/AI/CustomAIs_v2/ExtrasAI.lua') and import('/lua/AI/CustomAIs_v2/ExtrasAI.lua').AI.Version then
                 bLoudModActive = true
-                if bDebugMessages == true then LOG(sFunctionRef..': LOUD is active') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': LOUD is active') end
                 --Backwards compatibility for initial versions of LCE and QUIET which were done as mods to LOUD (not relevant going forwards as its standalone)
                 if file_exists('/mods/LOUD-Community-Edition/mod_info.lua') or file_exists('/mods/QUIET-Community-Edition/mod_info.lua') then
                     --Make sure by checking active SIM mods
                     local tSimMods = __active_mods or {}
                     for iMod, tModData in tSimMods do
-                        if bDebugMessages == true then LOG(sFunctionRef..': Considering iMod='..iMod..'; Mod name='..(tModData.name or 'nil')..'; tModData.enabled='..tostring(tModData.enabled or false)..'; tModData.ui_only='..tostring(tModData.ui_only or false)) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering iMod='..iMod..'; Mod name='..(tModData.name or 'nil')..'; tModData.enabled='..tostring(tModData.enabled or false)..'; tModData.ui_only='..tostring(tModData.ui_only or false)) end
                         if tModData.enabled and not (tModData.ui_only) then --Note: pre-v1.52 of QUIET there was a bug where the mod wouldn't have .enabled set to true, Azraeel mentioned this should be fixed as of v1.52
                             if tModData.name == 'LOUD Community Edition' or tModData.name == 'QUIET' then
-                                if bDebugMessages == true then LOG(sFunctionRef..': Appears that QUIET is active instead of LOUD') end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Appears that QUIET is active instead of LOUD') end
                                 bQuietModActive = true
                                 bLoudModActive = false
                                 break
@@ -318,9 +318,9 @@ function ForkedDrawRectangle(rRect, iColour, iDisplayCount)
     --Draws lines around rRect; rRect should be a rect table, with keys x0, x1, y0, y1
     --iColour - if it isn't a number from 1 to 8 then it will try and use the value as the hex key instead
 
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ForkedDrawRectangle'
-    if bDebugMessages == true then LOG(sFunctionRef..': rRect='..repru(rRect)) end
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUtilities, sFunctionRef)
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': rRect='..repru(rRect)) end
 
     local sColour
     if iColour == nil then sColour = 'c00000FF' --dark blue
@@ -401,9 +401,9 @@ end
 
 function ForkedDrawLine(tStart, tEnd, iColour, iDisplayCount)
     --FORK THREAD before calling this
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ForkedDrawLine'
-    if bDebugMessages == true then LOG(sFunctionRef..': rRect='..repru(rRect)) end
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUtilities, sFunctionRef)
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': rRect='..repru(rRect)) end
 
     local sColour
     if iColour == nil then sColour = 'c00000FF' --dark blue
@@ -545,18 +545,18 @@ function GetNearestUnit(tUnits, tCurPos, bUseActualTravelDistance, sPathingToUse
     --returns the nearest unit in tUnits from tCurPos
 
     local sFunctionRef = 'GetNearestUnit'
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUtilities, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     local iMinDist = 1000000
     local iCurDist
     local iNearestUnit
-    if bDebugMessages == true then LOG('GetNearestUnit: tUnits table size='..table.getn(tUnits)) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, 'GetNearestUnit: tUnits table size='..table.getn(tUnits)) end
     for iUnit, oUnit in tUnits do
         if not(oUnit.Dead) then
             if bUseActualTravelDistance then iCurDist = GetTravelDistanceBetweenPositions(oUnit:GetPosition(), tCurPos, sPathingToUse)
             else iCurDist = GetDistanceBetweenPositions(oUnit:GetPosition(), tCurPos)
             end
-            if bDebugMessages == true then LOG('GetNearestUnit: iUnit='..iUnit..'; iCurDist='..iCurDist..'; iMinDist='..iMinDist) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, 'GetNearestUnit: iUnit='..iUnit..'; iCurDist='..iCurDist..'; iMinDist='..iMinDist) end
             if (iCurDist or iMinDist) < iMinDist then
                 iMinDist = iCurDist
                 iNearestUnit = iUnit
@@ -669,16 +669,16 @@ function MoveInDirection(tStart, iAngle, iDistance, bKeepInMapBounds, bTravelUnd
     --if bKeepInMapBounds is true then will limit to map bounds
     --bTravelUnderwater - if this is true then will get the terrain height instead of the surface height
 
-    --local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
+    --local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUtilities, sFunctionRef)
     --local sFunctionRef = 'MoveInDirection'
 
     local iTheta = ConvertAngleToRadians(iAngle)
-    --if bDebugMessages == true then LOG(sFunctionRef..': iAngle='..(iAngle or 'nil')..'; iTheta='..(iTheta or 'nil')..'; iDistance='..(iDistance or 'nil')..'; M28Map.rMapPotentialPlayableArea='..repru(M28Map.rMapPotentialPlayableArea)..'; tStart='..repru(tStart)) end
+    --if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iAngle='..(iAngle or 'nil')..'; iTheta='..(iTheta or 'nil')..'; iDistance='..(iDistance or 'nil')..'; M28Map.rMapPotentialPlayableArea='..repru(M28Map.rMapPotentialPlayableArea)..'; tStart='..repru(tStart)) end
     local iXAdj = math.sin(iTheta) * iDistance
     local iZAdj = -(math.cos(iTheta) * iDistance)
 
     if not(bKeepInMapBounds) then
-        --if bDebugMessages == true then LOG(sFunctionRef..': Are within map bounds, iXAdj='..iXAdj..'; iZAdj='..iZAdj..'; iTheta='..iTheta..'; position='..repru({tStart[1] + iXAdj, GetSurfaceHeight(tStart[1] + iXAdj, tStart[3] + iZAdj), tStart[3] + iZAdj})) end
+        --if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Are within map bounds, iXAdj='..iXAdj..'; iZAdj='..iZAdj..'; iTheta='..iTheta..'; position='..repru({tStart[1] + iXAdj, GetSurfaceHeight(tStart[1] + iXAdj, tStart[3] + iZAdj), tStart[3] + iZAdj})) end
         if bTravelUnderwater then
             return {tStart[1] + iXAdj, GetTerrainHeight(tStart[1] + iXAdj, tStart[3] + iZAdj), tStart[3] + iZAdj}
         else
@@ -699,7 +699,7 @@ function MoveInDirection(tStart, iAngle, iDistance, bKeepInMapBounds, bTravelUnd
         end
         --Get actual distance required to keep within map bounds
         local iNewDistWanted = 10000
-        --if bDebugMessages == true then LOG(sFunctionRef..': Will determine iNewDistWanted, tTargetPosition='..repru(tTargetPosition)..';  rPlayableArea='..repru(rPlayableArea)) end
+        --if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will determine iNewDistWanted, tTargetPosition='..repru(tTargetPosition)..';  rPlayableArea='..repru(rPlayableArea)) end
         if not(tTargetPosition[1] == tStart[1]) then
             if tTargetPosition[1] < rPlayableArea[1] then iNewDistWanted = (iDistance - 0.5) * (tStart[1] - rPlayableArea[1]) / (tStart[1] - tTargetPosition[1]) end
             if tTargetPosition[1] > rPlayableArea[3] then iNewDistWanted = math.min(iNewDistWanted, (iDistance - 0.5) * (rPlayableArea[3] - tStart[1]) / (tTargetPosition[1] - tStart[1])) end
@@ -708,14 +708,14 @@ function MoveInDirection(tStart, iAngle, iDistance, bKeepInMapBounds, bTravelUnd
             if tTargetPosition[3] < rPlayableArea[2] and not(tStart[3] == tTargetPosition[3]) then iNewDistWanted = math.min(iNewDistWanted, (iDistance - 0.5) * (tStart[3] - rPlayableArea[2]) / (tStart[3] - tTargetPosition[3])) end
             if tTargetPosition[3] > rPlayableArea[4] then iNewDistWanted = math.min(iNewDistWanted, (iDistance - 0.5) * (rPlayableArea[4] - tStart[3]) / (tTargetPosition[3] - tStart[3])) end
         end
-        --if bDebugMessages == true then LOG(sFunctionRef..': Finished determining iNewDistWanted='..iNewDistWanted) end
+        --if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished determining iNewDistWanted='..iNewDistWanted) end
 
         if iNewDistWanted == 10000 then
-            --if bDebugMessages == true then LOG(sFunctionRef..': Are inside playable area, returning tTargetPosition='..repru(tTargetPosition)) end
+            --if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Are inside playable area, returning tTargetPosition='..repru(tTargetPosition)) end
             return tTargetPosition
         else
             --Are out of playable area, so adjust the position; Can use the ratio of the amount we have moved left/right or top/down vs the long line length to work out the long line length if we reduce the left/right so its within playable area
-            --if bDebugMessages == true then LOG(sFunctionRef..': Outside playable area, iNewDistWanted='..iNewDistWanted..'; iXAdj='..iXAdj..'; iZAdj='..iZAdj..'; iDistance='..iDistance..'; tTargetPosition after updating for x and z adj='..repru(tTargetPosition)..'; rPlayableArea='..repru(rPlayableArea)) end
+            --if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Outside playable area, iNewDistWanted='..iNewDistWanted..'; iXAdj='..iXAdj..'; iZAdj='..iZAdj..'; iDistance='..iDistance..'; tTargetPosition after updating for x and z adj='..repru(tTargetPosition)..'; rPlayableArea='..repru(rPlayableArea)) end
             return MoveInDirection(tStart, iAngle, iNewDistWanted, false)
         end
     end
@@ -920,7 +920,7 @@ end
 function DrawCircleAroundPoint(tLocation, iColour, iDisplayCount, iCircleSize)
     --Use DrawCircle which will call a forkthread to call this
     local sFunctionRef = 'DrawCircleAroundPoint'
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUtilities, sFunctionRef)
 
 
     if iCircleSize == nil then iCircleSize = 2 end
@@ -943,12 +943,12 @@ function DrawCircleAroundPoint(tLocation, iColour, iDisplayCount, iCircleSize)
 
     local iMaxDrawCount = iDisplayCount
     local iCurDrawCount = 0
-    if bDebugMessages == true then LOG('About to draw circle at table location ='..repru(tLocation)) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, 'About to draw circle at table location ='..repru(tLocation)) end
     while true do
         DrawCircle(tLocation, iCircleSize, sColour)
         iCurDrawCount = iCurDrawCount + 1
         if iCurDrawCount > iMaxDrawCount then return end
-        if bDebugMessages == true then LOG(sFunctionRef..': Will wait 2 ticks then refresh the drawing') end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will wait 2 ticks then refresh the drawing') end
         coroutine.yield(2) --Any more and circles will flash instead of being constant
     end
 end

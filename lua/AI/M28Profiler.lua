@@ -49,9 +49,128 @@ iMemoryCycleCount = 1000
 bActiveMemoryProfiler = false
 --bTestProfiler = false
 
+refDebugChannelACU = 'ACU'
+refDebugChannelAir = 'Air'
+refDebugChannelBrain = 'Brain'
+refDebugChannelBuilding = 'Building'
+refDebugChannelChat = 'Chat'
+refDebugChannelConditions = 'Conditions'
+refDebugChannelEconomy = 'Economy'
+refDebugChannelEngineer = 'Engineer'
+refDebugChannelEvents = 'Events'
+refDebugChannelFactory = 'Factory'
+refDebugChannelIntel = 'Intel'
+refDebugChannelLand = 'Land'
+refDebugChannelLogic = 'Logic'
+refDebugChannelMap = 'Map'
+refDebugChannelMicro = 'Micro'
+refDebugChannelNavy = 'Navy'
+refDebugChannelOrders = 'Orders'
+refDebugChannelOverseer = 'Overseer'
+refDebugChannelProfiler = 'Profiler'
+refDebugChannelTeam = 'Team'
+refDebugChannelUnitInfo = 'UnitInfo'
+refDebugChannelUtilities = 'Utilities'
+
+local tsDebugConfigSuffixByChannel = {
+    [refDebugChannelACU] = 'ACU',
+    [refDebugChannelAir] = 'Air',
+    [refDebugChannelBrain] = 'Brain',
+    [refDebugChannelBuilding] = 'Building',
+    [refDebugChannelChat] = 'Chat',
+    [refDebugChannelConditions] = 'Conditions',
+    [refDebugChannelEconomy] = 'Economy',
+    [refDebugChannelEngineer] = 'Engineer',
+    [refDebugChannelEvents] = 'Events',
+    [refDebugChannelFactory] = 'Factory',
+    [refDebugChannelIntel] = 'Intel',
+    [refDebugChannelLand] = 'Land',
+    [refDebugChannelLogic] = 'Logic',
+    [refDebugChannelMap] = 'Map',
+    [refDebugChannelMicro] = 'Micro',
+    [refDebugChannelNavy] = 'Navy',
+    [refDebugChannelOrders] = 'Orders',
+    [refDebugChannelOverseer] = 'Overseer',
+    [refDebugChannelProfiler] = 'Profiler',
+    [refDebugChannelTeam] = 'Team',
+    [refDebugChannelUnitInfo] = 'UnitInfo',
+    [refDebugChannelUtilities] = 'Utilities',
+}
+local tDebugLastFunctionWindow = {}
+local tDebugLastMessageWindow = {}
+local tDebugLastDecisionState = {}
+
+local function GetDebugChannelSuffix(sDebugChannel)
+    return tsDebugConfigSuffixByChannel[sDebugChannel] or sDebugChannel
+end
+
+function IsDebugChannelEnabled(sDebugChannel)
+    if bGlobalDebugOverride or M28Config.M28DebugGlobal then return true end
+    local sChannelSuffix = GetDebugChannelSuffix(sDebugChannel)
+    return M28Config['M28Debug'..sChannelSuffix] or false
+end
+
+function GetDebugChannelInterval(sDebugChannel)
+    local sChannelSuffix = GetDebugChannelSuffix(sDebugChannel)
+    return M28Config['M28Debug'..sChannelSuffix..'Interval'] or M28Config.M28DebugDefaultInterval or 5
+end
+
+function GetDebugControl(sDebugChannel, sFunctionRef, iOptionalMinInterval, bForceDebug)
+    if not(bForceDebug) and not(IsDebugChannelEnabled(sDebugChannel)) then return false, nil end
+
+    local iCurTime = GetGameTimeSeconds()
+    local iInterval = iOptionalMinInterval or GetDebugChannelInterval(sDebugChannel)
+    local sFunctionKey = (sDebugChannel or 'Unknown')..'|'..(sFunctionRef or 'Unknown')
+    local tDebugContext = {
+        sDebugChannel = sDebugChannel,
+        sFunctionRef = sFunctionRef,
+        sFunctionKey = sFunctionKey,
+        iRepeatInterval = M28Config.M28DebugRepeatInterval or 20,
+        iMaxLinesPerFunctionCall = M28Config.M28DebugMaxLinesPerFunctionCall or 6,
+        iLineCount = 0,
+    }
+
+    if not(bForceDebug) and iCurTime - (tDebugLastFunctionWindow[sFunctionKey] or -100) < iInterval then
+        return false, tDebugContext
+    end
+    tDebugLastFunctionWindow[sFunctionKey] = iCurTime
+    return true, tDebugContext
+end
+
+function DebugLog(tDebugContext, sMessage, bBypassRepeatWindow)
+    if not(tDebugContext) or not(sMessage) then return end
+    if tDebugContext.iLineCount >= (tDebugContext.iMaxLinesPerFunctionCall or 6) then return end
+
+    local iCurTime = GetGameTimeSeconds()
+    local sMessageKey = (tDebugContext.sFunctionKey or 'Unknown')..'|'..sMessage
+    if not(bBypassRepeatWindow) and iCurTime - (tDebugLastMessageWindow[sMessageKey] or -100) < (tDebugContext.iRepeatInterval or 20) then
+        return
+    end
+
+    tDebugLastMessageWindow[sMessageKey] = iCurTime
+    tDebugContext.iLineCount = tDebugContext.iLineCount + 1
+    LOG(sMessage)
+end
+
+function DebugDecision(tDebugContext, sDecisionRef, vState, sOptionalDetails)
+    if not(tDebugContext) or not(sDecisionRef) then return end
+
+    local sDecisionKey = (tDebugContext.sFunctionKey or 'Unknown')..'|'..sDecisionRef
+    local sState = tostring(vState)
+    local bStateChanged = tDebugLastDecisionState[sDecisionKey] ~= sState
+    tDebugLastDecisionState[sDecisionKey] = sState
+
+    local sMessage = (tDebugContext.sFunctionRef or 'Unknown')..': '..sDecisionRef..'='..sState
+    if sOptionalDetails then
+        sMessage = sMessage..'; '..sOptionalDetails
+    end
+
+    DebugLog(tDebugContext, sMessage, bStateChanged)
+end
+
 function FunctionProfiler(sFunctionRef, sStartOrEndRef)
     --sStartOrEndRef: refProfilerStart or refProfilerEnd (0 or 1)
-    local bDebugMessages = false if bGlobalDebugOverride == true or bFunctionCallDebugOverride then   bDebugMessages = true end
+    local bDebugMessages = false if bFunctionCallDebugOverride == true or M28Config.M28DebugFunctionCalls then bDebugMessages = true end
     if bDebugMessages == true then LOG('FunctionProfiler: Function '..sFunctionRef..'; sStartOrEndRef='..sStartOrEndRef) end
     if M28Config.M28RunProfiling then
 
@@ -172,7 +291,7 @@ end
 
 function ProfilerOutput()
     local sFunctionRef = 'ProfilerOutput'
-    local bDebugMessages = false if bGlobalDebugOverride == true then   bDebugMessages = true end
+    local bDebugMessages = false if IsDebugChannelEnabled(refDebugChannelProfiler) then bDebugMessages = true end
 
     if M28Config.M28RunProfiling then
         local iCurTick = math.floor(GetGameTimeSeconds()*10) - 1
@@ -291,8 +410,8 @@ function IncreaseMemoryUsage(iFactor)
 end
 
 function ShowFileMemoryUsage()
-    local bDebugMessages = false if bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ShowFileMemoryUsage'
+    local bDebugMessages, tDebugContext = GetDebugControl(refDebugChannelProfiler, sFunctionRef)
     FunctionProfiler(sFunctionRef, refProfilerStart)
 
     if not(bActiveMemoryProfiler) then

@@ -106,8 +106,8 @@ function DelayedArmyChangeForPings()
 end
 
 function UpdateOtherLOUDInformation()
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'UpdateOtherLOUDInformation'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelOverseer, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     if not(bUpdatedOtherLOUDInfo) then
         bUpdatedOtherLOUDInfo = true
@@ -119,16 +119,16 @@ function UpdateOtherLOUDInformation()
         --fix the scenarioinfo values from custom game options if are in LOUD, as it uses keys
         local LobbyOptions = import('/mods/M28AI/lua/CustomOptions/M28LOUDLobbyOptions.lua')
         local vCurKey
-        if bDebugMessages == true then LOG(sFunctionRef..': About to go through lobby options and update scenario info, LobbyOptions.LobbyGlobalOptions='..repru(LobbyOptions.LobbyGlobalOptions)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to go through lobby options and update scenario info, LobbyOptions.LobbyGlobalOptions='..repru(LobbyOptions.LobbyGlobalOptions)) end
         local bUseKeyForValue
         for iEntry, tOptionData in LobbyOptions.LobbyGlobalOptions do
             vCurKey = ScenarioInfo.Options[tOptionData.key]
             bUseKeyForValue = tOptionData.bUseKeyAsValueInScenarioInfo or false
-            if bDebugMessages == true then LOG(sFunctionRef..': Considering vCurKey='..(vCurKey or 'nil')..'; tOptionData.key='..(tOptionData.key or 'nil')..'; iEntry='..iEntry) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering vCurKey='..(vCurKey or 'nil')..'; tOptionData.key='..(tOptionData.key or 'nil')..'; iEntry='..iEntry) end
             for iValueEntry, tValueData in tOptionData.values do
-                if bDebugMessages == true then LOG(sFunctionRef..': Considering tValueData.key='..tValueData.key or 'nil') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering tValueData.key='..tValueData.key or 'nil') end
                 if tValueData.key == vCurKey then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Replacing scenario info for option Data key='..tOptionData.key..'; Scenario info value='..ScenarioInfo.Options[tOptionData.key]..'; Will change to tValueData.text='..tValueData.text..'; bUseKeyForValue='..tostring(bUseKeyForValue)..'; tValueData.key='..(tValueData.key or 'nil')) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Replacing scenario info for option Data key='..tOptionData.key..'; Scenario info value='..ScenarioInfo.Options[tOptionData.key]..'; Will change to tValueData.text='..tValueData.text..'; bUseKeyForValue='..tostring(bUseKeyForValue)..'; tValueData.key='..(tValueData.key or 'nil')) end
                     if bUseKeyForValue then
                         ScenarioInfo.Options[tOptionData.key] = tValueData.key
                     else
@@ -159,7 +159,7 @@ function UpdateOtherLOUDInformation()
         end
         ForkThread(DelayedArmyChangeForPings)
 
-        if bDebugMessages == true then LOG(sFunctionRef..': M28CombinedArmy='..(ScenarioInfo.Options.M28CombinedArmy or 'nil')) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': M28CombinedArmy='..(ScenarioInfo.Options.M28CombinedArmy or 'nil')) end
     end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)

@@ -714,8 +714,8 @@ end
 
 function UpdateUnitCombatMassRatingForUpgrades(oUnit)
     --Updates oUnit[refiDFMassThreatOverride] to reflect any upgrades on the unit (e.g. for ACU and SACUs)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'UpdateUnitCombatMassRatingForUpgrades'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUnitInfo, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local tPossibleUpgrades = oUnit:GetBlueprint().Enhancements
@@ -732,7 +732,7 @@ function UpdateUnitCombatMassRatingForUpgrades(oUnit)
                 iTotalMassValue = iTotalMassValue * math.min(1.5, iBaseMaxHealth / iBaseACUExpectedHealth)
             end
         end
-        if bDebugMessages == true then LOG(sFunctionRef..': tPossibleUpgrades size='..table.getn(tPossibleUpgrades)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tPossibleUpgrades size='..table.getn(tPossibleUpgrades)) end
         if tPossibleUpgrades then
             for sCurUpgrade, tUpgrade in tPossibleUpgrades do
                 if oUnit:HasEnhancement(sCurUpgrade) then
@@ -752,7 +752,7 @@ function UpdateUnitCombatMassRatingForUpgrades(oUnit)
                     else
                         iTotalMassValue = iTotalMassValue + iCurMassMod * iCurMassValue
                     end
-                    if bDebugMessages == true then LOG(sFunctionRef..': ACU has enhancement no. '..sCurUpgrade..'; iCurMassValue='..iCurMassValue..'; iCurMassMod='..iCurMassMod) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': ACU has enhancement no. '..sCurUpgrade..'; iCurMassValue='..iCurMassValue..'; iCurMassMod='..iCurMassMod) end
                 end
             end
         end
@@ -884,14 +884,14 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
     --bJustGetMassValue - if thisi s true, will ignore things like health and just return the mass value (so none of the other values should matter if this is true - i.e. assumes tUnits is already filtered to those of interest)
     --Note that if are using this, it would generaly be much faster (about 5 times as fast) to do oUnit[M28UnitInfo.refiUnitMassCost]); alternatively use GetMassCostOfUnits if have a large table and want simplicity
 
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'GetCombatThreatRating'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUnitInfo, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
 
 
     if M28Utilities.IsTableEmpty(tUnits) then
-        if bDebugMessages == true then LOG(sFunctionRef..': Warning: tUnits is empty, returning 0') end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Warning: tUnits is empty, returning 0') end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         return 0
     else
@@ -920,15 +920,15 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
             local oUnit = tUnits[1]
             local oBP = __blueprints[oUnit.UnitId]
             local iMassCost = (oBP.Economy.BuildCostMass or 0)
-            if bDebugMessages == true then LOG(sFunctionRef..': Considering unit with ID='..(oUnit.UnitId or 'nil')..'; iMassCost='..iMassCost) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit with ID='..(oUnit.UnitId or 'nil')..'; iMassCost='..iMassCost) end
             --ACU override
             if EntityCategoryContains(categories.COMMAND, oUnit.UnitId) then
-                if bDebugMessages == true then LOG(sFunctionRef..': ACU threat adjustment, iMassCost pre adj='..iMassCost..'; iBaseACUThreat='..iBaseACUThreat..'; oBP.Defense.Health='..oBP.Defense.Health..'; iBaseACUExpectedHealth='..iBaseACUExpectedHealth) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': ACU threat adjustment, iMassCost pre adj='..iMassCost..'; iBaseACUThreat='..iBaseACUThreat..'; oBP.Defense.Health='..oBP.Defense.Health..'; iBaseACUExpectedHealth='..iBaseACUExpectedHealth) end
                 if iMassCost < iBaseACUThreat then iMassCost = iBaseACUThreat
                 else
                     --Adjust mass cost if it is too high
                     iMassCost = math.max(iBaseACUThreat, math.min(iMassCost, iBaseACUThreat * math.min(1.5, oBP.Defense.Health / iBaseACUExpectedHealth)))
-                    if bDebugMessages == true then LOG(sFunctionRef..': Considered limiting ACU threat/mass cost (i.e. ignoring blueprint notional mass cost), iMassCost post adjustment='..iMassCost) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considered limiting ACU threat/mass cost (i.e. ignoring blueprint notional mass cost), iMassCost post adjustment='..iMassCost) end
                 end
             end
             if bJustGetMassValue == true then iBaseThreat = iMassCost
@@ -1074,13 +1074,13 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                 if iMassMod > 0 and M28Utilities.bLoudModActive and EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId) then
                     iMassMod = iMassMod * 0.75
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': iMassCost='..(iMassCost or 'nil')..'; iMassMod='..(iMassMod or 'nil')) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iMassCost='..(iMassCost or 'nil')..'; iMassMod='..(iMassMod or 'nil')) end
                 iBaseThreat = iMassCost * iMassMod
                 if iBaseThreat > 0 and not(bJustGetMassValue) then
                     local iCombatStatThreat = GetApproxBlueprintCombatStatThreat(oBP, bIndirectFireThreatOnly, bAntiNavyOnly, bAddAntiNavy, bSubmersibleOnly, bLongRangeThreatOnly)
                     if iCombatStatThreat > 0 then
                         iBaseThreat = math.max(iBaseThreat * 0.6, iCombatStatThreat)
-                        if bDebugMessages == true then LOG(sFunctionRef..': Applying combat stat threat adjustment, iCombatStatThreat='..iCombatStatThreat..'; iBaseThreat after adjustment='..iBaseThreat) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Applying combat stat threat adjustment, iCombatStatThreat='..iCombatStatThreat..'; iBaseThreat after adjustment='..iBaseThreat) end
                     end
                 end
             end
@@ -1105,18 +1105,18 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                         end
                         iBaseThreat = iBaseThreat * iEnemyACUThreatMultiplier
                     end
-                    if bDebugMessages == true then LOG(sFunctionRef..': Considering unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; iBaseThreat='..(iBaseThreat or 0)..'; DF threat override='..(oUnit[refiDFMassThreatOverride] or 'nil')..'; tUnitThreatByIDAndType[oUnit.UnitId][iThreatRef]='..(tUnitThreatByIDAndType[oUnit.UnitId][iThreatRef] or 'nil')..'; bJustGetMassValue='..tostring(bJustGetMassValue)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; iBaseThreat='..(iBaseThreat or 0)..'; DF threat override='..(oUnit[refiDFMassThreatOverride] or 'nil')..'; tUnitThreatByIDAndType[oUnit.UnitId][iThreatRef]='..(tUnitThreatByIDAndType[oUnit.UnitId][iThreatRef] or 'nil')..'; bJustGetMassValue='..tostring(bJustGetMassValue)) end
                     if not(tUnitThreatByIDAndType[oUnit.UnitId][iThreatRef]) and not(bBlueprintThreat) then
                         iBaseThreat = GetCombatThreatRating({ { ['UnitId'] = oUnit.UnitId } }, bEnemyUnits, bJustGetMassValue, bIndirectFireThreatOnly, bAntiNavyOnly, bAddAntiNavy, bSubmersibleOnly, bLongRangeThreatOnly, true)
                         if not(tUnitThreatByIDAndType[oUnit.UnitId]) then tUnitThreatByIDAndType[oUnit.UnitId] = {} end
-                        if bDebugMessages == true then LOG(sFunctionRef..': Will rerun the blueprint logic as it seems to have missed this unit '..oUnit.UnitId..'; iBaseThreat after this='..(iBaseThreat or 'nil')) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will rerun the blueprint logic as it seems to have missed this unit '..oUnit.UnitId..'; iBaseThreat after this='..(iBaseThreat or 'nil')) end
                         if not(tUnitThreatByIDAndType[oUnit.UnitId][iThreatRef]) then tUnitThreatByIDAndType[oUnit.UnitId][iThreatRef] = (iBaseThreat or 0) end
 
                     end
                     if iBaseThreat == 0 and bSubmersibleOnly and bEnemyUnits and EntityCategoryContains(refCategoryAmphibious, oUnit.UnitId) and IsUnitUnderwater(oUnit) then
                         iBaseThreat = oUnit[refiUnitMassCost] * 0.35
                     end
-                    if bDebugMessages == true then LOG(sFunctionRef..': iBaseThreat='..iBaseThreat..'; bJustGetMassValue='..tostring(bJustGetMassValue)..'; bCPUPerformanceMode='..tostring(M28Utilities.bCPUPerformanceMode)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iBaseThreat='..iBaseThreat..'; bJustGetMassValue='..tostring(bJustGetMassValue)..'; bCPUPerformanceMode='..tostring(M28Utilities.bCPUPerformanceMode)) end
                     if iBaseThreat > 0 then
                         if bJustGetMassValue then iCurThreat = iBaseThreat
                         elseif iBaseThreat < iLandThreatJustConsiderHealthThreshold then
@@ -1127,7 +1127,7 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                             --Have got the base threat for this type of unit, now adjust threat for unit health if want to calculate actual threat
                             iCurShield, iMaxShield = GetCurrentAndMaximumShield(oUnit)
                             iMaxHealth = oUnit:GetMaxHealth() + iMaxShield
-                            if bDebugMessages == true then LOG(sFunctionRef..': iMaxHealth='..(iMaxHealth or 'nil')) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iMaxHealth='..(iMaxHealth or 'nil')) end
                             if iMaxHealth and iMaxHealth > 0 then
                                 --Increase threat for veterancy level
                                 if oUnit.Sync.VeteranLevel > 0 then iBaseThreat = iBaseThreat * (1 + oUnit.Sync.VeteranLevel * 0.1) end
@@ -1146,7 +1146,7 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                                         if iHealthPercentage < 0.5 then iHealthFactor = iHealthPercentage * iHealthPercentage
                                         elseif iHealthPercentage < 0.9 then iHealthFactor = iHealthPercentage * (iHealthPercentage + 0.1) end
                                     end
-                                    if bDebugMessages == true then LOG(sFunctionRef..': ACU iBaseThreat='..iBaseThreat..'; iHeatlhFactor='..iHealthFactor..'; iOtherAdjustFactor='..iOtherAdjustFactor..'; iHealthPercentage='..iHealthPercentage) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': ACU iBaseThreat='..iBaseThreat..'; iHeatlhFactor='..iHealthFactor..'; iOtherAdjustFactor='..iOtherAdjustFactor..'; iHealthPercentage='..iHealthPercentage) end
                                 else
                                     if bEnemyUnits then
                                         --For enemy damaged units treat them as still ahving high threat, since enemy likely could use them effectively still
@@ -1161,7 +1161,7 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                                 if oUnit:GetFractionComplete() <= 0.75 then iOtherAdjustFactor = iOtherAdjustFactor * 0.1 end
                             end
                             iCurThreat = iBaseThreat * iOtherAdjustFactor * iHealthFactor
-                            if bDebugMessages == true then LOG(sFunctionRef..': Unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..' iCurThreat='..iCurThreat..'; iBaseThreat='..iBaseThreat..'; iOtherAdjustFactor='..iOtherAdjustFactor..'; iHealthFactor='..iHealthFactor) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..' iCurThreat='..iCurThreat..'; iBaseThreat='..iBaseThreat..'; iOtherAdjustFactor='..iOtherAdjustFactor..'; iHealthFactor='..iHealthFactor) end
                         end
                     end
                 else
@@ -1169,15 +1169,15 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                     if bBlueprintThreat then
                         local oBP = __blueprints[oUnit.UnitId]
                         local iMassCost = (oBP.Economy.BuildCostMass or 0)
-                        if bDebugMessages == true then LOG(sFunctionRef..': Considering unit with ID='..(oUnit.UnitId or 'nil')..'; iMassCost='..iMassCost) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit with ID='..(oUnit.UnitId or 'nil')..'; iMassCost='..iMassCost) end
                         --ACU override
                         if EntityCategoryContains(categories.COMMAND, oUnit.UnitId) then
-                            if bDebugMessages == true then LOG(sFunctionRef..': ACU threat adjustment, iMassCost pre adj='..iMassCost..'; iBaseACUThreat='..iBaseACUThreat..'; oBP.Defense.Health='..oBP.Defense.Health..'; iBaseACUExpectedHealth='..iBaseACUExpectedHealth) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': ACU threat adjustment, iMassCost pre adj='..iMassCost..'; iBaseACUThreat='..iBaseACUThreat..'; oBP.Defense.Health='..oBP.Defense.Health..'; iBaseACUExpectedHealth='..iBaseACUExpectedHealth) end
                             if iMassCost < iBaseACUThreat then iMassCost = iBaseACUThreat
                             else
                                 --Adjust mass cost if it is too high
                                 iMassCost = math.max(iBaseACUThreat, math.min(iMassCost, iBaseACUThreat * math.min(1.5, oBP.Defense.Health / iBaseACUExpectedHealth)))
-                                if bDebugMessages == true then LOG(sFunctionRef..': Considered limiting ACU threat/mass cost (i.e. ignoring blueprint notional mass cost), iMassCost post adjustment='..iMassCost) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considered limiting ACU threat/mass cost (i.e. ignoring blueprint notional mass cost), iMassCost post adjustment='..iMassCost) end
                             end
                         end
                         if bJustGetMassValue == true then iBaseThreat = iMassCost
@@ -1312,10 +1312,10 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                             if iMassMod > 0 and M28Utilities.bLoudModActive and EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId) then
                                 iMassMod = iMassMod * 0.75
                             end
-                            if bDebugMessages == true then LOG(sFunctionRef..': iMassCost='..(iMassCost or 'nil')..'; iMassMod='..(iMassMod or 'nil')) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iMassCost='..(iMassCost or 'nil')..'; iMassMod='..(iMassMod or 'nil')) end
                             iBaseThreat = iMassCost * iMassMod
                         end
-                    elseif bDebugMessages == true then LOG(sFunctionRef..': Unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..' is not valid')
+                    elseif bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..' is not valid')
                     end
 
                     iCurThreat = iBaseThreat
@@ -1323,7 +1323,7 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
 
                 iTotalThreat = iTotalThreat + iCurThreat
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': iTotalThreat='..iTotalThreat..'; iThreatFactor='..iThreatFactor) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iTotalThreat='..iTotalThreat..'; iThreatFactor='..iThreatFactor) end
             if bCustomThreatFactor then iTotalThreat = iTotalThreat * iThreatFactor end
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
             return iTotalThreat
@@ -1337,17 +1337,17 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
     --bIncludeAntiAir - will include anti-air on ground units
     --bIncludeNonCombatAir - adds threat value for transports and scouts
     --bIncludeAirTorpedo - Adds threat for torpedo bombers
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'GetAirThreatLevel'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUnitInfo, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
 
 
-    if bDebugMessages == true then LOG(sFunctionRef..': About to check if table is empty. bIncludeAirToAir='..tostring(bIncludeAirToAir)..'; bIncludeAirToGround='..tostring(bIncludeAirToGround or false)) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to check if table is empty. bIncludeAirToAir='..tostring(bIncludeAirToAir)..'; bIncludeAirToGround='..tostring(bIncludeAirToGround or false)) end
 
     if M28Utilities.IsTableEmpty(tUnits) then
         --if tUnits == nil then
-        if bDebugMessages == true then LOG(sFunctionRef..': Warning: tUnits is empty, returning 0') end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Warning: tUnits is empty, returning 0') end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         return 0
     else
@@ -1391,7 +1391,7 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
         if bBlueprintThreat then
             local oUnit = tUnits[1]
             local oBP = __blueprints[oUnit.UnitId]
-            if bDebugMessages == true then LOG(sFunctionRef..': About to calculate threat using actual unit data, iThreatRef='..iThreatRef..'; UnitId='..oUnit.UnitId..'; Name='..LOC(__blueprints[oUnit.UnitId].Description)) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to calculate threat using actual unit data, iThreatRef='..iThreatRef..'; UnitId='..oUnit.UnitId..'; Name='..LOC(__blueprints[oUnit.UnitId].Description)) end
             --get actual threat calc
             local iMassMod = 0 --For non-offensive structures
             --Does the unit contain any of the categories of interest?
@@ -1407,7 +1407,7 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
             elseif bIncludeGroundToAir == true then bUnitFitsDesiredCategory = true end
 
             --Is unit still valid? If so then consider its weapons/categories more precisely:
-            if bDebugMessages == true then LOG(sFunctionRef..': bUnitFitsDesiredCategory='..tostring(bUnitFitsDesiredCategory)..'; bIncludeAirToAir='..tostring(bIncludeAirToAir)..'; bIncludeAirToGround='..tostring(bIncludeAirToGround)..'; iThreatRef='..iThreatRef) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bUnitFitsDesiredCategory='..tostring(bUnitFitsDesiredCategory)..'; bIncludeAirToAir='..tostring(bIncludeAirToAir)..'; bIncludeAirToGround='..tostring(bIncludeAirToGround)..'; iThreatRef='..iThreatRef) end
             if bUnitFitsDesiredCategory == true then
 
                 local sCurUnitBP = oBP.BlueprintId
@@ -1427,10 +1427,10 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                             end
                         end
                         if bIncludeAirTorpedo == true and EntityCategoryContains(refCategoryAntiNavy, sCurUnitBP) == true then iMassMod = 1 end
-                        if bDebugMessages == true then LOG(sFunctionRef..': bIncludeAirTorpedo='..tostring(bIncludeAirTorpedo)..'; iMassMod='..iMassMod) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bIncludeAirTorpedo='..tostring(bIncludeAirTorpedo)..'; iMassMod='..iMassMod) end
 
                         if bIncludeAirToAir == true and iMassMod < 1 then --iMassMod is only set for certain specified units above, i.e. if <1 then we havent considered it yet
-                            if bDebugMessages == true then LOG(sFunctionRef..': bIncludeAirToAir='..tostring(bIncludeAirToAir)..'; iMassMod='..iMassMod..'; does BP contain airaa category='..tostring(EntityCategoryContains(categories.ANTIAIR * categories.AIR, sCurUnitBP))) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bIncludeAirToAir='..tostring(bIncludeAirToAir)..'; iMassMod='..iMassMod..'; does BP contain airaa category='..tostring(EntityCategoryContains(categories.ANTIAIR * categories.AIR, sCurUnitBP))) end
                             if EntityCategoryContains(categories.ANTIAIR * categories.AIR, sCurUnitBP) == true then
                                 iMassMod = 1
                                 if EntityCategoryContains(categories.BOMBER + categories.GROUNDATTACK + categories.DIRECTFIRE, sCurUnitBP) then
@@ -1450,7 +1450,7 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                                         iMassMod = 0.7
                                     end
                                 end
-                                if bDebugMessages == true then LOG(sFunctionRef..': sCurUnitBP='..sCurUnitBP..': Mass mod after checking AirAA value='..iMassMod) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': sCurUnitBP='..sCurUnitBP..': Mass mod after checking AirAA value='..iMassMod) end
                             elseif EntityCategoryContains(categories.OVERLAYANTIAIR * categories.AIR, sCurUnitBP) then
                                 iMassMod = 0.05
                             end
@@ -1464,7 +1464,7 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                                     bCanShootAir = false
                                     if tWeapon.Damage and tWeapon.FireTargetLayerCapsTable then
                                         for iType, sTargets in tWeapon.FireTargetLayerCapsTable do
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Considering weapon with sTargets='..repru(sTargets)) end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering weapon with sTargets='..repru(sTargets)) end
                                             if sTargets == 'Air' and tWeapon.CannotAttackGround then
                                                 bCanShootAir = true
                                                 break
@@ -1477,24 +1477,24 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                                             --E.g. gunships will have air targets included so they can shoot other gunships, but they cant shoot high altitude air
                                             if string.find(tWeapon.TargetRestrictDisallow, 'HIGHALTAIR') or tWeapon.RangeCategory == 'UWRC_DirectFire' then
                                                 bCanShootAir = false
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Dont think we can shoot air afterall (except gunships)') end
+                                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dont think we can shoot air afterall (except gunships)') end
                                             end
                                         end
                                     end
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Considering whether weapon '..tWeapon.DisplayName..' can shot air; bCanShotAir='..tostring(bCanShootAir or false)..'; MuzzleSalvoSize='..(tWeapon.MuzzleSalvoSize or 'nil')..'; MuzzleSalvoDelay='..(tWeapon.MuzzleSalvoDelay or 'nil')..'; Damage='..(tWeapon.Damage or 'nil')) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering whether weapon '..tWeapon.DisplayName..' can shot air; bCanShotAir='..tostring(bCanShootAir or false)..'; MuzzleSalvoSize='..(tWeapon.MuzzleSalvoSize or 'nil')..'; MuzzleSalvoDelay='..(tWeapon.MuzzleSalvoDelay or 'nil')..'; Damage='..(tWeapon.Damage or 'nil')) end
                                     if bCanShootAir then
                                         iBestAirAAAOE = math.max(iBestAirAAAOE, (tWeapon.DamageRadius or 0))
                                         --.RateOfFire is essentially 'how many times on average does this unit fire per second', e.g. duke is 10/100 (so it fires 0.1 times, or once every 10s), mantis is 10/3, so it fires 3.33 times per second
                                         iCurDPS = math.min(tWeapon.Damage, 6000) * ((tWeapon.ProjectilesPerOnFire or 1) + (tWeapon.MuzzleSalvoSize or 1)) * (tWeapon.RateOfFire or 1) --Note: if muzzlesalvosize * muzzlesalvodelay doesnt conclude before the normal weapon rate of fire, then the weapon wont fire as often; for simplicity have assumed this isnt the case
                                         iAADPS = iAADPS + iCurDPS
-                                        if bDebugMessages == true then LOG(sFunctionRef..': iCurDPS for this weapon='..iCurDPS) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurDPS for this weapon='..iCurDPS) end
                                     end
                                 end
                                 --Cap AA DPS at 200 for ACUs (i.e. for LOUD) as wont have all upgrades initially
                                 if iAADPS > 200 and EntityCategoryContains(categories.COMMAND, oUnit.UnitId) then iAADPS = 200 end
                             end
 
-                            if bDebugMessages == true then LOG(sFunctionRef..': iMassMod pre AA DPS adj='..iMassMod..'; iAADPS='..iAADPS) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iMassMod pre AA DPS adj='..iMassMod..'; iAADPS='..iAADPS) end
                             if iMassMod < 1 and iAADPS > 0 then
                                 local iMassAAFactor = 2.1
                                 --FAF - a sam costs 800 mass, and deals 343 dps, so 1 dps is worth about 2.3 mass; for an archer, its 26 dps for 55 mass, so 1 dps is worth about 2.1 mass; will therefore use threshold of 2.1 mass for no aoe (also about 2.1 in LOUD), and 2.3 mass for decent AOE
@@ -1508,7 +1508,7 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                                 if iHealthPerMass >= 6 then
                                     iMassAAFactor = iMassAAFactor * math.min(4, (iHealthPerMass - 3.5) / 5 + 1)
                                 end
-                                if bDebugMessages == true then LOG(sFunctionRef..': considienrg AirAA threat adjust for unit '..sCurUnitBP..'; iMassMod pre AA dps adj='..iMassMod..'; iMassAAFactor='..iMassAAFactor..'; iHealthPerMass='..iHealthPerMass) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': considienrg AirAA threat adjust for unit '..sCurUnitBP..'; iMassMod pre AA dps adj='..iMassMod..'; iMassAAFactor='..iMassAAFactor..'; iHealthPerMass='..iHealthPerMass) end
 
                                 iMassMod = math.min(1, math.max(iMassMod, iMassAAFactor * iAADPS / (oBP.Economy.BuildCostMass or 1)))
                                 --Add unit category to table of AA if doesnt contain AA and it is a decent AA unit - add to both refCategoryGroundAA and to refCategoryAntiAir
@@ -1521,7 +1521,7 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                     end
                 else
                     --Non-air pathing type
-                    if bDebugMessages == true then LOG(sFunctionRef..': Unit doesnt have air pathing. bIncludeGroundToAir='..tostring(bIncludeGroundToAir)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit doesnt have air pathing. bIncludeGroundToAir='..tostring(bIncludeGroundToAir)) end
                     if bIncludeGroundToAir == true then
                         --Calculate based on unit weapon values the approx threat the unit provides in DPS terms, ignoring health, and use this as a miniimum threat value, while also using a category approach per below if higher
                         local iAADPS = 0
@@ -1532,7 +1532,7 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                                 bCanShootAir = false
                                 if tWeapon.Damage and tWeapon.FireTargetLayerCapsTable and (not(tWeapon.TargetRestrictOnlyAllow) or tWeapon.TargetRestrictOnlyAllow == 'AIR' or tWeapon.TargetRestrictOnlyAllow == 'AIR -SATELLITE' or tWeapon.FireTargetLayerCapsTable.Water == 'Air') or (EntityCategoryContains(categories.ANTIAIR, oUnit.UnitId) and table.getn(oBP.Weapon) == 1) then
                                     for iType, sTargets in tWeapon.FireTargetLayerCapsTable do
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Considering weapon with sTargets='..repru(sTargets)) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering weapon with sTargets='..repru(sTargets)) end
                                         if sTargets == 'Air' then --and tWeapon.CannotAttackGround then
                                             bCanShootAir = true
                                             break
@@ -1542,7 +1542,7 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                                         end
                                     end
                                 end
-                                if bDebugMessages == true then LOG(sFunctionRef..': GroundAA bCanShootAir='..tostring(bCanShootAir or false)..'; MuzzleSalvoSize='..(tWeapon.MuzzleSalvoSize or 'nil')..'; MuzzleSalvoDelay='..(tWeapon.MuzzleSalvoDelay or 'nil')..'; Damage='..(tWeapon.Damage or 'nil')) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': GroundAA bCanShootAir='..tostring(bCanShootAir or false)..'; MuzzleSalvoSize='..(tWeapon.MuzzleSalvoSize or 'nil')..'; MuzzleSalvoDelay='..(tWeapon.MuzzleSalvoDelay or 'nil')..'; Damage='..(tWeapon.Damage or 'nil')) end
                                 if bCanShootAir then
                                     iBestAirAAAOE = math.max(iBestAirAAAOE, (tWeapon.DamageRadius or 0))
                                     --.RateOfFire is essentially 'how many times on average does this unit fire per second', e.g. duke is 10/100 (so it fires 0.1 times, or once every 10s), mantis is 10/3, so it fires 3.33 times per second
@@ -1573,9 +1573,9 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                             elseif sCurUnitBP == 'url0402' then
                                 iMassMod = 0.016 --monkeylord - it has half the dps of a t2 mobile flak with no aoe (although it has better range and health), so its threat will be equivalent to 2 mobile T2 MAA so that gunships are more likely to engage it
                             end
-                            if bDebugMessages == true then LOG(sFunctionRef..': Unit contains overlayantiair category') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit contains overlayantiair category') end
                         end
-                        if bDebugMessages == true then LOG(sFunctionRef..': iMassMod pre AA DPS adj='..iMassMod..'; iAADPS='..iAADPS) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iMassMod pre AA DPS adj='..iMassMod..'; iAADPS='..iAADPS) end
                         if iAADPS > 0 then
                             if iMassMod < 1 then
                                 local iMassAAFactor = 2.1
@@ -1590,14 +1590,14 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                                     if M28Utilities.bLoudModActive then iMaxHealthFactor = 2.5 end
                                     iMassAAFactor = iMassAAFactor * math.min(iMaxHealthFactor, (iHealthPerMass - 6) / 12 + 1) --Main threat of AA unit is the damage, not the health, so cap the amount threat is increased by unit health (e.g. dont want ythotha deterring air attacks just because its high health)
                                 end
-                                if bDebugMessages == true then LOG(sFunctionRef..': considienrg AA threat adjust for unit '..sCurUnitBP..'; iMassMod pre AA dps adj='..iMassMod..'; iMassAAFactor='..iMassAAFactor..'; iHealthPerMass='..iHealthPerMass) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': considienrg AA threat adjust for unit '..sCurUnitBP..'; iMassMod pre AA dps adj='..iMassMod..'; iMassAAFactor='..iMassAAFactor..'; iHealthPerMass='..iHealthPerMass) end
 
                                 iMassMod = math.min(1.5, math.max(iMassMod, iMassAAFactor * iAADPS / (oBP.Economy.BuildCostMass or 1)))
                                 --Add unit category to table of AA if doesnt contain AA and it is a decent AA unit - add to both refCategoryGroundAA and to refCategoryAntiAir
 
                                 if iMassMod >= 0.4 then
                                     if not(EntityCategoryContains(refCategoryGroundAA, sCurUnitBP)) then
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Unit didnt have groundAA category so are adding this now') end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit didnt have groundAA category so are adding this now') end
                                         refCategoryGroundAA = refCategoryGroundAA + categories[sCurUnitBP]
                                     end
                                     if EntityCategoryContains(categories.MOBILE * categories.NAVAL, sCurUnitBP) and not(EntityCategoryContains(refCategoryNavalAA, sCurUnitBP)) then
@@ -1622,7 +1622,7 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
             end
 
             local iMassCost = (oBP.Economy.BuildCostMass or 0)
-            if bDebugMessages == true then LOG(sFunctionRef..': iMassCost='..(iMassCost or 'nil')..'; iMassMod='..(iMassMod or 'nil')) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iMassCost='..(iMassCost or 'nil')..'; iMassMod='..(iMassMod or 'nil')) end
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
             return iMassCost * iMassMod
         else
@@ -1630,7 +1630,7 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                 iCurThreat = 0
                 iBaseThreat = 0
                 iGhettoGunshipAdjust = 0
-                if bDebugMessages == true then LOG(sFunctionRef..': About to check if unit is dead') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to check if unit is dead') end
 
                 if IsUnitValid(oUnit) then
                     --Get the base threat for the unit
@@ -1646,7 +1646,7 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                         else
                             --Increase for cargo of transports
                             if bIncludeAirToGround and EntityCategoryContains(refCategoryTransport, oUnit.UnitId) and oUnit.GetCargo then --Use refcategoryTransport as Brewlan gives torp bombers the transportation category, and checking .GetCargo first doesnt prevent an error
-                                if bDebugMessages == true then LOG(sFunctionRef..': Have an enemy transport, will get its cargo and see if it contains LABs') end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have an enemy transport, will get its cargo and see if it contains LABs') end
                                 --Include threat of cargo if cargo are LABs
                                 local tCargo = oUnit:GetCargo()
                                 --Filter to just LABs (note unfortunately it doesnt distinguish between mantis and LABs so matnis get treated as LABs to be prudent)
@@ -1656,7 +1656,7 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                                         --Get mass value ignoring health:
                                         --GetCombatThreatRating(aiBrain, tUnits, bMustBeVisibleToIntelOrSight, iMassValueOfBlipsOverride, iSoloBlipMassOverride, bIndirectFireThreatOnly, bJustGetMassValue)
                                         iGhettoGunshipAdjust = GetCombatThreatRating(tCargo, bEnemyUnits)
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Contains LABs so will increase threat by '..iGhettoGunshipAdjust) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Contains LABs so will increase threat by '..iGhettoGunshipAdjust) end
                                     end
                                 end
                             end
@@ -1701,7 +1701,7 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                             end
                             if bIncludeGroundToAir and EntityCategoryContains(categories.SUBMERSIBLE, oUnit.UnitId) and IsUnitUnderwater(oUnit) then iBaseThreat = iBaseThreat * 0.5 end
                             iCurThreat = iBaseThreat * iHealthThreatFactor + iGhettoGunshipAdjust
-                            if bDebugMessages == true then LOG(sFunctionRef..': UnitBP='..(oUnit.UnitId or 'nil')..'; iBaseThreat='..(iBaseThreat or 'nil')..'; iHealthThreatFactor='..(iHealthThreatFactor or 'nil')..'iGhettoGunshipAdjust='..(iGhettoGunshipAdjust or 'nil')..'; iCurThreat='..(iCurThreat or 'nil')..'; Unit fraction complete='..oUnit:GetFractionComplete()..'; Unit health%='..GetUnitHealthPercent(oUnit)) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': UnitBP='..(oUnit.UnitId or 'nil')..'; iBaseThreat='..(iBaseThreat or 'nil')..'; iHealthThreatFactor='..(iHealthThreatFactor or 'nil')..'iGhettoGunshipAdjust='..(iGhettoGunshipAdjust or 'nil')..'; iCurThreat='..(iCurThreat or 'nil')..'; Unit fraction complete='..oUnit:GetFractionComplete()..'; Unit health%='..GetUnitHealthPercent(oUnit)) end
                         end
                     end
                 end
@@ -1715,12 +1715,12 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
                         iTotalThreat = iTotalThreat + iCurThreat
                     end
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': Unit='..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; iCurThreat='..iCurThreat..'; iTotalThreat='..iTotalThreat) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit='..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; iCurThreat='..iCurThreat..'; iTotalThreat='..iTotalThreat) end
             end
         end
 
 
-        if bDebugMessages == true then LOG(sFunctionRef..': End of code, iTotalThreat='..iTotalThreat..'; iTotalByTeamThreat='..repru(iTotalByTeamThreat)..'; bRecordByTeam='..tostring(bRecordByTeam or false)..'; iThreatFactor='..iThreatFactor) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': End of code, iTotalThreat='..iTotalThreat..'; iTotalByTeamThreat='..repru(iTotalByTeamThreat)..'; bRecordByTeam='..tostring(bRecordByTeam or false)..'; iThreatFactor='..iThreatFactor) end
         if bRecordByTeam then
             if M28Utilities.IsTableEmpty(iTotalByTeamThreat) == false then
                 local iMaxThreat = 0
@@ -1745,36 +1745,36 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
 end
 
 function CheckBlueprintSizeSupport(oBP, sUnitId)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'CheckBlueprintSizeSupport'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUnitInfo, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local M28Engineer = import('/mods/M28AI/lua/AI/M28Engineer.lua')
-    if bDebugMessages == true then LOG(sFunctionRef..': Considering unit '..sUnitId..'; Can this be built by T3 engi='..tostring(EntityCategoryContains(categories.BUILTBYTIER3ENGINEER, sUnitId))) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit '..sUnitId..'; Can this be built by T3 engi='..tostring(EntityCategoryContains(categories.BUILTBYTIER3ENGINEER, sUnitId))) end
     if EntityCategoryContains(categories.BUILTBYTIER3ENGINEER, sUnitId) then
         local iUnitSize = GetBuildingSize(sUnitId)
         local bBuildOnLand = false
         if tbBuildOnLandLayerCaps[oBP.Physics.BuildOnLayerCaps] then bBuildOnLand = true end
         local bBuildOnSea = false
         if tbBuildOnWaterLayerCaps[oBP.Physics.BuildOnLayerCaps] then bBuildOnSea = true end
-        if bDebugMessages == true then LOG(sFunctionRef..': bBuildOnLand='..tostring(bBuildOnLand)..'; bBuildOnSea='..tostring(bBuildOnSea)..'; tsBlueprintsBySize='..repru(M28Engineer.tsBlueprintsBySize)..'; oBP.Physics.BuildOnLayerCaps='..repru(oBP.Physics.BuildOnLayerCaps)..'; tbBuildOnLandLayerCaps[BuildOnLayerCaps]='..tostring(tbBuildOnLandLayerCaps[oBP.Physics.BuildOnLayerCaps] or false)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bBuildOnLand='..tostring(bBuildOnLand)..'; bBuildOnSea='..tostring(bBuildOnSea)..'; tsBlueprintsBySize='..repru(M28Engineer.tsBlueprintsBySize)..'; oBP.Physics.BuildOnLayerCaps='..repru(oBP.Physics.BuildOnLayerCaps)..'; tbBuildOnLandLayerCaps[BuildOnLayerCaps]='..tostring(tbBuildOnLandLayerCaps[oBP.Physics.BuildOnLayerCaps] or false)) end
         if bBuildOnLand and not(M28Engineer.tsBlueprintsBySize[iUnitSize]) then
             M28Engineer.tsBlueprintsBySize[iUnitSize] = sUnitId
             M28Engineer.iMaxBuildingSize = math.max(M28Engineer.iMaxBuildingSize, iUnitSize)
-            if bDebugMessages == true then LOG(sFunctionRef..': Considering unit '..sUnitId..'; iUnitSize='..iUnitSize..'; wasnt recorded in land size table so have added') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit '..sUnitId..'; iUnitSize='..iUnitSize..'; wasnt recorded in land size table so have added') end
         end
         if bBuildOnSea and not(M28Engineer.tsWZBlueprintsBySize[iUnitSize]) then
             M28Engineer.tsWZBlueprintsBySize[iUnitSize] = sUnitId
             M28Engineer.iMaxBuildingSize = math.max(M28Engineer.iMaxBuildingSize, iUnitSize)
-            if bDebugMessages == true then LOG(sFunctionRef..': Considering unit '..sUnitId..'; iUnitSize='..iUnitSize..'; wasnt recorded in water size table so have added') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit '..sUnitId..'; iUnitSize='..iUnitSize..'; wasnt recorded in water size table so have added') end
         end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
 function CalculateBlueprintThreatsByType()
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'CalculateBlueprintThreatsByType'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUnitInfo, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     if M28Utilities.IsTableEmpty(tUnitThreatByIDAndType) then
@@ -1820,19 +1820,19 @@ function CalculateBlueprintThreatsByType()
 
             tUnitThreatByIDAndType[sUnitId] = {}
             local tUnitRef = {['UnitId']=sUnitId}
-            if bDebugMessages == true then LOG(sFunctionRef..': About to consider different land threat values for unit '..sUnitId..' Name='..(oBP.General.UnitName or 'nil')) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to consider different land threat values for unit '..sUnitId..' Name='..(oBP.General.UnitName or 'nil')) end
             for iRef, tConditions in tiLandAndNavyThreatTypes do
                 --GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirectFireThreatOnly, bAntiNavyOnly, bAddAntiNavy, bSubmersibleOnly, bLongRangeThreatOnly, bBlueprintThreat)
                 --{bJustGetMassValue, bIndirectFireThreatOnly, bAntiNavyOnly, bAddAntiNavy, bSubmersibleOnly, bLongRangeThreatOnly}
                 tUnitThreatByIDAndType[sUnitId][iRef] = GetCombatThreatRating({ tUnitRef }, false, tConditions[1], tConditions[2], tConditions[3], tConditions[4], tConditions[5], tConditions[6], true)
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': Finished calculating land threat values for '..(oBP.General.UnitName or 'nil')..', result='..reprs(tUnitThreatByIDAndType[sUnitId])) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished calculating land threat values for '..(oBP.General.UnitName or 'nil')..', result='..reprs(tUnitThreatByIDAndType[sUnitId])) end
 
             for iRef, tConditions in tiAirThreatTypes do
                 --GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGroundToAir, bIncludeAirToGround, bIncludeNonCombatAir, bIncludeAirTorpedo, bBlueprintThreat)
                 tUnitThreatByIDAndType[sUnitId][iRef] = GetAirThreatLevel({ {['UnitId']=sUnitId }}, false, tConditions[1], tConditions[2], tConditions[3], tConditions[4], tConditions[5], true)
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': Finished calculating air threat values, result of land and air for '..(oBP.General.UnitName or 'nil')..'='..reprs(tUnitThreatByIDAndType[sUnitId])) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished calculating air threat values, result of land and air for '..(oBP.General.UnitName or 'nil')..'='..reprs(tUnitThreatByIDAndType[sUnitId])) end
         end
 
         local iCurTechLevel
@@ -1848,7 +1848,7 @@ function CalculateBlueprintThreatsByType()
         for iBP, oBP in __blueprints do
             --Updates tUnitThreatByIDAndType
             sUnitId = oBP.BlueprintId
-            if bDebugMessages == true then LOG('Will shortly (via a forked threat) get the blueprint threat for enemy unit sUnitId '..sUnitId..'; tUnitThreatByIDAndType[sUnitId]='..(tUnitThreatByIDAndType[sUnitId] or 'nil')..'; oBP.Economy.BuildCostMass='..(oBP.Economy.BuildCostMass or 'nil')..'; oBP.General.UnitName='..(oBP.General.UnitName or 'nil')..' if it has a build cost mass of at least 1 and we havent already called it') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, 'Will shortly (via a forked threat) get the blueprint threat for enemy unit sUnitId '..sUnitId..'; tUnitThreatByIDAndType[sUnitId]='..(tUnitThreatByIDAndType[sUnitId] or 'nil')..'; oBP.Economy.BuildCostMass='..(oBP.Economy.BuildCostMass or 'nil')..'; oBP.General.UnitName='..(oBP.General.UnitName or 'nil')..' if it has a build cost mass of at least 1 and we havent already called it') end
 
 
             if not(tUnitThreatByIDAndType[sUnitId]) and (oBP.Economy.BuildCostMass or 0) > 0 then
@@ -1888,19 +1888,19 @@ function CalculateBlueprintThreatsByType()
                     iCurTechLevel = math.max(iCurTechLevel, (iTechLevelOfEngineerToBuildUnit or 3))
                     if EntityCategoryContains(refCategoryMassStorage, sUnitId) then M28Building.iLowestMassStorageTechAvailable = math.min(M28Building.iLowestMassStorageTechAvailable, iCurTechLevel) end
                     if EntityCategoryContains(refCategoryEnergyStorage, sUnitId) then M28Building.iLowestEnergyStorageTechAvailable = math.min(M28Building.iLowestEnergyStorageTechAvailable, iCurTechLevel) end
-                    if bDebugMessages == true then LOG(sFunctionRef..': Just updated details of lowest storage tech available, sUnitId='..sUnitId..'; iCurTechLevel='..iCurTechLevel..'; Is mass storage='..tostring(EntityCategoryContains(refCategoryMassStorage, sUnitId))..'; Is energy storage='..tostring(EntityCategoryContains(refCategoryEnergyStorage, sUnitId))..'; Lowest mass s torage tech='..M28Building.iLowestMassStorageTechAvailable..'; Lowest energy storage tech='..M28Building.iLowestEnergyStorageTechAvailable..'; GetBlueprintTechLevel(sUnitId)='..GetBlueprintTechLevel(sUnitId)..'; GetTechLevelOfEngineerToBuildBlueprint(sUnitId)='..(GetTechLevelOfEngineerToBuildBlueprint(sUnitId) or 'nil')) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just updated details of lowest storage tech available, sUnitId='..sUnitId..'; iCurTechLevel='..iCurTechLevel..'; Is mass storage='..tostring(EntityCategoryContains(refCategoryMassStorage, sUnitId))..'; Is energy storage='..tostring(EntityCategoryContains(refCategoryEnergyStorage, sUnitId))..'; Lowest mass s torage tech='..M28Building.iLowestMassStorageTechAvailable..'; Lowest energy storage tech='..M28Building.iLowestEnergyStorageTechAvailable..'; GetBlueprintTechLevel(sUnitId)='..GetBlueprintTechLevel(sUnitId)..'; GetTechLevelOfEngineerToBuildBlueprint(sUnitId)='..(GetTechLevelOfEngineerToBuildBlueprint(sUnitId) or 'nil')) end
                 elseif EntityCategoryContains(refCategoryPD, sUnitId) then
                     local iCurTechLevel = GetBlueprintTechLevel(sUnitId)
                     local tUnitRef = {['UnitId']=sUnitId}
                     RecordUnitRange(tUnitRef, true)
-                    if bDebugMessages == true then LOG(sFunctionRef..': Recording unit '..sUnitId..' with DF range='..(tUnitRef[refiDFRange] or 0)..'; iCurTechLevel='..iCurTechLevel..'; is oBP.Physics.BuildOnLayerCaps nil='..tostring(oBP.Physics.BuildOnLayerCaps == nil)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Recording unit '..sUnitId..' with DF range='..(tUnitRef[refiDFRange] or 0)..'; iCurTechLevel='..iCurTechLevel..'; is oBP.Physics.BuildOnLayerCaps nil='..tostring(oBP.Physics.BuildOnLayerCaps == nil)) end
                     if (tUnitRef[refiDFRange] or 0) > 0 then
                         M28Building.tiWorstPDRangeByTech[iCurTechLevel] = math.min((M28Building.tiWorstPDRangeByTech[iCurTechLevel] or 200), tUnitRef[refiDFRange])
-                        if bDebugMessages == true then LOG(sFunctionRef..': tiWorstPDRangeByTech after update='..repru(M28Building.tiWorstPDRangeByTech)) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tiWorstPDRangeByTech after update='..repru(M28Building.tiWorstPDRangeByTech)) end
                     end
                     --If is amphibious then record accordingly (e.g. for LOUD) - FAF doesnt have BuildOnLayerCaps recorded
                     if oBP.Physics.BuildOnLayerCaps then
-                        if bDebugMessages == true then LOG(sFunctionRef..': oBP.Physics.BuildOnLayerCaps[LAYER_Land]='..tostring(oBP.Physics.BuildOnLayerCaps['LAYER_Land'] or false)..'; LAYER_water='..tostring(oBP.Physics.BuildOnLayerCaps['LAYER_Water'] or false)..'; repru of oBP.Physics.BuildOnLayerCaps='..repru(oBP.Physics.BuildOnLayerCaps)..'; oBP.General.Icon='..(oBP.General.Icon or 'nil')) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oBP.Physics.BuildOnLayerCaps[LAYER_Land]='..tostring(oBP.Physics.BuildOnLayerCaps['LAYER_Land'] or false)..'; LAYER_water='..tostring(oBP.Physics.BuildOnLayerCaps['LAYER_Water'] or false)..'; repru of oBP.Physics.BuildOnLayerCaps='..repru(oBP.Physics.BuildOnLayerCaps)..'; oBP.General.Icon='..(oBP.General.Icon or 'nil')) end
                         if oBP.Physics.BuildOnLayerCaps['LAYER_Water'] or (oBP.General.Icon == 'amph' and (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive)) then
                             if refCategoryHoverPD == refCategoryPD * categories.HOVER then refCategoryHoverPD = categories[sUnitId]
                             else refCategoryHoverPD = refCategoryHoverPD + categories[sUnitId]
@@ -1952,7 +1952,7 @@ function CalculateBlueprintThreatsByType()
                 M28Building.bHaveAllFactionExperimentalSAM = true
             end
         end
-        if bDebugMessages == true then LOG(sFunctionRef..': Finished checking if can get exp PD or SAMs for all factions, bHaveAllFactionExpPD='..tostring(M28Building.bHaveAllFactionExpPD)..'; tbHaveT3PlusPDByFaction='..repru(tbHaveT3PlusPDByFaction)..'; bHaveAllFactionExperimentalSAM='..tostring(M28Building.bHaveAllFactionExperimentalSAM)..'; tbHaveExperimentalStructureAAByFaction='..repru(tbHaveExperimentalStructureAAByFaction)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished checking if can get exp PD or SAMs for all factions, bHaveAllFactionExpPD='..tostring(M28Building.bHaveAllFactionExpPD)..'; tbHaveT3PlusPDByFaction='..repru(tbHaveT3PlusPDByFaction)..'; bHaveAllFactionExperimentalSAM='..tostring(M28Building.bHaveAllFactionExperimentalSAM)..'; tbHaveExperimentalStructureAAByFaction='..repru(tbHaveExperimentalStructureAAByFaction)) end
 
         --Update engineer categories
         local M28Engineer = import('/mods/M28AI/lua/AI/M28Engineer.lua')
@@ -2009,8 +2009,8 @@ end
 
 function GetCurrentAndMaximumShield(oUnit, bDontTreatLowPowerShieldAsZero)
     --Returns 0, 0 if unit has no shield, or 0, [max shield] if it has a shield but it is depleted
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'GetCurrentAndMaximumShield'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUnitInfo, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     --if oUnit.MyShield then
         local iCurShield = 0
@@ -2222,8 +2222,8 @@ function RecordUnitRange(oUnit, bReferenceIsATableWithUnitId)
     --Updates unit range variables - sets to nil if it has nothing with that range, otherwise records it as the highest range it has.  Factors in enhancements. Also records if unit unpacks for T3 mobile arti
     --Also updates if unit can kite
     --Also records unit strike damage for certain air units
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'RecordUnitRange'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUnitInfo, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
 
@@ -2241,8 +2241,8 @@ function RecordUnitRange(oUnit, bReferenceIsATableWithUnitId)
     if oBP.Weapon then
         for iCurWeapon, oCurWeapon in oBP.Weapon do
             if oCurWeapon.MaxRadius and not(oCurWeapon.EnabledByEnhancement) or (oCurWeapon.EnabledByEnhancement and oUnit.HasEnhancement and oUnit:HasEnhancement(oCurWeapon.EnabledByEnhancement)) then
-                if bDebugMessages == true then LOG(sFunctionRef..': Considering weapon with range category='..(oCurWeapon.RangeCategory or 'nil')..'; weapon category='..(oCurWeapon.WeaponCategory or 'nil')..' and label='..(oCurWeapon.Label or 'nil')..' with damage='..(oCurWeapon.Damage or 'nil')..' for unit '..oUnit.UnitId..'; Rateoffire='..(oCurWeapon.RateOfFire or 'nil')) end
-                if bDebugMessages == true then LOG(sFunctionRef..': Considering weapon with range category='..(oCurWeapon.RangeCategory or 'nil')..'; weapon category='..(oCurWeapon.WeaponCategory or 'nil')..' and label='..(oCurWeapon.Label or 'nil')..' for unit '..oUnit.UnitId) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering weapon with range category='..(oCurWeapon.RangeCategory or 'nil')..'; weapon category='..(oCurWeapon.WeaponCategory or 'nil')..' and label='..(oCurWeapon.Label or 'nil')..' with damage='..(oCurWeapon.Damage or 'nil')..' for unit '..oUnit.UnitId..'; Rateoffire='..(oCurWeapon.RateOfFire or 'nil')) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering weapon with range category='..(oCurWeapon.RangeCategory or 'nil')..'; weapon category='..(oCurWeapon.WeaponCategory or 'nil')..' and label='..(oCurWeapon.Label or 'nil')..' for unit '..oUnit.UnitId) end
                 if oCurWeapon.ManualFire then
                     oUnit[refiManualRange] = math.max((oUnit[refiManualRange] or 0), oCurWeapon.MaxRadius)
                     oUnit[refiIndirectAOE] = math.max((oUnit[refiIndirectAOE] or 0), oCurWeapon.DamageRadius or 0)
@@ -2561,13 +2561,13 @@ function RecordUnitRange(oUnit, bReferenceIsATableWithUnitId)
     if oUnit.HasEnhancement and oBP.Enhancements then
         for sEnhancement, tEnhancement in oBP.Enhancements do
             if oUnit:HasEnhancement(sEnhancement) then
-                if bDebugMessages == true then LOG(sFunctionRef..': Including enhancement cost in unit mass value, unit='..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; sEnhancement='..sEnhancement..'; Enhancement mass cost='..(tEnhancement.BuildCostMass or 0)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Including enhancement cost in unit mass value, unit='..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; sEnhancement='..sEnhancement..'; Enhancement mass cost='..(tEnhancement.BuildCostMass or 0)) end
                 iMassCost = iMassCost + (tEnhancement.BuildCostMass or 0)
             end
         end
     end
     oUnit[refiUnitMassCost] = iMassCost
-    if bDebugMessages == true then LOG(sFunctionRef..': Finished recording range, mass value and other info for unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; DFRange='..(oUnit[refiDFRange] or 'nil')..'; Indirect range='..(oUnit[refiIndirectRange] or 'nil')..'; AntiNavy range='..(oUnit[refiAntiNavyRange] or 'nil')..';Mass cost='..oUnit[refiUnitMassCost]..'; Can unit kite='..tostring(oUnit[refbCanKite] or false)..'; Bomber range='..(oUnit[refiBomberRange] or 'nil')..'; refiTimeBetweenDFShots='..(oUnit[refiTimeBetweenDFShots] or 'nil')) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished recording range, mass value and other info for unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; DFRange='..(oUnit[refiDFRange] or 'nil')..'; Indirect range='..(oUnit[refiIndirectRange] or 'nil')..'; AntiNavy range='..(oUnit[refiAntiNavyRange] or 'nil')..';Mass cost='..oUnit[refiUnitMassCost]..'; Can unit kite='..tostring(oUnit[refbCanKite] or false)..'; Bomber range='..(oUnit[refiBomberRange] or 'nil')..'; refiTimeBetweenDFShots='..(oUnit[refiTimeBetweenDFShots] or 'nil')) end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
@@ -2598,15 +2598,15 @@ end
 
 function GetUnitUpgradeBlueprint(oUnitToUpgrade, bGetSupportFactory)
     --Returns support factory ID if it can be built, otherwise returns normal upgrade unit (works for any unit, not just factory)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'GetUnitUpgradeBlueprint'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUnitInfo, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     if bGetSupportFactory == nil or bGetSupportFactory then bGetSupportFactory = (categories.SUPPORTFACTORY and EntityCategoryContains(refCategoryFactory * categories.TECH1 + categories.SUPPORTFACTORY, oUnitToUpgrade.UnitId)) end
     --Gets the support factory blueprint, and checks if it can be built; if not then returns the normal UpgradesTo blueprint
     local sUpgradeBP
     if not(oUnitToUpgrade.Dead) and oUnitToUpgrade.CanBuild then
-        if bDebugMessages == true then LOG(sFunctionRef..': Start of code, UnitToUpgrade='..oUnitToUpgrade.UnitId..GetUnitLifetimeCount(oUnitToUpgrade)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, UnitToUpgrade='..oUnitToUpgrade.UnitId..GetUnitLifetimeCount(oUnitToUpgrade)) end
         if bGetSupportFactory == true and oUnitToUpgrade.CanBuild then
             local tsSupportFactoryBP = {
 
@@ -2653,12 +2653,12 @@ function GetUnitUpgradeBlueprint(oUnitToUpgrade, bGetSupportFactory)
 
             local sFactoryBP = oUnitToUpgrade.UnitId
             if tsSupportFactoryBP[sFactoryBP] then
-                if bDebugMessages == true then LOG(sFunctionRef..': Support factoryBP='..tsSupportFactoryBP[sFactoryBP]) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Support factoryBP='..tsSupportFactoryBP[sFactoryBP]) end
                 sUpgradeBP = tsSupportFactoryBP[sFactoryBP]
                 if (M28Utilities.bFAFActive or __blueprints[sUpgradeBP]) then
-                    if bDebugMessages == true then LOG(sFunctionRef..': oUnitToUpgrade='..sFactoryBP..GetUnitLifetimeCount(oUnitToUpgrade)..'; Checking if can upgrade to sUpgradeBP='..sUpgradeBP..'; oUnitToUpgrade:CanBuild(sUpgradeBP)='..tostring(oUnitToUpgrade:CanBuild(sUpgradeBP))) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oUnitToUpgrade='..sFactoryBP..GetUnitLifetimeCount(oUnitToUpgrade)..'; Checking if can upgrade to sUpgradeBP='..sUpgradeBP..'; oUnitToUpgrade:CanBuild(sUpgradeBP)='..tostring(oUnitToUpgrade:CanBuild(sUpgradeBP))) end
                     if not(oUnitToUpgrade:CanBuild(sUpgradeBP)) then
-                        if bDebugMessages == true then LOG(sFunctionRef..': Cant build '..sUpgradeBP) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Cant build '..sUpgradeBP) end
                         sUpgradeBP = nil
                     end
                 else
@@ -2676,22 +2676,22 @@ function GetUnitUpgradeBlueprint(oUnitToUpgrade, bGetSupportFactory)
                 end
             end
             if not(sUpgradeBP) or sUpgradeBP == '' or not(oUnitToUpgrade:CanBuild(sUpgradeBP)) then sUpgradeBP = nil end
-            if bDebugMessages == true then LOG(sFunctionRef..': Didnt have valid unit to upgrade to; blueprint UpgradesTo='..(sUpgradeBP or 'nil')) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Didnt have valid unit to upgrade to; blueprint UpgradesTo='..(sUpgradeBP or 'nil')) end
         end
         if sUpgradeBP == '' then
             sUpgradeBP = nil
-            if bDebugMessages == true then LOG(sFunctionRef..': Have no blueprint to upgrade to') end
-        elseif bDebugMessages == true then LOG(sFunctionRef..': Returning sUpgradeBP '..(sUpgradeBP or 'nil')..' subject to final unit restriction check')
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have no blueprint to upgrade to') end
+        elseif bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Returning sUpgradeBP '..(sUpgradeBP or 'nil')..' subject to final unit restriction check')
         end
     end
 
     if sUpgradeBP then
         if not(oUnitToUpgrade:CanBuild(sUpgradeBP)) then
-            if bDebugMessages == true then LOG(sFunctionRef..': oUnitToUpgrade '..oUnitToUpgrade.UnitId..GetUnitLifetimeCount(oUnitToUpgrade)..' cant build sUpgradeBP='..sUpgradeBP..' e.g. due to unit restrictions') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oUnitToUpgrade '..oUnitToUpgrade.UnitId..GetUnitLifetimeCount(oUnitToUpgrade)..' cant build sUpgradeBP='..sUpgradeBP..' e.g. due to unit restrictions') end
             sUpgradeBP = nil
         else
             local iArmyIndex = oUnitToUpgrade.Army
-            if bDebugMessages == true then LOG(sFunctionRef..': oUnitToUpgrade '..oUnitToUpgrade.UnitId..GetUnitLifetimeCount(oUnitToUpgrade)..' checking if is restricted for sUpgradeBP='..sUpgradeBP..', isrestricted='..tostring(IsUnitRestricted(sUpgradeBP, iArmyIndex))) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oUnitToUpgrade '..oUnitToUpgrade.UnitId..GetUnitLifetimeCount(oUnitToUpgrade)..' checking if is restricted for sUpgradeBP='..sUpgradeBP..', isrestricted='..tostring(IsUnitRestricted(sUpgradeBP, iArmyIndex))) end
             if IsUnitRestricted(sUpgradeBP, iArmyIndex) then
                 sUpgradeBP = nil
             end
@@ -2752,8 +2752,8 @@ end
 
 function AddOrRemoveUnitFromListOfPausedUnits(oUnit, bPauseNotUnpause, iOptionalTeam, iPausePriority)
     --iPausePriority - if pausing unit, will reord this against the unit
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'AddOrRemoveUnitFromListOfPausedUnits'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUnitInfo, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
 
@@ -2786,7 +2786,7 @@ function AddOrRemoveUnitFromListOfPausedUnits(oUnit, bPauseNotUnpause, iOptional
             local bRecordUnit = true
             local M28Team = import('/mods/M28AI/lua/AI/M28Team.lua')
             if not(M28Team.tTeamData[iTeam][M28Team.subreftoPausedUnitsByPriority][iPausePriority]) then
-                if bDebugMessages == true then LOG(sFunctionRef..': First time running so will setup variable, iTeam='..(iTeam or 'nil')..'; Unit='..(oUnit.UnitId or 'nil')..(GetUnitLifetimeCount(oUnit) or 'nil')) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': First time running so will setup variable, iTeam='..(iTeam or 'nil')..'; Unit='..(oUnit.UnitId or 'nil')..(GetUnitLifetimeCount(oUnit) or 'nil')) end
                 if not(M28Team.tTeamData[iTeam][M28Team.subreftoPausedUnitsByPriority]) then M28Team.tTeamData[iTeam][M28Team.subreftoPausedUnitsByPriority] = {} end
                 M28Team.tTeamData[iTeam][M28Team.subreftoPausedUnitsByPriority][iPausePriority] = {}
             else
@@ -2810,7 +2810,7 @@ function AddOrRemoveUnitFromListOfPausedUnits(oUnit, bPauseNotUnpause, iOptional
             end
         end
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': End of code for unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; oUnit[refbPaused]='..tostring(oUnit[refbPaused] or false)..'; iPausePriority='..(iPausePriority or 'nil')..'; Unit owner='..oUnit:GetAIBrain().Nickname..'; bPauseNotUnpause='..tostring(bPauseNotUnpause or false)..'; time='..GetGameTimeSeconds()) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': End of code for unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; oUnit[refbPaused]='..tostring(oUnit[refbPaused] or false)..'; iPausePriority='..(iPausePriority or 'nil')..'; Unit owner='..oUnit:GetAIBrain().Nickname..'; bPauseNotUnpause='..tostring(bPauseNotUnpause or false)..'; time='..GetGameTimeSeconds()) end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     --LOG('AddOrRemove from paused table after considering unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; bPausedNotUnpause='..tostring(bPauseNotUnpause)..'; Is paused='..tostring(oUnit[refbPaused])..'; Pause priority='..(oUnit[refiPausedPriority] or 'nil'))
 end
@@ -2834,8 +2834,8 @@ end
 function PauseOrUnpauseMassUsage(oUnit, bPauseNotUnpause, iOptionalTeam, iPausePriority)
     --iPausePriority - only needed if are pausing the unit
     if bDontConsiderCombinedArmy or oUnit.M28Active then
-        local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
         local sFunctionRef = 'PauseOrUnpauseMassUsage'
+        local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUnitInfo, sFunctionRef)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
 
@@ -2853,7 +2853,7 @@ function PauseOrUnpauseMassUsage(oUnit, bPauseNotUnpause, iOptionalTeam, iPauseP
             if (not(bPauseNotUnpause) or not(oUnit:IsPaused())) and (not(EntityCategoryContains(refCategoryFactory, oUnit.UnitId)) or (oUnit.GetWorkProgress and oUnit:GetWorkProgress() > 0 and oUnit:GetWorkProgress() < 1) or (oUnit:IsPaused() and not(bPauseNotUnpause))) then
 
                 if oUnit.UnitId == 'xsb2401' and bPauseNotUnpause then M28Utilities.ErrorHandler('Pausing Yolona') end
-                if bDebugMessages == true then LOG(sFunctionRef..': About to set paused to '..tostring(bPauseNotUnpause)..' for unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..' Unit state='..GetUnitState(oUnit))
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to set paused to '..tostring(bPauseNotUnpause)..' for unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..' Unit state='..GetUnitState(oUnit))
                     if oUnit.GetWorkProgress then LOG(sFunctionRef..': Unit work progress='..oUnit:GetWorkProgress()) end
                 end
                 if M28Utilities.bLoudModActive or M28Utilities.bQuietModActive then
@@ -2865,21 +2865,21 @@ function PauseOrUnpauseMassUsage(oUnit, bPauseNotUnpause, iOptionalTeam, iPauseP
                 --If unit isnt actually paused (e.g. due to error with set paused) then clear this flag - disabled as was leading to false cases where unit was paused but this triggered
                 --if oUnit[refbPaused] and not(oUnit:IsPaused()) then
                 --oUnit[refbPaused] = false
-                --if bDebugMessages == true then LOG(sFunctionRef..': Unit isnt actually paused so wont set this flag') end
+                --if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit isnt actually paused so wont set this flag') end
                 --end
-                if bDebugMessages == true then LOG(sFunctionRef..': Will update table of paused units, iPausePriority='..(iPausePriority or 'nil')) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will update table of paused units, iPausePriority='..(iPausePriority or 'nil')) end
                 AddOrRemoveUnitFromListOfPausedUnits(oUnit, bPauseNotUnpause, iOptionalTeam, iPausePriority)
 
-                if bDebugMessages == true then LOG(sFunctionRef..': Just set paused to '..tostring(bPauseNotUnpause)..' for unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; oUnit[refbPaused]='..tostring(oUnit[refbPaused])) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just set paused to '..tostring(bPauseNotUnpause)..' for unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; oUnit[refbPaused]='..tostring(oUnit[refbPaused])) end
             elseif bDebugMessages == true then
                 LOG(sFunctionRef..': Factory with either no workprogress or workprogress that isnt <1')
                 if oUnit.GetWorkProgress then LOG(sFunctionRef..': Workprogress='..oUnit:GetWorkProgress()) end
             end
         else
-            if bDebugMessages == true then LOG(sFunctionRef..': Unit isnt valid') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit isnt valid') end
         end
 
-        if bDebugMessages == true then LOG(sFunctionRef..': End of mass pause, after considering unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; bPausedNotUnpause='..tostring(bPauseNotUnpause)..'; Is paused='..tostring(oUnit[refbPaused])..'; Pause priority='..(oUnit[refiPausedPriority] or 'nil')) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': End of mass pause, after considering unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; bPausedNotUnpause='..tostring(bPauseNotUnpause)..'; Is paused='..tostring(oUnit[refbPaused])..'; Pause priority='..(oUnit[refiPausedPriority] or 'nil')) end
 
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     end
@@ -2888,8 +2888,8 @@ end
 function PauseOrUnpauseEnergyUsage(oUnit, bPauseNotUnpause, bExcludeProduction, iOptionalTeam, iPausePriority)
     --iPausePriority - only needed if are pausing the unit
     if bDontConsiderCombinedArmy or oUnit.M28Active then
-        local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
         local sFunctionRef = 'PauseOrUnpauseEnergyUsage'
+        local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUnitInfo, sFunctionRef)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
 
@@ -2907,7 +2907,7 @@ function PauseOrUnpauseEnergyUsage(oUnit, bPauseNotUnpause, bExcludeProduction, 
 
                 if oUnit.SetPaused and (not(bPauseNotUnpause) or not(oUnit:IsPaused())) and (not(EntityCategoryContains(refCategoryFactory, oUnit.UnitId)) or (oUnit.GetWorkProgress and oUnit:GetWorkProgress() > 0 and oUnit:GetWorkProgress() < 1)) then
                     if oUnit.UnitId == 'xsb2401'  and bPauseNotUnpause then M28Utilities.ErrorHandler('Pausing Yolona') end
-                    if bDebugMessages == true then LOG(sFunctionRef..': About to set paused to '..tostring(bPauseNotUnpause)..' for unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; Unit state='..GetUnitState(oUnit))
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to set paused to '..tostring(bPauseNotUnpause)..' for unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; Unit state='..GetUnitState(oUnit))
                         if oUnit.GetWorkProgress then LOG(sFunctionRef..': Unit work progress='..oUnit:GetWorkProgress()) end
                     end
                     if M28Utilities.bLoudModActive or M28Utilities.bQuietModActive then
@@ -2919,11 +2919,11 @@ function PauseOrUnpauseEnergyUsage(oUnit, bPauseNotUnpause, bExcludeProduction, 
                     --If unit isnt actually paused (e.g. due to error with set paused) then clear this flag - disabled in v75 due to case with energy pause where unit would be paused but :IsPaused would return flase
                     --[[if oUnit[refbPaused] and not(oUnit:IsPaused()) then
                         oUnit[refbPaused] = false
-                        if bDebugMessages == true then LOG(sFunctionRef..': Unit isnt actually paused so wont set this flag (but will change back to paused later if we pause energy requiring abilities)') end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit isnt actually paused so wont set this flag (but will change back to paused later if we pause energy requiring abilities)') end
                     end--]]
                     AddOrRemoveUnitFromListOfPausedUnits(oUnit, bPauseNotUnpause, iOptionalTeam, iPausePriority)
 
-                    if bDebugMessages == true then LOG(sFunctionRef..': Just set paused to '..tostring(bPauseNotUnpause)..' for unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just set paused to '..tostring(bPauseNotUnpause)..' for unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)) end
                 elseif bDebugMessages == true then
                     LOG(sFunctionRef..': Factory with either no workprogress or workprogress that isnt <1; is .SetPaused nil='..tostring(oUnit.SetPaused == nil)..'; bPauseNotUnpause='..tostring(bPauseNotUnpause)..'; Unit[refbPaused]='..tostring(oUnit[refbPaused])..'; fraction complete='..oUnit:GetFractionComplete()..'; Is unit a factory='..tostring(EntityCategoryContains(refCategoryFactory, oUnit.UnitId)))
                     if oUnit.GetWorkProgress then LOG(sFunctionRef..': Workprogress='..oUnit:GetWorkProgress()) end
@@ -2958,7 +2958,7 @@ function PauseOrUnpauseEnergyUsage(oUnit, bPauseNotUnpause, bExcludeProduction, 
                 end
                 oUnit[refbPaused] = bPauseNotUnpause
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': end of code oUnit[refbPaused]='..tostring(oUnit[refbPaused] or false)..'; oUnit[refiPausedPriority]='..(oUnit[refiPausedPriority] or 'nil')) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': end of code oUnit[refbPaused]='..tostring(oUnit[refbPaused] or false)..'; oUnit[refiPausedPriority]='..(oUnit[refiPausedPriority] or 'nil')) end
 
         end
 
@@ -3350,8 +3350,8 @@ function ToggleUnitDiveOrSurfaceStatus(oUnit)
 end
 
 function FixUnitResourceCheatModifiers(oUnit)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'FixUnitResourceCheatModifiers'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUnitInfo, sFunctionRef)
 
     --As of May 2023, AIx resource multipliers dont apply to upgrades such as for RAS SACUs.  The below attempts to fix this.
     WaitTicks(1)
@@ -3362,7 +3362,7 @@ function FixUnitResourceCheatModifiers(oUnit)
         local iResourceModifier = tonumber(ScenarioInfo.Options.CheatMult or 1.5)
         local iBuildModifier = tonumber(ScenarioInfo.Options.BuildMult or 1.5)
         local oBP = oUnit:GetBlueprint()
-        if bDebugMessages == true then LOG(sFunctionRef..': Considering applying resource modifier to unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..' owned by '..oUnit:GetAIBrain().Nickname..', iResourceModifier='..iResourceModifier..'; iBuildModifier='..iBuildModifier..'; oBP.Economy.BuildRate='..oBP.Economy.BuildRate) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering applying resource modifier to unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..' owned by '..oUnit:GetAIBrain().Nickname..', iResourceModifier='..iResourceModifier..'; iBuildModifier='..iBuildModifier..'; oBP.Economy.BuildRate='..oBP.Economy.BuildRate) end
         if iResourceModifier > 0 then
             local iBaseMassPerSec = (oBP.Economy.ProductionPerSecondMass or 0)
             local iBaseEnergyPerSec = (oBP.Economy.ProductionPerSecondEnergy or 0)
@@ -3371,7 +3371,7 @@ function FixUnitResourceCheatModifiers(oUnit)
 
             local tPossibleUpgrades = oBP.Enhancements
             if M28Utilities.IsTableEmpty(tPossibleUpgrades) == false and oUnit.HasEnhancement then
-                if bDebugMessages == true then LOG(sFunctionRef..': tPossibleUpgrades size='..table.getn(tPossibleUpgrades)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tPossibleUpgrades size='..table.getn(tPossibleUpgrades)) end
                 if tPossibleUpgrades then
                     for sCurUpgrade, tUpgrade in tPossibleUpgrades do
                         if oUnit:HasEnhancement(sCurUpgrade) then
@@ -3397,9 +3397,9 @@ function FixUnitResourceCheatModifiers(oUnit)
                 if M28Utilities.IsTableEmpty(oUnit.Buffs.BuffTable) == false then
                     for sBuffType, tBuffInfo in oUnit.Buffs.BuffTable do
                         for sBuffRef, tBuffValues in tBuffInfo do
-                            if bDebugMessages == true then LOG(sFunctionRef..': Considering sBuffType='..sBuffType..'; sBuffRef='..sBuffRef..'; tBuffValues='..repru(tBuffValues)) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering sBuffType='..sBuffType..'; sBuffRef='..sBuffRef..'; tBuffValues='..repru(tBuffValues)) end
                             if sBuffRef == 'CheatIncome' or sBuffRef == 'CheatIncome'..iIndex then
-                                if bDebugMessages == true then LOG(sFunctionRef..': Revoving buff '..sBuffRef) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Revoving buff '..sBuffRef) end
                                 FAFBuffs.RemoveBuff(oUnit, sBuffRef, true)
                             end
                         end
@@ -3412,7 +3412,7 @@ function FixUnitResourceCheatModifiers(oUnit)
                 oUnit:SetProductionPerSecondEnergy((iBaseEnergyPerSec + iUpgradeEnergyPerSec) * iResourceModifier)
                 --FAFBuffs.RemoveBuff(oUnit, 'CheatBuildRate', true)
                 --FAFBuffs.ApplyBuff(oUnit, 'CheatBuildRate')
-                if bDebugMessages == true then LOG(sFunctionRef..': Finished setting build and resource cheat modifiers for unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..', iBaseMassPerSec='..iBaseMassPerSec..'; iUpgradeMassPerSec='..iUpgradeMassPerSec..'; iResourceModifier='..iResourceModifier..'; Brain='..oUnit:GetAIBrain().Nickname..'; Buffs[CheatIncome].Affects.MassProduction.Mult='..(Buffs['CheatIncome'..iIndex].Affects.MassProduction.Mult or 'nil')) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished setting build and resource cheat modifiers for unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..', iBaseMassPerSec='..iBaseMassPerSec..'; iUpgradeMassPerSec='..iUpgradeMassPerSec..'; iResourceModifier='..iResourceModifier..'; Brain='..oUnit:GetAIBrain().Nickname..'; Buffs[CheatIncome].Affects.MassProduction.Mult='..(Buffs['CheatIncome'..iIndex].Affects.MassProduction.Mult or 'nil')) end
             end
         end
         if iBuildModifier > 0 then
@@ -3428,9 +3428,9 @@ function FixUnitResourceCheatModifiers(oUnit)
                 if M28Utilities.IsTableEmpty(oUnit.Buffs.BuffTable) == false then
                     for sBuffType, tBuffInfo in oUnit.Buffs.BuffTable do
                         for sBuffRef, tBuffValues in tBuffInfo do
-                            if bDebugMessages == true then LOG(sFunctionRef..': Considering sBuffType='..sBuffType..'; sBuffRef='..sBuffRef..'; tBuffValues='..repru(tBuffValues)) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering sBuffType='..sBuffType..'; sBuffRef='..sBuffRef..'; tBuffValues='..repru(tBuffValues)) end
                             if sBuffRef == 'CheatBuildRate' or sBuffRef == 'CheatBuildRate'..iIndex then
-                                if bDebugMessages == true then LOG(sFunctionRef..': Revoving buff '..sBuffRef) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Revoving buff '..sBuffRef) end
                                 FAFBuffs.RemoveBuff(oUnit, sBuffRef, true)
                             end
                         end
@@ -3438,8 +3438,8 @@ function FixUnitResourceCheatModifiers(oUnit)
                 end
                 if not(Buffs['BuildRate'..iIndex].Affects.BuildRate.Mult == nil) or iBuildModifier < 0.99 or iBuildModifier > 1.01 then
                     FAFBuffs.ApplyBuff(oUnit, 'CheatBuildRate'..iIndex)
-                    if bDebugMessages == true then LOG(sFunctionRef..': Applied build rate buff of '..(Buffs['BuildRate'..iIndex].Affects.BuildRate.Mult or 'nil value')..' to the unit, iBuildModifier='..iBuildModifier..'; Is mult nil='..tostring(Buffs['BuildRate'..iIndex].Affects.BuildRate.Mult == nil)..'; <0.99='..tostring(iBuildModifier < 0.99)..'; >1.01='..tostring(iBuildModifier > 1.01)..'; iBuildModifier=1.0='..tostring(iBuildModifier == 1.0)) end
-                elseif bDebugMessages == true then LOG(sFunctionRef..': Dont have a build rate buff for this brain so wont apply a build rate buff at all')
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Applied build rate buff of '..(Buffs['BuildRate'..iIndex].Affects.BuildRate.Mult or 'nil value')..' to the unit, iBuildModifier='..iBuildModifier..'; Is mult nil='..tostring(Buffs['BuildRate'..iIndex].Affects.BuildRate.Mult == nil)..'; <0.99='..tostring(iBuildModifier < 0.99)..'; >1.01='..tostring(iBuildModifier > 1.01)..'; iBuildModifier=1.0='..tostring(iBuildModifier == 1.0)) end
+                elseif bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dont have a build rate buff for this brain so wont apply a build rate buff at all')
                 end
             end
         end

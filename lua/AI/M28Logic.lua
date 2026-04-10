@@ -30,8 +30,8 @@ end
 function GetDirectFireWeaponPosition(oFiringUnit)
     --Returns position of oFiringUnit's first DF weapon; nil if oFiringUnit doesnt have a DF weapon; Unit position if no weapon bone
     --for ACU, returns this for the overcharge weapon
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'GetDirectFireWeaponPosition'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLogic, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local oBPFiringUnit = oFiringUnit:GetBlueprint()
@@ -40,22 +40,22 @@ function GetDirectFireWeaponPosition(oFiringUnit)
         local bIsACU = EntityCategoryContains(categories.COMMAND, oBPFiringUnit.BlueprintId)
 
         local sFiringBone
-        if bDebugMessages == true then LOG(sFunctionRef..': Have a DF unit, working out where shot coming from') end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have a DF unit, working out where shot coming from') end
         --Work out where the shot is coming from:
         local bIsFatboy = EntityCategoryContains(M28UnitInfo.refCategoryFatboy, oFiringUnit)
         for iCurWeapon, oWeapon in oBPFiringUnit.Weapon do
             if oWeapon.RangeCategory and (oWeapon.RangeCategory == 'UWRC_DirectFire' or (bIsFatboy and oWeapon.RangeCategory == 'UWRC_IndirectFire')) then
-                if bDebugMessages == true then LOG(sFunctionRef..': Have a weapon with range category') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have a weapon with range category') end
                 if oWeapon.RackBones then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Have a weapon with RackBones') end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have a weapon with RackBones') end
                     for _, oRackBone in oWeapon.RackBones do
-                        if bDebugMessages == true then LOG(sFunctionRef..' Cur oRackBone='..repru(oRackBone)) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..' Cur oRackBone='..repru(oRackBone)) end
                         if oRackBone.MuzzleBones then
                             sFiringBone = oRackBone.MuzzleBones[1]
-                            if bDebugMessages == true then LOG(sFunctionRef..': Found muzzlebone='..sFiringBone) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Found muzzlebone='..sFiringBone) end
                             break
                         else
-                            if bDebugMessages == true then LOG(sFunctionRef..': Cant locate muzzle bone') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Cant locate muzzle bone') end
                         end
                     end
                     if sFiringBone then
@@ -78,7 +78,7 @@ function GetDirectFireWeaponPosition(oFiringUnit)
     else
         tShotStartPosition = oFiringUnit:GetPosition()
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': end of code, tShotStartPosition='..repru(tShotStartPosition)..'; Surface height at this position='..GetSurfaceHeight(tShotStartPosition[1], tShotStartPosition[3])) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': end of code, tShotStartPosition='..repru(tShotStartPosition)..'; Surface height at this position='..GetSurfaceHeight(tShotStartPosition[1], tShotStartPosition[3])) end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     return tShotStartPosition
 end
@@ -92,8 +92,8 @@ function IsLineBlocked(aiBrain, tShotStartPosition, tShotEndPosition, iAOE, bRet
     --Once have this angle, then the height if move vertically to the target is: Sin theta = opp / hyp
     --Opp is the height dif; adj is the distance between start and end (referred to below as iFlatDistance)
 
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'IsLineBlocked'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLogic, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local bShotIsBlocked = false
@@ -104,14 +104,14 @@ function IsLineBlocked(aiBrain, tShotStartPosition, tShotEndPosition, iAOE, bRet
     if iFlatDistance > 1 then
         local iAngleInRadians = math.atan(math.abs((tShotEndPosition[2] - tShotStartPosition[2])) / iFlatDistance)
         local iShotHeightAtPoint
-        if bDebugMessages == true then LOG(sFunctionRef..': About to check if at any point on path shot will be lower than terrain; iAngle='..M28Utilities.ConvertAngleToRadians(iAngleInRadians)..'; startshot height='..tShotStartPosition[2]..'; target height='..tShotEndPosition[2]..'; iFlatDistance='..iFlatDistance..'; bAntiNavy='..tostring(bAntiNavy or false)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to check if at any point on path shot will be lower than terrain; iAngle='..M28Utilities.ConvertAngleToRadians(iAngleInRadians)..'; startshot height='..tShotStartPosition[2]..'; target height='..tShotEndPosition[2]..'; iFlatDistance='..iFlatDistance..'; bAntiNavy='..tostring(bAntiNavy or false)) end
         local iEndPoint = math.max(1, math.floor(iFlatDistance - (iAOE or 0)))
         for iPointToTarget = 1, iEndPoint do
             --math.min(math.floor(iFlatDistance), math.max(math.floor(iStartDistance or 1),1)), math.floor(iFlatDistance) do
             --MoveTowardsTarget(tStartPos, tTargetPos, iDistanceToTravel, iAngle)
             --MoveInDirection(tStart,               iAngle,                                                             iDistance,      bKeepInMapBounds, bTravelUnderwater, bKeepInCampaignPlayableArea)
             tTerrainPositionAtPoint = M28Utilities.MoveInDirection(tShotStartPosition, M28Utilities.GetAngleFromAToB(tShotStartPosition, tShotEndPosition), iPointToTarget, false,              bAntiNavy,              false)
-            if bDebugMessages == true then LOG(sFunctionRef..': iPointToTarget='..iPointToTarget..'; tTerrainPositionAtPoint='..repru(tTerrainPositionAtPoint)..'; Surface height at point='..GetSurfaceHeight(tTerrainPositionAtPoint[1], tTerrainPositionAtPoint[3])..'; Terrain height at point='..GetTerrainHeight(tTerrainPositionAtPoint[1], tTerrainPositionAtPoint[3])) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iPointToTarget='..iPointToTarget..'; tTerrainPositionAtPoint='..repru(tTerrainPositionAtPoint)..'; Surface height at point='..GetSurfaceHeight(tTerrainPositionAtPoint[1], tTerrainPositionAtPoint[3])..'; Terrain height at point='..GetTerrainHeight(tTerrainPositionAtPoint[1], tTerrainPositionAtPoint[3])) end
             if bStartHigherThanEnd then iShotHeightAtPoint = tShotStartPosition[2] - math.sin(iAngleInRadians) * iPointToTarget
             else iShotHeightAtPoint = tShotStartPosition[2] + math.sin(iAngleInRadians) * iPointToTarget
             end
@@ -128,7 +128,7 @@ function IsLineBlocked(aiBrain, tShotStartPosition, tShotEndPosition, iAOE, bRet
                     end
 
                     break
-                elseif bDebugMessages == true then LOG(sFunctionRef..': Are at end point and terrain height is identical, so will assume we will actually reach the target')
+                elseif bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Are at end point and terrain height is identical, so will assume we will actually reach the target')
                 end
             else
                 if bDebugMessages == true then
@@ -149,12 +149,12 @@ end
 function IsShotBlocked(oFiringUnit, oTargetUnit, bAntiNavyAttack, tAltMoveFirstToFirePosition)
     --Returns true or false depending on if oFiringUnit can hit oTargetUnit in a straight line
     --intended for direct fire units only
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'IsShotBlocked'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLogic, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local bShotIsBlocked = false
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, oFiringUnit='..oFiringUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFiringUnit)..'; oTargetUnit='..oTargetUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTargetUnit)..'; refiDFAOE='..(oTargetUnit[M28UnitInfo.refiDFAOE] or 'nil')) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, oFiringUnit='..oFiringUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFiringUnit)..'; oTargetUnit='..oTargetUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTargetUnit)..'; refiDFAOE='..(oTargetUnit[M28UnitInfo.refiDFAOE] or 'nil')) end
     if oTargetUnit.CanBeKilled == false and oFiringUnit:GetAIBrain().M28AI then bShotIsBlocked = true
     else
         local tShotStartPosition = GetDirectFireWeaponPosition(oFiringUnit)
@@ -168,7 +168,7 @@ function IsShotBlocked(oFiringUnit, oTargetUnit, bAntiNavyAttack, tAltMoveFirstT
                 tShotStartPosition[1] = tAltMoveFirstToFirePosition[1]
                 tShotStartPosition[3] = tAltMoveFirstToFirePosition[3]
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': tShotStartPosition='..repru(tShotStartPosition)) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tShotStartPosition='..repru(tShotStartPosition)) end
             if tShotStartPosition[2] <= 0 then bShotIsBlocked = true
             else
                 local tShotEndPosition = {}
@@ -179,12 +179,12 @@ function IsShotBlocked(oFiringUnit, oTargetUnit, bAntiNavyAttack, tAltMoveFirstT
                 local tTargetUnitDefaultPosition = oTargetUnit:GetPosition()
                 --Work out where the shot is targetting - not all units will have a bone specified in the AI section, in which case just get the unit position
                 if oBPTargetUnit.AI and oBPTargetUnit.AI.TargetBones then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Have targetbones in the targetunit blueprint; repr='..repru(oBPTargetUnit.AI.TargetBones)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have targetbones in the targetunit blueprint; repr='..repru(oBPTargetUnit.AI.TargetBones)) end
                     --Is the target higher or lower than the shooter? If higher, want the lowest target bone; if lower, want the highest target bone
                     for iBone, sBone in oBPTargetUnit.AI.TargetBones do
                         if oTargetUnit:IsValidBone(sBone) == true then
                             tShotEndPosition = oTargetUnit:GetPosition(sBone)
-                            if bDebugMessages == true then LOG(sFunctionRef..' Getting position for sBone='..sBone..'; position='..repru(tShotEndPosition)) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..' Getting position for sBone='..sBone..'; position='..repru(tShotEndPosition)) end
                             if tShotEndPosition[2] < iLowestHeight then
                                 iLowestHeight = tShotEndPosition[2]
                                 sLowestBone = sBone
@@ -205,7 +205,7 @@ function IsShotBlocked(oFiringUnit, oTargetUnit, bAntiNavyAttack, tAltMoveFirstT
                                 if sBone then
                                     if oTargetUnit:IsValidBone(sBone) == true then
                                         tShotEndPosition = oTargetUnit:GetPosition(sBone)
-                                        if bDebugMessages == true then LOG(sFunctionRef..' Getting position for sBone='..sBone..'; position='..repru(tShotEndPosition)) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..' Getting position for sBone='..sBone..'; position='..repru(tShotEndPosition)) end
                                         if tShotEndPosition[2] < iLowestHeight then
                                             iLowestHeight = tShotEndPosition[2]
                                             sLowestBone = sBone
@@ -222,7 +222,7 @@ function IsShotBlocked(oFiringUnit, oTargetUnit, bAntiNavyAttack, tAltMoveFirstT
                 end
                 if sHighestBone == nil then
                     tShotEndPosition = tTargetUnitDefaultPosition
-                    if bDebugMessages == true then LOG(sFunctionRef..': Couldnt find a bone to target for target unit, so using its position instaed='..repru(tShotEndPosition)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Couldnt find a bone to target for target unit, so using its position instaed='..repru(tShotEndPosition)) end
                 else
                     if tTargetUnitDefaultPosition[2] > tShotStartPosition[2] then
                         tShotEndPosition = oTargetUnit:GetPosition(sHighestBone) --v148 and earlier - did the other way around; however could lead to a situation where a LAB was attacking an engineer, and the LAB got the lowest position of the engineer meaning it appeared to be missing, despite it being able to hit; i.e. this way around means sometimes our shot will be blocked but we wont incorrectly think that; the other way means sometimes our shot wont be blocked but we incorrectly think it is
@@ -230,19 +230,19 @@ function IsShotBlocked(oFiringUnit, oTargetUnit, bAntiNavyAttack, tAltMoveFirstT
                         tShotEndPosition = oTargetUnit:GetPosition(sLowestBone)
                         --Check for case where lowest bone is below terrain height but highest isnt, and we arent using antinavy attack
                         if not(bAntiNavyAttack) and tShotEndPosition[2] < GetTerrainHeight(tShotEndPosition[1], tShotEndPosition[3]) and oTargetUnit:GetPosition(sHighestBone)[2] > GetTerrainHeight(tShotEndPosition[1], tShotEndPosition[3]) then
-                            if bDebugMessages == true then LOG(sFunctionRef..': Unit has positions above and below ground, will go with the highest position instead of lowest one') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit has positions above and below ground, will go with the highest position instead of lowest one') end
                             tShotEndPosition = oTargetUnit:GetPosition(sHighestBone)
                         end
                     end
-                    if bDebugMessages == true then LOG(sFunctionRef..': HighestBone='..sHighestBone..'; lowest bone='..sLowestBone..'; tShotEndPosition='..repru(tShotEndPosition)..'; tTargetUnitDefaultPosition[2]='..tTargetUnitDefaultPosition[2]..'; tShotStartPosition[2]='..tShotStartPosition[2]) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': HighestBone='..sHighestBone..'; lowest bone='..sLowestBone..'; tShotEndPosition='..repru(tShotEndPosition)..'; tTargetUnitDefaultPosition[2]='..tTargetUnitDefaultPosition[2]..'; tShotStartPosition[2]='..tShotStartPosition[2]) end
                 end
                 --Have the shot end and start positions; Now check that not firing at underwater target
-                if bDebugMessages == true then LOG(sFunctionRef..': Checking if firing at underwater target, tShotEndPosition[2]='..tShotEndPosition[2]..'; Surface height of shot end position='..GetSurfaceHeight(tShotEndPosition[1], tShotEndPosition[3])..'; Map water height='..M28Map.iMapWaterHeight) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if firing at underwater target, tShotEndPosition[2]='..tShotEndPosition[2]..'; Surface height of shot end position='..GetSurfaceHeight(tShotEndPosition[1], tShotEndPosition[3])..'; Map water height='..M28Map.iMapWaterHeight) end
                 if tShotEndPosition[2] < M28Map.iMapWaterHeight and not(bAntiNavyAttack) and tShotEndPosition[2] < GetSurfaceHeight(tShotEndPosition[1], tShotEndPosition[3]) then
                     bShotIsBlocked = true
                 else
                     --Have the shot end and start positions; now want to move along a line between the two and work out if terrain will block the shot
-                    if bDebugMessages == true then LOG(sFunctionRef..': About to see if line is blocked. tShotStartPosition='..repru(tShotStartPosition)..'; tShotEndPosition='..repru(tShotEndPosition)..'; Terrain height at start='..GetTerrainHeight(tShotStartPosition[1], tShotStartPosition[3])..'; Terrain height at end='..GetTerrainHeight(tShotEndPosition[1], tShotEndPosition[3])) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to see if line is blocked. tShotStartPosition='..repru(tShotStartPosition)..'; tShotEndPosition='..repru(tShotEndPosition)..'; Terrain height at start='..GetTerrainHeight(tShotStartPosition[1], tShotStartPosition[3])..'; Terrain height at end='..GetTerrainHeight(tShotEndPosition[1], tShotEndPosition[3])) end
                     --IsLineBlocked(aiBrain,                 tShotStartPosition, tShotEndPosition, iAOE, bReturnDistanceThatBlocked, bAntiNavy)
                     bShotIsBlocked = IsLineBlocked(oFiringUnit:GetAIBrain(), tShotStartPosition, tShotEndPosition,  nil, nil,                   bAntiNavyAttack)
                 end
@@ -254,8 +254,8 @@ function IsShotBlocked(oFiringUnit, oTargetUnit, bAntiNavyAttack, tAltMoveFirstT
 end
 
 function IsTargetUnderShield(aiBrain, oTarget, iIgnoreShieldsWithLessThanThisCurHealth, bReturnShieldHealthInstead, bIgnoreMobileShields, bTreatPartCompleteAsComplete, bCumulativeShieldHealth, bReturnShieldsCovringTargetInstead)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'IsTargetUnderShield'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLogic, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     --Determines if target is under a shield
     --bCumulativeShieldHealth - if this is true, then will treat as being under a shield if all shields combined have health of at least iIgnoreShieldsWithLessThanThisCurHealth
@@ -318,7 +318,7 @@ function IsTargetUnderShield(aiBrain, oTarget, iIgnoreShieldsWithLessThanThisCur
             bDontDoDistanceCheck = true
             if bIgnoreMobileShields then
                 --We are tracking fixed shields already
-                if bDebugMessages == true then LOG(sFunctionRef..': Will only consider fixed shields, so will rely on reftoShieldsProvidingCoverage, is this empty='..tostring(M28Utilities.IsTableEmpty(oTarget[M28Building.reftoShieldsProvidingCoverage]))) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will only consider fixed shields, so will rely on reftoShieldsProvidingCoverage, is this empty='..tostring(M28Utilities.IsTableEmpty(oTarget[M28Building.reftoShieldsProvidingCoverage]))) end
                 tNearbyShields = oTarget[M28Building.reftoShieldsProvidingCoverage]
             else
                 tNearbyShields = {}
@@ -335,7 +335,7 @@ function IsTargetUnderShield(aiBrain, oTarget, iIgnoreShieldsWithLessThanThisCur
                         table.insert(tNearbyShields, oShield)
                     end
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': Are considering a structure target, bDontDoDistanceCheck='..tostring(bDontDoDistanceCheck)..'; Is shields providing coverage empty='..tostring(M28Utilities.IsTableEmpty(oTarget[M28Building.reftoShieldsProvidingCoverage]))..'; Is mobile shield table empty='..tostring(M28Utilities.IsTableEmpty(tNearbyMobileShields))) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Are considering a structure target, bDontDoDistanceCheck='..tostring(bDontDoDistanceCheck)..'; Is shields providing coverage empty='..tostring(M28Utilities.IsTableEmpty(oTarget[M28Building.reftoShieldsProvidingCoverage]))..'; Is mobile shield table empty='..tostring(M28Utilities.IsTableEmpty(tNearbyMobileShields))) end
             end
         else
             --tNearbyShields = aiBrain:GetUnitsAroundPoint(iShieldCategory, tTargetPos, iShieldSearchRange, sSearchType)
@@ -353,7 +353,7 @@ function IsTargetUnderShield(aiBrain, oTarget, iIgnoreShieldsWithLessThanThisCur
                 tNearbyShields = aiBrain:GetUnitsAroundPoint(iShieldCategory, tTargetPos, iShieldSearchRange, sSearchType)
             end
         end
-        if bDebugMessages == true then LOG(sFunctionRef..': Searching for shields around '..repru(tTargetPos)..'; iShieldSearchRange='..iShieldSearchRange..'; sSearchType='..sSearchType) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Searching for shields around '..repru(tTargetPos)..'; iShieldSearchRange='..iShieldSearchRange..'; sSearchType='..sSearchType) end
         local iShieldCurHealth, iShieldMaxHealth
         local iTotalShieldCurHealth = 0
         local iTotalShieldMaxHealth = 0
@@ -364,45 +364,45 @@ function IsTargetUnderShield(aiBrain, oTarget, iIgnoreShieldsWithLessThanThisCur
 
         if bTreatPartCompleteAsComplete then iMinFractionComplete = 0 end
         if M28Utilities.IsTableEmpty(tNearbyShields) == false then
-            if bDebugMessages == true then LOG(sFunctionRef..': Size of tNearbyShields='..table.getn(tNearbyShields)) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Size of tNearbyShields='..table.getn(tNearbyShields)) end
             local oCurUnitBP, iCurShieldRadius, iCurDistanceFromTarget
             for iUnit, oUnit in tNearbyShields do
                 if not(oUnit.Dead) and oUnit:GetFractionComplete() >= iMinFractionComplete then
                     oCurUnitBP = oUnit:GetBlueprint()
                     iCurShieldRadius = 0
                     if oCurUnitBP.Defense and oCurUnitBP.Defense.Shield then
-                        if bDebugMessages == true then LOG(sFunctionRef..': Target has a shield, will check its shield size and how close that is to the target') end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Target has a shield, will check its shield size and how close that is to the target') end
                         iCurShieldRadius = oCurUnitBP.Defense.Shield.ShieldSize * 0.5
                         if iCurShieldRadius > 0 then
                             if not(bDontDoDistanceCheck) then iCurDistanceFromTarget = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tTargetPos)
                             else iCurDistanceFromTarget = 0
                             end
-                            if bDebugMessages == true then LOG(sFunctionRef..': iCurDistance to shield='..iCurDistanceFromTarget..'; iCurShieldRadius='..iCurShieldRadius..'; shield position='..repru(oUnit:GetPosition())..'; target position='..repru(tTargetPos)..'; bDontDoDistanceCheck='..tostring(bDontDoDistanceCheck)) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurDistance to shield='..iCurDistanceFromTarget..'; iCurShieldRadius='..iCurShieldRadius..'; shield position='..repru(oUnit:GetPosition())..'; target position='..repru(tTargetPos)..'; bDontDoDistanceCheck='..tostring(bDontDoDistanceCheck)) end
                             if iCurDistanceFromTarget <= (iCurShieldRadius + iShieldSizeAdjust) then --if dont increase by anything then half of unit might be under shield which means bombs cant hit it                                                                
-                                if bDebugMessages == true then LOG(sFunctionRef..': Shield is large enough to cover target, will check its health') end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Shield is large enough to cover target, will check its health') end
                                 iShieldCurHealth, iShieldMaxHealth = M28UnitInfo.GetCurrentAndMaximumShield(oUnit)
                                 iTotalShieldCurHealth = iTotalShieldCurHealth + iShieldCurHealth
                                 iTotalShieldMaxHealth = iTotalShieldMaxHealth + iShieldMaxHealth
                                 if bTreatPartCompleteAsComplete or (oUnit:GetFractionComplete() >= 0.95 and oUnit:GetFractionComplete() < 1) then iShieldCurHealth = iShieldMaxHealth end
-                                if bDebugMessages == true then LOG(sFunctionRef..': iShieldCurHealth='..iShieldCurHealth..'; iIgnoreShieldsWithLessThanThisCurHealth='..iIgnoreShieldsWithLessThanThisCurHealth) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iShieldCurHealth='..iShieldCurHealth..'; iIgnoreShieldsWithLessThanThisCurHealth='..iIgnoreShieldsWithLessThanThisCurHealth) end
                                 if (not(bCumulativeShieldHealth) and iShieldCurHealth >= iIgnoreShieldsWithLessThanThisCurHealth) or (bCumulativeShieldHealth and iTotalShieldCurHealth >= iIgnoreShieldsWithLessThanThisCurHealth) then
                                     bUnderShield = true
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Shield health more than threshold so unit is under a shield') end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Shield health more than threshold so unit is under a shield') end
                                     if bReturnShieldsCovringTargetInstead then table.insert(tShieldsCoveringTarget, oUnit)
                                     elseif not(bReturnShieldHealthInstead) then break
                                     end
                                 end
                             end
-                        elseif bDebugMessages == true then LOG(sFunctionRef..': Shield radius isnt >0')
+                        elseif bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Shield radius isnt >0')
                         end
                     else
-                        if bDebugMessages == true then LOG(sFunctionRef..': Blueprint doesnt have a shield value; UnitID='..oUnit.UnitId) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Blueprint doesnt have a shield value; UnitID='..oUnit.UnitId) end
                     end
-                elseif bDebugMessages == true then LOG(sFunctionRef..': Unit is dead')
+                elseif bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit is dead')
                 end
             end
         else
-            if bDebugMessages == true then LOG(sFunctionRef..': tNearbyShields is empty') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tNearbyShields is empty') end
         end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         if bReturnShieldHealthInstead then
@@ -412,7 +412,7 @@ function IsTargetUnderShield(aiBrain, oTarget, iIgnoreShieldsWithLessThanThisCur
             if not(oTarget[reftiTimeOfLastShieldCheck]) then oTarget[reftiTimeOfLastShieldCheck] = {} oTarget[reftbLastShieldCheckResult] = {} end
             oTarget[reftiTimeOfLastShieldCheck][iRef] = GetGameTimeSeconds()
             oTarget[reftbLastShieldCheckResult][iRef] = bUnderShield
-            if bDebugMessages == true then LOG(sFunctionRef..': Returning '..tostring(bUnderShield)) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Returning '..tostring(bUnderShield)) end
             return bUnderShield
         end
     elseif bReturnShieldHealthInstead then return 0, 0
@@ -421,8 +421,8 @@ end
 
 function GetDamageFromOvercharge(aiBrain, oTargetUnit, iAOE, iDamage, bTargetWalls)
     --Originally copied from the 'getdamagefrombomb' function, but adjusted since OC doesnt deal full damage to ACU or structures
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'GetDamageFromOvercharge'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLogic, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
 
@@ -437,12 +437,12 @@ function GetDamageFromOvercharge(aiBrain, oTargetUnit, iAOE, iDamage, bTargetWal
     local iCurHealth, iMaxHealth, iCurShield, iMaxShield
     local iActualDamage
     local iKillsExpected = 0
-    if bDebugMessages == true then LOG(sFunctionRef..': About to loop through all enemies in range; iDamage='..iDamage..'; iAOE='..iAOE..'; Base target unit='..oTargetUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTargetUnit)..'; position='..repru(oTargetUnit:GetPosition())) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to loop through all enemies in range; iDamage='..iDamage..'; iAOE='..iAOE..'; Base target unit='..oTargetUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTargetUnit)..'; position='..repru(oTargetUnit:GetPosition())) end
 
     if M28Utilities.IsTableEmpty(tEnemiesInRange) == false then
         for iUnit, oUnit in tEnemiesInRange do
             if oUnit.GetBlueprint then
-                if bDebugMessages == true then LOG(sFunctionRef..': Considering enemy unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; dist to postiion='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oTargetUnit:GetPosition())) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering enemy unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; dist to postiion='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oTargetUnit:GetPosition())) end
                 --Is the unit within range of the aoe?
                 if M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oTargetUnit:GetPosition()) <= iAOE then
                     --Is the unit shielded by a non-mobile shield (mobile shields should take full damage I think)
@@ -469,17 +469,17 @@ function GetDamageFromOvercharge(aiBrain, oTargetUnit, iAOE, iDamage, bTargetWal
                             iMassFactor = 0.4
                             if EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId) then iMassFactor = 0.5 end
                         end
-                        if bDebugMessages == true then LOG(sFunctionRef..': oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iMassFactor after considering if will kill it='..iMassFactor..'; Unit max health='..iMaxHealth..'; CurHealth='..iCurHealth) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iMassFactor after considering if will kill it='..iMassFactor..'; Unit max health='..iMaxHealth..'; CurHealth='..iCurHealth) end
                         --Is the target mobile and within 1 of the AOE edge? If so then reduce to 25% as it might move out of the wayif
                         if oUnit:GetFractionComplete() == 1 and EntityCategoryContains(categories.MOBILE, oUnit.UnitId) and iAOE - 0.5 < M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oTargetUnit:GetPosition()) then iMassFactor = iMassFactor * 0.25 end
                         iTotalDamage = iTotalDamage + (oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit)) * oUnit:GetFractionComplete() * iMassFactor
-                        if bDebugMessages == true then LOG(sFunctionRef..': Finished considering the unit; iTotalDamage='..iTotalDamage..';refiUnitMassCost='..oUnit[M28UnitInfo.refiUnitMassCost]..'; oUnit:GetFractionComplete()='..oUnit:GetFractionComplete()..'; iMassFactor after considering if unit is mobile='..iMassFactor) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished considering the unit; iTotalDamage='..iTotalDamage..';refiUnitMassCost='..oUnit[M28UnitInfo.refiUnitMassCost]..'; oUnit:GetFractionComplete()='..oUnit:GetFractionComplete()..'; iMassFactor after considering if unit is mobile='..iMassFactor) end
                     end
                 end
             end
         end
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': Finished going through units in the aoe, iTotalDamage in mass='..iTotalDamage..'; iAOE='..iAOE..'; iDamage='..iDamage) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished going through units in the aoe, iTotalDamage in mass='..iTotalDamage..'; iAOE='..iAOE..'; iDamage='..iDamage) end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     return iTotalDamage, iKillsExpected
@@ -498,8 +498,8 @@ function GetDamageFromBomb(aiBrain, tBaseLocation, iAOE, iDamage, iFriendlyUnitD
     --iOptionalReclaimFactor - if this isnt nil, then will include the value of reclaim if the location looks like it is available to the enemy and damage is high enough that it's reasonable to assume we will kill the reclaim; requires there to be a friendly unit damage reduction factor (to avoid too much of a CPU load given how oftne this function is called)
     --iOptionalGunshipFactor - if not nil, and iAOE is >15, then will check for enemy gunships in the zone and include this % of their value where they are inside the aoe by at least 15
 
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'GetDamageFromBomb'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLogic, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
 
@@ -518,7 +518,7 @@ function GetDamageFromBomb(aiBrain, tBaseLocation, iAOE, iDamage, iFriendlyUnitD
         iCategoryToSearch = M28UnitInfo.refCategoryMobileLand + M28UnitInfo.refCategoryStructure + M28UnitInfo.refCategoryAllNavy + M28UnitInfo.refCategoryAllAir * categories.EXPERIMENTAL
         if M28Overseer.refiRoughTotalUnitsInGame >= 1000 then iCategoryToSearch = iCategoryToSearch - M28UnitInfo.refCategoryMobileLand * categories.TECH1 + categories.COMMAND end
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': Near start, Time='..GetGameTimeSeconds()..'; bCheckForShields='..tostring(bCheckForShields)..'; tBaseLocation='..repru(tBaseLocation)..'; iAOE='..iAOE..'; iDamage='..iDamage..'; bCumulativeShieldHealthCheck='..tostring(bCumulativeShieldHealthCheck or false)..'; iOptionalSizeAdjust='..(iOptionalSizeAdjust or 'nil')..'; iOptionalModIfNeedMultipleShots='..(iOptionalModIfNeedMultipleShots or 'nil')..'; iMobileValueOverrideFactorWithin75Percent='..(iMobileValueOverrideFactorWithin75Percent or 'nil')..'; bT3ArtiShotReduction='..tostring(bT3ArtiShotReduction or false)..'; iOptionalShieldReductionFactor='..(iOptionalShieldReductionFactor or 'nil')) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Near start, Time='..GetGameTimeSeconds()..'; bCheckForShields='..tostring(bCheckForShields)..'; tBaseLocation='..repru(tBaseLocation)..'; iAOE='..iAOE..'; iDamage='..iDamage..'; bCumulativeShieldHealthCheck='..tostring(bCumulativeShieldHealthCheck or false)..'; iOptionalSizeAdjust='..(iOptionalSizeAdjust or 'nil')..'; iOptionalModIfNeedMultipleShots='..(iOptionalModIfNeedMultipleShots or 'nil')..'; iMobileValueOverrideFactorWithin75Percent='..(iMobileValueOverrideFactorWithin75Percent or 'nil')..'; bT3ArtiShotReduction='..tostring(bT3ArtiShotReduction or false)..'; iOptionalShieldReductionFactor='..(iOptionalShieldReductionFactor or 'nil')) end
     local bCheckForCaptureTarget = M28Map.bIsCampaignMap
     local iSearchRangeIncrease = 0
     if bCheckForCaptureTarget then iSearchRangeIncrease = 4 end --incase when tested the campaign this was an issue (as originally used a value of iAOE + 4 prior to changing in v74)
@@ -540,7 +540,7 @@ function GetDamageFromBomb(aiBrain, tBaseLocation, iAOE, iDamage, iFriendlyUnitD
             end
         end
         local bHaveUnitsInRange = not(M28Utilities.IsTableEmpty(tEnemiesInRange)) --used to decide if we need to do a distance check
-        if bDebugMessages == true then LOG(sFunctionRef..': Considering unseen enemies, iPlateauOrZero='..(iPlateauOrZero or 'nil')..'; iLZOrWZ='..(iLZOrWZ or 'nil')..'; Is table of enemy units empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefTEnemyUnits]))..'; is table of capture units empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subreftoUnitsToCapture]))..'; Is tLZOrWZTeamData empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZTeamData))) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unseen enemies, iPlateauOrZero='..(iPlateauOrZero or 'nil')..'; iLZOrWZ='..(iLZOrWZ or 'nil')..'; Is table of enemy units empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefTEnemyUnits]))..'; is table of capture units empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subreftoUnitsToCapture]))..'; Is tLZOrWZTeamData empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZTeamData))) end
         if bIncludePreviouslySeenEnemies and M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefTEnemyUnits]) == false then
             local tRelevantUnits = EntityCategoryFilterDown(iCategoryToSearch, tLZOrWZTeamData[M28Map.subrefTEnemyUnits])
             if M28Utilities.IsTableEmpty(tRelevantUnits) == false then
@@ -552,10 +552,10 @@ function GetDamageFromBomb(aiBrain, tBaseLocation, iAOE, iDamage, iFriendlyUnitD
                     end
                     if M28UnitInfo.IsUnitValid(oUnit) and not(M28UnitInfo.CanSeeUnit(aiBrain, oUnit)) then
                         if bHaveUnitsInRange then
-                            if bDebugMessages == true then LOG(sFunctionRef..': Adding unseen unit to enemies in range, will check its distance later') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adding unseen unit to enemies in range, will check its distance later') end
                             table.insert(tEnemiesInRange, oUnit)
                         elseif M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tBaseLocation) <= iAOE then
-                            if bDebugMessages == true then LOG(sFunctionRef..': Adding unseen unit to enemies in range as it is within range, allowing for AOE') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adding unseen unit to enemies in range as it is within range, allowing for AOE') end
                             table.insert(tEnemiesInRange, oUnit)
                             bHaveUnitsInRange = true
                         end
@@ -590,7 +590,7 @@ function GetDamageFromBomb(aiBrain, tBaseLocation, iAOE, iDamage, iFriendlyUnitD
                         iGunshipDist = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tBaseLocation)
                         if iGunshipDist <= iGunshipDistThreshold and iGunshipDist + (oUnit:GetPosition()[2] - tBaseLocation[2]) < iAOE then
                             table.insert(tEnemiesInRange, oUnit)
-                            if bDebugMessages == true then LOG(sFunctionRef..': Adding enemy gunship to those in range, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adding enemy gunship to those in range, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
                         end
                     end
                 end
@@ -622,7 +622,7 @@ function GetDamageFromBomb(aiBrain, tBaseLocation, iAOE, iDamage, iFriendlyUnitD
             local oBlueprint = M28UnitInfo.GetBlueprintFromID(sBlueprint)
             local iCurSize = math.min((oBlueprint.Physics.SkirtSizeX or 0), (oBlueprint.Physics.SkirtSizeZ or 0))
             local iCurSize = math.floor(iCurSize)
-            if bDebugMessages == true then LOG(sFunctionRef..': iCurSize='..iCurSize..'; tiSizeAdjustFactors[iCurSize]='..(tiSizeAdjustFactors[iCurSize] or 'nil')..'; expected factor='..1 + (tiSizeAdjustFactors[iCurSize] or -0.35) * iDifBetweenSize8And2) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurSize='..iCurSize..'; tiSizeAdjustFactors[iCurSize]='..(tiSizeAdjustFactors[iCurSize] or 'nil')..'; expected factor='..1 + (tiSizeAdjustFactors[iCurSize] or -0.35) * iDifBetweenSize8And2) end
 
             return 1 + (tiSizeAdjustFactors[iCurSize] or -0.35) * iDifBetweenSize8And2
         end
@@ -635,7 +635,7 @@ function GetDamageFromBomb(aiBrain, tBaseLocation, iAOE, iDamage, iFriendlyUnitD
         if M28Utilities.IsTableEmpty(tFriendlyUnits) == false then
             for iUnit, oUnit in tFriendlyUnits do
                 if oUnit.GetBlueprint and not(oUnit.Dead) then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Have friendly unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' with mass cost='..(oUnit[M28UnitInfo.refiUnitMassCost] or 'nil')..' that will factor in to damage') end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have friendly unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' with mass cost='..(oUnit[M28UnitInfo.refiUnitMassCost] or 'nil')..' that will factor in to damage') end
                     if EntityCategoryContains(categories.COMMAND, oUnit.UnitId) then
                         if M28Team.tTeamData[aiBrain.M28Team][M28Team.refbAssassinationOrSimilar] then
                             iTotalDamage = iTotalDamage - 100000
@@ -664,13 +664,13 @@ function GetDamageFromBomb(aiBrain, tBaseLocation, iAOE, iDamage, iFriendlyUnitD
                             end
                         end
                     end
-                    if bDebugMessages == true then LOG(sFunctionRef..': Increasing damage for reclaim, iTotalReclaim='..iTotalReclaim..'; iOptionalReclaimFactor='..iOptionalReclaimFactor) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Increasing damage for reclaim, iTotalReclaim='..iTotalReclaim..'; iOptionalReclaimFactor='..iOptionalReclaimFactor) end
                     iTotalDamage = iTotalDamage + iTotalReclaim * iOptionalReclaimFactor
                 end
             end
         end
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': Is table of enemies in range empty='..tostring(M28Utilities.IsTableEmpty(tEnemiesInRange))..'; tBaselocation='..repru(tBaseLocation)) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is table of enemies in range empty='..tostring(M28Utilities.IsTableEmpty(tEnemiesInRange))..'; tBaselocation='..repru(tBaseLocation)) end
     if M28Utilities.IsTableEmpty(tEnemiesInRange) == false then
         local iShieldThreshold = math.max(iDamage * 0.9, iDamage - 500)
         local iCurDist
@@ -731,7 +731,7 @@ function GetDamageFromBomb(aiBrain, tBaseLocation, iAOE, iDamage, iFriendlyUnitD
                 iMassFactor = 1
                 --Is the unit within range of the aoe?
                 iCurDist = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tBaseLocation)
-                if bDebugMessages == true then LOG(sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Distance to base location='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tBaseLocation)..'; iAOE='..iAOE) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Distance to base location='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tBaseLocation)..'; iAOE='..iAOE) end
                 --Special logic for campaign
                 if bCheckForCaptureTarget and oUnit[M28UnitInfo.refbIsCaptureTarget] and oUnit.CanTakeDamage then
                     if iCurDist <= iAOE + 3 then
@@ -740,13 +740,13 @@ function GetDamageFromBomb(aiBrain, tBaseLocation, iAOE, iDamage, iFriendlyUnitD
                     else
                         if oUnit.UnitId == 'uec1902' then iTotalDamage = iTotalDamage - 10000 end --Black sun control centre
                     end
-                    if bDebugMessages == true then LOG(sFunctionRef..': oUnit is a capture target='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; reducing damage from bomb, iCurDist='..iCurDist..'; Damage after reduction (but may still have other units)='..iTotalDamage) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oUnit is a capture target='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; reducing damage from bomb, iCurDist='..iCurDist..'; Damage after reduction (but may still have other units)='..iTotalDamage) end
                 end
                 if iCurDist <= iAOE then
                     --Is the unit shielded by more than 90% of our damage?
                     --IsTargetUnderShield(aiBrain, oTarget, iIgnoreShieldsWithLessThanThisCurHealth, bReturnShieldHealthInstead, bIgnoreMobileShields, bTreatPartCompleteAsComplete, bCumulativeShieldHealth)
                     if bCheckForShields and IsTargetUnderShield(aiBrain, oUnit, iShieldThreshold, false, false, nil, bCumulativeShieldHealthCheck) then iMassFactor = (iOptionalShieldReductionFactor or 0) end
-                    if bDebugMessages == true then LOG(sFunctionRef..': Mass factor after considering if under shield='..iMassFactor..'; iOptionalShieldReductionFactor='..(iOptionalShieldReductionFactor or 'nil')..'; Is target under shield='..tostring(IsTargetUnderShield(aiBrain, oUnit, iShieldThreshold, false, false, nil, bCumulativeShieldHealthCheck))) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Mass factor after considering if under shield='..iMassFactor..'; iOptionalShieldReductionFactor='..(iOptionalShieldReductionFactor or 'nil')..'; Is target under shield='..tostring(IsTargetUnderShield(aiBrain, oUnit, iShieldThreshold, false, false, nil, bCumulativeShieldHealthCheck))) end
                     if iMassFactor > 0 then
                         if bCheckForShields then
                             iCurShield, iMaxShield = M28UnitInfo.GetCurrentAndMaximumShield(oUnit)
@@ -769,7 +769,7 @@ function GetDamageFromBomb(aiBrain, tBaseLocation, iAOE, iDamage, iFriendlyUnitD
                         end
                         --Adjust for building size if specified (e.g. useful for if firing from unit with randomness factor)
                         iMassFactor = iMassFactor * GetBuildingSizeFactor(oUnit.UnitId)
-                        if bDebugMessages == true then LOG(sFunctionRef..': oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iMassFactor after considering if will kill it and how large it is='..iMassFactor..'; iFactorIfWontKill='..iFactorIfWontKill..'; Building size factor='..GetBuildingSizeFactor(oUnit.UnitId)) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iMassFactor after considering if will kill it and how large it is='..iMassFactor..'; iFactorIfWontKill='..iFactorIfWontKill..'; Building size factor='..GetBuildingSizeFactor(oUnit.UnitId)) end
                         --Is the target mobile and not under construction? Then reduce to 20% as unit might dodge or not be there when bomb lands
                         if oUnit:GetFractionComplete() == 1 then
                             if EntityCategoryContains(categories.MOBILE, oUnit.UnitId) then
@@ -843,14 +843,14 @@ function GetDamageFromBomb(aiBrain, tBaseLocation, iAOE, iDamage, iFriendlyUnitD
                                 end
                             end
                         end
-                        if bDebugMessages == true then LOG(sFunctionRef..': Finished considering the unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iTotalDamage='..iTotalDamage..';refiUnitMassCost='..oUnit[M28UnitInfo.refiUnitMassCost]..'; oUnit:GetFractionComplete()='..oUnit:GetFractionComplete()..'; iMassFactor after considering if unit is mobile='..iMassFactor..'; distance between unit and target='..M28Utilities.GetDistanceBetweenPositions(tBaseLocation, oUnit:GetPosition())) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished considering the unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iTotalDamage='..iTotalDamage..';refiUnitMassCost='..oUnit[M28UnitInfo.refiUnitMassCost]..'; oUnit:GetFractionComplete()='..oUnit:GetFractionComplete()..'; iMassFactor after considering if unit is mobile='..iMassFactor..'; distance between unit and target='..M28Utilities.GetDistanceBetweenPositions(tBaseLocation, oUnit:GetPosition())) end
                     end
                 end
 
             end
         end
         if bCheckForCaptureTarget and M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subreftoUnitsToCapture]) == false then
-            if bDebugMessages == true then LOG(sFunctionRef..': Have capture targets for this zone') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have capture targets for this zone') end
             for iCaptureTarget, oCaptureTarget in tLZOrWZData[M28Map.subreftoUnitsToCapture] do
                 iCurDist = M28Utilities.GetDistanceBetweenPositions(oCaptureTarget:GetPosition(), tBaseLocation)
                 if M28UnitInfo.IsUnitValid(oCaptureTarget) and iCurDist <= iAOE + 3 then
@@ -860,11 +860,11 @@ function GetDamageFromBomb(aiBrain, tBaseLocation, iAOE, iDamage, iFriendlyUnitD
                     iTotalDamage = iTotalDamage - 5000
                     if oCaptureTarget.UnitId == 'uec1902' then iTotalDamage = iTotalDamage - 30000 end --Black sun control centre
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': oCaptureTarget='..(oCaptureTarget.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oCaptureTarget) or 'nil')..'; damage after update='..iTotalDamage) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oCaptureTarget='..(oCaptureTarget.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oCaptureTarget) or 'nil')..'; damage after update='..iTotalDamage) end
             end
         end
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': Finished going through units in the aoe, iTotalDamage in mass='..iTotalDamage..'; tBaseLocation='..repru(tBaseLocation)..'; iAOE='..iAOE..'; iDamage='..iDamage) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished going through units in the aoe, iTotalDamage in mass='..iTotalDamage..'; tBaseLocation='..repru(tBaseLocation)..'; iAOE='..iAOE..'; iDamage='..iDamage) end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     return iTotalDamage
@@ -876,11 +876,11 @@ function GetBestAOETarget(aiBrain, tBaseLocation, iAOE, iDamage, bOptionalCheckF
     --iOptionalMaxDistanceCheckOptions - can use to limit hte nubmer of distance options that will choose
     --iFriendlyUnitAOEFactor - e.g. if 2, then will search for friendly units in 2x the aoe
     --iOptionalShieldReductionFactor - instead of igivng shielded targets 0 value this assigns this % of value
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'GetBestAOETarget'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLogic, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    if bDebugMessages == true then LOG(sFunctionRef..': About to find the best target for bomb, tBaseLocation='..repru(tBaseLocation)..'; iAOE='..(iAOE or 'nil')..'; iDamage='..(iDamage or 'nil')..'; bOptionalCheckForSMD='..tostring(bOptionalCheckForSMD or false)..'; iOptionalTimeSMDNeedsToHaveBeenBuiltFor='..(iOptionalTimeSMDNeedsToHaveBeenBuiltFor or 'nil')..'; iFriendlyUnitAOEFactor='..(iFriendlyUnitAOEFactor or 'nil')..'; iOptionalMaxDistanceCheckOptions='..(iOptionalMaxDistanceCheckOptions or 'nil')..'; iMobileValueOverrideFactorWithin75Percent='..(iMobileValueOverrideFactorWithin75Percent or 'nil')..'; iOptionalShieldReductionFactor='..(iOptionalShieldReductionFactor or 'nil')..'; iOptionalReclaimFactor='..(iOptionalReclaimFactor or 'nil')) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to find the best target for bomb, tBaseLocation='..repru(tBaseLocation)..'; iAOE='..(iAOE or 'nil')..'; iDamage='..(iDamage or 'nil')..'; bOptionalCheckForSMD='..tostring(bOptionalCheckForSMD or false)..'; iOptionalTimeSMDNeedsToHaveBeenBuiltFor='..(iOptionalTimeSMDNeedsToHaveBeenBuiltFor or 'nil')..'; iFriendlyUnitAOEFactor='..(iFriendlyUnitAOEFactor or 'nil')..'; iOptionalMaxDistanceCheckOptions='..(iOptionalMaxDistanceCheckOptions or 'nil')..'; iMobileValueOverrideFactorWithin75Percent='..(iMobileValueOverrideFactorWithin75Percent or 'nil')..'; iOptionalShieldReductionFactor='..(iOptionalShieldReductionFactor or 'nil')..'; iOptionalReclaimFactor='..(iOptionalReclaimFactor or 'nil')) end
 
     local tBestTarget = {tBaseLocation[1], tBaseLocation[2], tBaseLocation[3]}
     local iMaxTargetDamage
@@ -907,17 +907,17 @@ function GetBestAOETarget(aiBrain, tBaseLocation, iAOE, iDamage, bOptionalCheckF
                 tPossibleTarget = M28Utilities.MoveInDirection(tBaseLocation, iAngle, iDistanceFromBase)
                 --GetDamageFromBomb(aiBrain, tBaseLocation, iAOE, iDamage, iFriendlyUnitDamageReductionFactor, iFriendlyUnitAOEFactor, bCumulativeShieldHealthCheck, iOptionalSizeAdjust, iOptionalModIfNeedMultipleShots, iMobileValueOverrideFactorWithin75Percent, bT3ArtiShotReduction, iOptionalShieldReductionFactor)
                 iCurTargetDamage = GetDamageFromBomb(aiBrain, tPossibleTarget, iAOE, iDamage, iFriendlyUnitDamageReductionFactor, iFriendlyUnitAOEFactor, nil, nil, nil, iMobileValueOverrideFactorWithin75Percent, nil, iOptionalShieldReductionFactor, bIncludePreviouslySeenEnemies, nil, nil, iOptionalReclaimFactor)
-                if bDebugMessages == true then LOG(sFunctionRef..': iCurDistanceCheck='..iCurDistanceCheck..'; iAngle='..iAngle..'; iCurTargetDamage='..iCurTargetDamage) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurDistanceCheck='..iCurDistanceCheck..'; iAngle='..iAngle..'; iCurTargetDamage='..iCurTargetDamage) end
                 if iCurTargetDamage > iMaxTargetDamage then
                     if bOptionalCheckForSMD and M28Building.IsSMDBlockingTarget(aiBrain, tPossibleTarget, tSMLLocationForSMDCheck, (iOptionalTimeSMDNeedsToHaveBeenBuiltFor or 200), iSMDRangeAdjust) then iCurTargetDamage = math.min(4000, iCurTargetDamage) end
                     if iCurTargetDamage > iMaxTargetDamage then
                         tBestTarget = tPossibleTarget
                         iMaxTargetDamage = iCurTargetDamage
-                        if bDebugMessages == true then LOG(sFunctionRef..': Recording this as the new best target, tBestTarget='..repru(tBestTarget)..'; iMaxTargetDamage='..iMaxTargetDamage) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Recording this as the new best target, tBestTarget='..repru(tBestTarget)..'; iMaxTargetDamage='..iMaxTargetDamage) end
                     end
                 end
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': Finished checking every angle for iDistanceFromBase='..iDistanceFromBase..'; iMaxTargetDamage='..iMaxTargetDamage..'; tBestTarget='..repru(tBestTarget)) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished checking every angle for iDistanceFromBase='..iDistanceFromBase..'; iMaxTargetDamage='..iMaxTargetDamage..'; tBestTarget='..repru(tBestTarget)) end
         end
     end
     if bDebugMessages == true then

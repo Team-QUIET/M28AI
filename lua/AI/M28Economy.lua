@@ -492,11 +492,11 @@ end
 
 function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReasonRef)
     --Work out the upgrade ID wanted; if bUpdateUpgradeTracker is true then records upgrade against unit's aiBrain
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'UpgradeUnit'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, oUnitToUpgrade='..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' owned by '..oUnitToUpgrade:GetAIBrain().Nickname..'; GetUnitUpgradeBlueprint='..reprs((M28UnitInfo.GetUnitUpgradeBlueprint(oUnitToUpgrade, true) or 'nil'))..'; bUpdateUpgradeTracker='..tostring((bUpdateUpgradeTracker or false))..'; unit brain='..oUnitToUpgrade:GetAIBrain().Nickname..'; Are we in T1 spam mode='..tostring(M28Team.tTeamData[oUnitToUpgrade:GetAIBrain().M28Team][M28Team.refbFocusOnT1Spam])..'; Unit enhancement upgrade count='..(oUnitToUpgrade[M28ACU.refiUpgradeCount] or 'nil')..'; refbTriedUpgrading='..tostring(oUnitToUpgrade[M28UnitInfo.refbTriedUpgrading] or false)..'; refbObjectiveUnit='..tostring(oUnitToUpgrade[M28UnitInfo.refbObjectiveUnit] or false)..'; Is oUnitToUpgrade.EventCallbacks.OnKilled nil='..tostring(oUnitToUpgrade.EventCallbacks.OnKilled == nil)..'; iOptionalWait='..(iOptionalWait or 'nil')..'; reason='..(sReasonRef or 'nil')) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, oUnitToUpgrade='..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' owned by '..oUnitToUpgrade:GetAIBrain().Nickname..'; GetUnitUpgradeBlueprint='..reprs((M28UnitInfo.GetUnitUpgradeBlueprint(oUnitToUpgrade, true) or 'nil'))..'; bUpdateUpgradeTracker='..tostring((bUpdateUpgradeTracker or false))..'; unit brain='..oUnitToUpgrade:GetAIBrain().Nickname..'; Are we in T1 spam mode='..tostring(M28Team.tTeamData[oUnitToUpgrade:GetAIBrain().M28Team][M28Team.refbFocusOnT1Spam])..'; Unit enhancement upgrade count='..(oUnitToUpgrade[M28ACU.refiUpgradeCount] or 'nil')..'; refbTriedUpgrading='..tostring(oUnitToUpgrade[M28UnitInfo.refbTriedUpgrading] or false)..'; refbObjectiveUnit='..tostring(oUnitToUpgrade[M28UnitInfo.refbObjectiveUnit] or false)..'; Is oUnitToUpgrade.EventCallbacks.OnKilled nil='..tostring(oUnitToUpgrade.EventCallbacks.OnKilled == nil)..'; iOptionalWait='..(iOptionalWait or 'nil')..'; reason='..(sReasonRef or 'nil')) end
 
     if iOptionalWait and iOptionalWait > 0 then
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -505,7 +505,7 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
     end
     --Campaign specific - dont upgrade a campaign objective unit if it doesnt have an active OnKilled callback
     if oUnitToUpgrade[M28UnitInfo.refbObjectiveUnit] and M28Map.bIsCampaignMap and not(oUnitToUpgrade.EventCallbacks.OnKilled) then
-        if bDebugMessages == true then LOG(sFunctionRef..': Wont upgrade afterall as we might break a campaign objective') end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Wont upgrade afterall as we might break a campaign objective') end
         M28Utilities.ErrorHandler('Aborting upgrade of unit '..oUnitToUpgrade.UnitId..' as it might be a campaign objective unit', true, false)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         return nil
@@ -521,19 +521,19 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
     if sUpgradeID and M28UnitInfo.IsUnitValid(oUnitToUpgrade) then
         local aiBrain = oUnitToUpgrade:GetAIBrain()
         if EntityCategoryContains(M28UnitInfo.refCategoryMex, oUnitToUpgrade.UnitId) and ShouldDelayMexUpgradeForQuietTierOrder(oUnitToUpgrade, aiBrain.M28Team) then
-            if bDebugMessages == true then LOG(sFunctionRef..': Aborting upgrade of mex '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' because a lower Quiet mex rung still has outstanding upgrades elsewhere on the team') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Aborting upgrade of mex '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' because a lower Quiet mex rung still has outstanding upgrades elsewhere on the team') end
             ForkThread(ConsiderFutureMexUpgrade, oUnitToUpgrade, 20)
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
             return nil
         end
-        if bDebugMessages == true then LOG(sFunctionRef..': About to issue ugprade to unit '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..'; Current state='..M28UnitInfo.GetUnitState(oUnitToUpgrade)..'; Work progress='..(oUnitToUpgrade:GetWorkProgress() or 'nil')..'; Is unit upgrading='..tostring(oUnitToUpgrade:IsUnitState('Upgrading'))..'; Fraction complete='..oUnitToUpgrade:GetFractionComplete()) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to issue ugprade to unit '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..'; Current state='..M28UnitInfo.GetUnitState(oUnitToUpgrade)..'; Work progress='..(oUnitToUpgrade:GetWorkProgress() or 'nil')..'; Is unit upgrading='..tostring(oUnitToUpgrade:IsUnitState('Upgrading'))..'; Fraction complete='..oUnitToUpgrade:GetFractionComplete()) end
 
         if not(oUnitToUpgrade:IsUnitState('Upgrading')) then
             if not(oUnitToUpgrade:IsUnitState('BeingUpgraded')) then
                 if EntityCategoryContains(M28UnitInfo.refCategoryMex, oUnitToUpgrade.UnitId) then
                     local bCanStartMexUpgrade, iBurstCap = CanTeamStartMexUpgradeNow(aiBrain.M28Team, oUnitToUpgrade, true)
                     if not(bCanStartMexUpgrade) then
-                        if bDebugMessages == true then LOG(sFunctionRef..': Deferring mex upgrade for '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' because team mex burst cap of '..iBurstCap..' starts per '..refiMexUpgradeStartBurstWindow..'s window is already full') end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Deferring mex upgrade for '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' because team mex burst cap of '..iBurstCap..' starts per '..refiMexUpgradeStartBurstWindow..'s window is already full') end
                         ForkThread(ConsiderFutureMexUpgrade, oUnitToUpgrade, 5)
                         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                         return nil
@@ -545,13 +545,13 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
 
                 --Factory specific - if work progress is <=5% then cancel so can do the upgrade
                 if EntityCategoryContains(M28UnitInfo.refCategoryFactory, oUnitToUpgrade.UnitId) then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Are upgrading a factory '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..'; work progress='..oUnitToUpgrade:GetWorkProgress()) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Are upgrading a factory '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..'; work progress='..oUnitToUpgrade:GetWorkProgress()) end
                     if oUnitToUpgrade.GetWorkProgress and oUnitToUpgrade:GetWorkProgress() <= 0.05 then
                         --Are we building an engineer or transport?
                         local oUnitThatAreBuilding = oUnitToUpgrade:GetFocusUnit()
                         if not(M28UnitInfo.IsUnitValid(oUnitThatAreBuilding) and EntityCategoryContains(M28UnitInfo.refCategoryTransport + M28UnitInfo.refCategoryEngineer, oUnitThatAreBuilding.UnitId)) then
                             bAddToExistingQueue = false
-                            if bDebugMessages == true then LOG(sFunctionRef..': Have barely started with current construction so will cancel so can get upgrade sooner') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have barely started with current construction so will cancel so can get upgrade sooner') end
                         end
                     end
                 end
@@ -559,10 +559,10 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
                 --Air factory upgrades - if we are upgrading from T1 to T2 and havent build a transport, and have plateaus, then want to get a transport first
                 if EntityCategoryContains(M28UnitInfo.refCategoryAirFactory * categories.TECH1, oUnitToUpgrade.UnitId) and aiBrain[refiOurHighestAirFactoryTech] == 1 and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryAirFactory * categories.TECH1) == 1 then
                     --Do we have locations for transports to drop?
-                    if bDebugMessages == true then LOG(sFunctionRef..': Is island drop shortlist empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[aiBrain.M28Team][M28Team.reftTransportIslandDropShortlist]))..'; Is table of far away same island zone shortlist empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[aiBrain.M28Team][M28Team.reftTransportFarAwaySameIslandPlateauLandZoneDropShortlist]))..'; Lifetime transport count='..M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTransport)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is island drop shortlist empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[aiBrain.M28Team][M28Team.reftTransportIslandDropShortlist]))..'; Is table of far away same island zone shortlist empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[aiBrain.M28Team][M28Team.reftTransportFarAwaySameIslandPlateauLandZoneDropShortlist]))..'; Lifetime transport count='..M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTransport)) end
                     if (M28Utilities.IsTableEmpty(M28Team.tTeamData[aiBrain.M28Team][M28Team.reftTransportIslandDropShortlist]) == false or M28Utilities.IsTableEmpty(M28Team.tTeamData[aiBrain.M28Team][M28Team.reftTransportFarAwaySameIslandPlateauLandZoneDropShortlist]) == false) and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTransport) == 0 then
                         local refbQueuedTransport = 'M28QueuedTransport'
-                        if bDebugMessages == true then LOG(sFunctionRef..': Checking if we have already queued up transport for this unit='..tostring(oUnitToUpgrade[refbQueuedTransport] or false)..'; M28Team.tTeamData[aiBrain.M28Team][M28Team.reftTransportIslandDropShortlist]='..repru(M28Team.tTeamData[aiBrain.M28Team][M28Team.reftTransportIslandDropShortlist])..'; M28Team.tTeamData[aiBrain.M28Team][M28Team.reftTransportFarAwaySameIslandPlateauLandZoneDropShortlist]='..repru(M28Team.tTeamData[aiBrain.M28Team][M28Team.reftTransportFarAwaySameIslandPlateauLandZoneDropShortlist])) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if we have already queued up transport for this unit='..tostring(oUnitToUpgrade[refbQueuedTransport] or false)..'; M28Team.tTeamData[aiBrain.M28Team][M28Team.reftTransportIslandDropShortlist]='..repru(M28Team.tTeamData[aiBrain.M28Team][M28Team.reftTransportIslandDropShortlist])..'; M28Team.tTeamData[aiBrain.M28Team][M28Team.reftTransportFarAwaySameIslandPlateauLandZoneDropShortlist]='..repru(M28Team.tTeamData[aiBrain.M28Team][M28Team.reftTransportFarAwaySameIslandPlateauLandZoneDropShortlist])) end
 
                         if not(oUnitToUpgrade[refbQueuedTransport]) then
                             --Havent built any transports yet so build a T1 transport before we upgrade to T2 air
@@ -571,7 +571,7 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
                             if sTransportID then
                                 oUnitToUpgrade[refbQueuedTransport] = true
                                 M28Orders.IssueTrackedFactoryBuild(oUnitToUpgrade, sTransportID, false, 'PreUp')
-                                if bDebugMessages == true then LOG(sFunctionRef..': Will queue up a transport for factory '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will queue up a transport for factory '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)) end
                             end
                         end
                     end
@@ -582,15 +582,15 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
                     if sEngiID then
                         M28Orders.IssueTrackedFactoryBuild(oUnitToUpgrade, sEngiID, false, 'PreUp')
                     end
-                    if bDebugMessages == true then LOG(sFunctionRef..': About to go to T3 on factory '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' but only have '..aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer - categories.TECH1)..' T2 plus engis so will queue up another engi before the upgrade. sEngiID='..(sEngiID or 'nil')) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to go to T3 on factory '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' but only have '..aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer - categories.TECH1)..' T2 plus engis so will queue up another engi before the upgrade. sEngiID='..(sEngiID or 'nil')) end
                 end
 
                 --Issue upgrade
-                if bDebugMessages == true then LOG(sFunctionRef..': Issuing tracked upgrade for land factory '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..'; upgradeID='..(sUpgradeID or 'nil')..'; bAddToExistingQueue='..tostring(bAddToExistingQueue)..'; currentState='..M28UnitInfo.GetUnitState(oUnitToUpgrade)..'; queueEmpty='..tostring(M28Utilities.IsTableEmpty(oUnitToUpgrade:GetCommandQueue()))..'; reason='..(sReasonRef or 'nil')) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Issuing tracked upgrade for land factory '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..'; upgradeID='..(sUpgradeID or 'nil')..'; bAddToExistingQueue='..tostring(bAddToExistingQueue)..'; currentState='..M28UnitInfo.GetUnitState(oUnitToUpgrade)..'; queueEmpty='..tostring(M28Utilities.IsTableEmpty(oUnitToUpgrade:GetCommandQueue()))..'; reason='..(sReasonRef or 'nil')) end
                 M28Orders.IssueTrackedUpgrade(oUnitToUpgrade, sUpgradeID, bAddToExistingQueue, sReasonRef)
                 --Issue where if we give the upgrade presumably just as the unit has finihsed its own upgrade, then it shows as beingupgrade while also being complete; so we wait 1 second and try again
             elseif oUnitToUpgrade:GetFractionComplete() == 1 then
-                if bDebugMessages == true then LOG(sFunctionRef..': Unit still flagged as being upgraded at full completion, will retry in 1s for unit '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit still flagged as being upgraded at full completion, will retry in 1s for unit '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)) end
                 ForkThread(UpgradeUnit, oUnitToUpgrade, false, 1, sReasonRef)
             end
         end
@@ -599,7 +599,7 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
         M28UnitInfo.PauseOrUnpauseUnitWithoutTracking(oUnitToUpgrade, false)
         --oUnitToUpgrade:SetPaused(false)
         --oUnitToUpgrade[M28UnitInfo.refbPaused] = false
-        if bDebugMessages == true then LOG(sFunctionRef..': Just set paused to false for unit '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just set paused to false for unit '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)) end
 
         if bUpdateUpgradeTracker then
             M28Team.UpdateUpgradeTrackingOfUnit(oUnitToUpgrade, false, sUpgradeID)
@@ -621,8 +621,8 @@ end
 
 function GetBestUnitToUpgrade(toPotentialUnits, bPrioritiseFactoryHQ)
     --Assumes have already checked units are valid/not upgrading and factored in whether safe or not already, so just need to do distance type check
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'GetBestUnitToUpgrade'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local iClosestUnitToBase = 100000
@@ -631,26 +631,26 @@ function GetBestUnitToUpgrade(toPotentialUnits, bPrioritiseFactoryHQ)
     local sUnitToUpgradeTo
     for iUnit, oUnit in toPotentialUnits do
         iCurModDist = M28Map.GetModDistanceFromStart(oUnit:GetAIBrain(), oUnit:GetPosition(), false)
-        if bDebugMessages == true then LOG(sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iCurModDist before adjust='..iCurModDist..'; iClosestUnitToBase='..iClosestUnitToBase..'; bPrioritiseFactoryHQ='..tostring(bPrioritiseFactoryHQ or false)..'; Unit upgrades to='..(oUnit:GetBlueprint().General.UpgradesTo or 'nil')..'; length of string='..string.len(sUnitToUpgradeTo or '')..'; Is UpgradesTo a blank string='..tostring(sUnitToUpgradeTo == '')) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iCurModDist before adjust='..iCurModDist..'; iClosestUnitToBase='..iClosestUnitToBase..'; bPrioritiseFactoryHQ='..tostring(bPrioritiseFactoryHQ or false)..'; Unit upgrades to='..(oUnit:GetBlueprint().General.UpgradesTo or 'nil')..'; length of string='..string.len(sUnitToUpgradeTo or '')..'; Is UpgradesTo a blank string='..tostring(sUnitToUpgradeTo == '')) end
         if bPrioritiseFactoryHQ and not(EntityCategoryContains(M28UnitInfo.refCategoryAllHQFactories, oUnit.UnitId)) then iCurModDist = iCurModDist + 1000 end
         if iCurModDist < iClosestUnitToBase then
             --Check it can upgrade
             sUnitToUpgradeTo = oUnit:GetBlueprint().General.UpgradesTo
             if sUnitToUpgradeTo and not(sUnitToUpgradeTo == '') and not(M28UnitInfo.IsUnitRestricted(sUnitToUpgradeTo, oUnit:GetAIBrain():GetArmyIndex())) then
-                if bDebugMessages == true then LOG(sFunctionRef..': Updating oClosestUnitToBase to be this unit') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Updating oClosestUnitToBase to be this unit') end
                 iClosestUnitToBase = iCurModDist
                 oClosestUnitToBase = oUnit
             end
         end
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': Best unit to upgrade was '..(oClosestUnitToBase.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oClosestUnitToBase) or 'nil')) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Best unit to upgrade was '..(oClosestUnitToBase.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oClosestUnitToBase) or 'nil')) end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     return oClosestUnitToBase
 end
 
 function UpdateZoneM28AllMexByTech(aiBrain, iPlateauOrZero, iLandOrWaterZone, oOptionalUnitThatDied, iOptionalWait)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'UpdateZoneM28AllMexByTech'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
 
@@ -679,7 +679,7 @@ function UpdateZoneM28AllMexByTech(aiBrain, iPlateauOrZero, iLandOrWaterZone, oO
     end
 
     tLZOrWZTeamData[M28Map.subrefMexCountByTech] = {[1]=0,[2]=0,[3]=0} --starting point
-    if bDebugMessages == true then LOG(sFunctionRef..': Time of game='..GetGameTimeSeconds()..'; Is table of allied units for iPlateauOrZero '..iPlateauOrZero..' iLandOrWaterZone '..iLandOrWaterZone..' empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits]))) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time of game='..GetGameTimeSeconds()..'; Is table of allied units for iPlateauOrZero '..iPlateauOrZero..' iLandOrWaterZone '..iLandOrWaterZone..' empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits]))) end
     local iMexCount = 0
     if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
         local tAllMexes = EntityCategoryFilterDown(M28UnitInfo.refCategoryMex, tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
@@ -695,16 +695,16 @@ function UpdateZoneM28AllMexByTech(aiBrain, iPlateauOrZero, iLandOrWaterZone, oO
         tMexesByTech[1] = EntityCategoryFilterDown(M28UnitInfo.refCategoryMex * categories.TECH1, tAllMexes)
         tMexesByTech[2] = EntityCategoryFilterDown(M28UnitInfo.refCategoryMex * categories.TECH2, tAllMexes)
         tMexesByTech[3] = EntityCategoryFilterDown(M28UnitInfo.refCategoryMex * categories.TECH3, tAllMexes)
-        if bDebugMessages == true then LOG(sFunctionRef..': oOptionalUnitThatDied='..(oOptionalUnitThatDied.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oOptionalUnitThatDied) or 'nil')..'; Is tAllMexes empty='..tostring(M28Utilities.IsTableEmpty(tAllMexes))) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oOptionalUnitThatDied='..(oOptionalUnitThatDied.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oOptionalUnitThatDied) or 'nil')..'; Is tAllMexes empty='..tostring(M28Utilities.IsTableEmpty(tAllMexes))) end
         local tiRecordedMexPositionsXZ = {} --Finding issues with an upgrading mex that completes having both the original mex and the upgraded mex for a period of time; if are upgrading multiple in a zone at the same time, this can lead to too many mexes being recorded for brief moment
         for iTech = 3, 1, -1 do
-            if bDebugMessages == true then LOG(sFunctionRef..': Updating for iTech='..iTech..'; Is table of mexes by tech empty='..tostring(M28Utilities.IsTableEmpty(tMexesByTech[iTech]))) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Updating for iTech='..iTech..'; Is table of mexes by tech empty='..tostring(M28Utilities.IsTableEmpty(tMexesByTech[iTech]))) end
             if M28Utilities.IsTableEmpty(tMexesByTech[iTech]) == false then
                 for iMex, oCurMex in tMexesByTech[iTech] do
-                    if bDebugMessages == true then LOG(sFunctionRef..': Plateau='..iPlateauOrZero..'; iLandOrWaterZone='..iLandOrWaterZone..'; oCurMex='..oCurMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oCurMex)..'; Unit state='..M28UnitInfo.GetUnitState(oCurMex)..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oCurMex))..'; Position='..repru(oCurMex:GetPosition())..'; iTech='..iTech..'; iMexCount pre increase='..iMexCount..'; tLZOrWZTeamData[M28Map.subrefMexCountByTech] pre increase='..repru(tLZOrWZTeamData[M28Map.subrefMexCountByTech])) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Plateau='..iPlateauOrZero..'; iLandOrWaterZone='..iLandOrWaterZone..'; oCurMex='..oCurMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oCurMex)..'; Unit state='..M28UnitInfo.GetUnitState(oCurMex)..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oCurMex))..'; Position='..repru(oCurMex:GetPosition())..'; iTech='..iTech..'; iMexCount pre increase='..iMexCount..'; tLZOrWZTeamData[M28Map.subrefMexCountByTech] pre increase='..repru(tLZOrWZTeamData[M28Map.subrefMexCountByTech])) end
                     if oCurMex:GetAIBrain().M28AI and M28UnitInfo.IsUnitValid(oCurMex) and oCurMex:GetFractionComplete() == 1 and not(oOptionalUnitThatDied == oCurMex) then
                         if iTech == 3 or not(tiRecordedMexPositionsXZ[oCurMex:GetPosition()[1]]) or not(tiRecordedMexPositionsXZ[oCurMex:GetPosition()[1]][oCurMex:GetPosition()[3]]) then
-                            if bDebugMessages == true then LOG(sFunctionRef..': Adding iMex '..iMex..'; oCurMex='..oCurMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oCurMex)..' to mex count, Unit state='..M28UnitInfo.GetUnitState(oCurMex)..'; Position='..repru(oCurMex:GetPosition())) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adding iMex '..iMex..'; oCurMex='..oCurMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oCurMex)..' to mex count, Unit state='..M28UnitInfo.GetUnitState(oCurMex)..'; Position='..repru(oCurMex:GetPosition())) end
                             tLZOrWZTeamData[M28Map.subrefMexCountByTech][iTech] = tLZOrWZTeamData[M28Map.subrefMexCountByTech][iTech] + 1
                             if not(tiRecordedMexPositionsXZ[oCurMex:GetPosition()[1]]) then tiRecordedMexPositionsXZ[oCurMex:GetPosition()[1]] = {} end
                             tiRecordedMexPositionsXZ[oCurMex:GetPosition()[1]][oCurMex:GetPosition()[3]] = true
@@ -714,7 +714,7 @@ function UpdateZoneM28AllMexByTech(aiBrain, iPlateauOrZero, iLandOrWaterZone, oO
                 end
             end
         end
-        if bDebugMessages == true then LOG(sFunctionRef..': Finished updating mex count, tLZOrWZTeamData[M28Map.subrefMexCountByTech]='..repru(tLZOrWZTeamData[M28Map.subrefMexCountByTech])..'; iMexCount='..iMexCount..'; Table size of mex locations for this LZ='..table.getn( M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iLandOrWaterZone][M28Map.subrefLZOrWZMexLocations])..'; iMexCount from this function='..iMexCount..'; iOptionalWait='..(iOptionalWait or 'nil')..'; tiRecordedMexPositionsXZ='..repru(tiRecordedMexPositionsXZ)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished updating mex count, tLZOrWZTeamData[M28Map.subrefMexCountByTech]='..repru(tLZOrWZTeamData[M28Map.subrefMexCountByTech])..'; iMexCount='..iMexCount..'; Table size of mex locations for this LZ='..table.getn( M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iLandOrWaterZone][M28Map.subrefLZOrWZMexLocations])..'; iMexCount from this function='..iMexCount..'; iOptionalWait='..(iOptionalWait or 'nil')..'; tiRecordedMexPositionsXZ='..repru(tiRecordedMexPositionsXZ)) end
         --If have somehow ended up with more mexes than there are locations, then redo the check in 1 second
         if iMexCount > 0 and M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subrefLZOrWZMexLocations]) == false and iMexCount > table.getn( tLZOrWZData[M28Map.subrefLZOrWZMexLocations]) then
             if (iOptionalWait or 0) >= 10 then
@@ -723,14 +723,14 @@ function UpdateZoneM28AllMexByTech(aiBrain, iPlateauOrZero, iLandOrWaterZone, oO
                     M28Utilities.ErrorHandler('Somehow we have more mexes than we should even after waiting '..iOptionalWait..' first, iPlateauOrZero='..iPlateauOrZero..'; iLandOrWaterZone='..iLandOrWaterZone..'; iMexCount='..iMexCount..'; table.getn( tLZOrWZData[M28Map.subrefLZOrWZMexLocations])='..table.getn( tLZOrWZData[M28Map.subrefLZOrWZMexLocations])..'; tLZOrWZTeamData[M28Map.subrefMexCountByTech]: T1='..tLZOrWZTeamData[M28Map.subrefMexCountByTech][1]..';T2='..tLZOrWZTeamData[M28Map.subrefMexCountByTech][2]..'; T3='..tLZOrWZTeamData[M28Map.subrefMexCountByTech][3])
                 end
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': Have an inconsistent number of mexes so will call this function again with a wait, time='..GetGameTimeSeconds()) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have an inconsistent number of mexes so will call this function again with a wait, time='..GetGameTimeSeconds()) end
             ForkThread(UpdateZoneM28AllMexByTech, aiBrain, iPlateauOrZero, iLandOrWaterZone, oOptionalUnitThatDied, 15)
         end
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': Finished checking mex count by tech, iMexCount='..iMexCount..'; iOrigMexCount='..iOrigMexCount..'; Is table of unbuilt locations empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subrefMexUnbuiltLocations]))..'; tLZOrWZData[M28Map.subrefLZOrWZMexCount]='..tLZOrWZData[M28Map.subrefLZOrWZMexCount]) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished checking mex count by tech, iMexCount='..iMexCount..'; iOrigMexCount='..iOrigMexCount..'; Is table of unbuilt locations empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subrefMexUnbuiltLocations]))..'; tLZOrWZData[M28Map.subrefLZOrWZMexCount]='..tLZOrWZData[M28Map.subrefLZOrWZMexCount]) end
     if M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subrefMexUnbuiltLocations]) and (iMexCount < iOrigMexCount or (iMexCount == iOrigMexCount and iMexCount < tLZOrWZData[M28Map.subrefLZOrWZMexCount])) then
         --We have fewer mexes; unless this is because e.g. enemy has captured a mex, or due to a split second timing issue, this suggests a bug with mex tracking, so will re-check all unavailable locations in 1 sec
-        if bDebugMessages == true then LOG(sFunctionRef..': Will manuall recheck unbuilt locations') end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will manuall recheck unbuilt locations') end
         ForkThread(ManuallyRecheckUnbuiltMexLocationsInZone, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, 1)
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -738,14 +738,14 @@ end
 
 function ManuallyRecheckUnbuiltMexLocationsInZone(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, iWaitInSeconds)
     --Calll via forkthread when had unexpected mex result that in some cases might be valid but in others invalid
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ManuallyRecheckUnbuiltMexLocationsInZone'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
 
     WaitSeconds(iWaitInSeconds)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local tMexLocations = tLZOrWZData[M28Map.subrefLZOrWZMexLocations] --same ref used for LZ and WZs
-    if bDebugMessages == true then LOG(sFunctionRef..': Considering P'..iPlateauOrZero..'Z'..iLandOrWaterZone..'; Is tMexLocations empty='..tostring(M28Utilities.IsTableEmpty(tMexLocations))..'; Is subrefMexUnbuiltLocations empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subrefMexUnbuiltLocations]))) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering P'..iPlateauOrZero..'Z'..iLandOrWaterZone..'; Is tMexLocations empty='..tostring(M28Utilities.IsTableEmpty(tMexLocations))..'; Is subrefMexUnbuiltLocations empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subrefMexUnbuiltLocations]))) end
     --Do we have unavailable build locations, but have mexes in the zone? (redundancy in case things have changed in iWaitInSeconds time; we shouldve only called this function if the team's mexes decreased but there were no available mex locations to build on)
     if M28Utilities.IsTableEmpty(tMexLocations) == false and M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subrefMexUnbuiltLocations]) then
         local bNoMexPresent
@@ -753,11 +753,11 @@ function ManuallyRecheckUnbuiltMexLocationsInZone(iPlateauOrZero, iLandOrWaterZo
             local rRect = M28Utilities.GetRectAroundLocation(tMex, 0.49)
             local tUnitsInRect = GetUnitsInRect(rRect)
             bNoMexPresent = true
-            if bDebugMessages == true then LOG(sFunctionRef..': Considering iMex position='..iMex..'; tMex='..repru(tMex)..'; Are there units in a rectangle around this mex='..tostring(M28Utilities.IsTableEmpty(tUnitsInRect))) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering iMex position='..iMex..'; tMex='..repru(tMex)..'; Are there units in a rectangle around this mex='..tostring(M28Utilities.IsTableEmpty(tUnitsInRect))) end
             if M28Utilities.IsTableEmpty(tUnitsInRect) == false then
                 for iUnit, oUnit in tUnitsInRect do
                     if EntityCategoryContains(M28UnitInfo.refCategoryMex, oUnit.UnitId) then
-                        if bDebugMessages == true then LOG(sFunctionRef..': Have a mex near here, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Fraction complete='..oUnit:GetFractionComplete()..'; .Dead='..tostring(oUnit.Dead or false)) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have a mex near here, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Fraction complete='..oUnit:GetFractionComplete()..'; .Dead='..tostring(oUnit.Dead or false)) end
                         bNoMexPresent = false
                         break
                     end
@@ -765,19 +765,19 @@ function ManuallyRecheckUnbuiltMexLocationsInZone(iPlateauOrZero, iLandOrWaterZo
             end
             if bNoMexPresent then
                 if not(tLZOrWZData[M28Map.subrefMexUnbuiltLocations]) then tLZOrWZData[M28Map.subrefMexUnbuiltLocations] = {} end
-                if bDebugMessages == true then LOG(sFunctionRef..': Redundancy, adding unbuilt mex location for P'..iPlateauOrZero..'Z'..iLandOrWaterZone..' at time='..GetGameTimeSeconds()..'; tMex='..repru(tMex)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Redundancy, adding unbuilt mex location for P'..iPlateauOrZero..'Z'..iLandOrWaterZone..' at time='..GetGameTimeSeconds()..'; tMex='..repru(tMex)) end
                 table.insert(tLZOrWZData[M28Map.subrefMexUnbuiltLocations], tMex)
             end
         end
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': end of code, tLZOrWZData[M28Map.subrefMexUnbuiltLocations]='..repru(tLZOrWZData[M28Map.subrefMexUnbuiltLocations])) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': end of code, tLZOrWZData[M28Map.subrefMexUnbuiltLocations]='..repru(tLZOrWZData[M28Map.subrefMexUnbuiltLocations])) end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
 function UpdateZoneM28MexByTechCount(oMexJustBuiltOrDied, bJustDied, iOptionalWait)
     --Call via fork thread on mex creation due to potential timing issue with an upgrading mex being destroyed and replaced with the new (upgraded) mex
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'UpdateZoneM28MexByTechCount'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     if oMexJustBuiltOrDied.GetAIBrain then
@@ -785,7 +785,7 @@ function UpdateZoneM28MexByTechCount(oMexJustBuiltOrDied, bJustDied, iOptionalWa
         if aiBrain.M28AI then
             local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oMexJustBuiltOrDied:GetPosition())
             --should be called whenever a mex is created or destroyed in a land zone; ideally call via fork thread so reduced risk of it being called inbetween a mex say upgrading from one to another and being claled before both the creation and destroy events have happened
-            if bDebugMessages == true then LOG(sFunctionRef..': Time='..GetGameTimeSeconds()..'; oMexJustBuiltOrDied='..(oMexJustBuiltOrDied.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oMexJustBuiltOrDied) or 'nil')..'; iPlateauOrZero='..(iPlateauOrZero or 'nil')..'; iLandOrWaterZone='..(iLandOrWaterZone or 'nil')..'; Mex position='..repru(oMexJustBuiltOrDied:GetPosition())..'; iMapWaterHeight='..M28Map.iMapWaterHeight..'; iOptionalWait='..(iOptionalWait or 'nil')..'; bJustDied='..tostring(bJustDied or false)) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time='..GetGameTimeSeconds()..'; oMexJustBuiltOrDied='..(oMexJustBuiltOrDied.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oMexJustBuiltOrDied) or 'nil')..'; iPlateauOrZero='..(iPlateauOrZero or 'nil')..'; iLandOrWaterZone='..(iLandOrWaterZone or 'nil')..'; Mex position='..repru(oMexJustBuiltOrDied:GetPosition())..'; iMapWaterHeight='..M28Map.iMapWaterHeight..'; iOptionalWait='..(iOptionalWait or 'nil')..'; bJustDied='..tostring(bJustDied or false)) end
             if (iLandOrWaterZone or 0) > 0 then
                 if not(iOptionalWait) then
                     if bJustDied then
@@ -808,19 +808,19 @@ end
 
 function FindAndUpgradeUnitOfCategory(aiBrain, iCategoryWanted, iOptionalMinUnitsToHaveBuilt, sReasonRef)
     --e.g. intended for upgrading factory HQs, subject to CheckIfNeedMoreEngineersOrSnipeUnitsBeforeUpgrading
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'FindAndUpgradeUnitOfCategory'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local tUnitsOfCategory = aiBrain:GetListOfUnits(iCategoryWanted, false, true)
     local iMinUnitsToHaveBuilt = iOptionalMinUnitsToHaveBuilt or 2
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code for brain '..aiBrain.Nickname..'; is tUnitsOfCategory empty='..tostring(M28Utilities.IsTableEmpty(tUnitsOfCategory))..'; iOptionalMinUnitsToHaveBuilt='..(iOptionalMinUnitsToHaveBuilt or 'nil')..'; iMinUnitsToHaveBuilt='..iMinUnitsToHaveBuilt) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code for brain '..aiBrain.Nickname..'; is tUnitsOfCategory empty='..tostring(M28Utilities.IsTableEmpty(tUnitsOfCategory))..'; iOptionalMinUnitsToHaveBuilt='..(iOptionalMinUnitsToHaveBuilt or 'nil')..'; iMinUnitsToHaveBuilt='..iMinUnitsToHaveBuilt) end
     if M28Utilities.IsTableEmpty(tUnitsOfCategory) == false then
         local tUnitsToSearch = {}
         local tUnsafeUnitsOfCategory = {}
         local iCurPlateau, iCurLZ
         for iUnit, oUnit in tUnitsOfCategory do
-            if bDebugMessages == true then LOG(sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by brain '..oUnit:GetAIBrain().Nickname..'; Unit build count='.. oUnit[M28Factory.refiTotalBuildCount]) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by brain '..oUnit:GetAIBrain().Nickname..'; Unit build count='.. oUnit[M28Factory.refiTotalBuildCount]) end
             --Removed CheckIfNeedMoreEngineersOrSnipeUnitsBeforeUpgrading check to speed up upgrades
             if true then
                 if oUnit:GetFractionComplete() == 1 and not(oUnit:IsUnitState('Upgrading')) and not(oUnit.Dead) and not(oUnit:IsUnitState('BeingUpgraded')) then
@@ -842,17 +842,17 @@ function FindAndUpgradeUnitOfCategory(aiBrain, iCategoryWanted, iOptionalMinUnit
             local iCurDist
             local iClosestDist = 100000
             local oClosestUnit
-            if bDebugMessages == true then LOG(sFunctionRef..': About to consider '..table.getn(tUnitsToSearch)..' potential units to upgrade, will pick the closest one') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to consider '..table.getn(tUnitsToSearch)..' potential units to upgrade, will pick the closest one') end
             for iUnit, oUnit in tUnitsToSearch do
                 iCurDist = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), M28Map.PlayerStartPoints[aiBrain:GetArmyIndex()])
-                if bDebugMessages == true then LOG(sFunctionRef..': Considering unit '..(oUnit.UnitId or 'nil')..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oUnit))..'; iCurDist='..iCurDist) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit '..(oUnit.UnitId or 'nil')..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oUnit))..'; iCurDist='..iCurDist) end
                 if iCurDist < iClosestDist then
                     iClosestDist = iCurDist
                     oClosestUnit = oUnit
                 end
             end
             if oClosestUnit then
-                if bDebugMessages == true then LOG(sFunctionRef..': WIll try and upgrade oClosestUnit '..oClosestUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oClosestUnit)..'; Fraction complete='..oClosestUnit:GetFractionComplete()..'; Unit state='..M28UnitInfo.GetUnitState(oClosestUnit)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': WIll try and upgrade oClosestUnit '..oClosestUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oClosestUnit)..'; Fraction complete='..oClosestUnit:GetFractionComplete()..'; Unit state='..M28UnitInfo.GetUnitState(oClosestUnit)) end
                 UpgradeUnit(oClosestUnit, true, nil, sReasonRef or sFunctionRef) --Will queue up transport or engineer for factories as well as figuring out whether to upgrade a support factory or an HQ
             end
         end
@@ -861,8 +861,8 @@ function FindAndUpgradeUnitOfCategory(aiBrain, iCategoryWanted, iOptionalMinUnit
 end
 
 function UpdateFactoryCountForFactoryKilledOrBuilt(oFactory, bIsDead)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'UpdateFactoryCountForFactoryKilledOrBuilt'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local iAdjust = 0
@@ -878,31 +878,31 @@ function UpdateFactoryCountForFactoryKilledOrBuilt(oFactory, bIsDead)
             oFactory[sTrackerRef] = true
         end
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': Near start, Time='..GetGameTimeSeconds()..'; iAdjust='..iAdjust..'; bIsDead='..tostring(bIsDead or false)..'; oFactory='..(oFactory.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oFactory) or 'nil')) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Near start, Time='..GetGameTimeSeconds()..'; iAdjust='..iAdjust..'; bIsDead='..tostring(bIsDead or false)..'; oFactory='..(oFactory.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oFactory) or 'nil')) end
     if not(iAdjust == 0) then
         local iFactoryType, iFactoryCategory = M28UnitInfo.GetFactoryType(oFactory)
-        if bDebugMessages == true then LOG(sFunctionRef..': iFactoryType='..iFactoryType..'; iTeam='..oFactory:GetAIBrain().M28Team..'; Brain='..oFactory:GetAIBrain().Nickname..'; Team factory count by type before update='..(M28Team.tTeamData[oFactory:GetAIBrain().M28Team][M28Team.subrefiTotalFactoryCountByType][iFactoryType] or 'nil')) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iFactoryType='..iFactoryType..'; iTeam='..oFactory:GetAIBrain().M28Team..'; Brain='..oFactory:GetAIBrain().Nickname..'; Team factory count by type before update='..(M28Team.tTeamData[oFactory:GetAIBrain().M28Team][M28Team.subrefiTotalFactoryCountByType][iFactoryType] or 'nil')) end
         M28Team.tTeamData[oFactory:GetAIBrain().M28Team][M28Team.subrefiTotalFactoryCountByType][iFactoryType] = math.max(0, M28Team.tTeamData[oFactory:GetAIBrain().M28Team][M28Team.subrefiTotalFactoryCountByType][iFactoryType] + iAdjust)
-        if bDebugMessages == true then LOG(sFunctionRef..': Factory count after update='..M28Team.tTeamData[oFactory:GetAIBrain().M28Team][M28Team.subrefiTotalFactoryCountByType][iFactoryType]) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Factory count after update='..M28Team.tTeamData[oFactory:GetAIBrain().M28Team][M28Team.subrefiTotalFactoryCountByType][iFactoryType]) end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
 function UpdateHighestFactoryTechLevelForBuiltUnit(oUnitJustBuilt)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'UpdateHighestFactoryTechLevelForBuiltUnit'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
 
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Checking if just built a factory HQ, Have just built unit '..oUnitJustBuilt.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitJustBuilt)..'; Fraction complete='..oUnitJustBuilt:GetFractionComplete()..'; Is it a factory HQ='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryAllHQFactories, oUnitJustBuilt.UnitId))) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if just built a factory HQ, Have just built unit '..oUnitJustBuilt.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitJustBuilt)..'; Fraction complete='..oUnitJustBuilt:GetFractionComplete()..'; Is it a factory HQ='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryAllHQFactories, oUnitJustBuilt.UnitId))) end
 
     --Update total factory count
 
 
     if oUnitJustBuilt:GetFractionComplete() == 1 and EntityCategoryContains(M28UnitInfo.refCategoryFactory + M28UnitInfo.refCategoryQuantumGateway, oUnitJustBuilt.UnitId) then
         --Update factory count
-        if bDebugMessages == true then LOG(sFunctionRef..': Just built factory or gateway, if we have built an HQ then will run more code') end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just built factory or gateway, if we have built an HQ then will run more code') end
         UpdateFactoryCountForFactoryKilledOrBuilt(oUnitJustBuilt, false)
         --Plateau factory - set flag to not pause if it's the first factory
         if EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oUnitJustBuilt.UnitId) then
@@ -923,7 +923,7 @@ function UpdateHighestFactoryTechLevelForBuiltUnit(oUnitJustBuilt)
                         end
                     end
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': Just built land fac '..oUnitJustBuilt.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitJustBuilt)..' in P'..iPlateau..'Z'..iLandZone..'; bHaveStartInSameIslandOrLOUD='..tostring(bHaveStartInSameIslandOrLOUD)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just built land fac '..oUnitJustBuilt.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitJustBuilt)..' in P'..iPlateau..'Z'..iLandZone..'; bHaveStartInSameIslandOrLOUD='..tostring(bHaveStartInSameIslandOrLOUD)) end
                 if not(bHaveStartInSameIslandOrLOUD) then
                     local bHaveOtherFactoriesOfSameTech = false
                     if M28Utilities.IsTableEmpty(tFactoryLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
@@ -944,7 +944,7 @@ function UpdateHighestFactoryTechLevelForBuiltUnit(oUnitJustBuilt)
                             end
                         end
                     end
-                    if bDebugMessages == true then LOG(sFunctionRef..': bHaveOtherFactoriesOfSameTech='..tostring(bHaveOtherFactoriesOfSameTech)..'; Mex count for factory island='..(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauIslandMexCount][tFactoryLZData[M28Map.subrefLZIslandRef]] or 0)..'; Mod dist%='..tFactoryLZTeamData[M28Map.refiModDistancePercent]) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bHaveOtherFactoriesOfSameTech='..tostring(bHaveOtherFactoriesOfSameTech)..'; Mex count for factory island='..(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauIslandMexCount][tFactoryLZData[M28Map.subrefLZIslandRef]] or 0)..'; Mod dist%='..tFactoryLZTeamData[M28Map.refiModDistancePercent]) end
                     if not(bHaveOtherFactoriesOfSameTech) then
                         --Do we have enough mexes to warrant always building from this factory?
                         local bHaveEnoughMexes = false
@@ -959,7 +959,7 @@ function UpdateHighestFactoryTechLevelForBuiltUnit(oUnitJustBuilt)
                             if iNearbyMexCount >= 4 then
                                 bHaveEnoughMexes = true
                             end
-                            if bDebugMessages == true then LOG(sFunctionRef..': iNearbyMexCount='..iNearbyMexCount..'; bHaveEnoughMexes='..tostring(bHaveEnoughMexes)) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iNearbyMexCount='..iNearbyMexCount..'; bHaveEnoughMexes='..tostring(bHaveEnoughMexes)) end
                         end
                         if bHaveEnoughMexes then
                             --Set flag of any other factories in this zone to false
@@ -975,7 +975,7 @@ function UpdateHighestFactoryTechLevelForBuiltUnit(oUnitJustBuilt)
                                     end
                                 end
                             end
-                            if bDebugMessages == true then LOG(sFunctionRef..': Just set land factory '..oUnitJustBuilt.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitJustBuilt)..' to be the primary factory for P'..iPlateau..'Z'..iLandZone..'at time='..GetGameTimeSeconds()) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just set land factory '..oUnitJustBuilt.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitJustBuilt)..' to be the primary factory for P'..iPlateau..'Z'..iLandZone..'at time='..GetGameTimeSeconds()) end
                             oUnitJustBuilt[M28Factory.refbPrimaryFactoryForIslandOrPond] = true
                         end
                     end
@@ -994,7 +994,7 @@ function UpdateHighestFactoryTechLevelForBuiltUnit(oUnitJustBuilt)
                     tFactoryLZTeamData[M28Map.subrefbQualifiesForForwardFactory] = nil
                     --Reset sustained reclaim tracking
                     tFactoryLZTeamData[M28Map.subrefiSustainedHighReclaimStartTime] = nil
-                    if bDebugMessages == true then LOG(sFunctionRef..': Built FORWARD FACTORY in P'..iPlateau..'Z'..iLandZone..'; Zone count='..(tFactoryLZTeamData[M28Map.subrefiForwardFactoryCount] or 0)..'; Team count='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamForwardFactoryCount] or 0)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Built FORWARD FACTORY in P'..iPlateau..'Z'..iLandZone..'; Zone count='..(tFactoryLZTeamData[M28Map.subrefiForwardFactoryCount] or 0)..'; Team count='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamForwardFactoryCount] or 0)) end
                 end
             end
         elseif EntityCategoryContains(M28UnitInfo.refCategoryNavalHQ, oUnitJustBuilt.UnitId) then
@@ -1029,7 +1029,7 @@ function UpdateHighestFactoryTechLevelForBuiltUnit(oUnitJustBuilt)
             else M28Utilities.ErrorHandler('Unrecognised factory type')
             end
             local aiBrain = oUnitJustBuilt:GetAIBrain()
-            if bDebugMessages == true then LOG(sFunctionRef..': Considering if factory HQ is a higher tech than we already have, sFactoryRef='..sFactoryRef..'; iUnitTechLevel='..iUnitTechLevel..'; aiBrain[sFactoryRef]='..aiBrain[sFactoryRef]) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if factory HQ is a higher tech than we already have, sFactoryRef='..sFactoryRef..'; iUnitTechLevel='..iUnitTechLevel..'; aiBrain[sFactoryRef]='..aiBrain[sFactoryRef]) end
             if iUnitTechLevel > aiBrain[sFactoryRef] then
                 aiBrain[sFactoryRef] = math.max(aiBrain[sFactoryRef], iUnitTechLevel)
                 aiBrain[refiOurHighestFactoryTechLevel] = math.max(iUnitTechLevel, aiBrain[refiOurHighestFactoryTechLevel])
@@ -1047,7 +1047,7 @@ function UpdateHighestFactoryTechLevelForBuiltUnit(oUnitJustBuilt)
                 ForkThread(M28Air.AssessPotentialBomberSnipeTargetsNowReachedT2Air, aiBrain.M28Team)
             end
         elseif EntityCategoryContains(M28UnitInfo.refCategoryQuantumGateway, oUnitJustBuilt.UnitId) then
-            if bDebugMessages == true then LOG(sFunctionRef..': Have built a gateway, will update subteam factory change') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have built a gateway, will update subteam factory change') end
             M28Team.CheckForSubteamFactoryChange(oUnitJustBuilt, true)
         end
     end
@@ -1056,13 +1056,13 @@ end
 
 function UpdateHighestFactoryTechLevelForDestroyedUnit(oUnitJustDestroyed)
     --Dont call via forkthread as causes issues with the unit being removed
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'UpdateHighestFactoryTechLevelForDestroyedUnit'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     if EntityCategoryContains(M28UnitInfo.refCategoryFactory, oUnitJustDestroyed.UnitId) then
         UpdateFactoryCountForFactoryKilledOrBuilt(oUnitJustDestroyed, true)
-        if bDebugMessages == true then LOG(sFunctionRef..': Factory was destroyed, oUnitJustDestroyed='..oUnitJustDestroyed.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitJustDestroyed)..'; is this an HQ factory='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryAllHQFactories, oUnitJustDestroyed.UnitId))..'; Time='..GetGameTimeSeconds()) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Factory was destroyed, oUnitJustDestroyed='..oUnitJustDestroyed.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitJustDestroyed)..'; is this an HQ factory='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryAllHQFactories, oUnitJustDestroyed.UnitId))..'; Time='..GetGameTimeSeconds()) end
         local aiBrain = oUnitJustDestroyed:GetAIBrain()
 
         --Decrement counts if this was a forward factory
@@ -1076,17 +1076,17 @@ function UpdateHighestFactoryTechLevelForDestroyedUnit(oUnitJustDestroyed)
                 tLZTeamData[M28Map.subrefiForwardFactoryCount] = math.max(0, (tLZTeamData[M28Map.subrefiForwardFactoryCount] or 1) - 1)
             end
             M28Team.tTeamData[iTeam][M28Team.subrefiTeamForwardFactoryCount] = math.max(0, (M28Team.tTeamData[iTeam][M28Team.subrefiTeamForwardFactoryCount] or 1) - 1)
-            if bDebugMessages == true then LOG(sFunctionRef..': FORWARD FACTORY DESTROYED in P'..iPlateau..'Z'..iLandZone..'; Zone count='..(tLZTeamData and tLZTeamData[M28Map.subrefiForwardFactoryCount] or 0)..'; Team count='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamForwardFactoryCount] or 0)) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': FORWARD FACTORY DESTROYED in P'..iPlateau..'Z'..iLandZone..'; Zone count='..(tLZTeamData and tLZTeamData[M28Map.subrefiForwardFactoryCount] or 0)..'; Team count='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamForwardFactoryCount] or 0)) end
         end
         if EntityCategoryContains(M28UnitInfo.refCategoryAllHQFactories, oUnitJustDestroyed.UnitId) then
             local iUnitTechLevel = M28UnitInfo.GetUnitTechLevel(oUnitJustDestroyed)
-            if bDebugMessages == true then LOG(sFunctionRef..': iUnitTechLevel='..iUnitTechLevel..'; owned by brain '..aiBrain.Nickname) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iUnitTechLevel='..iUnitTechLevel..'; owned by brain '..aiBrain.Nickname) end
             function UnitsStillValid(iCategory)
                 local tUnitsOfType = aiBrain:GetListOfUnits(iCategory, false, true)
                 if M28Utilities.IsTableEmpty(tUnitsOfType) == false then
                     for iUnit, oUnit in tUnitsOfType do
                         if not(oUnit == oUnitJustDestroyed) and M28UnitInfo.IsUnitValid(oUnit) then
-                            if bDebugMessages == true then LOG(sFunctionRef..': Still have a valid unit for the category, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Still have a valid unit for the category, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
                             return true
                         end
                     end
@@ -1095,7 +1095,7 @@ function UpdateHighestFactoryTechLevelForDestroyedUnit(oUnitJustDestroyed)
             end
             local iCategoryBeingConsidered
             if EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oUnitJustDestroyed.UnitId) then
-                if bDebugMessages == true then LOG(sFunctionRef..': Land fac destroyed, iUnitTechLevel='..iUnitTechLevel..';  aiBrain[refiOurHighestLandFactoryTech] ='.. aiBrain[refiOurHighestLandFactoryTech]) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Land fac destroyed, iUnitTechLevel='..iUnitTechLevel..';  aiBrain[refiOurHighestLandFactoryTech] ='.. aiBrain[refiOurHighestLandFactoryTech]) end
                 if iUnitTechLevel >= (aiBrain[refiOurHighestLandFactoryTech] or 0) then
                     aiBrain[refiOurHighestLandFactoryTech] = 0
                     for iTechLevel = 3, 1, -1 do
@@ -1103,17 +1103,17 @@ function UpdateHighestFactoryTechLevelForDestroyedUnit(oUnitJustDestroyed)
                         if aiBrain:GetCurrentUnits(iCategoryBeingConsidered) > 0 and UnitsStillValid(iCategoryBeingConsidered) then
                             --Check these units are all still valid
                             aiBrain[refiOurHighestLandFactoryTech] = iTechLevel
-                            if bDebugMessages == true then LOG(sFunctionRef..': Setting highets land fac tech to iTechLevel='..iTechLevel) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Setting highets land fac tech to iTechLevel='..iTechLevel) end
                             break
                         end
                     end
                 end
             elseif EntityCategoryContains(M28UnitInfo.refCategoryAirFactory, oUnitJustDestroyed.UnitId) then
-                if bDebugMessages == true then LOG(sFunctionRef..': Air fac was destroyed, aiBrain[refiOurHighestAirFactoryTech]='..(aiBrain[refiOurHighestAirFactoryTech] or 'nil')..'; iUnitTechLevel='..iUnitTechLevel) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Air fac was destroyed, aiBrain[refiOurHighestAirFactoryTech]='..(aiBrain[refiOurHighestAirFactoryTech] or 'nil')..'; iUnitTechLevel='..iUnitTechLevel) end
                 if iUnitTechLevel >= aiBrain[refiOurHighestAirFactoryTech] then
                     aiBrain[refiOurHighestAirFactoryTech] = 0
                     for iTechLevel = 3, 1, -1 do
-                        if bDebugMessages == true then LOG(sFunctionRef..': Considering iTechLevel='..iTechLevel..'; Cur units owned by this brain of that tech level excl support factory='..aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryAirFactory * M28UnitInfo.ConvertTechLevelToCategory(iTechLevel) - categories.SUPPORTFACTORY)) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering iTechLevel='..iTechLevel..'; Cur units owned by this brain of that tech level excl support factory='..aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryAirFactory * M28UnitInfo.ConvertTechLevelToCategory(iTechLevel) - categories.SUPPORTFACTORY)) end
                         iCategoryBeingConsidered = M28UnitInfo.refCategoryAirFactory * M28UnitInfo.ConvertTechLevelToCategory(iTechLevel) - categories.SUPPORTFACTORY
                         if aiBrain:GetCurrentUnits(iCategoryBeingConsidered) > 0 and UnitsStillValid(iCategoryBeingConsidered) then
                             aiBrain[refiOurHighestAirFactoryTech] = iTechLevel
@@ -1147,17 +1147,17 @@ function UpdateHighestFactoryTechLevelForDestroyedUnit(oUnitJustDestroyed)
         --Check for if we have lost a teammate base (i.e. in full share type scenario) so no longer want to treat it as a closest friendly base
         if aiBrain.M28AI then
             local iTeam = aiBrain.M28Team
-            if bDebugMessages == true then LOG(sFunctionRef..': Have lost factory for brain '..aiBrain.Nickname..'; M28Team.tTeamData[iTeam][M28Team.subrefiOrigM28BrainCount]='..M28Team.tTeamData[iTeam][M28Team.subrefiOrigM28BrainCount]..'; M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]='..M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have lost factory for brain '..aiBrain.Nickname..'; M28Team.tTeamData[iTeam][M28Team.subrefiOrigM28BrainCount]='..M28Team.tTeamData[iTeam][M28Team.subrefiOrigM28BrainCount]..'; M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]='..M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) end
             if M28Team.tTeamData[iTeam][M28Team.subrefiOrigM28BrainCount] > M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] then --we have lost a friendly M28AI, so want to check if the base of the killed AI is no more
                 local tLZOrWZData, tLZOrWZTeamData = M28Map.GetLandOrWaterZoneData(oUnitJustDestroyed:GetPosition(), true, aiBrain.M28Team)
-                if bDebugMessages == true then LOG(sFunctionRef..': Dist from the zone this unit is in to the closest friendly base='..M28Utilities.GetDistanceBetweenPositions(tLZOrWZData[M28Map.subrefMidpoint], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dist from the zone this unit is in to the closest friendly base='..M28Utilities.GetDistanceBetweenPositions(tLZOrWZData[M28Map.subrefMidpoint], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])) end
                 if M28Utilities.GetDistanceBetweenPositions(tLZOrWZData[M28Map.subrefMidpoint], tLZOrWZTeamData[M28Map.reftClosestFriendlyBase]) <= 10 then
                     --Is this the start position of a dead AI?
                     for iBrain, oBrain in ArmyBrains do
-                        if bDebugMessages == true then LOG(sFunctionRef..': Considering oBrain='..oBrain.Nickname..'; IsDefeated='..tostring(oBrain:IsDefeated())..'; Dist from brain start position to closest friendly base='..M28Utilities.GetDistanceBetweenPositions(M28Map.GetPlayerStartPosition(oBrain), tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering oBrain='..oBrain.Nickname..'; IsDefeated='..tostring(oBrain:IsDefeated())..'; Dist from brain start position to closest friendly base='..M28Utilities.GetDistanceBetweenPositions(M28Map.GetPlayerStartPosition(oBrain), tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])) end
                         if oBrain.M28Team == iTeam and oBrain:IsDefeated() and M28Utilities.GetDistanceBetweenPositions(M28Map.GetPlayerStartPosition(oBrain), tLZOrWZTeamData[M28Map.reftClosestFriendlyBase]) <= 10 then
                             local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])
-                            if bDebugMessages == true then LOG(sFunctionRef..': Will consider if friendly base is destroyed now') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will consider if friendly base is destroyed now') end
                             ForkThread(M28Map.DelayedConsiderationOfWhetherToIgnoreFriendlyBase, tLZOrWZData, tLZOrWZTeamData, aiBrain.M28Team, iPlateauOrZero, iLandOrWaterZone, M28Land.iTicksPerLandCycle * 0.1 + 0.1)
                             break
                         end
@@ -1165,21 +1165,21 @@ function UpdateHighestFactoryTechLevelForDestroyedUnit(oUnitJustDestroyed)
                 end
             end
         end
-        if bDebugMessages == true then LOG(sFunctionRef..': Near end of code, aiBrain[refiOurHighestAirFactoryTech]='..oUnitJustDestroyed:GetAIBrain()[refiOurHighestAirFactoryTech]..'; aiBrain[refiOurHighestLandFactoryTech]='..oUnitJustDestroyed:GetAIBrain()[refiOurHighestLandFactoryTech]..'; aiBrain[refiOurHighestNavalFactoryTech]='..oUnitJustDestroyed:GetAIBrain()[refiOurHighestNavalFactoryTech]..'; aiBrain[refiOurHighestFactoryTechLevel]='..oUnitJustDestroyed:GetAIBrain()[refiOurHighestFactoryTechLevel]) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Near end of code, aiBrain[refiOurHighestAirFactoryTech]='..oUnitJustDestroyed:GetAIBrain()[refiOurHighestAirFactoryTech]..'; aiBrain[refiOurHighestLandFactoryTech]='..oUnitJustDestroyed:GetAIBrain()[refiOurHighestLandFactoryTech]..'; aiBrain[refiOurHighestNavalFactoryTech]='..oUnitJustDestroyed:GetAIBrain()[refiOurHighestNavalFactoryTech]..'; aiBrain[refiOurHighestFactoryTechLevel]='..oUnitJustDestroyed:GetAIBrain()[refiOurHighestFactoryTechLevel]) end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
 function UpdateMassStorageAdjacencyValues(oStorage, bDestroyed)
     --Updates gross income for the mass storage
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'UpdateMassStorageAdjacencyValues'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local iMassChange = -(oStorage[refiStorageMassAdjacencyBonus] or 0)
     local aiBrain = oStorage:GetAIBrain()
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, Time='..GetGameTimeSeconds()..'; About to update for oStorage='..oStorage.UnitId..M28UnitInfo.GetUnitLifetimeCount(oStorage)..' owned by brain '..aiBrain.Nickname..'; bDestroyed='..tostring(bDestroyed or false)..'; oStorage[refiStorageMassAdjacencyBonus]='..(oStorage[refiStorageMassAdjacencyBonus] or 'nil')..'; aiBrain[refiGrossMassBaseIncome]='..(aiBrain[refiGrossMassBaseIncome] or 'nil')) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, Time='..GetGameTimeSeconds()..'; About to update for oStorage='..oStorage.UnitId..M28UnitInfo.GetUnitLifetimeCount(oStorage)..' owned by brain '..aiBrain.Nickname..'; bDestroyed='..tostring(bDestroyed or false)..'; oStorage[refiStorageMassAdjacencyBonus]='..(oStorage[refiStorageMassAdjacencyBonus] or 'nil')..'; aiBrain[refiGrossMassBaseIncome]='..(aiBrain[refiGrossMassBaseIncome] or 'nil')) end
     if not(bDestroyed) then
         oStorage[refiStorageMassAdjacencyBonus] = 0
         if oStorage:GetFractionComplete() >= 1 then
@@ -1196,11 +1196,11 @@ function UpdateMassStorageAdjacencyValues(oStorage, bDestroyed)
             end
             oStorage[refiStorageMassAdjacencyBonus] = 0
             --Get all adjacent mexes
-            if bDebugMessages == true then LOG(sFunctionRef..': iAIxMod='..iAIxMod..'; Is table of adjacent units empty='..tostring(M28Utilities.IsTableEmpty(oStorage.AdjacentUnits))) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iAIxMod='..iAIxMod..'; Is table of adjacent units empty='..tostring(M28Utilities.IsTableEmpty(oStorage.AdjacentUnits))) end
             if M28Utilities.IsTableEmpty(oStorage.AdjacentUnits) == false then
                 --Cant use filterdown a doesnt work with .adjacentunits
                 for iMassGenUnit, oMassGenUnit in oStorage.AdjacentUnits do
-                    if bDebugMessages == true then LOG(sFunctionRef..': Considering oMassGenUnit='..oMassGenUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMassGenUnit)..' owned by '..oMassGenUnit:GetAIBrain().Nickname) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering oMassGenUnit='..oMassGenUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMassGenUnit)..' owned by '..oMassGenUnit:GetAIBrain().Nickname) end
                     if EntityCategoryContains(M28UnitInfo.refCategoryMex + M28UnitInfo.refCategoryMassFab, oMassGenUnit.UnitId) and oMassGenUnit:GetAIBrain() == aiBrain and M28UnitInfo.IsUnitValid(oMassGenUnit) then --Wont get adjacency unless are on the same team
                         oGenBP = oMassGenUnit:GetBlueprint()
                         iBaseMassGen = (oGenBP.Economy.ProductionPerSecondMass or 0)
@@ -1211,7 +1211,7 @@ function UpdateMassStorageAdjacencyValues(oStorage, bDestroyed)
                             iAdjacencyMassGen = iBaseMassGen * iAIxMod * 0.0125 * math.min(1, iStorageSize / iGenUnitSize)
                             oStorage[refiStorageMassAdjacencyBonus] = oStorage[refiStorageMassAdjacencyBonus] + iAdjacencyMassGen
                             iMassChange = iMassChange + iAdjacencyMassGen
-                            if bDebugMessages == true then LOG(sFunctionRef..': Are adjacent to oMassGenUnit='..(oMassGenUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMassGenUnit)..'; iAdjacencyMassGen for this unit='..(iAdjacencyMassGen or 'nil'))) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Are adjacent to oMassGenUnit='..(oMassGenUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMassGenUnit)..'; iAdjacencyMassGen for this unit='..(iAdjacencyMassGen or 'nil'))) end
                         end
                     end
                 end
@@ -1220,21 +1220,21 @@ function UpdateMassStorageAdjacencyValues(oStorage, bDestroyed)
     end
 
     aiBrain[refiGrossMassBaseIncome] = (aiBrain[refiGrossMassBaseIncome] or 0) + iMassChange
-    if bDebugMessages == true then LOG(sFunctionRef..': End of code, iMassChange='..iMassChange..'; aiBrain[refiGrossMassBaseIncome]='..aiBrain[refiGrossMassBaseIncome]) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': End of code, iMassChange='..iMassChange..'; aiBrain[refiGrossMassBaseIncome]='..aiBrain[refiGrossMassBaseIncome]) end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
 function ConsiderHydroUpgradeLoop(oUnit)
     --Every 30s consider upgrading unit
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ConsiderHydroUpgradeLoop'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Special upgrade monitor already active='..tostring(oUnit[refbSpecialUpgradeMonitor] or false)..'; Unit owner='..oUnit:GetAIBrain().Nickname..'; Time='..GetGameTimeSeconds()) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Special upgrade monitor already active='..tostring(oUnit[refbSpecialUpgradeMonitor] or false)..'; Unit owner='..oUnit:GetAIBrain().Nickname..'; Time='..GetGameTimeSeconds()) end
     if not(oUnit[refbSpecialUpgradeMonitor]) then
         --Does the blueprint have an upgrade option?
         local oBP = oUnit:GetBlueprint()
-        if bDebugMessages == true then LOG(sFunctionRef..': Unit upgrades to='..(oBP.General.UpgradesTo or 'nil')..'; Does this equal empty string='..tostring(oBP.General.UpgradesTo == '')) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit upgrades to='..(oBP.General.UpgradesTo or 'nil')..'; Does this equal empty string='..tostring(oBP.General.UpgradesTo == '')) end
         if oBP.General.UpgradesTo and not(oBP.General.UpgradesTo == '') then
             oUnit[refbSpecialUpgradeMonitor] = true
             local aiBrain = oUnit:GetAIBrain()
@@ -1243,7 +1243,7 @@ function ConsiderHydroUpgradeLoop(oUnit)
             if oUpgradedBP then
                 local iBuildPower = oBP.Economy.BuildRate * aiBrain[refiBrainBuildRateMultiplier]
                 local iBrainCount = M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]
-                if bDebugMessages == true then LOG(sFunctionRef..': oUpgradedBP='..reprs(oUpgradedBP)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oUpgradedBP='..reprs(oUpgradedBP)) end
                 local iMassPerTickWanted = 0.1 * (oUpgradedBP.Economy.BuildCostMass * iBuildPower / oUpgradedBP.Economy.BuildTime) * iBrainCount * 2
                 local iEnergyPerTickWanted = 0.1 * (oUpgradedBP.Economy.BuildCostEnergy * iBuildPower / oUpgradedBP.Economy.BuildTime ) * iBrainCount * 2
                 local iStoredMassAlternative = oUpgradedBP.Economy.BuildCostMass * 4
@@ -1274,18 +1274,18 @@ function ConsiderHydroUpgradeLoop(oUnit)
                     iMassPerTickWanted = iMassPerTickWanted * iResourceFactorAdjust
                     iEnergyPerTickWanted = iEnergyPerTickWanted * iResourceFactorAdjust
                     iStoredMassAlternative = iStoredMassAlternative * iResourceFactorAdjust
-                    if bDebugMessages == true then LOG(sFunctionRef..': iResourceFactorAdjust='..iResourceFactorAdjust) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iResourceFactorAdjust='..iResourceFactorAdjust) end
                 end
                 local iGrossMassPerTickAlternative = iMassPerTickWanted * 20
                 local iGrossEnergyPerTickAlternative = iEnergyPerTickWanted * 20
 
-                if bDebugMessages == true then LOG(sFunctionRef..': iBuildPower='..iBuildPower..'; iMasPerTickWanted='..iMassPerTickWanted..'; iEnergyPerTickWanted='..iEnergyPerTickWanted) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iBuildPower='..iBuildPower..'; iMasPerTickWanted='..iMassPerTickWanted..'; iEnergyPerTickWanted='..iEnergyPerTickWanted) end
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                 WaitSeconds(iDelay)
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
                 while M28UnitInfo.IsUnitValid(oUnit) do
-                    if bDebugMessages == true then LOG(sFunctionRef..': Deciding if want to upgrade at time='..GetGameTimeSeconds()..'; Unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Brain='..aiBrain.Nickname..'; Want more power='..tostring(M28Conditions.WantMorePower(iTeam))..'; Net energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy]..'; iEnergyPerTickWanted='..iEnergyPerTickWanted..'; Net mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass]..'; iMassPerTickWanted='..iMassPerTickWanted..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Deciding if want to upgrade at time='..GetGameTimeSeconds()..'; Unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Brain='..aiBrain.Nickname..'; Want more power='..tostring(M28Conditions.WantMorePower(iTeam))..'; Net energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy]..'; iEnergyPerTickWanted='..iEnergyPerTickWanted..'; Net mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass]..'; iMassPerTickWanted='..iMassPerTickWanted..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]) end
 
                     local bExcellentEconomy = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.7
 
@@ -1297,7 +1297,7 @@ function ConsiderHydroUpgradeLoop(oUnit)
                     WaitSeconds(iDelay)
                     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
                 end
-            elseif bDebugMessages == true then LOG(sFunctionRef..': Couldnt locate an actual blueprint')
+            elseif bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Couldnt locate an actual blueprint')
             end
         end
     end
@@ -1312,11 +1312,11 @@ function UpdateGrossIncomeForUnit(oUnit, bDestroyed, bIgnoreEnhancements, iOptio
         --Does the unit have an M28 aiBrain?
         local aiBrain = oUnit:GetAIBrain()
         if aiBrain.M28AI then
-            local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
             local sFunctionRef = 'UpdateGrossIncomeForUnit'
+            local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-            if bDebugMessages == true then LOG(sFunctionRef..': Time='..GetGameTimeSeconds()..' oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; bDestroyed='..tostring(bDestroyed or false)..': Unit aiBrain='..oUnit:GetAIBrain().Nickname..'; Brain recorded for economy='..((oUnit[refoBrainRecordedForEconomy] or {'nil'}).Nickname or 'nil')..'; Fraction complete='..oUnit:GetFractionComplete()) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time='..GetGameTimeSeconds()..' oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; bDestroyed='..tostring(bDestroyed or false)..': Unit aiBrain='..oUnit:GetAIBrain().Nickname..'; Brain recorded for economy='..((oUnit[refoBrainRecordedForEconomy] or {'nil'}).Nickname or 'nil')..'; Fraction complete='..oUnit:GetFractionComplete()) end
             if oUnit:GetFractionComplete() < 1 then M28Utilities.ErrorHandler('Trying to update income for unit whose fraction isnt complete') end
 
             if (bDestroyed and oUnit[refoBrainRecordedForEconomy] == aiBrain) or (not(bDestroyed) and not(oUnit[refoBrainRecordedForEconomy] == aiBrain)) then
@@ -1338,7 +1338,7 @@ function UpdateGrossIncomeForUnit(oUnit, bDestroyed, bIgnoreEnhancements, iOptio
                                 for iParagon, oParagon in tParagon do
                                     if oParagon:GetFractionComplete() == 1 then
                                         bRemainingParagon = true
-                                        if bDebugMessages == true then LOG(sFunctionRef..': we still have a contructed paragon for oBrain='..oBrain.Nickname..'; oParagon='..oParagon.UnitId..M28UnitInfo.GetUnitLifetimeCount(oParagon)) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': we still have a contructed paragon for oBrain='..oBrain.Nickname..'; oParagon='..oParagon.UnitId..M28UnitInfo.GetUnitLifetimeCount(oParagon)) end
                                         break
                                     end
                                 end
@@ -1348,23 +1348,23 @@ function UpdateGrossIncomeForUnit(oUnit, bDestroyed, bIgnoreEnhancements, iOptio
                         oUnit:GetAIBrain()[refbBuiltParagon] = bRemainingParagon
                         M28Team.tTeamData[iTeam][M28Team.refbBuiltParagon] = bRemainingParagon
                     else
-                        if bDebugMessages == true then LOG(sFunctionRef..': We have just built a paragon for brain '..oUnit:GetAIBrain().Nickname..'; oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We have just built a paragon for brain '..oUnit:GetAIBrain().Nickname..'; oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
                         oUnit:GetAIBrain()[refbBuiltParagon] = true
                         M28Team.tTeamData[iTeam][M28Team.refbBuiltParagon] = true
                     end
-                    if bDebugMessages == true then LOG(sFunctionRef..': We have a paragon that has been built or killed, setting mass gen and energy gen accordingly, iMassGen='..iMassGen) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We have a paragon that has been built or killed, setting mass gen and energy gen accordingly, iMassGen='..iMassGen) end
                 else
                     local oBP = oUnit:GetBlueprint()
                     iMassGen = math.max(oBP.Economy.ProductionPerSecondMass or 0) * 0.1
                     iEnergyGen = math.max(oBP.Economy.ProductionPerSecondEnergy or 0) * 0.1
                     --Adjust for RAS upgrade
-                    if bDebugMessages == true then LOG(sFunctionRef..': Is this an ACU or SACU='..tostring(EntityCategoryContains(categories.COMMAND + categories.SUBCOMMANDER, oUnit.UnitId))) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is this an ACU or SACU='..tostring(EntityCategoryContains(categories.COMMAND + categories.SUBCOMMANDER, oUnit.UnitId))) end
                     if not(bIgnoreEnhancements) and EntityCategoryContains(categories.COMMAND + categories.SUBCOMMANDER, oUnit.UnitId) then
                         local iUpgradeMassPerSec = 0
                         local iUpgradeEnergyPerSec = 0
 
                         local tPossibleUpgrades = oBP.Enhancements
-                        if bDebugMessages == true then LOG(sFunctionRef..': Unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; is tPossibleUpgrades empty='..tostring(M28Utilities.IsTableEmpty(tPossibleUpgrades))) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; is tPossibleUpgrades empty='..tostring(M28Utilities.IsTableEmpty(tPossibleUpgrades))) end
                         if M28Utilities.IsTableEmpty(tPossibleUpgrades) == false and oUnit.HasEnhancement then
                             local tbIncludedUpgrade = {}
                             for sCurUpgrade, tUpgrade in tPossibleUpgrades do
@@ -1372,7 +1372,7 @@ function UpdateGrossIncomeForUnit(oUnit, bDestroyed, bIgnoreEnhancements, iOptio
                                     tbIncludedUpgrade[sCurUpgrade] = true
                                     iUpgradeMassPerSec = iUpgradeMassPerSec + (tUpgrade.ProductionPerSecondMass or 0)
                                     iUpgradeEnergyPerSec = iUpgradeEnergyPerSec + (tUpgrade.ProductionPerSecondEnergy or 0)
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Unit has enhancement '..sCurUpgrade..'; tUpgrade.ProductionPerSecondMass='..(tUpgrade.ProductionPerSecondMass or 'nil')) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit has enhancement '..sCurUpgrade..'; tUpgrade.ProductionPerSecondMass='..(tUpgrade.ProductionPerSecondMass or 'nil')) end
                                 end
                             end
 
@@ -1383,12 +1383,12 @@ function UpdateGrossIncomeForUnit(oUnit, bDestroyed, bIgnoreEnhancements, iOptio
                                     if not(tbIncludedUpgrade[sCurUpgrade]) then
                                         iUpgradeMassPerSec = iUpgradeMassPerSec + (tPossibleUpgrades[sCurUpgrade].ProductionPerSecondMass or 0)
                                         iUpgradeEnergyPerSec = iUpgradeEnergyPerSec + (tPossibleUpgrades[sCurUpgrade].ProductionPerSecondEnergy or 0)
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Unit has preset enhancement '..sCurUpgrade..'; tUpgrade.ProductionPerSecondMass='..(tPossibleUpgrades[sCurUpgrade].ProductionPerSecondMass or 'nil')..'; reprs='..reprs(tPossibleUpgrades[sCurUpgrade])) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit has preset enhancement '..sCurUpgrade..'; tUpgrade.ProductionPerSecondMass='..(tPossibleUpgrades[sCurUpgrade].ProductionPerSecondMass or 'nil')..'; reprs='..reprs(tPossibleUpgrades[sCurUpgrade])) end
                                     end
                                 end
                             end
                             --[[local activeEnhancements = SimUnitEnhancements[oUnit.EntityId]
-                            if bDebugMessages == true then LOG(sFunctionRef..': Is activeEnhancements nil='..tostring(activeEnhancements == nil)) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is activeEnhancements nil='..tostring(activeEnhancements == nil)) end
                             if activeEnhancements then
                                 local presetEnhancements = oBP.EnhancementPresetAssigned.Enhancements
                                 for _, enhName in activeEnhancements do
@@ -1397,33 +1397,33 @@ function UpdateGrossIncomeForUnit(oUnit, bDestroyed, bIgnoreEnhancements, iOptio
                                         local enh = tPossibleUpgrades[enhName]
                                         iUpgradeMassPerSec = iUpgradeMassPerSec + (enh.ProductionPerSecondMass or 0)
                                         iUpgradeEnergyPerSec = iUpgradeEnergyPerSec + (enh.ProductionPerSecondEnergy or 0)
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Unit has preset enhancement '..enhName..'; enh.ProductionPerSecondMass='..(enh.ProductionPerSecondMass or 'nil')) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit has preset enhancement '..enhName..'; enh.ProductionPerSecondMass='..(enh.ProductionPerSecondMass or 'nil')) end
                                     end
                                 end
                             end--]]
                         end
                         iMassGen = iMassGen + iUpgradeMassPerSec * 0.1
                         iEnergyGen = iEnergyGen + iUpgradeEnergyPerSec * 0.1
-                        if bDebugMessages == true then LOG(sFunctionRef..': iUpgradeMassPerSec='..iUpgradeMassPerSec..'; iMassGen per tick='..iMassGen) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iUpgradeMassPerSec='..iUpgradeMassPerSec..'; iMassGen per tick='..iMassGen) end
                     end
 
                     --Mass storage - assume we are adjacent to a T2 mex as a basic approximation
-                    if bDebugMessages == true then LOG(sFunctionRef..': Considering whether to check for mass storage, iMassGen='..iMassGen..'; iEnergyGen='..iEnergyGen..'; Does unit contain mass storage='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryMassStorage, oUnit.UnitId))) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering whether to check for mass storage, iMassGen='..iMassGen..'; iEnergyGen='..iEnergyGen..'; Does unit contain mass storage='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryMassStorage, oUnit.UnitId))) end
                     if iMassGen == 0 and iEnergyGen == 0 and EntityCategoryContains(M28UnitInfo.refCategoryMassStorage, oUnit.UnitId) then
-                        if bDebugMessages == true then LOG(sFunctionRef..': Dealing with mass storage so will update for adjacency value gained or lost') end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dealing with mass storage so will update for adjacency value gained or lost') end
                         UpdateMassStorageAdjacencyValues(oUnit, bDestroyed) --Will update mass income values as part of this function
                     elseif iMassGen > 0 then
                         --Update adjacency values for any nearby mass storage
                         local tMexLocation = oUnit:GetPosition()
                         local rSearchRectangle = M28Utilities.GetRectAroundLocation(tMexLocation, 2.749) --If changing this also change M28Events and M28Engineer similar value
                         local tNearbyUnits = GetUnitsInRect(rSearchRectangle) --at 1.5 end up with storage thats not adjacent being gifted in some cases but not in others; at 1 none of it gets gifted; the mass storage should be exactly 2 from the mex; however even at 2.1, 2.25 and 2.499 had cases where the mex wasnt identified so will try 2.75 since distances can vary/be snapped to the nearest 0.5 I think
-                        if bDebugMessages == true then LOG(sFunctionRef..': Checking if have any nearby units in a rectangle to this mex/mass fab, is tNearbyUnits empty='..tostring(M28Utilities.IsTableEmpty(tNearbyUnits))) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if have any nearby units in a rectangle to this mex/mass fab, is tNearbyUnits empty='..tostring(M28Utilities.IsTableEmpty(tNearbyUnits))) end
                         if M28Utilities.IsTableEmpty(tNearbyUnits) == false then
                             local tNearbyStorage = EntityCategoryFilterDown(M28UnitInfo.refCategoryMassStorage, tNearbyUnits)
-                            if bDebugMessages == true then LOG(sFunctionRef..': Is table of nearby storage empty='..tostring(M28Utilities.IsTableEmpty(tNearbyStorage))) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is table of nearby storage empty='..tostring(M28Utilities.IsTableEmpty(tNearbyStorage))) end
                             if M28Utilities.IsTableEmpty(tNearbyStorage) == false then
                                 for iStorage, oStorage in tNearbyStorage do
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Have oStorage='..oStorage.UnitId..M28UnitInfo.GetUnitLifetimeCount(oStorage)..'; will update if it is close to here, distance='..M28Utilities.GetDistanceBetweenPositions(oStorage:GetPosition(), tMexLocation)) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have oStorage='..oStorage.UnitId..M28UnitInfo.GetUnitLifetimeCount(oStorage)..'; will update if it is close to here, distance='..M28Utilities.GetDistanceBetweenPositions(oStorage:GetPosition(), tMexLocation)) end
                                     if M28Utilities.GetDistanceBetweenPositions(oStorage:GetPosition(), tMexLocation) <= 2.25 then
                                         --Cant fork thread or else lose the aiBrain info if were just destroyed
                                         UpdateMassStorageAdjacencyValues(oStorage, false)
@@ -1444,13 +1444,13 @@ function UpdateGrossIncomeForUnit(oUnit, bDestroyed, bIgnoreEnhancements, iOptio
                     iMassGen = iMassGen * -1
                     iEnergyGen = iEnergyGen * -1
                     oUnit[refoBrainRecordedForEconomy] = nil
-                    if bDebugMessages == true then LOG(sFunctionRef..': Unit destroyed so will reduce mass gen') end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit destroyed so will reduce mass gen') end
                 else
                     oUnit[refoBrainRecordedForEconomy] = aiBrain
                     --Set temporary flag that we have just built a lot of power (if we have)
-                    if bDebugMessages == true then LOG(sFunctionRef..': Considering if should temporarily say we have enough power; iEnergyGen='..iEnergyGen..'; Gross energy='..(M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamGrossEnergy] or 'nil')..'; Net energy='..(M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamNetEnergy] or 'nil')..'; Flag for lots of power='..tostring(M28Team.tTeamData[aiBrain.M28Team][M28Team.refbJustBuiltLotsOfPower] or false)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if should temporarily say we have enough power; iEnergyGen='..iEnergyGen..'; Gross energy='..(M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamGrossEnergy] or 'nil')..'; Net energy='..(M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamNetEnergy] or 'nil')..'; Flag for lots of power='..tostring(M28Team.tTeamData[aiBrain.M28Team][M28Team.refbJustBuiltLotsOfPower] or false)) end
                     if iEnergyGen >= math.max(20, (M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamGrossEnergy] or 0) * 0.15, -(M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamNetEnergy] or 0)) and not(M28Team.tTeamData[aiBrain.M28Team][M28Team.refbJustBuiltLotsOfPower]) then
-                        if bDebugMessages == true then LOG(sFunctionRef..': Setting flag we have built lots of power, subrefiTeamNetEnergy='..(M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamNetEnergy] or 0)) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Setting flag we have built lots of power, subrefiTeamNetEnergy='..(M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamNetEnergy] or 0)) end
                         local iTeam = aiBrain.M28Team
 
                         local iTimeToWait = 6
@@ -1463,7 +1463,7 @@ function UpdateGrossIncomeForUnit(oUnit, bDestroyed, bIgnoreEnhancements, iOptio
                                 iTimeToWait = 10
                             end
                         end
-                        if bDebugMessages == true then LOG(sFunctionRef..': Just built a lot of power so will temporarily say we dont need more power, iTimeToWait='..iTimeToWait..'; refiTimeEndingActiveCheckOfLotsOfPower='..(M28Team.tTeamData[iTeam][M28Team.refiTimeEndingActiveCheckOfLotsOfPower] or 'nil')) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just built a lot of power so will temporarily say we dont need more power, iTimeToWait='..iTimeToWait..'; refiTimeEndingActiveCheckOfLotsOfPower='..(M28Team.tTeamData[iTeam][M28Team.refiTimeEndingActiveCheckOfLotsOfPower] or 'nil')) end
                         if iTimeToWait <= 6 then
                             if not(M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower]) then
                                 M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower] = true
@@ -1493,7 +1493,7 @@ function UpdateGrossIncomeForUnit(oUnit, bDestroyed, bIgnoreEnhancements, iOptio
                 if not(bDestroyed) and EntityCategoryContains(M28UnitInfo.refCategoryHydro, oUnit.UnitId) then
                     ForkThread(ConsiderHydroUpgradeLoop,oUnit)
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': Updated gross and net resources for iMassGen='..iMassGen..'; iEnergyGen='..iEnergyGen..'; aiBrain[refiNetMassBaseIncome]='..aiBrain[refiNetMassBaseIncome]..'; aiBrain[refiGrossMassBaseIncome]='..aiBrain[refiGrossMassBaseIncome]) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Updated gross and net resources for iMassGen='..iMassGen..'; iEnergyGen='..iEnergyGen..'; aiBrain[refiNetMassBaseIncome]='..aiBrain[refiNetMassBaseIncome]..'; aiBrain[refiGrossMassBaseIncome]='..aiBrain[refiGrossMassBaseIncome]) end
             end
 
 
@@ -1504,8 +1504,8 @@ end
 
 function AdjustAIxOverwhelmRate()
     --Waits the indicated number of seconds and then adjusts the AIx overwhelm rate
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'AdjustAIxOverwhelmRate'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local iSecondsToWait = tonumber(ScenarioInfo.Options.M28OvwT) * 60
@@ -1516,7 +1516,7 @@ function AdjustAIxOverwhelmRate()
     else iLowerCap = tonumber(ScenarioInfo.Options.M28OvwC)
     end
 
-    if bDebugMessages == true then LOG(sFunctionRef..': near start of code, iSecondsToWait='..iSecondsToWait..'; ScenarioInfo.Options.M28OvwT='..ScenarioInfo.Options.M28OvwT..'; iRateAdjustment='..iRateAdjustment..'; ScenarioInfo.Options.M28OvwR='..ScenarioInfo.Options.M28OvwR..'; iLowerCap='..iLowerCap..'; iUpperCap='..iUpperCap) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': near start of code, iSecondsToWait='..iSecondsToWait..'; ScenarioInfo.Options.M28OvwT='..ScenarioInfo.Options.M28OvwT..'; iRateAdjustment='..iRateAdjustment..'; ScenarioInfo.Options.M28OvwR='..ScenarioInfo.Options.M28OvwR..'; iLowerCap='..iLowerCap..'; iUpperCap='..iUpperCap) end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     WaitSeconds(iSecondsToWait)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -1554,7 +1554,7 @@ function AdjustAIxOverwhelmRate()
                     bChangedModifier = true
                 end
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': bChangedModifier='..tostring(bChangedModifier)..'; bHaveIndividualAIBrainMods='..tostring(bHaveIndividualAIBrainMods)..'; Time='..GetGameTimeSeconds()) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bChangedModifier='..tostring(bChangedModifier)..'; bHaveIndividualAIBrainMods='..tostring(bHaveIndividualAIBrainMods)..'; Time='..GetGameTimeSeconds()) end
             if not(bChangedModifier) and not(bHaveIndividualAIBrainMods) then
                 break
             else
@@ -1580,7 +1580,7 @@ function AdjustAIxOverwhelmRate()
                             iIndividualModifier = GetIndividualModifier(oBrain)
                             if bChangedModifier and iIndividualModifier then
                                 bChangedAnyAI = true
-                                if bDebugMessages == true then LOG(sFunctionRef..': Changing AIx modifier for brain '..oBrain.Nickname..' to '..iIndividualModifier) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Changing AIx modifier for brain '..oBrain.Nickname..' to '..iIndividualModifier) end
                                 --Also change the AI .CheatValue
                                                                             --aiBrain, iBuildModifier, iResourceModifier, bDontChangeScenarioInfo, iOptionalRecordedUnitResourceAdjust, bDontApplyToUnits, bUpdateCheatValue)
                                 M28Overseer.SetBuildAndResourceCheatModifiers(oBrain, iIndividualModifier, iIndividualModifier, true,                   nil,                                false,           true)
@@ -1602,12 +1602,12 @@ end
 
 function RefreshEconomyGrossValues(aiBrain)
     --Updates recorded gross mass and energy for each unit
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'RefreshEconomyGrossValues'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local tEconomyUnits = aiBrain:GetListOfUnits(M28UnitInfo.refCategoryResourceUnit, false, true)
-    if bDebugMessages == true then LOG(sFunctionRef..': refreshing gross income for every unit we own time='..GetGameTimeSeconds()..'; size of tEconomyUnits='..table.getn(tEconomyUnits)) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': refreshing gross income for every unit we own time='..GetGameTimeSeconds()..'; size of tEconomyUnits='..table.getn(tEconomyUnits)) end
     for iUnit, oUnit in tEconomyUnits do
         if oUnit:GetFractionComplete() == 1 then
             UpdateGrossIncomeForUnit(oUnit) --Redundancy
@@ -1622,13 +1622,13 @@ function RefreshEconomyGrossValues(aiBrain)
 end
 
 function RefreshEconomyData(aiBrain)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'RefreshEconomyData'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     aiBrain[refiNetEnergyBaseIncome] = math.min((aiBrain[refiGrossEnergyBaseIncome] or 0) - aiBrain:GetEconomyRequested('ENERGY'), aiBrain:GetEconomyTrend('ENERGY'))
     aiBrain[refiNetMassBaseIncome] = math.min((aiBrain[refiGrossMassBaseIncome] or 0) - aiBrain:GetEconomyRequested('MASS'), aiBrain:GetEconomyTrend('MASS'))
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Finished refreshing economy data, time='..GetGameTimeSeconds()..'; Energy gross='..aiBrain[refiGrossEnergyBaseIncome]..'; Energy net='..aiBrain[refiNetEnergyBaseIncome]..'; Mass gross='..aiBrain[refiGrossMassBaseIncome]..'; Mass net='..aiBrain[refiNetMassBaseIncome]..'; aiBrain:GetEconomyRequested(\'MASS\')='..aiBrain:GetEconomyRequested('MASS')..'; aiBrain:GetEconomyTrend(\'MASS\')='..aiBrain:GetEconomyTrend('MASS')) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished refreshing economy data, time='..GetGameTimeSeconds()..'; Energy gross='..aiBrain[refiGrossEnergyBaseIncome]..'; Energy net='..aiBrain[refiNetEnergyBaseIncome]..'; Mass gross='..aiBrain[refiGrossMassBaseIncome]..'; Mass net='..aiBrain[refiNetMassBaseIncome]..'; aiBrain:GetEconomyRequested(\'MASS\')='..aiBrain:GetEconomyRequested('MASS')..'; aiBrain:GetEconomyTrend(\'MASS\')='..aiBrain:GetEconomyTrend('MASS')) end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
@@ -1668,8 +1668,8 @@ function EconomyInitialisation(aiBrain)
 end
 
 function RecordUnitsOfCategoryToBeReclaimed(iTeam, iCategory)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'RecordUnitsOfCategoryToBeReclaimed'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local bAddCurUnit
@@ -1677,7 +1677,7 @@ function RecordUnitsOfCategoryToBeReclaimed(iTeam, iCategory)
     for iPlateau, tPlateauData in M28Map.tAllPlateaus do
         if M28Utilities.IsTableEmpty(tPlateauData[M28Map.subrefPlateauLandZones]) == false then
             for iLandZone, tLZData in tPlateauData[M28Map.subrefPlateauLandZones] do
-                if bDebugMessages == true then LOG(sFunctionRef..': Considering if iPlateau-LZ '..iPlateau..'-'..iLandZone..' has units of the category wanted') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if iPlateau-LZ '..iPlateau..'-'..iLandZone..' has units of the category wanted') end
                 if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subreftoLZOrWZAlliedUnits]) == false then
                     if not(tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subreftoUnitsToReclaim]) then
                         bCheckForExistingUnits = false
@@ -1688,10 +1688,10 @@ function RecordUnitsOfCategoryToBeReclaimed(iTeam, iCategory)
                         end
                     end
                     local tUnitsToReclaim = EntityCategoryFilterDown(iCategory, tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subreftoLZOrWZAlliedUnits])
-                    if bDebugMessages == true then LOG(sFunctionRef..': Is table of untis of category wanted empty='..tostring(M28Utilities.IsTableEmpty(tUnitsToReclaim))) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is table of untis of category wanted empty='..tostring(M28Utilities.IsTableEmpty(tUnitsToReclaim))) end
                     if M28Utilities.IsTableEmpty(tUnitsToReclaim) == false then
                         for iUnit, oUnit in tUnitsToReclaim do
-                            if bDebugMessages == true then LOG(sFunctionRef..': Will add unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' to table of units to be reclaimed unless it is already in the table') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will add unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' to table of units to be reclaimed unless it is already in the table') end
                             bAddCurUnit = true
                             if bCheckForExistingUnits then
                                 for iExistingUnit, oExistingUnit in tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subreftoUnitsToReclaim] do
@@ -1702,7 +1702,7 @@ function RecordUnitsOfCategoryToBeReclaimed(iTeam, iCategory)
                                 end
                             end
                             if bAddCurUnit then
-                                if bDebugMessages == true then LOG(sFunctionRef..': Adding unit to table of units to reclaim for iTeam='..iTeam..'; oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adding unit to table of units to reclaim for iTeam='..iTeam..'; oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
                                 table.insert(tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subreftoUnitsToReclaim], oUnit)
                                 oUnit[M28Engineer.refbDontIncludeAsPartCompleteBuildingForConstruction] = true
                             end
@@ -1717,8 +1717,8 @@ end
 
 function RefreshUnitsToReclaim(iTeam, iPlateau, iLandZone)
     --Removes any dead units
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'RefreshUnitsToReclaim'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local tUnitsToReclaim = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][iTeam][M28Map.subreftoUnitsToReclaim]
@@ -1734,7 +1734,7 @@ function RefreshUnitsToReclaim(iTeam, iPlateau, iLandZone)
     end
     if M28Utilities.IsTableEmpty(tUnitsToReclaim) == false then
         M28Utilities.RemoveEntriesFromArrayBasedOnCondition(tUnitsToReclaim, KeepCurEntry)
-        if bDebugMessages == true then LOG(sFunctionRef..': Is table empty after removing dead units='..tostring(M28Utilities.IsTableEmpty(tUnitsToReclaim))) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is table empty after removing dead units='..tostring(M28Utilities.IsTableEmpty(tUnitsToReclaim))) end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
@@ -1742,22 +1742,22 @@ end
 function CheckForUnitsToReclaimOfCategory(iTeam, iCategory, sTeamSubrefFlag)
     --Checks if we have any units of iCategory, and if so then checks if we have low enough mass to reclaim them; if we have enough mass then starts a while loop and only aborts once we no longer have any units of the category
     --CheckForUnitsToReclaimOfCategory - e.g. subrefbActiveT2PowerReclaimer
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'CheckForUnitsToReclaimOfCategory'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     M28Team.tTeamData[iTeam][sTeamSubrefFlag] = true
     local bDontCheckForPower = true
     if M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryPower, iCategory, false) then bDontCheckForPower = false end
-    if bDebugMessages == true then LOG(sFunctionRef..': Checking to see if we have any units to reclaim for the specified category.  bDontCheckForPower='..tostring(bDontCheckForPower)) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking to see if we have any units to reclaim for the specified category.  bDontCheckForPower='..tostring(bDontCheckForPower)) end
     while M28Team.GetCurrentUnitsOfCategory(iTeam, iCategory) > 0 do
         --Are we low on mass and not low on power?
-        if bDebugMessages == true then LOG(sFunctionRef..': Will only add units to be reclaimed if we have low mass, and have power (if checking for power). Has low mass='..tostring(M28Conditions.TeamHasLowMass(iTeam))..'; Have low power='..tostring(M28Conditions.HaveLowPower(iTeam))) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will only add units to be reclaimed if we have low mass, and have power (if checking for power). Has low mass='..tostring(M28Conditions.TeamHasLowMass(iTeam))..'; Have low power='..tostring(M28Conditions.HaveLowPower(iTeam))) end
         if M28Conditions.TeamHasLowMass(iTeam) and (bDontCheckForPower or not(M28Conditions.HaveLowPower(iTeam))) then
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
             RecordUnitsOfCategoryToBeReclaimed(iTeam, iCategory) --this can sometimes have waitticks in it
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-            if bDebugMessages == true then LOG(sFunctionRef..': Have added any units to be reclaimed, will stop looping now') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have added any units to be reclaimed, will stop looping now') end
             break
         end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -1771,12 +1771,12 @@ end
 
 function ConsiderReclaimingPower(iTeam, oPowerJustBuilt)
     --Intended to be called whenever we build a PGen
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ConsiderReclaimingPower'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local iPowerTechLevel = M28UnitInfo.GetUnitTechLevel(oPowerJustBuilt)
-    if bDebugMessages == true then LOG(sFunctionRef..': Just built power='..oPowerJustBuilt.UnitId..M28UnitInfo.GetUnitLifetimeCount(oPowerJustBuilt)..'; Gross energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Do we have active reclaimer logic for T1='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbActiveT1PowerReclaimer] or false)..'; Do we ahve active t2 reclaimer='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbActiveT2PowerReclaimer])) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just built power='..oPowerJustBuilt.UnitId..M28UnitInfo.GetUnitLifetimeCount(oPowerJustBuilt)..'; Gross energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Do we have active reclaimer logic for T1='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbActiveT1PowerReclaimer] or false)..'; Do we ahve active t2 reclaimer='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbActiveT2PowerReclaimer])) end
     if iPowerTechLevel == 2 then
         if M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 20 + 80 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] * M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier] and not(M28Team.tTeamData[iTeam][M28Team.subrefbActiveT1PowerReclaimer]) and not(M28Team.tTeamData[iTeam][M28Team.subrefbActiveT2PowerReclaimer]) then
             --Check we have 1 T2 power per M28 player
@@ -1786,7 +1786,7 @@ function ConsiderReclaimingPower(iTeam, oPowerJustBuilt)
             end
             if iT2PowerEquivalent >= M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] * 0.65 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 1000 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] * M28Team.tTeamData[iTeam][M28Team.refiHighestBrainResourceMultiplier] then
                 if iT2PowerEquivalent >= 2 then M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam] = false end --If game is late enough that we have built multiple t2 pgens then should start ecoing
-                if bDebugMessages == true then LOG(sFunctionRef..': Will check for t1 power that we can reclaim') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will check for t1 power that we can reclaim') end
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                 CheckForUnitsToReclaimOfCategory(iTeam, M28UnitInfo.refCategoryT1Power, M28Team.subrefbActiveT1PowerReclaimer)
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -1804,7 +1804,7 @@ function ConsiderReclaimingPower(iTeam, oPowerJustBuilt)
                 CheckForUnitsToReclaimOfCategory(iTeam, M28UnitInfo.refCategoryT1Power + M28UnitInfo.refCategoryT2Power, M28Team.subrefbActiveT2PowerReclaimer)
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
             elseif not(M28Team.tTeamData[iTeam][M28Team.subrefbActiveT1PowerReclaimer]) then
-                if bDebugMessages == true then LOG(sFunctionRef..': Built T3 PGen, but sitll low gross energy, Will check for t1 power that we can reclaim') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Built T3 PGen, but sitll low gross energy, Will check for t1 power that we can reclaim') end
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                 CheckForUnitsToReclaimOfCategory(iTeam, M28UnitInfo.refCategoryT1Power, M28Team.subrefbActiveT1PowerReclaimer)
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -1941,13 +1941,13 @@ end
 
 function ManageMassStalls(iTeam)
     --For now focus is on if we are trying to build a missile for an SML, or we are massively mass stalling
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ManageMassStalls'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
 
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Start at time'..GetGameTimeSeconds()..'; Is table of active M28 brains empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]))..'; Net mass / gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] / M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start at time'..GetGameTimeSeconds()..'; Is table of active M28 brains empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]))..'; Net mass / gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] / M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]) end
     if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]) == false then
         local bOnlyParagons = false
         if M28Team.tTeamData[iTeam][M28Team.refbBuiltParagon] then
@@ -1977,7 +1977,7 @@ function ManageMassStalls(iTeam)
         local bFirstBrain
         if M28Team.tTeamData[iTeam][M28Team.refbNeedResourcesForMissile] then iMassStallPercentAdjust = 0.015 end
         --Dont consider pausing or unpausing if are stalling energy or early game, as our energy stall manager is likely to be operating
-        if bDebugMessages == true then LOG(sFunctionRef..': Start of code, GetGameTimeSeconds='..GetGameTimeSeconds()..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Team stalling mass already='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass])..'; Team stalling energy='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, GetGameTimeSeconds='..GetGameTimeSeconds()..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Team stalling mass already='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass])..'; Team stalling energy='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])) end
         if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or ((GetGameTimeSeconds() >= 120 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 3 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastEnergyStall] or -100) >= 10 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.99)) or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] <= 5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] < 0.5 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and GetGameTimeSeconds() >= 80 and GetGameTimeSeconds() <= 180 and not(M28Map.bIsLowMexMap) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 4 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 1 and M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategoryEngineer) >= 2 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) then
             if bOnlyParagons then bPauseNotUnpause = false end
             if bDebugMessages == true then
@@ -1995,7 +1995,7 @@ function ManageMassStalls(iTeam)
                 bPauseNotUnpause = false
                 if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] then bChangeRequired = true end
             end
-            if bDebugMessages == true then LOG(sFunctionRef .. ': Checking if we shoudl flag that we are mass stalling. bChangeRequired='..tostring(bChangeRequired)..'; Mass stored='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]..'; Need resources for missile='..tostring((M28Team.tTeamData[iTeam][M28Team.refbNeedResourcesForMissile] or false))..'; Gross mass income='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass]) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': Checking if we shoudl flag that we are mass stalling. bChangeRequired='..tostring(bChangeRequired)..'; Mass stored='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]..'; Need resources for missile='..tostring((M28Team.tTeamData[iTeam][M28Team.refbNeedResourcesForMissile] or false))..'; Gross mass income='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass]) end
             --Check if should manage mass stall
             if bChangeRequired == false and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= (0.001 + iMassStallPercentAdjust) and (M28Team.tTeamData[iTeam][M28Team.refbNeedResourcesForMissile] or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] < -1 and (-M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] / M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= iOverspendPercentage))) and not(bOnlyParagons) then
                 if bDebugMessages == true then
@@ -2018,15 +2018,15 @@ function ManageMassStalls(iTeam)
 
             if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] then M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastMassStall] = GetGameTimeSeconds() end
 
-            if bDebugMessages == true then LOG(sFunctionRef..': bChangeRequired='..tostring(bChangeRequired)..'; bPauseNotUnpause='..tostring(bPauseNotUnpause)..'; M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass])..'; Time of last stall='..(M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastMassStall] or 'nil')) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bChangeRequired='..tostring(bChangeRequired)..'; bPauseNotUnpause='..tostring(bPauseNotUnpause)..'; M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass])..'; Time of last stall='..(M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastMassStall] or 'nil')) end
             if bChangeRequired then
                 local bDontPauseUpgradingT1LandOrT2Land = false
-                if bDebugMessages == true then LOG(sFunctionRef..': Considering whether we want to avoid pausing a t1 factory upgrading to t2, lowest friendly land factory tech='..(M28Team.tTeamData[iTeam][M28Team.subrefiLowestFriendlyLandFactoryTech] or 'nil')..'; Highest='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech]..'; Is table of upgrading HQs empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs]))) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering whether we want to avoid pausing a t1 factory upgrading to t2, lowest friendly land factory tech='..(M28Team.tTeamData[iTeam][M28Team.subrefiLowestFriendlyLandFactoryTech] or 'nil')..'; Highest='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech]..'; Is table of upgrading HQs empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs]))) end
                 if M28Team.tTeamData[iTeam][M28Team.subrefiLowestFriendlyLandFactoryTech] == 1 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] < 3 and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs]) == false then
                     for iFactory, oFactory in M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs] do
                         if M28UnitInfo.IsUnitValid(oFactory) and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oFactory.UnitId) then
                             local tFactoryLZData, tFactoryLZTeamData = M28Map.GetLandOrWaterZoneData(oFactory:GetPosition(), true, iTeam)
-                            if bDebugMessages == true then LOG(sFunctionRef..': Considering upgrading factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Do we want to save mass for MML for firebase for zone this factory is in='..tostring(M28Conditions.SaveMassForMMLOrMobileT3ArtiForFirebase(tFactoryLZData, tFactoryLZTeamData, oFactory[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][1], iTeam, true))) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering upgrading factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Do we want to save mass for MML for firebase for zone this factory is in='..tostring(M28Conditions.SaveMassForMMLOrMobileT3ArtiForFirebase(tFactoryLZData, tFactoryLZTeamData, oFactory[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][1], iTeam, true))) end
                             if tFactoryLZTeamData and M28Conditions.SaveMassForMMLOrMobileT3ArtiForFirebase(tFactoryLZData, tFactoryLZTeamData, oFactory[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][1], iTeam, true) then
                                 bDontPauseUpgradingT1LandOrT2Land = true
                                 break
@@ -2065,7 +2065,7 @@ function ManageMassStalls(iTeam)
                         if M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 4000 then iMassPerTickSavingNeeded = iMassPerTickSavingNeeded - 1 end
                     end
                     if M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 2000 then iMassPerTickSavingNeeded = iMassPerTickSavingNeeded - 1 end
-                    if bDebugMessages == true then LOG(sFunctionRef..': Want to unpause units, iMassPerTickSavingNeeded (negative means unpausing units)='..iMassPerTickSavingNeeded) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want to unpause units, iMassPerTickSavingNeeded (negative means unpausing units)='..iMassPerTickSavingNeeded) end
                 end
 
                 local iMassSavingManaged = 0
@@ -2111,7 +2111,7 @@ function ManageMassStalls(iTeam)
                             end
                         end
                     end
-                    if bDebugMessages == true then LOG(sFunctionRef..': Time='..GetGameTimeSeconds()..'; Time of last engi self destruct='..M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastEngiSelfDestruct]..'; bConsiderReclaimingEngineer='..tostring(bConsiderReclaimingEngineer)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time='..GetGameTimeSeconds()..'; Time of last engi self destruct='..M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastEngiSelfDestruct]..'; bConsiderReclaimingEngineer='..tostring(bConsiderReclaimingEngineer)) end
                 else
                     iCategoryStartPoint = table.getn(tCategoriesByPriority)
                     iIntervalChange = -1
@@ -2154,11 +2154,11 @@ function ManageMassStalls(iTeam)
                         else iBuildRateMod = 1
                         end
 
-                        if bDebugMessages == true then LOG(sFunctionRef..': bPauseNotUnpause='..tostring(bPauseNotUnpause)..'; oBrain='..oBrain.Nickname..'; refbBuiltParagon='..tostring(oBrain[refbBuiltParagon] or false)) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bPauseNotUnpause='..tostring(bPauseNotUnpause)..'; oBrain='..oBrain.Nickname..'; refbBuiltParagon='..tostring(oBrain[refbBuiltParagon] or false)) end
 
                         if bPauseNotUnpause then
                             if oBrain[refbBuiltParagon] then
-                                if bDebugMessages == true then LOG(sFunctionRef..': This brain has built a paragon so wont search for units to pause') end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': This brain has built a paragon so wont search for units to pause') end
                                 tRelevantUnits = nil
                             elseif iCategoryRef == iSpecialSurplusUpgradeCategory then
                                 --Pause all but 1 upgrade per brain, pausing the lowest progress first, if we have multiple upgrades.  Dont pause the last mex upgrade. also dont pause anything that is >=85% complete
@@ -2181,7 +2181,7 @@ function ManageMassStalls(iTeam)
                                             else iExistingMexesOfTech = iExistingMexesOfTech + oMexBrain:GetCurrentUnits(M28UnitInfo.refCategoryMex - categories.TECH1)
                                             end
                                         end
-                                        if bDebugMessages == true then LOG(sFunctionRef..': iExistingMexesOfTech='..iExistingMexesOfTech) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iExistingMexesOfTech='..iExistingMexesOfTech) end
                                     end
                                     local iMexesToPause = math.max(0, iTeamUpgradingMexCount - GetMassStallMexUpgradeKeepCount(iTeam, iExistingMexesOfTech))
                                     --Want to allow multiple upgrading mexes for a brain if we have lots of mexes
@@ -2200,14 +2200,14 @@ function ManageMassStalls(iTeam)
                                         iMexesToPause = math.max(0, iMexesToPause - 1)
                                     end
                                     iMexesToPause = math.min(iMexesToPause, math.max(0, iTeamUpgradingMexCount - iTeamMexRecoveryFloor - table.getn(tRelevantUnits)))
-                                    if bDebugMessages == true then LOG(sFunctionRef..': iMexesToPause for brain '..oBrain.Nickname..'='..iMexesToPause..'; Numbero f upgrading mexes='..table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes])..'; Team gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iMexesToPause for brain '..oBrain.Nickname..'='..iMexesToPause..'; Numbero f upgrading mexes='..table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes])..'; Team gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]) end
 
                                     while iMexesToPause > 0 do
                                         local iLowestProgress = 0.8
                                         local oLowestProgress
                                         local bAlreadyIncluded
                                         for iUnit, oUnit in M28Team.tTeamData[oBrain.M28Team][M28Team.subreftTeamUpgradingMexes] do
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Start of loop for the lowest mex to pause, iMexesToPause='..iMexesToPause..'; Considering mex '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Work progress='..oUnit:GetWorkProgress()..'; iLowestProgress='..iLowestProgress..'; Mex owner='..oUnit:GetAIBrain().Nickname) end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of loop for the lowest mex to pause, iMexesToPause='..iMexesToPause..'; Considering mex '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Work progress='..oUnit:GetWorkProgress()..'; iLowestProgress='..iLowestProgress..'; Mex owner='..oUnit:GetAIBrain().Nickname) end
                                             if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetWorkProgress() < iLowestProgress and not(oUnit:GetAIBrain()[refbBuiltParagon]) then
                                                 bAlreadyIncluded = false
                                                 --Is the unit already in the table of relevant units?
@@ -2223,7 +2223,7 @@ function ManageMassStalls(iTeam)
                                             end
                                         end
                                         if oLowestProgress then
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Adding oLowestProgress='..oLowestProgress.UnitId..M28UnitInfo.GetUnitLifetimeCount(oLowestProgress)..' owned by '..oLowestProgress:GetAIBrain().Nickname..' to table of units to pause') end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adding oLowestProgress='..oLowestProgress.UnitId..M28UnitInfo.GetUnitLifetimeCount(oLowestProgress)..' owned by '..oLowestProgress:GetAIBrain().Nickname..' to table of units to pause') end
                                             table.insert(tRelevantUnits, oLowestProgress)
                                         else
                                             break
@@ -2311,24 +2311,24 @@ function ManageMassStalls(iTeam)
                                             --Factories, ACU and engineers - dont pause if >=85% done, or if is land factory that hasn't built many units (so e.g. if have just placed a land factory on a core expansion we dont immediately pause it)
                                         elseif oUnit.GetWorkProgress and EntityCategoryContains(M28UnitInfo.refCategoryEngineer + categories.COMMAND + M28UnitInfo.refCategoryFactory, oUnit.UnitId) and ((oUnit:GetWorkProgress() or 0) >= 0.85 or ((oUnit:GetWorkProgress() or 0) >= 0.8 and oUnit:GetFocusUnit().UnitId and EntityCategoryContains(M28UnitInfo.refCategoryExperimentalLevel, oUnit:GetFocusUnit().UnitId)) or (EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oUnit.UnitId) and (oUnit[M28Factory.refiTotalBuildCount] or 0) <= iMinBuildCountBeforePausingHQ and (not(M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) or oBrain[refiOurHighestLandFactoryTech] <= M28UnitInfo.GetUnitTechLevel(oUnit)))) then
                                             bApplyActionToUnit = false
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Either 85% completion or pausing a land factory that hasnt built much') end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Either 85% completion or pausing a land factory that hasnt built much') end
                                         elseif oUnit[M28Factory.refbPrimaryFactoryForIslandOrPond] then bApplyActionToUnit = false
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Dont want to pause primary factory for island/pond') end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dont want to pause primary factory for island/pond') end
                                             --Air HQ - dont pause first ever unit or transport
                                         elseif EntityCategoryContains(M28UnitInfo.refCategoryAirHQ, oUnit.UnitId) and (oUnit[M28Factory.refiTotalBuildCount] == 0 or EntityCategoryContains(M28UnitInfo.refCategoryTransport, (oUnit[M28Orders.reftiLastOrders][oUnit[M28Orders.refiOrderCount]][M28Orders.subrefsOrderBlueprint] or 'ueb1105'))) then
                                             bApplyActionToUnit = false
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Dont want to pause an air factory that hasnt built much') end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dont want to pause an air factory that hasnt built much') end
                                         elseif EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oUnit.UnitId) and ((bDontPauseUpgradingT1LandOrT2Land and (EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oUnit.UnitId or oUnit:IsUnitState('Upgrading') or oUnit:IsUnitState('BeingUpgraded'))) or oUnit[M28Factory.refiTotalBuildCount] <= 10)) then
 
                                             --Is this on a dif island to closest enemy base?
                                             local tUnitLZData, tUnitLZTeamData = M28Map.GetLandOrWaterZoneData(oUnit:GetPosition(), true, iTeam)
                                             if tUnitLZTeamData and not(NavUtils.GetLabel(M28Map.refPathingTypeLand, oUnit:GetPosition()) == NavUtils.GetLabel(M28Map.refPathingTypeLand, tUnitLZTeamData[M28Map.reftClosestEnemyBase])) and (oUnit[M28Factory.refiTotalBuildCount] or 0) <= iMinBuildCountBeforePausingHQ * 3 then
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Different island to closest enemy base, and we havent built a certain level of units') end
+                                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Different island to closest enemy base, and we havent built a certain level of units') end
                                                 bApplyActionToUnit = false
                                             elseif bDontPauseUpgradingT1LandOrT2Land and (((oUnit:IsUnitState('Upgrading') or oUnit:IsUnitState('BeingUpgraded')) and EntityCategoryContains(categories.TECH1, oUnit.UnitId) and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs]) == false) or EntityCategoryContains(M28UnitInfo.refCategoryLandFactory * categories.TECH2, oUnit.UnitId)) then
                                                 for iFactory, oFactory in M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs] do
                                                     if oUnit == oFactory then
-                                                        if bDebugMessages == true then LOG(sFunctionRef..': Dont want to pause an upgrading HQ') end
+                                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dont want to pause an upgrading HQ') end
                                                         bApplyActionToUnit = false
                                                         break
                                                     end
@@ -2349,11 +2349,11 @@ function ManageMassStalls(iTeam)
                                                 for iActionCount, iActionRef in tEngineerActionSubtable do
                                                     if iActionRef == oUnit[M28Engineer.refiAssignedAction] then
                                                         bApplyActionToUnit = true
-                                                        if bDebugMessages == true then LOG(sFunctionRef..': Have an action match, iActionRef='..iActionRef..'; will apply action to unitunless have an override such as priamry power builder, oUnit[M28Engineer.refbPrimaryBuilder]='..tostring(oUnit[M28Engineer.refbPrimaryBuilder])) end
+                                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have an action match, iActionRef='..iActionRef..'; will apply action to unitunless have an override such as priamry power builder, oUnit[M28Engineer.refbPrimaryBuilder]='..tostring(oUnit[M28Engineer.refbPrimaryBuilder])) end
                                                         --Dont pause the last engi building power or GE Template, and also dont pause if are building PD/T2 Arti/Shield/Experimental and have a fraction complete of at least 70%
                                                         if oUnit[M28Engineer.refbPrimaryBuilder] and (iActionRef == M28Engineer.refActionBuildPower or iActionRef == M28Engineer.refActionBuildSecondPower or iActionRef == M28Engineer.refActionManageGameEnderTemplate) then
                                                             bApplyActionToUnit = false
-                                                            if bDebugMessages == true then LOG(sFunctionRef..': Dealing with primary builder that is building power or GE template so wont pause') end
+                                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dealing with primary builder that is building power or GE template so wont pause') end
                                                         elseif oUnit.GetFocusUnit then
                                                             local oFocusUnit = oUnit:GetFocusUnit()
                                                             if bDebugMessages == true then
@@ -2363,12 +2363,12 @@ function ManageMassStalls(iTeam)
                                                             end
                                                             if M28UnitInfo.IsUnitValid(oFocusUnit) then
                                                                 if oFocusUnit:GetFractionComplete() >= 0.7 and oFocusUnit:GetFractionComplete() < 1 and EntityCategoryContains(M28UnitInfo.refCategoryPD + M28UnitInfo.refCategoryFixedT2Arti + M28UnitInfo.refCategoryExperimentalLevel, oFocusUnit.UnitId) then
-                                                                    if bDebugMessages == true then LOG(sFunctionRef..': Wont apply action to unit as it is PD/Arti/Experimental') end
+                                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Wont apply action to unit as it is PD/Arti/Experimental') end
                                                                     bApplyActionToUnit = false
                                                                     if oUnit[M28UnitInfo.refbPaused] then M28UnitInfo.PauseOrUnpauseMassUsage(oUnit, false, iTeam, iCategoryCount) end
                                                                 elseif iActionRef == M28Engineer.refActionBuildLandFactory and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory - categories.TECH3, oFocusUnit.UnitId) and oBrain[refiGrossMassBaseIncome] >= 1.4 then
                                                                     local tEngiZone, tEngiTeamData = M28Map.GetLandOrWaterZoneData(oUnit:GetPosition(), true, iTeam)
-                                                                    if bDebugMessages == true then LOG(sFunctionRef..': Are building al and fac, wont pause if not in core zone, tEngiTeamData[M28Map.subrefLZbCoreBase]='..tostring(tEngiTeamData[M28Map.subrefLZbCoreBase] or false)) end
+                                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Are building al and fac, wont pause if not in core zone, tEngiTeamData[M28Map.subrefLZbCoreBase]='..tostring(tEngiTeamData[M28Map.subrefLZbCoreBase] or false)) end
                                                                     if not(tEngiTeamData[M28Map.subrefLZbCoreBase]) then
                                                                         --Keep building expansion land fac
                                                                         bApplyActionToUnit = false
@@ -2379,7 +2379,7 @@ function ManageMassStalls(iTeam)
                                                                 local sBlueprint = oUnit[M28Orders.reftiLastOrders][1][M28Orders.subrefsOrderBlueprint]
                                                                 if not(sBlueprint) and oUnit[M28Orders.reftiLastOrders][1][M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueGuard then sBlueprint = oUnit[M28Orders.reftiLastOrders][1][M28Orders.subrefoOrderUnitTarget][M28Orders.reftiLastOrders][1][M28Orders.subrefsOrderBlueprint] end
                                                                 if sBlueprint and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory - categories.TECH3, sBlueprint) then
-                                                                    if bDebugMessages == true then LOG(sFunctionRef..': We have queued up a land fac, want to build it if we are not in a core zone (since presumably are at an expansion point') end
+                                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We have queued up a land fac, want to build it if we are not in a core zone (since presumably are at an expansion point') end
                                                                     local tEngiZone, tEngiTeamData = M28Map.GetLandOrWaterZoneData(oUnit:GetPosition(), true, iTeam)
                                                                     if not(tEngiTeamData[M28Map.subrefLZbCoreBase]) then
                                                                         bApplyActionToUnit = false
@@ -2399,7 +2399,7 @@ function ManageMassStalls(iTeam)
 
 
                                                                 function KillEngineer(oUnit)
-                                                                    if bDebugMessages == true then LOG(sFunctionRef..': About to kill engineer '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; unless it is T3 and there is a T1 or T2 engi we can kill instead in the same zone') end
+                                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to kill engineer '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; unless it is T3 and there is a T1 or T2 engi we can kill instead in the same zone') end
                                                                     local oEngiToKill = GetBestEngiToKill(oUnit)
                                                                     if M28UnitInfo.GetUnitTechLevel(oEngiToKill) == 1 and oBrain[refiOurHighestFactoryTechLevel] > 1 then iKillCount = iKillCount + 0.5
                                                                     else iKillCount = iKillCount + 1
@@ -2413,7 +2413,7 @@ function ManageMassStalls(iTeam)
                                                                 iCurPlateau, iCurLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oUnit:GetPosition(), true, oUnit)
                                                                 if (iCurPlateau or 0) > 0 and (iCurLandZone or 0) > 0 then
                                                                     if M28Map.tAllPlateaus[iCurPlateau][M28Map.subrefPlateauLandZones][iCurLandZone][M28Map.subrefTotalMassReclaim] > 30 then
-                                                                        if bDebugMessages == true then LOG(sFunctionRef..': About to tell unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' to clear its current orders and try to reclaim nearby area due to mass stall') end
+                                                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to tell unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' to clear its current orders and try to reclaim nearby area due to mass stall') end
                                                                         M28Orders.IssueTrackedClearCommands(oUnit)
                                                                         M28Engineer.GetEngineerToReclaimNearbyArea(oUnit, 1, M28Map.tAllPlateaus[iCurPlateau][M28Map.subrefPlateauLandZones][iCurLandZone][M28Map.subrefLZTeamData][iTeam], iCurPlateau, iCurLandZone, false, true)
                                                                         --Kill engineers if htey are in a core LZ
@@ -2431,7 +2431,7 @@ function ManageMassStalls(iTeam)
                                             --Mass stalling so pausing shield not expected to do anything
                                             bApplyActionToUnit = false
                                         elseif iCategoryRef == M28UnitInfo.refCategoryTML and M28UnitInfo.GetMissileCount(oUnit) == 0 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 1.2 then
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Dealing with TML that has no missile so dont want to pause it') end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dealing with TML that has no missile so dont want to pause it') end
                                             bApplyActionToUnit = false
                                         end
 
@@ -2484,7 +2484,7 @@ function ManageMassStalls(iTeam)
                                             if iCategoryRef == categories.COMMAND and oUnit[M28Orders.refiOrderCount] > 0 and oUnit[M28Orders.reftiLastOrders][oUnit[M28Orders.refiOrderCount]][M28Orders.subrefiOrderType] == M28Orders.refiOrderEnhancement then
                                                 --Determine mass cost per BP
                                                 local sUpgradeRef = oUnit[M28Orders.reftiLastOrders][oUnit[M28Orders.refiOrderCount]][M28Orders.subrefsOrderBlueprint]
-                                                if bDebugMessages == true then LOG(sFunctionRef..': aiBrain='..oUnit:GetAIBrain():GetArmyIndex()..'; Unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; sUpgradeRef='..(sUpgradeRef or 'nil')..'; Upgrade mass cost='..(M28UnitInfo.GetUpgradeMassCost(oUnit, sUpgradeRef) or 'nil')..'; Upgrade build time='..(M28UnitInfo.GetUpgradeBuildTime(oUnit, sUpgradeRef) or 'nil')) end
+                                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': aiBrain='..oUnit:GetAIBrain():GetArmyIndex()..'; Unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; sUpgradeRef='..(sUpgradeRef or 'nil')..'; Upgrade mass cost='..(M28UnitInfo.GetUpgradeMassCost(oUnit, sUpgradeRef) or 'nil')..'; Upgrade build time='..(M28UnitInfo.GetUpgradeBuildTime(oUnit, sUpgradeRef) or 'nil')) end
                                                 iMassPerBP = M28UnitInfo.GetUpgradeMassCost(oUnit, sUpgradeRef) / (M28UnitInfo.GetUpgradeBuildTime(oUnit, sUpgradeRef) or 1)
                                             end
 
@@ -2498,12 +2498,12 @@ function ManageMassStalls(iTeam)
                                                             oFocusUnitBP = oUnit:GetFocusUnit():GetBlueprint()
                                                             iCurUnitMassUsage = oBP.Economy.BuildRate * iBuildRateMod / oFocusUnitBP.Economy.BuildTime * oFocusUnitBP.Economy.BuildCostMass
                                                             oUnit[refiLastMassUsage] = iCurUnitMassUsage
-                                                            if bDebugMessages == true then LOG(sFunctionRef..': Setting unit last mass usage to '..oUnit[refiLastMassUsage]..'; Build rate='..oBP.Economy.BuildRate..'; Focus unit build time='..oFocusUnitBP.Economy.BuildTime..'; Focus unit build cost mass='..oFocusUnitBP.Economy.BuildCostMass..'; Build rate mod='..iBuildRateMod) end
+                                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Setting unit last mass usage to '..oUnit[refiLastMassUsage]..'; Build rate='..oBP.Economy.BuildRate..'; Focus unit build time='..oFocusUnitBP.Economy.BuildTime..'; Focus unit build cost mass='..oFocusUnitBP.Economy.BuildCostMass..'; Build rate mod='..iBuildRateMod) end
                                                         else
                                                             iCurUnitMassUsage = oBP.Economy.BuildRate * iBuildRateMod *  iMassPerBP
                                                         end
                                                     end
-                                                    if bDebugMessages == true then LOG(sFunctionRef..': Checking for what the unit is building or upgrading to get more accurate calculation, unit state='..M28UnitInfo.GetUnitState(oUnit)..'; mass usage after check='..iCurUnitMassUsage..'; Is focus unit valid='..tostring(M28UnitInfo.IsUnitValid(oUnit:GetFocusUnit()))) end
+                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking for what the unit is building or upgrading to get more accurate calculation, unit state='..M28UnitInfo.GetUnitState(oUnit)..'; mass usage after check='..iCurUnitMassUsage..'; Is focus unit valid='..tostring(M28UnitInfo.IsUnitValid(oUnit:GetFocusUnit()))) end
                                                 else
                                                     iCurUnitMassUsage = (oUnit[refiLastMassUsage] or oBP.Economy.BuildRate * iBuildRateMod * iMassPerBP)
                                                 end
@@ -2616,8 +2616,8 @@ function ManageMassStalls(iTeam)
 end
 
 function ManageEnergyStalls(iTeam)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ManageEnergyStalls'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     local iFactoryLikeEnergyPauseExemptionCategory = M28UnitInfo.refCategoryFactory + M28UnitInfo.refCategorySpecialFactory + M28UnitInfo.refCategoryQuantumGateway
 
@@ -2636,9 +2636,9 @@ function ManageEnergyStalls(iTeam)
             local bHaveWeCappedUnpauseAmount = false
             if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] or (GetGameTimeSeconds() >= 120 or (GetGameTimeSeconds() >= 40 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 15)) then
                 --Only consider power stall management after 2m, otherwise risk pausing things such as early microbots when we would probably be ok after a couple of seconds; lower time limit put in as a theroetical possibility due to AIX
-                if bDebugMessages == true then LOG(sFunctionRef .. ': About to consider if we have an energy stall or not. Lowest energy % stored=' .. M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] .. '; M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy]=' .. M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] .. '; M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]=' .. tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': About to consider if we have an energy stall or not. Lowest energy % stored=' .. M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] .. '; M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy]=' .. M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] .. '; M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]=' .. tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])) end
                 --First consider unpausing
-                if bDebugMessages == true then LOG(sFunctionRef .. ': If we have flagged that we are stalling energy then will check if we have enough to start unpausing things') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': If we have flagged that we are stalling energy then will check if we have enough to start unpausing things') end
 
                 local iPercentMod = 0
                 local iNetMod = 0
@@ -2649,7 +2649,7 @@ function ManageEnergyStalls(iTeam)
 
                     iPercentMod = math.max(0.05, iPercentMod)
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': If are in stall mode will check if want to come out. M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])..'; Gross income='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Stored ratio='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored]..'; Net income='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy]..'; iNetMod='..iNetMod..'; iPercentMod='..iPercentMod..'; GameTime='..GetGameTimeSeconds()..'; M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled]='..M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled]..'; Changei n power since then='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] - M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled]) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': If are in stall mode will check if want to come out. M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])..'; Gross income='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Stored ratio='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored]..'; Net income='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy]..'; iNetMod='..iNetMod..'; iPercentMod='..iPercentMod..'; GameTime='..GetGameTimeSeconds()..'; M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled]='..M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled]..'; Changei n power since then='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] - M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled]) end
 
                 if M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 800 then iPercentMod = math.max(iPercentMod,  math.min(iPercentMod + 0.2, 0.275)) end
 
@@ -2661,7 +2661,7 @@ function ManageEnergyStalls(iTeam)
                 if GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastNeededEnergyForOvercharge] or -10) <= 1 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] < 0.9 then
                     bPauseNotUnpause = true
                     iPercentMod = math.max(0.5, iPercentMod)
-                    if bDebugMessages == true then LOG(sFunctionRef..': ACU needs energy so will set percentmod to 50% at time '..GetGameTimeSeconds()) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': ACU needs energy so will set percentmod to 50% at time '..GetGameTimeSeconds()) end
                 end
                 if M28Team.tTeamData[iTeam][M28Team.subrefiTeamEnergyStored] >= 200000 and iPercentMod > -0.6 then iPercentMod = iPercentMod - 0.1 end
 
@@ -2712,7 +2712,7 @@ function ManageEnergyStalls(iTeam)
                             end
 
                         end
-                        if bDebugMessages == true then LOG(sFunctionRef..': M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount]='..M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount]..'; bHaveUnexpectedlyPausedUnits='..tostring(bHaveUnexpectedlyPausedUnits)) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount]='..M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount]..'; bHaveUnexpectedlyPausedUnits='..tostring(bHaveUnexpectedlyPausedUnits)) end
                     end
                     if bHaveUnexpectedlyPausedUnits then
                         bChangeRequired = true
@@ -2728,11 +2728,11 @@ function ManageEnergyStalls(iTeam)
                         M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] = true
                         bChangeRequired = true
                         if not(M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower]) then M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled] = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] end
-                        if bDebugMessages == true then LOG(sFunctionRef..': early game check cleared, so are stalling energy') end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': early game check cleared, so are stalling energy') end
                     end
                 end
 
-                if bDebugMessages == true then LOG(sFunctionRef..': Will move on to main pause or unpause logic now if change is required, bChangeRequired='..tostring(bChangeRequired)..'; bPauseNotUnpause='..tostring(bPauseNotUnpause)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will move on to main pause or unpause logic now if change is required, bChangeRequired='..tostring(bChangeRequired)..'; bPauseNotUnpause='..tostring(bPauseNotUnpause)) end
 
                 if bChangeRequired then
                     --Consider if we want to hold off pausing a T1 land fac upgrading to T2 if enemy has T2 arti threat (since we need MMLs)
@@ -2743,7 +2743,7 @@ function ManageEnergyStalls(iTeam)
                             if tUnits then
                                 for iUnit, oPausedUnit in tUnits do
                                     if M28UnitInfo.IsUnitValid(oPausedUnit) and EntityCategoryContains(iFactoryLikeEnergyPauseExemptionCategory, oPausedUnit.UnitId) then
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Will unpause factory-like unit that should no longer be paused for energy stall, unit='..oPausedUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oPausedUnit)..'; Priority='..iPriority) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will unpause factory-like unit that should no longer be paused for energy stall, unit='..oPausedUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oPausedUnit)..'; Priority='..iPriority) end
                                         M28UnitInfo.PauseOrUnpauseEnergyUsage(oPausedUnit, false, nil, iTeam)
                                     end
                                 end
@@ -2764,7 +2764,7 @@ function ManageEnergyStalls(iTeam)
                     end
 
                     if bPauseNotUnpause then
-                        if bDebugMessages == true then LOG(sFunctionRef..': Change is required and we want to pause units, time='..GetGameTimeSeconds()) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Change is required and we want to pause units, time='..GetGameTimeSeconds()) end
                         M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] = true
                         if not(M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower]) then M28Team.tTeamData[iTeam][M28Team.subrefiGrossEnergyWhenStalled] = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] end
                         if M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.25 then bStopPausingIfGotToFactoriesAndHaveSomeEnergy = true end
@@ -2773,26 +2773,26 @@ function ManageEnergyStalls(iTeam)
                     --Decide on order to pause/unpause
 
                     local tCategoriesByPriority, tEngineerActionsByPriority = GetCategoryAndActionsToPauseWhenStalling(iTeam)
-                    if bDebugMessages == true then LOG(sFunctionRef..': tCategoriesByPriority='..reprs(tCategoriesByPriority)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tCategoriesByPriority='..reprs(tCategoriesByPriority)) end
 
                     local iEnergyPerTickSavingNeeded
                     if bPauseNotUnpause then
                         iEnergyPerTickSavingNeeded = math.max(1, -M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] + iNetMod * 0.5 + M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] * 0.02)
                         if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.15 then
-                            if bDebugMessages == true then LOG(sFunctionRef..': Have less than 15% energy stored so increasing the energy saving wanted. iEnergyPerTickSavingNeeded pre increase='..iEnergyPerTickSavingNeeded..'; Gross base income='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Team lowest energy storage units='..M28Team.tTeamData[iTeam][M28Team.subrefiLowestEnergyStorageCount]) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have less than 15% energy stored so increasing the energy saving wanted. iEnergyPerTickSavingNeeded pre increase='..iEnergyPerTickSavingNeeded..'; Gross base income='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; Team lowest energy storage units='..M28Team.tTeamData[iTeam][M28Team.subrefiLowestEnergyStorageCount]) end
                             local iStorageFactor = 50
                             if M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 1000 then iStorageFactor = 100 end
                             iEnergyPerTickSavingNeeded = math.max(iEnergyPerTickSavingNeeded * 1.3, iEnergyPerTickSavingNeeded + M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] * 0.03)
                             iEnergyPerTickSavingNeeded = math.max(iEnergyPerTickSavingNeeded, M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] * 0.06, math.min(M28Team.tTeamData[iTeam][M28Team.subrefiLowestEnergyStorageCount] * iStorageFactor, M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]*0.15))
                         elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.225 then
-                            if bDebugMessages == true then LOG(sFunctionRef..': Less than 22.5% energy stored so increasing energy saving slightly') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Less than 22.5% energy stored so increasing energy saving slightly') end
                             iEnergyPerTickSavingNeeded = math.max(iEnergyPerTickSavingNeeded * 1.15, iEnergyPerTickSavingNeeded + M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] * 0.015)
                         end
                     else
                         iEnergyPerTickSavingNeeded = math.min(-1, -M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy], -M28Team.tTeamData[iTeam][M28Team.subrefiTeamEnergyStored] / 30)
                         iEnergyPerTickSavingNeeded = math.max(iEnergyPerTickSavingNeeded, math.min(-300, -M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] * 0.5), math.min(-600, -M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] * 0.25))
                         if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.75 then iEnergyPerTickSavingNeeded = iEnergyPerTickSavingNeeded * 0.75 end
-                        if bDebugMessages == true then LOG(sFunctionRef..': Want to start unpausing things, M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored]..'; iEnergyPerTickSavingNeeded='..iEnergyPerTickSavingNeeded) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want to start unpausing things, M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored]..'; iEnergyPerTickSavingNeeded='..iEnergyPerTickSavingNeeded) end
                     end
 
                     local iEnergySavingManaged = 0
@@ -2819,7 +2819,7 @@ function ManageEnergyStalls(iTeam)
                     local bConsideringTeamWideUnits = false
                     local bNoRelevantUnits = true
 
-                    if bDebugMessages == true then LOG(sFunctionRef .. ': About to cycle through every category, bPauseNotUnpause=' .. tostring(bPauseNotUnpause) .. '; iCategoryStartPoint=' .. iCategoryStartPoint .. '; iCategoryEndPoint=' .. iCategoryEndPoint..'; iEnergyPerTickSavingNeeded='..iEnergyPerTickSavingNeeded) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': About to cycle through every category, bPauseNotUnpause=' .. tostring(bPauseNotUnpause) .. '; iCategoryStartPoint=' .. iCategoryStartPoint .. '; iCategoryEndPoint=' .. iCategoryEndPoint..'; iEnergyPerTickSavingNeeded='..iEnergyPerTickSavingNeeded) end
 
                     local bConsideringFactory
                     local bFirstBrain
@@ -2857,7 +2857,7 @@ function ManageEnergyStalls(iTeam)
                             if bPauseNotUnpause then
                                 if oBrain[refbBuiltParagon] and (oBrain:GetEconomyStoredRatio('ENERGY') >= 0.1 or (oBrain:GetEconomyStoredRatio('ENERGY') >= 0.01 and oBrain:GetEconomyTrend('ENERGY') > 0)) then
                                     tRelevantUnits = nil
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Have built paragon for brain '..oBrain.Nickname..' so wont pause units unless really low on energy for this brain') end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have built paragon for brain '..oBrain.Nickname..' so wont pause units unless really low on energy for this brain') end
                                 elseif iCategoryRef == iSpecialSurplusUpgradeCategory then
                                     --Pause all but 1 upgrade per brain, pausing the lowest progress first, if we have multiple upgrades
                                     tRelevantUnits = {}
@@ -2910,7 +2910,7 @@ function ManageEnergyStalls(iTeam)
                                 end
                             end
 
-                            if bDebugMessages == true then LOG(sFunctionRef..': Considering iCategoryCount='..iCategoryCount..' for brain '..oBrain.Nickname..'; Is table of relevant units empty='..tostring(M28Utilities.IsTableEmpty(tRelevantUnits))) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering iCategoryCount='..iCategoryCount..' for brain '..oBrain.Nickname..'; Is table of relevant units empty='..tostring(M28Utilities.IsTableEmpty(tRelevantUnits))) end
                             if M28Utilities.IsTableEmpty(tRelevantUnits) == false then
                                 if bFirstBrain then
                                     --Will be pausing if are in this scenario as bFirstBrain is set to false earlier on for unpausing
@@ -2919,7 +2919,7 @@ function ManageEnergyStalls(iTeam)
                                 end
                                 bNoRelevantUnits = false
                                 iTotalUnits = table.getn(tRelevantUnits)
-                                if bDebugMessages == true then LOG(sFunctionRef .. ': iCategoryCount=' .. iCategoryCount .. '; iTotalUnits=' .. iTotalUnits .. '; bPauseNotUnpause=' .. tostring(bPauseNotUnpause)..'; iEngineerSubtableCount before increasing='..iEngineerSubtableCount..'; tEngineerActionsByPriority='..repru(tEngineerActionsByPriority)) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': iCategoryCount=' .. iCategoryCount .. '; iTotalUnits=' .. iTotalUnits .. '; bPauseNotUnpause=' .. tostring(bPauseNotUnpause)..'; iEngineerSubtableCount before increasing='..iEngineerSubtableCount..'; tEngineerActionsByPriority='..repru(tEngineerActionsByPriority)) end
 
                                 if iCategoryRef == M28UnitInfo.refCategoryEngineer then
                                     if bFirstEngiCategoryRefBrain then
@@ -2973,7 +2973,7 @@ function ManageEnergyStalls(iTeam)
                                             bApplyActionToUnit = true
                                             if EntityCategoryContains(iFactoryLikeEnergyPauseExemptionCategory, oUnit.UnitId) then
                                                 bApplyActionToUnit = false
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Factory-like unit is exempt from energy-stall pausing, unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
+                                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Factory-like unit is exempt from energy-stall pausing, unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
                                             end
                                             if bDebugMessages == true then
                                                 LOG(sFunctionRef .. ': UnitState=' .. M28UnitInfo.GetUnitState(oUnit) .. '; Is ActiveHQUpgrades Empty=' .. tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs])))
@@ -3000,7 +3000,7 @@ function ManageEnergyStalls(iTeam)
                                                             --Dont pause T1 factory construction if we have a certain amount of gross energy income
                                                         elseif iActionRef == M28Engineer.refActionBuildLandFactory and EntityCategoryContains(categories.TECH1, oUnit.UnitId) and oBrain[refiGrossEnergyBaseIncome] >= 26 then
                                                             if oUnit[M28Engineer.refbPrimaryBuilder] then
-                                                                if bDebugMessages == true then LOG(sFunctionRef..': wont pause primary engineer building t1 land fac') end
+                                                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': wont pause primary engineer building t1 land fac') end
                                                                 bApplyActionToUnit = false
                                                             else
                                                                 local tEngiZone, tEngiTeamData = M28Map.GetLandOrWaterZoneData(oUnit:GetPosition(), true, iTeam)
@@ -3013,7 +3013,7 @@ function ManageEnergyStalls(iTeam)
                                                             bApplyActionToUnit = false
                                                         elseif oUnit:GetWorkProgress() >= 0.9 and oUnit:GetFocusUnit().UnitId and EntityCategoryContains(M28UnitInfo.refCategoryExperimentalLevel + M28UnitInfo.refCategoryPD + M28UnitInfo.refCategoryGroundAA + M28UnitInfo.refCategoryPower, oUnit:GetFocusUnit().UnitId) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.1 or oUnit:GetWorkProgress() >= 0.98) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.5 or not(M28Team.tTeamData[iTeam][M28Team.refbDefendAgainstArti])) then
                                                             bApplyActionToUnit = false
-                                                            if bDebugMessages == true then LOG(sFunctionRef..': Almost completed an experimental unit so dont want to stop now unless really stalling E') end
+                                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Almost completed an experimental unit so dont want to stop now unless really stalling E') end
                                                         end
                                                         break
                                                     end
@@ -3021,20 +3021,20 @@ function ManageEnergyStalls(iTeam)
                                             elseif iCategoryRef == M28UnitInfo.refCategoryPersonalShield or iCategoryRef == M28UnitInfo.refCategoryFixedShield or iCategoryRef == M28UnitInfo.refCategoryMobileLandShield then
                                                 --Dont disable shield if unit has enemies nearby
                                                 if (oUnit[M28Building.reftArtiTemplateRefs] or (M28UnitInfo.IsUnitShieldEnabled(oUnit) and M28Utilities.IsTableEmpty(oBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryDangerousToLand, oUnit:GetPosition(), 40, 'Enemy')) == false)) then
-                                                    if bDebugMessages == true then LOG(sFunctionRef..': Shield has enemies nearby so wont pause it') end
+                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Shield has enemies nearby so wont pause it') end
                                                     bApplyActionToUnit = false
                                                 end
                                             elseif bConsideringFactory then
                                                 --Primary factions - if dealing with T1 (or T2 with lots of E) and is a primary factory, then dont pause, as too big a risk we pause an expansion and lose the whole expansion
                                                 if (oUnit[M28Factory.refbPrimaryFactoryForIslandOrPond] or oBrain[refiGrossEnergyBaseIncome] >= 300 or (oBrain[refiGrossEnergyBaseIncome] >= 150 and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory - categories.TECH3, oUnit.UnitId)) or (oBrain[refiGrossEnergyBaseIncome] >= 100 and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory * categories.TECH1, oUnit.UnitId))) and oBrain[refiGrossEnergyBaseIncome] >= 30 and (oBrain[refiGrossEnergyBaseIncome] >= 150 or (oBrain[refiGrossEnergyBaseIncome] >= 80 and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory - categories.TECH3, oUnit.UnitId)) or EntityCategoryContains(M28UnitInfo.refCategoryLandFactory * categories.TECH1, oUnit.UnitId)) and (oBrain[refiGrossEnergyBaseIncome] >= 300 or not(oUnit:IsUnitState('Upgrading')) or bDontPauseUpgradingT1LandOrT2Land or (oUnit[M28Factory.refbPrimaryFactoryForIslandOrPond] and oBrain[refiGrossEnergyBaseIncome] >= 85 and EntityCategoryContains(categories.TECH1, oUnit.UnitId))) then
                                                     bApplyActionToUnit = false
-                                                    if bDebugMessages == true then LOG(sFunctionRef..': Primary fac for island/pond so wont pause') end
+                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Primary fac for island/pond so wont pause') end
                                                     --Dont want to pause an HQ upgrade since it will give us better power, unless we already have access to that tech for the factory brain owner
                                                 elseif (bDontPauseUpgradingT1LandOrT2Land and EntityCategoryContains(categories.TECH1 * M28UnitInfo.refCategoryLandFactory, oUnit.UnitId)) or (not (bConsideringHQ) and (oUnit:IsUnitState('Upgrading') or oUnit:IsUnitState('BeingUpgraded')) and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs]) == false and EntityCategoryContains(categories.FACTORY, oUnit.UnitId) and (not(EntityCategoryContains(M28UnitInfo.refCategoryAirFactory, oUnit.UnitId)) or oUnit:GetAIBrain()[refiOurHighestFactoryTechLevel] <= M28UnitInfo.GetUnitTechLevel(oUnit))) then
-                                                    if bDebugMessages == true then LOG(sFunctionRef..': Dont want to pause primary factory for island/pond') end
+                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dont want to pause primary factory for island/pond') end
                                                     for iFactory, oFactory in M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs] do
                                                         if oUnit == oFactory then
-                                                            if bDebugMessages == true then LOG(sFunctionRef..': Dealing with an upgrading factory, bConsideringHQ='..tostring(bConsideringHQ)..'; wont pause this factorys upgrade as it would give us a higher tech that could give us more power') end
+                                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dealing with an upgrading factory, bConsideringHQ='..tostring(bConsideringHQ)..'; wont pause this factorys upgrade as it would give us a higher tech that could give us more power') end
                                                             bApplyActionToUnit = false
                                                             break
                                                         end
@@ -3042,29 +3042,29 @@ function ManageEnergyStalls(iTeam)
                                                 end
                                                 if bApplyActionToUnit then
                                                     if oUnit[M28Orders.reftiLastOrders][1][M28Orders.subrefsOrderBlueprint] and EntityCategoryContains(M28UnitInfo.refCategoryEngineer, oUnit[M28Orders.reftiLastOrders][1][M28Orders.subrefsOrderBlueprint]) and (oUnit[M28Orders.refiOrderCount] or 0) <= 1 then
-                                                        if bDebugMessages == true then LOG(sFunctionRef..': Unit last order was to build an engineer so dont want to pause it as more engieneers might help us recover from a power stall by building more power') end
+                                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit last order was to build an engineer so dont want to pause it as more engieneers might help us recover from a power stall by building more power') end
                                                         bApplyActionToUnit = false
                                                     elseif bStopPausingIfGotToFactoriesAndHaveSomeEnergy and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oUnit.UnitId) and not(oUnit:IsUnitState('Upgrading')) and not(oUnit:IsUnitState('BeingUpgraded')) then
                                                         bApplyActionToUnit = false
                                                     end
                                                 end
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Deciding whether to pause unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Cur blueprint building='..(oUnit[M28Orders.reftiLastOrders][1][M28Orders.subrefsOrderBlueprint] or 'nil')..'; bConsideringHQ='..tostring(bConsideringHQ)..'; bApplyActionToUnit='..tostring(bApplyActionToUnit)..'; Time='..GetGameTimeSeconds()) end
+                                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Deciding whether to pause unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Cur blueprint building='..(oUnit[M28Orders.reftiLastOrders][1][M28Orders.subrefsOrderBlueprint] or 'nil')..'; bConsideringHQ='..tostring(bConsideringHQ)..'; bApplyActionToUnit='..tostring(bApplyActionToUnit)..'; Time='..GetGameTimeSeconds()) end
 
                                                 if bApplyActionToUnit then
                                                     --Dont pause factory that is building an engineer or is an air factory that isnt building an air unit, if its our highest tech level and we dont have at least 5 engis of that tech level
                                                     if M28UnitInfo.GetUnitTechLevel(oUnit) >= math.max(2, M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]) and oBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer * M28UnitInfo.ConvertTechLevelToCategory(M28UnitInfo.GetUnitTechLevel(oUnit))) < 2 then
                                                         --Dont pause factory as have too few engis and want to build power with those engis
-                                                        if bDebugMessages == true then LOG(sFunctionRef .. ': Have too few engineers so wont pause factory') end
+                                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': Have too few engineers so wont pause factory') end
                                                         bApplyActionToUnit = false
                                                     end
                                                 end
                                             elseif iCategoryRef == M28UnitInfo.refCategoryTML and M28UnitInfo.GetMissileCount(oUnit) == 0 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 30 then
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Dealing with TML that has no missile so dont want to pause it') end
+                                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dealing with TML that has no missile so dont want to pause it') end
                                                 bApplyActionToUnit = false
                                                 --Selens - dont pause as only costs 1 E per sec
                                             elseif oUnit.UnitId == 'xsl0101' and (oUnit:GetBlueprint().Economy.MaintenanceConsumptionPerSecondEnergy or 1) <= 2 and oBrain[refiGrossEnergyBaseIncome] >= 20 then
                                                 bApplyActionToUnit = false
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Have a selen so E drain is negligible') end
+                                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have a selen so E drain is negligible') end
                                             end
 
                                             if iCategoryRef == categories.COMMAND then
@@ -3082,13 +3082,13 @@ function ManageEnergyStalls(iTeam)
                                                 end
                                             end
                                         end
-                                    elseif bDebugMessages == true then LOG(sFunctionRef..': Unit entry='..iUnit..'; Unit isnt valid or constructed')
+                                    elseif bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit entry='..iUnit..'; Unit isnt valid or constructed')
                                     end
 
 
 
                                     --Pause the unit
-                                    if bDebugMessages == true then LOG(sFunctionRef..': bApplyActionToUnit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'='..tostring(bApplyActionToUnit)) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bApplyActionToUnit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'='..tostring(bApplyActionToUnit)) end
 
                                     if bApplyActionToUnit then
                                         bWasUnitAlreadyPaused = oUnit[M28UnitInfo.refbPaused] --Means we will ignore the energy usage when calculating how much we have saved
@@ -3157,7 +3157,7 @@ function ManageEnergyStalls(iTeam)
                                             if bPauseNotUnpause and EntityCategoryContains(M28UnitInfo.refCategoryEngineer + M28UnitInfo.refCategoryFactory, oUnit.UnitId) then
                                                 if not(oUnit:IsUnitState('Upgrading') or oUnit:IsUnitState('Repairing') or oUnit:IsUnitState('Building') or oUnit:IsUnitState('BeingUpgraded')) then
                                                     iCurUnitEnergyUsage = iCurUnitEnergyUsage * 0.01
-                                                    if bDebugMessages == true then LOG(sFunctionRef..': Unit state='..M28UnitInfo.GetUnitState(oUnit)..' so will set the amount of energy saved equal to just 1% of the actual value, so it is now '..iCurUnitEnergyUsage) end
+                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit state='..M28UnitInfo.GetUnitState(oUnit)..' so will set the amount of energy saved equal to just 1% of the actual value, so it is now '..iCurUnitEnergyUsage) end
                                                 end
                                             end
                                         end
@@ -3227,34 +3227,34 @@ function ManageEnergyStalls(iTeam)
                         end
                     end
 
-                    if bDebugMessages == true then LOG(sFunctionRef .. 'If we have no paused units then will set us as not having an energy stall; M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount]='..M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount]..'; subrefbTeamIsStallingMass ='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass])..'; bPauseNotUnpause='..tostring(bPauseNotUnpause)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. 'If we have no paused units then will set us as not having an energy stall; M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount]='..M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount]..'; subrefbTeamIsStallingMass ='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass])..'; bPauseNotUnpause='..tostring(bPauseNotUnpause)) end
                     if M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] <= 0 then
                         M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] = false
                         M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] = 0
                         M28Team.tTeamData[iTeam][M28Team.refiLastEnergyStallCategoryAndEngineerTables] = nil
-                        if bDebugMessages == true then LOG(sFunctionRef .. ': We are no longer stalling energy, we had a paused unit count of <= 0') end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': We are no longer stalling energy, we had a paused unit count of <= 0') end
                     elseif M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] and not(bPauseNotUnpause) and not(bHaveWeCappedUnpauseAmount) then
                         --Unpause all units' energy usage only (i.e. production remains paused, but radar and shields should be unpaused
                         for iCategory, tUnits in M28Team.tTeamData[iTeam][M28Team.subreftoPausedUnitsByPriority] do
                             if tUnits then
                                 for iUnit, oUnit in tUnits do
                                     if M28UnitInfo.IsUnitValid(oUnit) then
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Will pause just the energy usage parts of unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will pause just the energy usage parts of unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
                                         M28UnitInfo.PauseOrUnpauseEnergyUsage(oUnit, false, true, iTeam)
                                     end
                                 end
                             end
                         end
 
-                        if bDebugMessages == true then LOG(sFunctionRef..': Are stalling mass so have finished unpausing energy usage of units at time='..GetGameTimeSeconds()) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Are stalling mass so have finished unpausing energy usage of units at time='..GetGameTimeSeconds()) end
                         M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] = false
                         M28Team.tTeamData[iTeam][M28Team.refiLastEnergyStallCategoryAndEngineerTables] = nil
                     else
-                        if bDebugMessages == true then LOG(sFunctionRef .. ': About to check if we wanted to unpause units but havent unpaused anything; iUnitsAdjusted=' .. iUnitsAdjusted .. '; bNoRelevantUnits=' .. tostring(bNoRelevantUnits) .. '; M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]=' .. tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': About to check if we wanted to unpause units but havent unpaused anything; iUnitsAdjusted=' .. iUnitsAdjusted .. '; bNoRelevantUnits=' .. tostring(bNoRelevantUnits) .. '; M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]=' .. tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])) end
                         --Backup - sometimes we still have units in the table listed as being paused (e.g. if an engineer changes action to one that isnt listed as needing pausing) - unpause them if we couldnt find via category search
                         if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and not (bPauseNotUnpause) and (iEnergySavingManaged > iEnergyPerTickSavingNeeded or iUnitsAdjusted == 0 or bNoRelevantUnits) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.95 then
                             --Have a decent amount of power, are flagged as stalling energy, but couldnt find any categories to unpause
-                            if bDebugMessages == true then LOG(sFunctionRef .. ': werent able to find any units to unpause with normal approach so will unpause all remaining units for all M28 brains in the team') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': werent able to find any units to unpause with normal approach so will unpause all remaining units for all M28 brains in the team') end
                             if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoPausedUnitsByPriority]) == false then
                                 for iCategory, tUnits in M28Team.tTeamData[iTeam][M28Team.subreftoPausedUnitsByPriority] do
                                     if tUnits then
@@ -3275,11 +3275,11 @@ function ManageEnergyStalls(iTeam)
                             M28Team.tTeamData[iTeam][M28Team.refiLastMassStallCategoryAndEngineerTables] = nil
 
 
-                            if bDebugMessages == true then LOG(sFunctionRef .. ': FInished unpausing units and resetting the flag re paused units') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': FInished unpausing units and resetting the flag re paused units') end
                         end
                     end
                 end
-                if bDebugMessages == true then LOG(sFunctionRef .. ': End of code, M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]=' .. tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) .. '; bPauseNotUnpause=' .. tostring(bPauseNotUnpause) .. '; iUnitsAdjusted=' .. iUnitsAdjusted .. '; Game time=' .. GetGameTimeSeconds() .. '; Energy stored %=' .. M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] .. '; Net energy income=' .. M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] .. '; gross energy income=' .. M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': End of code, M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]=' .. tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) .. '; bPauseNotUnpause=' .. tostring(bPauseNotUnpause) .. '; iUnitsAdjusted=' .. iUnitsAdjusted .. '; Game time=' .. GetGameTimeSeconds() .. '; Energy stored %=' .. M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] .. '; Net energy income=' .. M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] .. '; gross energy income=' .. M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]) end
                 if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] then
                     M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastEnergyStall] = GetGameTimeSeconds()
                 end
@@ -3326,8 +3326,8 @@ end
 
 
 function GiveResourcesToPlayer(oBrainGiver, oBrainReceiver, iMass, iEnergy)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'GiveResourcesToPlayer'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     --Check we have the resources to give:
@@ -3336,7 +3336,7 @@ function GiveResourcesToPlayer(oBrainGiver, oBrainReceiver, iMass, iEnergy)
         if GetMassStorageMaximum(oBrainReceiver) - oBrainReceiver:GetEconomyStored('MASS') >= iMass then
             oBrainReceiver:GiveResource('Mass', iMass)
             oBrainGiver:TakeResource('Mass', iMass)
-            if bDebugMessages == true then LOG(sFunctionRef..': Given '..iMass..' Mass from '..oBrainGiver.Nickname..' to '..oBrainReceiver.Nickname) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Given '..iMass..' Mass from '..oBrainGiver.Nickname..' to '..oBrainReceiver.Nickname) end
 
         end
     end
@@ -3344,7 +3344,7 @@ function GiveResourcesToPlayer(oBrainGiver, oBrainReceiver, iMass, iEnergy)
         if GetEnergyStorageMaximum(oBrainReceiver) - oBrainReceiver:GetEconomyStored('ENERGY') >= iEnergy then
             oBrainReceiver:GiveResource('Energy', iEnergy)
             oBrainGiver:TakeResource('Energy', iEnergy)
-            if bDebugMessages == true then LOG(sFunctionRef..': Given '..iEnergy..' Energy from '..oBrainGiver.Nickname..' to '..oBrainReceiver.Nickname) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Given '..iEnergy..' Energy from '..oBrainGiver.Nickname..' to '..oBrainReceiver.Nickname) end
         end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -3355,13 +3355,13 @@ function ShareResourcesMassAndEnergyBetweenTeam() M28Utilities.ErrorHandler('Usi
 function AllocateTeamEnergyAndMassResources(iTeam)
     --Smoothes out energy storage for M28 brains on the same team, where % storage is <95%
 
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'AllocateTeamEnergyResources'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
 
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, iTeam='..iTeam..'; Is table of active brains empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]))) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, iTeam='..iTeam..'; Is table of active brains empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]))) end
 
     if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]) == false then
 
@@ -3390,7 +3390,7 @@ function AllocateTeamEnergyAndMassResources(iTeam)
         local iAverageMassStored = iTotalMassStored / M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]
         local iCurEnergySpare, iCurMassSpare
 
-        if bDebugMessages == true then LOG(sFunctionRef..': Near start, time='..GetGameTimeSeconds()..'; iAverageEnergyStored='..iAverageEnergyStored..'; iAverageMassStored='..iAverageMassStored) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Near start, time='..GetGameTimeSeconds()..'; iAverageEnergyStored='..iAverageEnergyStored..'; iAverageMassStored='..iAverageMassStored) end
 
         --Sort brains into those that have mass, and those that give mass
         for iBrain, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains] do
@@ -3405,7 +3405,7 @@ function AllocateTeamEnergyAndMassResources(iTeam)
                             iCurEnergySpare = 0
                         end
                     end
-                    if bDebugMessages == true then LOG(sFunctionRef..': iCurEnergySpare after limiting based on ratios='..iCurEnergySpare..'; Expected value before limitation='..(oBrain:GetEconomyStored('ENERGY') - iAverageEnergyStored)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurEnergySpare after limiting based on ratios='..iCurEnergySpare..'; Expected value before limitation='..(oBrain:GetEconomyStored('ENERGY') - iAverageEnergyStored)) end
                 end
 
                 if iCurEnergySpare < 0 then
@@ -3428,7 +3428,7 @@ function AllocateTeamEnergyAndMassResources(iTeam)
                             iCurMassSpare = 0
                         end
                     end
-                    if bDebugMessages == true then LOG(sFunctionRef..': iCurMassSpare after limiting based on ratios='..iCurMassSpare..'; Expected value before limitation='..(oBrain:GetEconomyStored('MASS') - iAverageMassStored)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurMassSpare after limiting based on ratios='..iCurMassSpare..'; Expected value before limitation='..(oBrain:GetEconomyStored('MASS') - iAverageMassStored)) end
                 end
 
                 if iCurMassSpare < 0 then
@@ -3440,7 +3440,7 @@ function AllocateTeamEnergyAndMassResources(iTeam)
                 elseif iCurMassSpare > 0 then
                     table.insert(tDetailsOfBrainsWithMass, {[subrefoBrain] = oBrain, [subrefiResourceToGive] = iCurMassSpare})
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': Considering brain '..oBrain.Nickname..': iCurEnergySpare='..iCurEnergySpare..'; iCurMassSpare='..iCurMassSpare..'; Actual mass stored='..oBrain:GetEconomyStored('MASS')..'; Actual energy stored='..oBrain:GetEconomyStored('ENERGY')..'; iAverageMassStored='..iAverageMassStored) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering brain '..oBrain.Nickname..': iCurEnergySpare='..iCurEnergySpare..'; iCurMassSpare='..iCurMassSpare..'; Actual mass stored='..oBrain:GetEconomyStored('MASS')..'; Actual energy stored='..oBrain:GetEconomyStored('ENERGY')..'; iAverageMassStored='..iAverageMassStored) end
             end
         end
 
@@ -3451,30 +3451,30 @@ function AllocateTeamEnergyAndMassResources(iTeam)
             if iResourceType == refiResourceEnergy then
                 tBrainsNeedingResource = tDetailsOfBrainsNeedingEnergy
                 tBrainsWithResource = tDetailsOfBrainsWithEnergy
-                if bDebugMessages == true then LOG(sFunctionRef..': Allcoating energy') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Allcoating energy') end
             else
                 tBrainsNeedingResource = tDetailsOfBrainsNeedingMass
                 tBrainsWithResource = tDetailsOfBrainsWithMass
-                if bDebugMessages == true then LOG(sFunctionRef..': Allcoating mass') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Allcoating mass') end
             end
-            if bDebugMessages == true then LOG(sFunctionRef..': Is table of brains needing this resource empty='..tostring(M28Utilities.IsTableEmpty(tBrainsNeedingResource))..'; Is table of brains with this resource available empty='..tostring(M28Utilities.IsTableEmpty(tBrainsWithResource))) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is table of brains needing this resource empty='..tostring(M28Utilities.IsTableEmpty(tBrainsNeedingResource))..'; Is table of brains with this resource available empty='..tostring(M28Utilities.IsTableEmpty(tBrainsWithResource))) end
             if M28Utilities.IsTableEmpty(tBrainsNeedingResource) == false and M28Utilities.IsTableEmpty(tBrainsWithResource) == false then
                 for iBrainWithResource, tBrainWithResourceSubtable in tBrainsWithResource do
-                    if bDebugMessages == true then LOG(sFunctionRef..': Deciding which brain '..tBrainWithResourceSubtable[subrefoBrain].Nickname..' should give its resources to') end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Deciding which brain '..tBrainWithResourceSubtable[subrefoBrain].Nickname..' should give its resources to') end
                     for iBrainNeedingResource, tBrainNeedingResourceSubtable in tBrainsNeedingResource do
                         iResourceToGive = math.min(-tBrainNeedingResourceSubtable[subrefiRemainingResourceNeeded], tBrainWithResourceSubtable[subrefiResourceToGive])
-                        if bDebugMessages == true then LOG(sFunctionRef..': Considering whether to give resources to brain '..tBrainNeedingResourceSubtable[subrefoBrain].Nickname..'; iResourceToGive='..iResourceToGive..'; tBrainNeedingResourceSubtable[subrefiRemainingResourceNeeded]='..tBrainNeedingResourceSubtable[subrefiRemainingResourceNeeded]..'; tBrainWithResourceSubtable[subrefiResourceToGive]='..tBrainWithResourceSubtable[subrefiResourceToGive]) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering whether to give resources to brain '..tBrainNeedingResourceSubtable[subrefoBrain].Nickname..'; iResourceToGive='..iResourceToGive..'; tBrainNeedingResourceSubtable[subrefiRemainingResourceNeeded]='..tBrainNeedingResourceSubtable[subrefiRemainingResourceNeeded]..'; tBrainWithResourceSubtable[subrefiResourceToGive]='..tBrainWithResourceSubtable[subrefiResourceToGive]) end
                         if iResourceToGive > 0 then
                             if iResourceType == refiResourceEnergy then
                                 GiveResourcesToPlayer(tBrainWithResourceSubtable[subrefoBrain], tBrainNeedingResourceSubtable[subrefoBrain], 0, iResourceToGive)
                             else
-                                if bDebugMessages == true then LOG(sFunctionRef..': About to give '..iResourceToGive..' mass from player '..tBrainWithResourceSubtable[subrefoBrain].Nickname..' to player '..tBrainNeedingResourceSubtable[subrefoBrain].Nickname) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to give '..iResourceToGive..' mass from player '..tBrainWithResourceSubtable[subrefoBrain].Nickname..' to player '..tBrainNeedingResourceSubtable[subrefoBrain].Nickname) end
                                 GiveResourcesToPlayer(tBrainWithResourceSubtable[subrefoBrain], tBrainNeedingResourceSubtable[subrefoBrain], iResourceToGive, 0)
                             end
                             tBrainNeedingResourceSubtable[subrefiRemainingResourceNeeded] = tBrainNeedingResourceSubtable[subrefiRemainingResourceNeeded] + iResourceToGive
                             tBrainWithResourceSubtable[subrefiResourceToGive] = tBrainWithResourceSubtable[subrefiResourceToGive] - iResourceToGive
                             if tBrainWithResourceSubtable[subrefiResourceToGive] <= 0 then
-                                if bDebugMessages == true then LOG(sFunctionRef..': Remaining resource available for brain '..tBrainWithResourceSubtable[subrefoBrain].Nickname..' to give='..tBrainWithResourceSubtable[subrefiResourceToGive]..' so will break') end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Remaining resource available for brain '..tBrainWithResourceSubtable[subrefoBrain].Nickname..' to give='..tBrainWithResourceSubtable[subrefiResourceToGive]..' so will break') end
                                 break
                             end
                         end
@@ -3490,11 +3490,11 @@ end
 
 function TeamResourceSharingMonitor(iTeam)
     --Monitors resources for AI in the team and shares resources
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'TeamResourceSharingMonitor'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, checking if already running a monitor for iTeam='..iTeam..': Is table of friendl yM28 brains for this team empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]))..'; M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]='..(M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 'nil')) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, checking if already running a monitor for iTeam='..iTeam..': Is table of friendl yM28 brains for this team empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]))..'; M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]='..(M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 'nil')) end
     if M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] > 1 then
         local iDefaultTimeToStop = GetGameTimeSeconds() + 120
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -3502,7 +3502,7 @@ function TeamResourceSharingMonitor(iTeam)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
         while GetGameTimeSeconds() < iDefaultTimeToStop do
             if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] > 1 or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 2.5 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and M28Team.tTeamData[iTeam][M28Team.subrefiLowestFriendlyLandFactoryTech] > 0) then
-                if bDebugMessages == true then LOG(sFunctionRef..': Want to start sharing resources between teammates as have T2 or alot of mass') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want to start sharing resources between teammates as have T2 or alot of mass') end
                 break
             else
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -3536,8 +3536,8 @@ end
 
 function ManageMassOverflow(iTeam)
     --Stop any engineers that have a reclaim area order
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ManageMassOverflow'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]) == false then
         if GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastOverflowEngiCheck] or -100) >= 1 then --Only do this every couple of seconds
@@ -3551,7 +3551,7 @@ function ManageMassOverflow(iTeam)
                         iEngiCycleCount = iEngiCycleCount + 1
                         --Don't stop ReclaimPath or MexBuildPath engineers - they should complete their assigned path
                         if M28UnitInfo.IsUnitValid(oUnit) and (oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionReclaimArea or oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionReclaimFriendlyUnit) and not(oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionReclaimPath) and not(oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionMexBuildPath) then
-                            if bDebugMessages == true then LOG(sFunctionRef..': About to stop engineer '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' from reclaiming as have lots of mass now') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to stop engineer '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' from reclaiming as have lots of mass now') end
                             M28Orders.IssueTrackedClearCommands(oUnit)
                         end
                         if iEngiCycleCount >= 30 then
@@ -3573,8 +3573,8 @@ end
 
 function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
     --Called when we have just constructed a mex - considers upgrading the mex in the future if we have no active upgrades
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ConsiderFutureMexUpgrade'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local iTimeToWait = iOverrideSecondsToWait
@@ -3595,14 +3595,14 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
         tLZOrWZTeamData = tLZOrWZData[M28Map.subrefLZTeamData][iTeam]
     end
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Near start of code, iOverrideSecondsToWait='..(iOverrideSecondsToWait or 'nil')..'; oMex='..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..' owned by '..aiBrain.Nickname..'; P'..iPlateauOrZero..'Z'..iLandOrWaterZone..'; Time='..GetGameTimeSeconds()) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Near start of code, iOverrideSecondsToWait='..(iOverrideSecondsToWait or 'nil')..'; oMex='..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..' owned by '..aiBrain.Nickname..'; P'..iPlateauOrZero..'Z'..iLandOrWaterZone..'; Time='..GetGameTimeSeconds()) end
 
     if not(iTimeToWait) then
         if iMexTechLevel == 1 then
-            if bDebugMessages == true then LOG(sFunctionRef..': tLZOrWZTeamData[M28Map.subrefMexCountByTech]='..repru(tLZOrWZTeamData[M28Map.subrefMexCountByTech])..'; tLZOrWZData[M28Map.subrefLZOrWZMexCount]='..tLZOrWZData[M28Map.subrefLZOrWZMexCount]..'; Brain highest tech='..aiBrain[refiOurHighestFactoryTechLevel]..'; Gross mass inc='..aiBrain[refiGrossMassBaseIncome]..'; Dangerous enemies in LZ='..tostring(tLZOrWZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or false)..'; Air to ground threat='..(tLZOrWZTeamData[M28Map.refiEnemyAirToGroundThreat] or 'nil')..'; Enemies in adj zone='..tostring(tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false)..'; Is table of active mex upgrades empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades]))) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tLZOrWZTeamData[M28Map.subrefMexCountByTech]='..repru(tLZOrWZTeamData[M28Map.subrefMexCountByTech])..'; tLZOrWZData[M28Map.subrefLZOrWZMexCount]='..tLZOrWZData[M28Map.subrefLZOrWZMexCount]..'; Brain highest tech='..aiBrain[refiOurHighestFactoryTechLevel]..'; Gross mass inc='..aiBrain[refiGrossMassBaseIncome]..'; Dangerous enemies in LZ='..tostring(tLZOrWZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or false)..'; Air to ground threat='..(tLZOrWZTeamData[M28Map.refiEnemyAirToGroundThreat] or 'nil')..'; Enemies in adj zone='..tostring(tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false)..'; Is table of active mex upgrades empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades]))) end
             --Eco slot in FAF - consider upgrading first mex relatively early on if lots of mexes in start zone and have a resource multiplier
             if M28UnitInfo.GetUnitLifetimeCount(oMex) == 1 and (tLZOrWZTeamData[M28Map.refbBaseInSafePosition] or aiBrain[M28Overseer.refbPrioritiseHighTech]) and tLZOrWZData[M28Map.subrefLZOrWZMexCount] >= 6 and oMex:GetAIBrain()[refiBrainBuildRateMultiplier] <= 1.1 and M28Utilities.bFAFActive then
-                if bDebugMessages == true then LOG(sFunctionRef..': First mex in eco slot so want to be more likely to get upgrade really early in FAF') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': First mex in eco slot so want to be more likely to get upgrade really early in FAF') end
                 iTimeToWait = 150 - GetGameTimeSeconds()
                 --Rebuilding zone with lots of mexes where have built on the last mex, and have good mass income generally
                 --NOTE: A slight delay between registering how many mexes we have by tech in a zone, so this is likely to be outdated slightly, hence use a threshold of 2 mexes away from completion
@@ -3614,11 +3614,11 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
                     WaitTicks(2)
                     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
                     if tLZOrWZTeamData[M28Map.subrefMexCountByTech][1] + tLZOrWZTeamData[M28Map.subrefMexCountByTech][2] + tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] < math.min(6, tLZOrWZData[M28Map.subrefLZOrWZMexCount]) then
-                        if bDebugMessages == true then LOG(sFunctionRef..': still dont have all mexes built so increasing time to wait to 90s') end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': still dont have all mexes built so increasing time to wait to 90s') end
                         iTimeToWait = 90
                     end
                 end
-                if bDebugMessages == true then LOG(sFunctionRef..': 4+ mex zone and we ahvae built on all mexes so will upgrade to t2, iTimeToWait='..iTimeToWait) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': 4+ mex zone and we ahvae built on all mexes so will upgrade to t2, iTimeToWait='..iTimeToWait) end
             elseif (M28Map.iMapSize >= 1000 or aiBrain[M28Overseer.refbPrioritiseHighTech]) and tLZOrWZTeamData[M28Map.subrefLZbCoreBase] then
                 --if M28Utilities.bLoudModActive or M28Map.iMapSize > 1024 then iTimeToWait = 5 * 60
 
@@ -3725,18 +3725,18 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
             iTimeToWait = math.max(0, iTimeToWait * 0.88)
         end
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': About to wait before considering upgrading this mex again='..iTimeToWait..' for mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..' owned by '..aiBrain.Nickname..' at time='..GetGameTimeSeconds()..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oMex))) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to wait before considering upgrading this mex again='..iTimeToWait..' for mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..' owned by '..aiBrain.Nickname..' at time='..GetGameTimeSeconds()..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oMex))) end
     if iTimeToWait > 0 then
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         WaitSeconds(iTimeToWait)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': Is oMex '..(oMex.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oMex) or 'nil')..' still valid='..tostring(M28UnitInfo.IsUnitValid(oMex))..' at time='..GetGameTimeSeconds()) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is oMex '..(oMex.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oMex) or 'nil')..' still valid='..tostring(M28UnitInfo.IsUnitValid(oMex))..' at time='..GetGameTimeSeconds()) end
     if M28UnitInfo.IsUnitValid(oMex) then
-        if bDebugMessages == true then LOG(sFunctionRef..': Are we in t1 spam mode='..tostring(M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam] or false)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Are we in t1 spam mode='..tostring(M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam] or false)) end
         if not(M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam]) then
             --Only do this if there are 3+ mexes in the zone, or it's a plateau
-            if bDebugMessages == true then LOG(sFunctionRef..': Considering whether we want to upgrade mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..'; safe to upgrade='..tostring(M28Conditions.SafeToUpgradeUnit(oMex))..'; iMexTechLevel='..iMexTechLevel..'; Team has low mass='..tostring(M28Conditions.TeamHasLowMass(iTeam))..'; Time='..GetGameTimeSeconds()) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering whether we want to upgrade mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..'; safe to upgrade='..tostring(M28Conditions.SafeToUpgradeUnit(oMex))..'; iMexTechLevel='..iMexTechLevel..'; Team has low mass='..tostring(M28Conditions.TeamHasLowMass(iTeam))..'; Time='..GetGameTimeSeconds()) end
             if M28Conditions.SafeToUpgradeUnit(oMex) and (not(M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refbPrioritiseProduction]) or ((tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) <= 1 and aiBrain[refiGrossMassBaseIncome] >= 2)) then
                 local bUpgradeDueToHowLongHadMex = false
                 if (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) <= 1 then
@@ -3783,7 +3783,7 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
                         if iMexesOfHigherTech <= 2 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] then iTimeThreshold = iTimeThreshold * 2 end
                     end
 
-                    if bDebugMessages == true then LOG(sFunctionRef..': Time since constructed='..(GetGameTimeSeconds() - (oMex[M28UnitInfo.refiTimeMexConstructed] or oMex[M28UnitInfo.refiTimeCreated]))..'; M28Team.tTeamData[iTeam][M28Team.refiUpgradedMexCount]='..M28Team.tTeamData[iTeam][M28Team.refiUpgradedMexCount]..'; iMexesOfHigherTech='..iMexesOfHigherTech..'; iUpgradingMexCount='..iUpgradingMexCount) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time since constructed='..(GetGameTimeSeconds() - (oMex[M28UnitInfo.refiTimeMexConstructed] or oMex[M28UnitInfo.refiTimeCreated]))..'; M28Team.tTeamData[iTeam][M28Team.refiUpgradedMexCount]='..M28Team.tTeamData[iTeam][M28Team.refiUpgradedMexCount]..'; iMexesOfHigherTech='..iMexesOfHigherTech..'; iUpgradingMexCount='..iUpgradingMexCount) end
                     if GetGameTimeSeconds() - (oMex[M28UnitInfo.refiTimeMexConstructed] or oMex[M28UnitInfo.refiTimeCreated]) >= iTimeThreshold and iUpgradingMexCount < M28Team.tTeamData[iTeam][M28Team.refiUpgradedMexCount] * 0.8 then
                         --Also check adjacent zones not also upgrading
                         bUpgradeDueToHowLongHadMex = true
@@ -3812,13 +3812,13 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
                             if not(iMexesUpgrading == 0 or iMexesUpgrading < math.min(4, math.max(1, iMexesChecked / 4))) then
                                 bUpgradeDueToHowLongHadMex = false
                             end
-                            if bDebugMessages == true then LOG(sFunctionRef..': iMexesChecked='..iMexesChecked..'; iMexesUpgrading='..iMexesUpgrading..'; bUpgradeDueToHowLongHadMex='..tostring(bUpgradeDueToHowLongHadMex)) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iMexesChecked='..iMexesChecked..'; iMexesUpgrading='..iMexesUpgrading..'; bUpgradeDueToHowLongHadMex='..tostring(bUpgradeDueToHowLongHadMex)) end
                         end
                     end
                 end
                 local bTeamLowMass = M28Conditions.TeamHasLowMass(iTeam)
                 local bAllowRecoveryMexStart = ShouldAllowMexRecoveryUpgradeStart(iTeam, tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0)
-                if bDebugMessages == true then LOG(sFunctionRef..': Zoen wants t1 spam='..tostring(M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam) or false)..'; Team has low mass='..tostring(bTeamLowMass or false)..'; bAllowRecoveryMexStart='..tostring(bAllowRecoveryMexStart)..'; iMexTechLevel='..iMexTechLevel..'; LZ mex count='..(tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0)..'; Active mex upgrades='..(tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0)..'; T1 mexes in zone='..tLZOrWZTeamData[M28Map.subrefMexCountByTech][1]..'; Brain gross mass='..aiBrain[refiGrossMassBaseIncome]..'; bUpgradeDueToHowLongHadMex='..tostring(bUpgradeDueToHowLongHadMex)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Zoen wants t1 spam='..tostring(M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam) or false)..'; Team has low mass='..tostring(bTeamLowMass or false)..'; bAllowRecoveryMexStart='..tostring(bAllowRecoveryMexStart)..'; iMexTechLevel='..iMexTechLevel..'; LZ mex count='..(tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0)..'; Active mex upgrades='..(tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0)..'; T1 mexes in zone='..tLZOrWZTeamData[M28Map.subrefMexCountByTech][1]..'; Brain gross mass='..aiBrain[refiGrossMassBaseIncome]..'; bUpgradeDueToHowLongHadMex='..tostring(bUpgradeDueToHowLongHadMex)) end
                 if not(M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam)) and (bUpgradeDueToHowLongHadMex or bAllowRecoveryMexStart or not(bTeamLowMass) or iMexTechLevel == 3 or ((tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0) >= 3 and (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) <= 1 and (tLZOrWZTeamData[M28Map.subrefMexCountByTech][1] > 0 or aiBrain[refiGrossMassBaseIncome] >= 8 or M28Utilities.bLoudModActive))) then
 
                     --Are there enough mexes that we want to consider upgrading?
@@ -3840,7 +3840,7 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
                             (iPlateauOrZero > 0 and tLZOrWZData[M28Map.subrefLZOrWZMexCount] >= math.max(2, M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauTotalMexCount] * 0.5)) or
                             (iPlateauOrZero > 0 and tLZOrWZTeamData[M28Map.refiModDistancePercent] <= 0.25 and (not(M28Conditions.IsTableOfUnitsStillValid(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes])) or table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) < math.max(2, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount], M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] / (2 * M28Team.tTeamData[iTeam][M28Team.refiHighestBrainBuildMultiplier] * M28UnitInfo.GetUnitTechLevel(oMex))))) then
                         --Do we have any active mex upgrades?
-                        if bDebugMessages == true then LOG(sFunctionRef..': active mex upgrades='..(tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0)..'; Stalling mass='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass])..'; Stalling energy='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])..'; Is team table of upgrading mexes empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]))..'; Gross mass for brain='..aiBrain[refiGrossMassBaseIncome])
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': active mex upgrades='..(tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0)..'; Stalling mass='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass])..'; Stalling energy='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])..'; Is team table of upgrading mexes empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]))..'; Gross mass for brain='..aiBrain[refiGrossMassBaseIncome])
                             if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) == false then
                                 LOG(sFunctionRef..': Number of mexes upgrading on team='..table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]))
                             end
@@ -3860,11 +3860,11 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
                             elseif not(tLZOrWZTeamData[M28Map.subrefLZbCoreBase] and (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) <= 1) and M28Utilities.bQuietModActive and not(DoesTeamWantAggressiveQuietMexTier(iTeam, refiMexQuietTierT3)) then
                                 ForkThread(ConsiderFutureMexUpgrade, oMex, 20) --check in a bit as we want another upgrade but once some existing ones have finished
                             elseif ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam) then
-                                if bDebugMessages == true then LOG(sFunctionRef..': Delaying mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..' because a lower Quiet mex rung still has outstanding upgrades elsewhere on the team') end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Delaying mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..' because a lower Quiet mex rung still has outstanding upgrades elsewhere on the team') end
                                 ForkThread(ConsiderFutureMexUpgrade, oMex, 30)
                             elseif iMexTechLevel < 3 or M28Utilities.bLoudModActive or M28Utilities.bQuietModActive then
                                 --We arent stalling (or need to upgrade even if stalling), we dont have any active mex upgrades in this zone, and this mex has been alive a while - proceed with upgrade
-                                if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..' as it has been active a while') end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will upgrade mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..' as it has been active a while') end
                                 UpgradeUnit(oMex, true)
                             end
                         else
@@ -3893,18 +3893,18 @@ end
 function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
     --Idea - if we have just completed a mex upgrade in a zone, then look to immediately start upgrading another mex (since the one we just built should be able to help fund it); this is separate to logic considering future upgrade which is intended for the mex that has just been built to then upgrade to a higher tier after a period of time
     --oOptionalEngineer - if specified then will wait 1 tick to allow active upgrades to refresh
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ConsiderUpgradingMexDueToCompletion'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     if M28UnitInfo.IsUnitValid(oJustBuilt) then --needed as might call this via a delay now
-        if bDebugMessages == true then LOG(sFunctionRef..': Start of code for oJustBuilt='..oJustBuilt.UnitId..M28UnitInfo.GetUnitLifetimeCount(oJustBuilt)..'; Owner='..oJustBuilt:GetAIBrain().Nickname..'; oOptionalEngineer='..(oOptionalEngineer.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oOptionalEngineer) or 'nil')..'; Time='..GetGameTimeSeconds()) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code for oJustBuilt='..oJustBuilt.UnitId..M28UnitInfo.GetUnitLifetimeCount(oJustBuilt)..'; Owner='..oJustBuilt:GetAIBrain().Nickname..'; oOptionalEngineer='..(oOptionalEngineer.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oOptionalEngineer) or 'nil')..'; Time='..GetGameTimeSeconds()) end
         local aiBrain = oJustBuilt:GetAIBrain()
         if not(EntityCategoryContains(categories.TECH1, oJustBuilt.UnitId)) or aiBrain[M28Overseer.refbPrioritiseHighTech] then
             local iTeam = aiBrain.M28Team
             local iMexTechLevel = M28UnitInfo.GetUnitTechLevel(oJustBuilt)
 
-            if bDebugMessages == true then LOG(sFunctionRef..': Is team stalling energy='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])..'; Prioritise production for land team='..tostring(M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refbPrioritiseProduction] or false)..'; Team low on mass='..tostring(M28Conditions.TeamHasLowMass(iTeam))..'; refiMexCountByTech='..reprs(M28Team.tTeamData[iTeam][M28Team.refiMexCountByTech])) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is team stalling energy='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])..'; Prioritise production for land team='..tostring(M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refbPrioritiseProduction] or false)..'; Team low on mass='..tostring(M28Conditions.TeamHasLowMass(iTeam))..'; refiMexCountByTech='..reprs(M28Team.tTeamData[iTeam][M28Team.refiMexCountByTech])) end
             if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] or 0) >= 4 * math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1)
                     or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] or 0) >= -30 * math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1)
                     or iMexTechLevel >= 2 then
@@ -3915,16 +3915,16 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
                 end
                 --Wait 1 tick if oOptionalEngineer is set and we might be on last upgrade in zone, to make sure our tracking of active upgrades is updated
                 if oOptionalEngineer and tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] == 1 and tLZOrWZTeamData[M28Map.subrefMexCountByTech][iMexTechLevel] < tLZOrWZData[M28Map.subrefLZOrWZMexCount] and iMexTechLevel > 1 then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Waiting 1 sec so our upgrade count can update, tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades]='..tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades]..'; will first try updating upgrade tracking') end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Waiting 1 sec so our upgrade count can update, tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades]='..tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades]..'; will first try updating upgrade tracking') end
                     local oMexUpgradingToThis
                     if EntityCategoryContains(M28UnitInfo.refCategoryMex, oOptionalEngineer.UnitId) then
                         oMexUpgradingToThis = oOptionalEngineer
                     elseif M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) == false then
                         for iMex, oMex in M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes] do
-                            if bDebugMessages == true then LOG(sFunctionRef..': Considering if upgrading team mex is owned by this brain and couldve upgraded to this unit, oMex='..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..'; Assigned zone='..oMex[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2]..'; Unit state='..M28UnitInfo.GetUnitState(oMex)..'; .Dead='..tostring(oMex.Dead or false)..'; Work progress='..oMex:GetWorkProgress()) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if upgrading team mex is owned by this brain and couldve upgraded to this unit, oMex='..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..'; Assigned zone='..oMex[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2]..'; Unit state='..M28UnitInfo.GetUnitState(oMex)..'; .Dead='..tostring(oMex.Dead or false)..'; Work progress='..oMex:GetWorkProgress()) end
                             if oMex:GetAIBrain() == aiBrain and M28UnitInfo.GetUnitTechLevel(oMex) == iMexTechLevel - 1 and oMex:GetBlueprint().General.UpgradesTo == oJustBuilt.UnitId and oMex.GetFocusUnit then
                                 local oFocusUnit = oMex:GetFocusUnit()
-                                if bDebugMessages == true then LOG(sFunctionRef..': Satisfies most conditions, oFocusUnit='..(oFocusUnit.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oFocusUnit) or 'nil')) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Satisfies most conditions, oFocusUnit='..(oFocusUnit.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oFocusUnit) or 'nil')) end
                                 if oFocusUnit == oJustBuilt then
                                     oMexUpgradingToThis = oMex
                                     break
@@ -3932,38 +3932,38 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
                             end
                         end
                     end
-                    if bDebugMessages == true then LOG(sFunctionRef..': oMexUpgradingToThis='..(oMexUpgradingToThis.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oMexUpgradingToThis) or 'nil')) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oMexUpgradingToThis='..(oMexUpgradingToThis.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oMexUpgradingToThis) or 'nil')) end
                     if oMexUpgradingToThis then
                         M28Team.UpdateUpgradeTrackingOfUnit(oMexUpgradingToThis, true, oJustBuilt.UnitId)
-                        if bDebugMessages == true then LOG(sFunctionRef..': subrefiActiveMexUpgrades after update='..tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades]) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': subrefiActiveMexUpgrades after update='..tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades]) end
                     end
                     if tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] == 1 then
                         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                         WaitTicks(10)
                         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-                        if bDebugMessages == true then LOG(sFunctionRef..': Finished waiting 1 sec, tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades]='..tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades]) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished waiting 1 sec, tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades]='..tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades]) end
                     end
                 end
                 if M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refbPrioritiseProduction] and M28Conditions.TeamHasLowMass(iTeam) and (not(tLZOrWZTeamData[M28Map.refbBaseInSafePosition]) or tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or ((tLZOrWZTeamData[M28Map.subrefMexCountByTech][iMexTechLevel - 1] or 0) == 0)) then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Will call this function again in a while as we want to prioritise production at the moment') end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will call this function again in a while as we want to prioritise production at the moment') end
                     ForkThread(M28Utilities.DelayedFunction, 60, ConsiderUpgradingMexDueToCompletion, {oJustBuilt})
                 else
                     local iMexesOnMap = table.getn(M28Map.tMassPoints)
                     local bTryingToUpgradeMex = false
-                    if bDebugMessages == true then LOG(sFunctionRef..': tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades]='..(tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 'nil')..'; tLZOrWZTeamData[M28Map.subrefMexCountByTech][2]='..tLZOrWZTeamData[M28Map.subrefMexCountByTech][2]..'; tLZOrWZData[M28Map.subrefLZOrWZMexCount]='..tLZOrWZData[M28Map.subrefLZOrWZMexCount]) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades]='..(tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 'nil')..'; tLZOrWZTeamData[M28Map.subrefMexCountByTech][2]='..tLZOrWZTeamData[M28Map.subrefMexCountByTech][2]..'; tLZOrWZData[M28Map.subrefLZOrWZMexCount]='..tLZOrWZData[M28Map.subrefLZOrWZMexCount]) end
                     if iMexTechLevel >= 3 or
                             (iMexTechLevel > 1 or (tLZOrWZTeamData[M28Map.subrefLZbCoreBase] and tLZOrWZTeamData[M28Map.subrefMexCountByTech][1] >= tLZOrWZData[M28Map.subrefLZOrWZMexCount] and tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] <= 1) and (tLZOrWZData[M28Map.subrefLZOrWZMexCount] > 1 or tLZOrWZTeamData[M28Map.subrefLZbCoreBase]) and
                                     ((M28Map.iMapSize >= 1000 and tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] < 2) or tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] < tLZOrWZData[M28Map.subrefLZOrWZMexCount] * 0.3 or ((M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and (EntityCategoryContains(M28UnitInfo.refCategoryT3Mex, oJustBuilt.UnitId) or (not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and tLZOrWZTeamData[M28Map.subrefMexCountByTech][1] > 0 and iMexesOnMap <= 20 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount])))
                                             and (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] < math.max(1, tLZOrWZTeamData[M28Map.subrefMexCountByTech][2] * 0.5 + tLZOrWZData[M28Map.subrefLZOrWZMexCount] * 0.15 + tLZOrWZTeamData[M28Map.subrefMexCountByTech][3]) or (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] <= 1 and M28Map.iMapSize >= 1000) or (M28Utilities.bLoudModActive and EntityCategoryContains(M28UnitInfo.refCategoryT3Mex, oJustBuilt.UnitId))))) then
-                        if bDebugMessages == true then LOG(sFunctionRef..': Checkign we dont have lower tech mexes or loud/QUIET active, iMexTechLevel='..iMexTechLevel..'; M28Utilities.bLoudModActive='..tostring(M28Utilities.bLoudModActive)..'; Active mex upgrades='..tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades]..'; LZ Mex count='..tLZOrWZData[M28Map.subrefLZOrWZMexCount]..'; Gross mass income='..aiBrain[refiGrossMassBaseIncome]) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checkign we dont have lower tech mexes or loud/QUIET active, iMexTechLevel='..iMexTechLevel..'; M28Utilities.bLoudModActive='..tostring(M28Utilities.bLoudModActive)..'; Active mex upgrades='..tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades]..'; LZ Mex count='..tLZOrWZData[M28Map.subrefLZOrWZMexCount]..'; Gross mass income='..aiBrain[refiGrossMassBaseIncome]) end
                         if tLZOrWZTeamData[M28Map.subrefMexCountByTech][1] > 0 --[[or M28Utilities.bQuietModActive]] or (iMexTechLevel >= 3 and (M28Utilities.bLoudModActive or tLZOrWZTeamData[M28Map.subrefMexCountByTech][2] > 0)) or (M28Utilities.bLoudModActive and tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] == 0 and tLZOrWZData[M28Map.subrefLZOrWZMexCount] >= 3 and aiBrain[refiGrossMassBaseIncome] >= 15)  then --In LOUD, T3 mex upgrades are more efficient than t2 to t3 apparently
                             --Basic safety check (much more limited than normal one):
-                            if bDebugMessages == true then LOG(sFunctionRef..': Doing safety check, is table of enemy units empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefTEnemyUnits]))..'; Enemy air to ground threat='..(tLZOrWZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0)) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Doing safety check, is table of enemy units empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefTEnemyUnits]))..'; Enemy air to ground threat='..(tLZOrWZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0)) end
                             if (M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefTEnemyUnits]) or ((tLZOrWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 100) <= 2)) and (tLZOrWZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) == 0 and M28Utilities.IsTableEmpty(oJustBuilt[M28Building.reftTMLInRangeOfThisUnit]) and M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subreftoAllNearbyEnemyT2ArtiUnits]) and (tLZOrWZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 0) == 0 then
                                 --Upgrade another mex in this zone (or this mex if T3 LOUD)
                                 bTryingToUpgradeMex = true
                                 if iMexTechLevel >= 3 and M28Utilities.bLoudModActive and not((oJustBuilt:GetBlueprint().General.UpgradesTo or '') == '') then
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Upgrading this unit again') end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Upgrading this unit again') end
                                     UpgradeUnit(oJustBuilt, true)
                                 elseif M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then --redundancy
                                     local iMexCategory
@@ -3973,7 +3973,7 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
                                             local iOutstandingQuietTier = GetLowestOutstandingQuietMexTier(iTeam)
                                             local iParallelQuietTier = GetAllowedQuietParallelMexTier(iTeam, iOutstandingQuietTier)
                                             iMexCategory = GetQuietMexCategoryForProgressionTier(iOutstandingQuietTier) or M28UnitInfo.refCategoryT1Mex
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Will look for mexes in current Quiet rung, iOutstandingQuietTier='..(iOutstandingQuietTier or 'nil')..'; iParallelQuietTier='..(iParallelQuietTier or 'nil')) end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will look for mexes in current Quiet rung, iOutstandingQuietTier='..(iOutstandingQuietTier or 'nil')..'; iParallelQuietTier='..(iParallelQuietTier or 'nil')) end
                                             if iParallelQuietTier then
                                                 local iParallelQuietCategory = GetQuietMexCategoryForProgressionTier(iParallelQuietTier)
                                                 if iParallelQuietCategory then
@@ -3993,7 +3993,7 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
                                         end
                                     else
                                         if iMexTechLevel <= 2 then
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Will look for T1 mexes') end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will look for T1 mexes') end
                                             iMexCategory = M28UnitInfo.refCategoryT1Mex --i.e. if we have just upgraded a t1 mex to t2, then we want to look for other t1 mexes in the zone to upgrade
                                         else iMexCategory = M28UnitInfo.refCategoryMex
                                         end
@@ -4001,17 +4001,17 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
 
                                     local tMexOfCategory = EntityCategoryFilterDown(iMexCategory, tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
                                     local bAlreadyUpgraded = false
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Checking if we have other mexes that could upgrade to same tech level, is tMexOfCategory empty='..tostring(M28Utilities.IsTableEmpty(tMexOfCategory))..'; subrefiActiveMexUpgrades='..(tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0)) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if we have other mexes that could upgrade to same tech level, is tMexOfCategory empty='..tostring(M28Utilities.IsTableEmpty(tMexOfCategory))..'; subrefiActiveMexUpgrades='..(tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0)) end
                                     --If we have mexes of category check none are upgrading
                                     if M28Utilities.IsTableEmpty(tMexOfCategory) == false then
                                         for iCurMex = table.getn(tMexOfCategory), 1, -1 do
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Considering mex='..tMexOfCategory[iCurMex].UnitId..M28UnitInfo.GetUnitLifetimeCount(tMexOfCategory[iCurMex])..'; Work progress='..tMexOfCategory[iCurMex]:GetWorkProgress()..'; Fraction complete='..tMexOfCategory[iCurMex]:GetFractionComplete()..'; Unit state='..M28UnitInfo.GetUnitState(tMexOfCategory[iCurMex])) end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering mex='..tMexOfCategory[iCurMex].UnitId..M28UnitInfo.GetUnitLifetimeCount(tMexOfCategory[iCurMex])..'; Work progress='..tMexOfCategory[iCurMex]:GetWorkProgress()..'; Fraction complete='..tMexOfCategory[iCurMex]:GetFractionComplete()..'; Unit state='..M28UnitInfo.GetUnitState(tMexOfCategory[iCurMex])) end
                                             if tMexOfCategory[iCurMex]:GetWorkProgress() >= 0.05 or tMexOfCategory[iCurMex] == oOptionalEngineer then
                                                 table.remove(tMexOfCategory, iCurMex)
                                             end
                                         end
                                     end
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Is tMexOfCategory empty after removing near-complete ones='..tostring(M28Utilities.IsTableEmpty(tMexOfCategory))) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is tMexOfCategory empty after removing near-complete ones='..tostring(M28Utilities.IsTableEmpty(tMexOfCategory))) end
                                     if M28Utilities.IsTableEmpty(tMexOfCategory) then
                                         --if have no active upgrades in this zone, then consider searching adjacent land/water zones if they are <35% mod dist; if no mexes after this, and we are at T1-T2, then consider going to T3
                                         if (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) <= 1 then
@@ -4028,7 +4028,7 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
                                                                     if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 and not(oMex:IsUnitState('Upgrading')) and not(oMex:IsUnitState('BeingUpgraded')) and not(ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam)) then
                                                                         UpgradeUnit(oMex, true)
                                                                         bAlreadyUpgraded = true
-                                                                        if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade mex in adj zone P'..iPlateauOrZero..'Z'..iAdjLZ..', oMex='..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)) end
+                                                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will upgrade mex in adj zone P'..iPlateauOrZero..'Z'..iAdjLZ..', oMex='..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)) end
                                                                         break
                                                                     end
                                                                 end
@@ -4045,17 +4045,17 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
                                         local bAllowParallelNextQuietRungToT3 = M28Utilities.bQuietModActive and ShouldAllowQuietParallelMexTier(iTeam, iLowestOutstandingQuietTier, refiMexQuietTierT25)
                                         if M28Utilities.bQuietModActive and iLowestOutstandingQuietTier and not(iLowestOutstandingQuietTier == refiMexQuietTierT25 or bAllowParallelNextQuietRungToT3) then
                                             bGetT3Mex = false
-                                            if bDebugMessages == true then LOG(sFunctionRef..': Wont open a fresh T3 mex start because the outstanding Quiet mex rung is '..iLowestOutstandingQuietTier..' and parallel runging does not allow T3 yet') end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Wont open a fresh T3 mex start because the outstanding Quiet mex rung is '..iLowestOutstandingQuietTier..' and parallel runging does not allow T3 yet') end
                                         end
-                                        if bDebugMessages == true then LOG(sFunctionRef..': Considering if we want to get another t3 mex at this stage, bGetT3Mex='..tostring(bGetT3Mex)) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if we want to get another t3 mex at this stage, bGetT3Mex='..tostring(bGetT3Mex)) end
                                         if bGetT3Mex then
-                                            if bDebugMessages == true then LOG(sFunctionRef..': We want another t3 mex on our team; however if this isnt a core base/similar mod dist then want to consider our base') end
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We want another t3 mex on our team; however if this isnt a core base/similar mod dist then want to consider our base') end
                                             if tLZOrWZTeamData[M28Map.refiModDistancePercent] > 0.05 and not(tLZOrWZTeamData[M28Map.subrefLZbCoreBase]) and M28Team.tTeamData[iTeam][M28Team.refiMexCountByTech][3] < 10 then
                                                 local tNearestBaseLZData, tNearestBaseLZTeamData = M28Map.GetLandOrWaterZoneData(M28Map.GetPlayerStartPosition(oJustBuilt:GetAIBrain()), true, iTeam)
                                                 --Does nearest base not have many t3 mexes yet, but seems as safe as this zone?
                                                 if tNearestBaseLZTeamData and tNearestBaseLZTeamData[M28Map.subrefMexCountByTech][3] <= 1 and tNearestBaseLZTeamData[M28Map.subrefMexCountByTech][2] > 0 and (tNearestBaseLZData[M28Map.subrefLZOrWZMexCount] >= 3 or tNearestBaseLZTeamData[M28Map.subrefMexCountByTech][3] == 0) and (M28Utilities.IsTableEmpty(tNearestBaseLZTeamData[M28Map.reftoNearestDFEnemies]) or not(M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.reftoNearestDFEnemies]))) then
                                                     bGetT3Mex = false
-                                                    if bDebugMessages == true then LOG(sFunctionRef..': Want more t3 mex in core base first so will cancel getting a t3 mex') end
+                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want more t3 mex in core base first so will cancel getting a t3 mex') end
                                                 end
                                             end
                                             if bGetT3Mex then
@@ -4064,13 +4064,13 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
                                             end
                                         end
                                     end
-                                    if bDebugMessages == true then LOG(sFunctionRef..': Will try and find a mex to upgrade, is M28Utilities.IsTableEmpty(tMexOfCategory)='..tostring(M28Utilities.IsTableEmpty(tMexOfCategory))) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will try and find a mex to upgrade, is M28Utilities.IsTableEmpty(tMexOfCategory)='..tostring(M28Utilities.IsTableEmpty(tMexOfCategory))) end
                                     if M28Utilities.IsTableEmpty(tMexOfCategory) == false and not(bAlreadyUpgraded) then
                                         for iMex, oMex in tMexOfCategory do
                                             if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 and not(oMex:IsUnitState('Upgrading')) and not(oMex:IsUnitState('BeingUpgraded')) and not(oMex == oJustBuilt) and not(oMex == oOptionalEngineer) and not((oMex:GetBlueprint().General.UpgradesTo or '') == '') and not(ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam)) then
                                                 bAlreadyUpgraded = true
                                                 UpgradeUnit(oMex, true)
-                                                if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade the mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..' as have just compelted a mex upgrade in this zone') end
+                                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will upgrade the mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..' as have just compelted a mex upgrade in this zone') end
                                                 break
                                             end
                                         end
@@ -4086,7 +4086,7 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
                     if not(bTryingToUpgradeMex) then ForkThread(M28Utilities.DelayedFunction, 20, ConsiderUpgradingMexDueToCompletion, {oJustBuilt}) end
                 end
             else
-                if bDebugMessages == true then LOG(sFunctionRef..': Will call this function again in a while as we arent upgrading due to low power') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will call this function again in a while as we arent upgrading due to low power') end
                 ForkThread(M28Utilities.DelayedFunction, 10, ConsiderUpgradingMexDueToCompletion, {oJustBuilt})
             end
         end
@@ -4126,19 +4126,19 @@ end
 
 function ConsiderPowerPgenUpgrade(oUnit, iOverrideSecondsToWait)
     --Called when we have just constructed a t3 pgen that is capable of being upgraded - tries to upgrade immediately unless are stalling mass
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ConsiderPowerPgenUpgrade'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local iTimeToWait = iOverrideSecondsToWait or 0
 
-    if bDebugMessages == true then LOG(sFunctionRef..': About to wait '..iTimeToWait..' for oUnit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by '..oUnit:GetAIBrain().Nickname..' at time='..GetGameTimeSeconds()..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oUnit))) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to wait '..iTimeToWait..' for oUnit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by '..oUnit:GetAIBrain().Nickname..' at time='..GetGameTimeSeconds()..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oUnit))) end
     if iTimeToWait > 0 then
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         WaitSeconds(iTimeToWait)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': Is oUnit still valid='..tostring(M28UnitInfo.IsUnitValid(oUnit))..'; oUnit[M28UnitInfo.refbTriedUpgrading]='..tostring(oUnit[M28UnitInfo.refbTriedUpgrading] or false)) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is oUnit still valid='..tostring(M28UnitInfo.IsUnitValid(oUnit))..'; oUnit[M28UnitInfo.refbTriedUpgrading]='..tostring(oUnit[M28UnitInfo.refbTriedUpgrading] or false)) end
     if M28UnitInfo.IsUnitValid(oUnit) and not(oUnit[M28UnitInfo.refbTriedUpgrading]) then
         local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnit:GetPosition())
         local iTeam = oUnit:GetAIBrain().M28Team
@@ -4152,17 +4152,17 @@ function ConsiderPowerPgenUpgrade(oUnit, iOverrideSecondsToWait)
         end
 
         if (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] and (tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] < math.min(2, tLZOrWZData[M28Map.subrefLZOrWZMexCount]))) or (M28Team.tTeamData[iTeam][M28Team.refbPrioritiseProduction] and not(M28Conditions.HaveLowPower(iTeam)) and M28Conditions.HaveLowMass(iTeam)) or not(M28Conditions.SafeToUpgradeUnit(oUnit)) or ShouldDelayPowerPgenUpgrade(oUnit, iTeam, tLZOrWZData, tLZOrWZTeamData) then
-            if bDebugMessages == true then LOG(sFunctionRef..': Delaying pgen upgrade as mass or production state is not suitable, or we do not genuinely need the extra power yet. tLZOrWZTeamData[M28Map.subrefMexCountByTech]='..repru(tLZOrWZTeamData[M28Map.subrefMexCountByTech])..'; M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or false)..'; Prioritise production='..tostring(M28Team.tTeamData[iTeam][M28Team.refbPrioritiseProduction] or false)..'; Safe to upgrade unit='..tostring(M28Conditions.SafeToUpgradeUnit(oUnit))..'; WantMorePower='..tostring(M28Conditions.WantMorePower(iTeam))..'; Team mass %='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 'nil')..'; Team net mass='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 'nil')) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Delaying pgen upgrade as mass or production state is not suitable, or we do not genuinely need the extra power yet. tLZOrWZTeamData[M28Map.subrefMexCountByTech]='..repru(tLZOrWZTeamData[M28Map.subrefMexCountByTech])..'; M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or false)..'; Prioritise production='..tostring(M28Team.tTeamData[iTeam][M28Team.refbPrioritiseProduction] or false)..'; Safe to upgrade unit='..tostring(M28Conditions.SafeToUpgradeUnit(oUnit))..'; WantMorePower='..tostring(M28Conditions.WantMorePower(iTeam))..'; Team mass %='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 'nil')..'; Team net mass='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 'nil')) end
             ForkThread(ConsiderPowerPgenUpgrade, oUnit, 10)
         else
             if not(M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam)) then
                 --Wnat to upgrade pgen
-                if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will upgrade unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
                 UpgradeUnit(oUnit, true)
                 M28Team.tTeamData[iTeam][M28Team.refiTimeLastPendingHighTechPowerRefresh] = nil
                 oUnit[M28UnitInfo.refbTriedUpgrading] = true
             else
-                if bDebugMessages == true then LOG(sFunctionRef..': Want t1 spam so will reconsider later') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want t1 spam so will reconsider later') end
                 ForkThread(ConsiderPowerPgenUpgrade, oUnit, 10)
             end
         end
@@ -4172,23 +4172,23 @@ end
 
 function ConsiderMassFabUpgrade(oUnit, iOverrideSecondsToWait)
     --Called when we have just constructed a t3 mass fab that is capable of being upgraded - tries to upgrade immediately unless are stalling energy
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ConsiderMassFabUpgrade'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local iTimeToWait = iOverrideSecondsToWait or 0
 
-    if bDebugMessages == true then LOG(sFunctionRef..': About to consider wait '..iTimeToWait..' for oUnit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by '..oUnit:GetAIBrain().Nickname..' at time='..GetGameTimeSeconds()..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oUnit))) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to consider wait '..iTimeToWait..' for oUnit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by '..oUnit:GetAIBrain().Nickname..' at time='..GetGameTimeSeconds()..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oUnit))) end
     if iTimeToWait > 0 then
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         WaitSeconds(iTimeToWait)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     end
-    if bDebugMessages == true then LOG(sFunctionRef..': Is oUnit still valid='..tostring(M28UnitInfo.IsUnitValid(oUnit))) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is oUnit still valid='..tostring(M28UnitInfo.IsUnitValid(oUnit))) end
     if M28UnitInfo.IsUnitValid(oUnit) then
         local iTeam = oUnit:GetAIBrain().M28Team
         if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] or (M28Team.tTeamData[iTeam][M28Team.refbPrioritiseProduction] and (M28Conditions.HaveLowPower(iTeam) or M28Conditions.HaveLowMass(iTeam))) or not(M28Conditions.SafeToUpgradeUnit(oUnit)) then
-            if bDebugMessages == true then LOG(sFunctionRef..': Dont have enough energy or want to produce more so will delay consideration of mass fab upgrade, or we are dealing with unsafe to upgrade unit') end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dont have enough energy or want to produce more so will delay consideration of mass fab upgrade, or we are dealing with unsafe to upgrade unit') end
             ForkThread(ConsiderMassFabUpgrade, oUnit, 10)
         else
             local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnit:GetPosition())
@@ -4203,10 +4203,10 @@ function ConsiderMassFabUpgrade(oUnit, iOverrideSecondsToWait)
 
             if not(M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam)) then
                 --Wnat to upgrade pgen
-                if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade mass fab unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will upgrade mass fab unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
                 UpgradeUnit(oUnit, true)
             else
-                if bDebugMessages == true then LOG(sFunctionRef..': Want t1 spam so will reconsider later') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want t1 spam so will reconsider later') end
                 ForkThread(ConsiderMassFabUpgrade, oUnit, 10)
             end
         end
@@ -4216,8 +4216,8 @@ end
 
 function JustBuiltT2PlusPowerOrExperimentalInZone(oPGen)
     --If we dont have an activem ex upgrade in the zone then will try and upgrade a mex, assuming it is safe
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'JustBuiltT2PlusPowerOrExperimentalInZone'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local iTeam = oPGen:GetAIBrain().M28Team
@@ -4247,7 +4247,7 @@ function JustBuiltT2PlusPowerOrExperimentalInZone(oPGen)
                         ConsiderUnits(EntityCategoryFilterDown(M28UnitInfo.refCategoryT1Mex, tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits]))
                         if not(oMexToUpgrade) then ConsiderUnits(EntityCategoryFilterDown(M28UnitInfo.refCategoryT2Mex, tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits])) end
                         if oMexToUpgrade  then
-                            if bDebugMessages == true then LOG(sFunctionRef..': Just completed oPgen='..oPGen.UnitId..M28UnitInfo.GetUnitLifetimeCount(oPGen)..'; oMexToUpgrade='..oMexToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMexToUpgrade)) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just completed oPgen='..oPGen.UnitId..M28UnitInfo.GetUnitLifetimeCount(oPGen)..'; oMexToUpgrade='..oMexToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMexToUpgrade)) end
                             UpgradeUnit(oMexToUpgrade, true)
                         end
                     end
@@ -4261,8 +4261,8 @@ end
 function GetBestEngiToKill(oUnit)
     --If we are planning on killing oUnit, and it is T3, and we have T1 or T2 engis in the esame area, then consider switching to killing the T1/T2 unit instead
     --returns either oUnit, or the replacement engineer
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'GetBestEngiToKill'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     local iUnitTechLevel = M28UnitInfo.GetUnitTechLevel(oUnit)
     if iUnitTechLevel == 1 then
@@ -4289,7 +4289,7 @@ function GetBestEngiToKill(oUnit)
 
             for iEngi, oEngi in tT1AndT2EngisInZone do
                 if M28UnitInfo.IsUnitValid(oEngi) then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Considering possible replacement engi, oEngi='..oEngi.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngi)..'; Engi state='..M28UnitInfo.GetUnitState(oEngi)..'; Assigned priority='..(oEngi[M28Engineer.refiAssignedActionPriority] or 'nil')..'; Is primary builder='..tostring(oEngi[M28Engineer.refbPrimaryBuilder] or false)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering possible replacement engi, oEngi='..oEngi.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngi)..'; Engi state='..M28UnitInfo.GetUnitState(oEngi)..'; Assigned priority='..(oEngi[M28Engineer.refiAssignedActionPriority] or 'nil')..'; Is primary builder='..tostring(oEngi[M28Engineer.refbPrimaryBuilder] or false)) end
                     if not(oEngi:IsUnitState('Reclaiming')) then
                         iCurPriority = (oEngi[M28Engineer.refiAssignedActionPriority] or iNoPriorityReplacement)
                         if oEngi[M28Engineer.refbPrimaryBuilder] then
@@ -4318,8 +4318,8 @@ function GetBestEngiToKill(oUnit)
 end
 
 function ConsiderImmediateUpgradeOfFactory(oFactory)
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'ConsiderImmediateUpgradeOfFactory'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     if not(M28Utilities.bFAFActive) then
@@ -4329,17 +4329,17 @@ function ConsiderImmediateUpgradeOfFactory(oFactory)
 
             if EntityCategoryContains(M28UnitInfo.refCategoryAirHQ, oFactory.UnitId) then
                 if aiBrain[refiOurHighestAirFactoryTech] > math.min(3, iTechLevel) then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade air factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will upgrade air factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
                     UpgradeUnit(oFactory, true, nil, sFunctionRef..':AirHQ')
                 end
             elseif EntityCategoryContains(M28UnitInfo.refCategoryLandHQ, oFactory.UnitId) then
                 if aiBrain[refiOurHighestLandFactoryTech] > math.min(3, iTechLevel) then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade land factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will upgrade land factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
                     UpgradeUnit(oFactory, true, nil, sFunctionRef..':LandHQ')
                 end
             elseif EntityCategoryContains(M28UnitInfo.refCategoryNavalHQ, oFactory.UnitId) then
                 if aiBrain[refiOurHighestNavalFactoryTech] > math.min(3, iTechLevel) then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Will upgrade naval factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will upgrade naval factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
                     UpgradeUnit(oFactory, true, nil, sFunctionRef..':NavalHQ')
                 end
             end

@@ -97,11 +97,11 @@ function AddReprCommands()
 end
 
 function OtherSteamCompatibilityInformation()
-    local bDebugMessages = false if M28Profiler.bGlobalDebugOverride == true then   bDebugMessages = true end
     local sFunctionRef = 'OtherSteamCompatibilityInformation'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelOverseer, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    if bDebugMessages == true then LOG(sFunctionRef..': Start of code, bUpdatedOtherSteamInfo='..tostring(bUpdatedOtherSteamInfo)) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, bUpdatedOtherSteamInfo='..tostring(bUpdatedOtherSteamInfo)) end
     if not(bUpdatedOtherSteamInfo) then
         bUpdatedOtherSteamInfo = true
         AddReprCommands()
@@ -114,19 +114,19 @@ function OtherSteamCompatibilityInformation()
         local M28Building = import('/mods/M28AI/lua/AI/M28Building.lua')
         M28Building.bShieldsCanDischarge = false
         if not(ScenarioInfo.Options.Share) then ScenarioInfo.Options.Share = 'None' end
-        if bDebugMessages == true then LOG(sFunctionRef..': Finsihed updating for steam compatibility') end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finsihed updating for steam compatibility') end
 
         --fix the scenarioinfo values from custom game options if are in LOUD, as it uses keys
         --[[local LobbyOptions = import('/mods/M28AI/lua/CustomOptions/M28LOUDLobbyOptions.lua')
         local vCurKey
-        if bDebugMessages == true then LOG(sFunctionRef..': About to go through lobby options and update scenario info, LobbyOptions.LobbyGlobalOptions='..repru(LobbyOptions.LobbyGlobalOptions)) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to go through lobby options and update scenario info, LobbyOptions.LobbyGlobalOptions='..repru(LobbyOptions.LobbyGlobalOptions)) end
         for iEntry, tOptionData in LobbyOptions.LobbyGlobalOptions do
             vCurKey = ScenarioInfo.Options[tOptionData.key]
-            if bDebugMessages == true then LOG(sFunctionRef..': Considering vCurKey='..(vCurKey or 'nil')..'; tOptionData.key='..(tOptionData.key or 'nil')..'; iEntry='..iEntry) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering vCurKey='..(vCurKey or 'nil')..'; tOptionData.key='..(tOptionData.key or 'nil')..'; iEntry='..iEntry) end
             for iValueEntry, tValueData in tOptionData.values do
-                if bDebugMessages == true then LOG(sFunctionRef..': Considering tValueData.key='..tValueData.key or 'nil') end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering tValueData.key='..tValueData.key or 'nil') end
                 if tValueData.key == vCurKey then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Replacing scenario info for option Data key='..tOptionData.key..'; Scenario info value='..ScenarioInfo.Options[tOptionData.key]..'; Will change to tValueData.text='..tValueData.text) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Replacing scenario info for option Data key='..tOptionData.key..'; Scenario info value='..ScenarioInfo.Options[tOptionData.key]..'; Will change to tValueData.text='..tValueData.text) end
                     ScenarioInfo.Options[tOptionData.key] = tValueData.text
                     break
                 end
