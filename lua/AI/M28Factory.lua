@@ -785,10 +785,10 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
             elseif M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiHighestEnemyAirTech] >= 3 then
                 iMaxT1AndT2MAA = 20
             end
-            if EntityCategoryContains(categories.TECH1, sBPIDToBuild) and GetGameTimeSeconds() >= 600 then
+            if EntityCategoryContains(categories.TECH1, sBPIDToBuild) then
                 local iCurT1MAA = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMAA * categories.TECH1)
-                if iCurT1MAA >= 25 then
-                    if bDebugMessages == true then LOG(sFunctionRef..': MAA_CAP_TIGHTEN - Blocking T1 MAA production after 10 min (have '..iCurT1MAA..' T1 MAA)') end
+                if iCurT1MAA >= GetMaxT1MAACount() then
+                    if bDebugMessages == true then LOG(sFunctionRef..': MAA_CAP_TIGHTEN - Blocking T1 MAA production at hard cap (have '..iCurT1MAA..' T1 MAA)') end
                     sBPIDToBuild = nil
                 end
             end
@@ -936,7 +936,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
 
     local iTargetLowTechGunshipCount, iTargetLowTechGunshipPressure, bTargetLowTechGunshipPressure = GetLowTechGunshipPressureAgainstLand(tLZTargetTeamData)
     local iTargetAttackAirThreat, bTargetAttackAirPresent = GetAttackAirThreatAgainstLand(tLZTargetTeamData)
-    local bT1LandFactoryAttackAirGatePassed = iFactoryTechLevel >= 2 or (bTargetAttackAirPresent and iTargetAttackAirThreat >= 400)
+    local bT1LandFactoryAttackAirGatePassed = DoesT1LandFactoryPassAttackAirGate(iFactoryTechLevel, bTargetAttackAirPresent, iTargetAttackAirThreat)
     if bDebugMessages == true and bTargetLowTechGunshipPressure then
         LOG(sFunctionRef..': Low-tech gunship flak pressure detected for target zone '..iTargetLandZone..'; Count='..iTargetLowTechGunshipCount..'; Pressure='..iTargetLowTechGunshipPressure..'; GroundAA have='..(tLZTargetTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0)..'; Wanted='..(tLZTargetTeamData[M28Map.subrefLZMAAThreatWanted] or 0))
     end
@@ -955,7 +955,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
         local bEnemyHasT3Air = M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3
         local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
         if iFactoryTechLevel == 1 and not(bT1LandFactoryAttackAirGatePassed) then
-            if bDebugMessages == true then LOG(sFunctionRef..': T1_ATTACK_AIR_GATE - Skipping MAA0 because target zone lacks 400+ bomber/gunship threat') end
+            if bDebugMessages == true then LOG(sFunctionRef..': T1_ATTACK_AIR_GATE - Skipping MAA0 because target zone lacks 750+ bomber/gunship threat') end
         elseif bEnemyHasT3Air and iFactoryTechLevel < 3 then
             if bDebugMessages == true then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping MAA0 (enemy has T3 air, T2 MAA ineffective)') end
         else
@@ -1490,6 +1490,14 @@ function GetAttackAirThreatAgainstLand(tLZTeamData)
     if M28Utilities.IsTableEmpty(tEnemyAttackAir) then return 0, false end
 
     return tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0, true
+end
+
+local function DoesT1LandFactoryPassAttackAirGate(iFactoryTechLevel, bAttackAirPresent, iAttackAirThreat)
+    return iFactoryTechLevel >= 2 or (bAttackAirPresent and iAttackAirThreat >= 750)
+end
+
+local function GetMaxT1MAACount()
+    return 20
 end
 
 local function GetCombatLandScoutDFEquivalentCount(aiBrain, bUseLifetimeCount)
@@ -2030,10 +2038,10 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     if not (bDontConsiderBuildingMAA) then
         --If factory is at T1 and we have lots of T1 MAA then dont get more MAA assuming no enemy air threat in this zone
         if iFactoryTechLevel == 1 and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftLZEnemyAirUnits]) then
-            local iCurT1MAA =  aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMAA)
-            if iCurT1MAA >= 80 or (not(M28Team.tTeamData[iTeam][M28Team.refbEnemyEarlyT3AirSpottedRecently]) and aiBrain[M28Economy.refiOurHighestLandFactoryTech] > 1 and iCurT1MAA >= 20 and (tLZTeamData[M28Map.subrefLZbCoreBase] or iCurT1MAA >= 50 or M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryLandFactory - categories.TECH1, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])) == false)) then
+            local iCurT1MAA = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMAA * categories.TECH1)
+            if iCurT1MAA >= GetMaxT1MAACount() then
                 bDontConsiderBuildingMAA = true
-                if bDebugMessages == true then LOG(sFunctionRef..': T1 factory and have enough MAA threat so dont want more') end
+                if bDebugMessages == true then LOG(sFunctionRef..': T1 factory is at T1 MAA cap so dont want more, iCurT1MAA='..iCurT1MAA) end
             end
         end
 
@@ -2432,7 +2440,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                 end
             end
         end
-        local bT1NearbyAttackAirGatePassed = iFactoryTechLevel >= 2 or (bNearbyAttackAirPresent and iNearbyAttackAirThreat >= 400)
+        local bT1NearbyAttackAirGatePassed = DoesT1LandFactoryPassAttackAirGate(iFactoryTechLevel, bNearbyAttackAirPresent, iNearbyAttackAirThreat)
         if bDebugMessages == true and iFactoryTechLevel == 1 then
             LOG(sFunctionRef .. ': T1_ATTACK_AIR_GATE - bNearbyAttackAirPresent='..tostring(bNearbyAttackAirPresent)..'; iNearbyAttackAirThreat='..iNearbyAttackAirThreat..'; gatePassed='..tostring(bT1NearbyAttackAirGatePassed))
         end
@@ -2449,7 +2457,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                     if M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryMAA) < iMaxMAAUnderConstructionWanted then
                         local bEnemyHasT3Air = M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3
                         if iFactoryTechLevel == 1 and not(bT1NearbyAttackAirGatePassed) then
-                            if bDebugMessages == true then LOG(sFunctionRef .. ': T1_ATTACK_AIR_GATE - Skipping high priority MAA because nearby bomber/gunship threat is below 400') end
+                            if bDebugMessages == true then LOG(sFunctionRef .. ': T1_ATTACK_AIR_GATE - Skipping high priority MAA because nearby bomber/gunship threat is below 750') end
                         elseif bEnemyHasT3Air and iFactoryTechLevel < 3 then
                             if bDebugMessages == true then LOG(sFunctionRef .. ': MAA_TIGHTEN - Skipping T1/T2 MAA (enemy has T3 air, ineffective)') end
                         else
@@ -2501,10 +2509,10 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     iCurrentConditionToTry = iCurrentConditionToTry + 1
     if bDebugMessages == true then LOG(sFunctionRef..': MAA builder if nearby enemy air to ground threat and no dangerous enemies in this LZ itself, iNearbyAirToGroundThreat='..(iNearbyAirToGroundThreat or 'nil')) end
     if not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) and iNearbyAirToGroundThreat > (tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0) * 2 and (not(bDontConsiderBuildingMAA) or iNearbyMAAThreat + (tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0) < iNearbyAirToGroundThreat * 0.25) then
-        local bT1NearbyAttackAirGatePassed = iFactoryTechLevel >= 2 or (bNearbyAttackAirPresent and iNearbyAttackAirThreat >= 400)
+        local bT1NearbyAttackAirGatePassed = DoesT1LandFactoryPassAttackAirGate(iFactoryTechLevel, bNearbyAttackAirPresent, iNearbyAttackAirThreat)
         local bEnemyHasT3Air = M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3
         if iFactoryTechLevel == 1 and not(bT1NearbyAttackAirGatePassed) then
-            if bDebugMessages == true then LOG(sFunctionRef..': T1_ATTACK_AIR_GATE - Skipping nearby-air MAA because nearby bomber/gunship threat is below 400') end
+            if bDebugMessages == true then LOG(sFunctionRef..': T1_ATTACK_AIR_GATE - Skipping nearby-air MAA because nearby bomber/gunship threat is below 750') end
         elseif bEnemyHasT3Air and iFactoryTechLevel < 3 then
             if bDebugMessages == true then LOG(sFunctionRef..': MAA_TIGHTEN - Skipping T1/T2 MAA vs nearby bombers (enemy has T3 air)') end
         else
@@ -4464,11 +4472,19 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                             iMAACat = M28UnitInfo.refCategoryMAA - categories.TECH3
                         end
                         if M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, iMAACat) <= 1 then
-                            if bDebugMessages == true then
-                                LOG(sFunctionRef .. ': Will get MAA3')
-                            end
-                            if ConsiderBuildingCategory(iMAACat) then
-                                return sBPIDToBuild
+                            local iLocalAttackAirThreat, bLocalAttackAirPresent = GetAttackAirThreatAgainstLand(tLZTeamData)
+                            local bT1LocalAttackAirGatePassed = DoesT1LandFactoryPassAttackAirGate(iFactoryTechLevel, bLocalAttackAirPresent, iLocalAttackAirThreat)
+                            if iFactoryTechLevel == 1 and not(bT1LocalAttackAirGatePassed) then
+                                if bDebugMessages == true then
+                                    LOG(sFunctionRef .. ': T1_ATTACK_AIR_GATE - Skipping MAA3 because local bomber/gunship threat is below 750')
+                                end
+                            else
+                                if bDebugMessages == true then
+                                    LOG(sFunctionRef .. ': Will get MAA3')
+                                end
+                                if ConsiderBuildingCategory(iMAACat) then
+                                    return sBPIDToBuild
+                                end
                             end
                         end
                     end
