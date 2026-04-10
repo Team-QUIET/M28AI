@@ -347,6 +347,17 @@ local function GetMaxConcurrentMexUpgradeValue(iTeam)
     return iMaxConcurrentMexUpgradeValue
 end
 
+function GetMinimumActiveMexUpgradeFloor(iTeam)
+    local tCurTeamData = M28Team.tTeamData[iTeam]
+    if not(tCurTeamData) then return 1 end
+
+    local iMinimumActiveMexUpgrades = 1
+    if (tCurTeamData[M28Team.subrefbTeamIsStallingMass] or false) or M28Conditions.TeamHasLowMass(iTeam) then
+        iMinimumActiveMexUpgrades = math.max(iMinimumActiveMexUpgrades, GetMinimumMexUpgradesToKeepDuringMassStall(iTeam))
+    end
+    return iMinimumActiveMexUpgrades
+end
+
 function CanTeamStartMexUpgradeNow(iTeam, oCandidateMex, bConsumeSlot)
     local tCurTeamData = M28Team.tTeamData[iTeam]
     if not(tCurTeamData) then return true end
@@ -360,10 +371,9 @@ function CanTeamStartMexUpgradeNow(iTeam, oCandidateMex, bConsumeSlot)
     if M28UnitInfo.IsUnitValid(oCandidateMex) then
         local iCurrentMexUpgradeValue, iCurrentMexUpgradeCount = GetCurrentMexUpgradeValueAndCount(iTeam)
         local iCandidateMexUpgradeValue = GetMexUpgradeValueForUnit(oCandidateMex)
-        local iMexRecoveryFloor = GetMinimumMexUpgradesToKeepDuringMassStall(iTeam)
-        local bNeedRecoveryMexUpgrade = ((tCurTeamData[M28Team.subrefbTeamIsStallingMass] or false) or M28Conditions.TeamHasLowMass(iTeam))
-                and iCurrentMexUpgradeCount < iMexRecoveryFloor
-        if not(bNeedRecoveryMexUpgrade) then
+        local iMinimumActiveMexUpgrades = GetMinimumActiveMexUpgradeFloor(iTeam)
+        local bNeedMinimumMexUpgrade = iCurrentMexUpgradeCount < iMinimumActiveMexUpgrades
+        if not(bNeedMinimumMexUpgrade) then
             local iMaxConcurrentMexUpgradeValue = GetMaxConcurrentMexUpgradeValue(iTeam)
             if iCurrentMexUpgradeValue + iCandidateMexUpgradeValue > iMaxConcurrentMexUpgradeValue then
                 return false, iMaxConcurrentMexUpgradeValue
@@ -372,6 +382,12 @@ function CanTeamStartMexUpgradeNow(iTeam, oCandidateMex, bConsumeSlot)
     end
 
     local iBurstCap = GetTeamMexUpgradeStartBurstCap(iTeam, oCandidateMex)
+    if M28UnitInfo.IsUnitValid(oCandidateMex) then
+        local _, iCurrentMexUpgradeCount = GetCurrentMexUpgradeValueAndCount(iTeam)
+        if iCurrentMexUpgradeCount < GetMinimumActiveMexUpgradeFloor(iTeam) then
+            iBurstCap = math.max(iBurstCap, (tCurTeamData[refiMexUpgradeStartsInBurst] or 0) + 1)
+        end
+    end
     if (tCurTeamData[refiMexUpgradeStartsInBurst] or 0) >= iBurstCap then
         return false, iBurstCap
     end

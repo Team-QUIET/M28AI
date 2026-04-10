@@ -3519,24 +3519,24 @@ function ConsiderPriorityMexUpgrades(iM28Team)
             end
         end
         local iActiveTeamMexUpgrades = table.getn(tTeamData[iM28Team][subreftTeamUpgradingMexes] or {})
-        local iMexRecoveryFloor = M28Economy.GetMinimumMexUpgradesToKeepDuringMassStall(iM28Team)
-        local bNeedRecoveryMexUpgrade = ((tTeamData[iM28Team][subrefbTeamIsStallingMass] or false) or M28Conditions.TeamHasLowMass(iM28Team))
-                and iActiveTeamMexUpgrades < iMexRecoveryFloor
+        local iMinimumActiveMexUpgrades = M28Economy.GetMinimumActiveMexUpgradeFloor(iM28Team)
+        local bNeedMinimumMexUpgrade = iActiveTeamMexUpgrades < iMinimumActiveMexUpgrades
 
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bWantMassForProduction='..tostring(bWantMassForProduction)..'; Is table of upgrading mexes empty='..tostring( M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]))..'; Is table of upgrading HQs empty='..tostring(M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingHQs]))) end
-        if not(bWantMassForProduction) or bNeedRecoveryMexUpgrade or M28Overseer.bNoRushActive or (bBehindOnT3OrNotStartedT2Mex and not(tTeamData[iM28Team][subrefbTeamIsStallingMass])) or (M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]) and M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingHQs])) then
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bWantMassForProduction='..tostring(bWantMassForProduction)..'; Active team mex upgrades='..iActiveTeamMexUpgrades..'; Minimum active mex upgrades='..iMinimumActiveMexUpgrades..'; Is table of upgrading HQs empty='..tostring(M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingHQs]))) end
+        if not(bWantMassForProduction) or bNeedMinimumMexUpgrade or M28Overseer.bNoRushActive or (bBehindOnT3OrNotStartedT2Mex and not(tTeamData[iM28Team][subrefbTeamIsStallingMass])) then
             local bCanStartPriorityMexUpgrade = true
-            if bProductionPriorityState and not(M28Overseer.bNoRushActive) and not(bNeedRecoveryMexUpgrade and (tTeamData[iM28Team][subrefiTeamGrossMass] or 0) >= 2.5 * tTeamData[iM28Team][subrefiActiveM28BrainCount]) and (tTeamData[iM28Team][subrefiTeamGrossMass] or 0) < 4 * tTeamData[iM28Team][subrefiActiveM28BrainCount] and (tTeamData[iM28Team][subrefiTeamNetMass] or 0) < -2 * tTeamData[iM28Team][subrefiActiveM28BrainCount] then
+            if bProductionPriorityState and not(M28Overseer.bNoRushActive) and not(bNeedMinimumMexUpgrade) and (tTeamData[iM28Team][subrefiTeamGrossMass] or 0) < 4 * tTeamData[iM28Team][subrefiActiveM28BrainCount] and (tTeamData[iM28Team][subrefiTeamNetMass] or 0) < -2 * tTeamData[iM28Team][subrefiActiveM28BrainCount] then
                 bCanStartPriorityMexUpgrade = false
             end
 
-            if (not(tTeamData[iM28Team][refbFocusOnT1Spam]) and not(bPrioritiseProduction)) or M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]) or table.getn(tTeamData[iM28Team][subreftTeamUpgradingMexes]) * 1.25 + 3 <= M28Conditions.GetCurrentM28UnitsOfCategoryInTeam(M28UnitInfo.refCategoryFactory, iM28Team) or tTeamData[iM28Team][subrefiTeamGrossMass] >= 5 * tTeamData[iM28Team][subrefiActiveM28BrainCount] then
+            if (not(tTeamData[iM28Team][refbFocusOnT1Spam]) and not(bPrioritiseProduction)) or bNeedMinimumMexUpgrade or iActiveTeamMexUpgrades * 1.25 + 3 <= M28Conditions.GetCurrentM28UnitsOfCategoryInTeam(M28UnitInfo.refCategoryFactory, iM28Team) or tTeamData[iM28Team][subrefiTeamGrossMass] >= 5 * tTeamData[iM28Team][subrefiActiveM28BrainCount] then
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iWantedUpgradingMexValue='..iWantedUpgradingMexValue..'; iUpgradingMexValue='..iUpgradingMexValue..'; bHaveSafeMexToUpgrade='..tostring(bHaveSafeMexToUpgrade)..'; iExistingT1MexUpgrades='..iExistingT1MexUpgrades..'; iExistingT2MexUpgrades='..iExistingT2MexUpgrades..'; iExistingT3PlusMexUpgrades='..iExistingT3PlusMexUpgrades..'; Active brain count='..tTeamData[iM28Team][subrefiActiveM28BrainCount]..'; Total mass stored='..tTeamData[iM28Team][subrefiTeamMassStored]) end
-                if bCanStartPriorityMexUpgrade and (bNeedRecoveryMexUpgrade or M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]) or iWantedUpgradingMexValue > iUpgradingMexValue or ((tTeamData[iM28Team][subrefiTeamNetMass] - tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle]) > -math.max(1, tTeamData[iM28Team][subrefiTeamGrossMass] * 0.08) and tTeamData[iM28Team][subrefiTeamGrossMass] >= 4 * tTeamData[iM28Team][subrefiActiveM28BrainCount])) then
+                if bCanStartPriorityMexUpgrade and (bNeedMinimumMexUpgrade or iWantedUpgradingMexValue > iUpgradingMexValue or ((tTeamData[iM28Team][subrefiTeamNetMass] - tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle]) > -math.max(1, tTeamData[iM28Team][subrefiTeamGrossMass] * 0.08) and tTeamData[iM28Team][subrefiTeamGrossMass] >= 4 * tTeamData[iM28Team][subrefiActiveM28BrainCount])) then
                     --Do we have enough energy?
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if we have enough energy, tTeamData[iM28Team][subrefiTeamNetEnergy]='..tTeamData[iM28Team][subrefiTeamNetEnergy]..'; tTeamData[iM28Team][subrefiEnergyUpgradesStartedThisCycle]='..tTeamData[iM28Team][subrefiEnergyUpgradesStartedThisCycle]..'; tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored]='..tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored]) end
                     local iNetEnergyForMexUpgrades = tTeamData[iM28Team][subrefiTeamNetEnergy] - tTeamData[iM28Team][subrefiEnergyUpgradesStartedThisCycle]
-                    if iNetEnergyForMexUpgrades > -20 * tTeamData[iM28Team][subrefiActiveM28BrainCount]
+                    if bNeedMinimumMexUpgrade
+                            or iNetEnergyForMexUpgrades > -20 * tTeamData[iM28Team][subrefiActiveM28BrainCount]
                             or tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 12 * tTeamData[iM28Team][subrefiActiveM28BrainCount]
                             or tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.4 then
                         --Do we have mexes in start positions that are lower than the enemy's highest tech, or 2 lower than the highest mex in that LZ? Or are in norush mode? Or just want to be spending more mass on upgrading safe mexes?
@@ -3555,7 +3555,7 @@ function ConsiderPriorityMexUpgrades(iM28Team)
                         if iTechLevelToUpgrade <= 0 and tTeamData[iM28Team][subrefiTeamMassStored] >= 1000 and ( tTeamData[iM28Team][subrefiTeamMassStored] >= 1600 or tTeamData[iM28Team][subrefiTeamNetMass] > 0 or (tTeamData[iM28Team][subrefiTeamMassStored] >= 1250 and tTeamData[iM28Team][subrefiTeamNetMass] > -1)) and (tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.7 or ((M28Utilities.bLoudModActive) and tTeamData[iM28Team][subrefiTeamNetEnergy] > 0)) and (tTeamData[iM28Team][subrefiTeamEnergyStored] >= 9000 or tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.9) and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 30 then iTechLevelToUpgrade = 1 end
 
                         --Dont upgrade if have ACUs in rush mode on the team and are already upgrading
-                        if iTechLevelToUpgrade >= 1 and M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]) == false then
+                        if iTechLevelToUpgrade >= 1 and iActiveTeamMexUpgrades > 0 and not(bNeedMinimumMexUpgrade) then
                             local iNormalBrains = 0
                             local iRushBrains = 0
                             for iBrain, oBrain in tTeamData[iM28Team][subreftoFriendlyActiveM28Brains] do
@@ -4287,6 +4287,8 @@ function ConsiderGettingUpgrades(iM28Team)
     end
 
     local bEarlyMexUpgradeStart = DoesTeamMeetEarlyMexUpgradeStartGate()
+    local iActiveTeamMexUpgrades = table.getn(tTeamData[iM28Team][subreftTeamUpgradingMexes] or {})
+    local bNeedMinimumMexUpgrade = iActiveTeamMexUpgrades < M28Economy.GetMinimumActiveMexUpgradeFloor(iM28Team)
     local bCanStartGeneralUpgradeFlow = GetGameTimeSeconds() >= 300
         or M28Map.bIsCampaignMap
         or GetGameTimeSeconds() >= 60 + 240 / (0.5 + tTeamData[iM28Team][refiHighestBrainResourceMultiplier] * 0.5) - 30 * math.min(3, math.max(0, tTeamData[iM28Team][subrefiActiveM28BrainCount] - 1.5))
@@ -4295,9 +4297,12 @@ function ConsiderGettingUpgrades(iM28Team)
         or M28Map.bIsLowMexMap
         or M28Overseer.bNoRushActive
         or ((M28Utilities.bLoudModActive) and GetGameTimeSeconds() >= 200)
+    local bPassesUpgradeEnergyGate = tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.6
+        and (bEarlyMexUpgradeStart or GetGameTimeSeconds() >= 150 or (GetGameTimeSeconds() >= 60 and GetGameTimeSeconds() >= 150 / tTeamData[iM28Team][refiHighestBrainResourceMultiplier]) or (tTeamData[iM28Team][subrefiTeamGrossMass] >= 3 * tTeamData[iM28Team][subrefiActiveM28BrainCount] and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 50 * tTeamData[iM28Team][subrefiActiveM28BrainCount]) or (tTeamData[iM28Team][subrefiTeamMassStored] >= 700 and tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] >= 0.9 and tTeamData[iM28Team][subrefiTeamNetEnergy] >= 3 and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.95) or (M28Map.bIsLowMexMap and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.5 and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.99 or (tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 6 * tTeamData[iM28Team][subrefiActiveM28BrainCount])))
+        and not(tTeamData[iM28Team][subrefbTeamIsStallingEnergy])
 
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time='..GetGameTimeSeconds()..'; tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored]='..tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored]..'; Stalling energy='..tostring(tTeamData[iM28Team][subrefbTeamIsStallingEnergy])..'; Stalling mass='..tostring(tTeamData[iM28Team][subrefbTeamIsStallingMass])..'; tTeamData[iM28Team][subrefiTeamGrossMass]='..tTeamData[iM28Team][subrefiTeamGrossMass]..'; tTeamData[iM28Team][subrefiTeamGrossEnergy]='..tTeamData[iM28Team][subrefiTeamGrossEnergy]..'; tTeamData[iM28Team][subrefiTeamMassStored]='..tTeamData[iM28Team][subrefiTeamMassStored]..'; tTeamData[iM28Team][subrefiTeamAverageMassPercentStored]='..tTeamData[iM28Team][subrefiTeamAverageMassPercentStored]..'; tTeamData[iM28Team][subrefiTeamNetEnergy]='..tTeamData[iM28Team][subrefiTeamNetEnergy]) end
-    if tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.6 and (bEarlyMexUpgradeStart or GetGameTimeSeconds() >= 150 or (GetGameTimeSeconds() >= 60 and GetGameTimeSeconds() >= 150 / tTeamData[iM28Team][refiHighestBrainResourceMultiplier]) or (tTeamData[iM28Team][subrefiTeamGrossMass] >= 3 * tTeamData[iM28Team][subrefiActiveM28BrainCount] and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 50 * tTeamData[iM28Team][subrefiActiveM28BrainCount]) or (tTeamData[iM28Team][subrefiTeamMassStored] >= 700 and tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] >= 0.9 and tTeamData[iM28Team][subrefiTeamNetEnergy] >= 3 and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.95) or (M28Map.bIsLowMexMap and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.5 and tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.99 or (tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 6 * tTeamData[iM28Team][subrefiActiveM28BrainCount]))) and not(tTeamData[iM28Team][subrefbTeamIsStallingEnergy]) then
+    if bPassesUpgradeEnergyGate then
         --Further general eco conditions on upgrading early game
         if bCanStartGeneralUpgradeFlow then
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have enough energy that we will check for priority upgrades and then normal upgrades') end
@@ -4338,6 +4343,14 @@ function ConsiderGettingUpgrades(iM28Team)
             if tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle] == 0 and not(tTeamData[iM28Team][refbFocusOnT1Spam]) then
                 GetSafeMexToUpgrade(iM28Team, false, false)
             end
+        end
+    elseif bNeedMinimumMexUpgrade and (bCanStartGeneralUpgradeFlow or bEarlyMexUpgradeStart) then
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Bypassing normal mex energy gate because the team is below its minimum active mex floor, active mex upgrades='..iActiveTeamMexUpgrades..'; minimum active mex upgrades='..M28Economy.GetMinimumActiveMexUpgradeFloor(iM28Team)..'; stored energy ratio='..tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored]..'; stalling energy='..tostring(tTeamData[iM28Team][subrefbTeamIsStallingEnergy] or false)) end
+        tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle] = 0
+        tTeamData[iM28Team][subrefiEnergyUpgradesStartedThisCycle] = 0
+        ConsiderPriorityMexUpgrades(iM28Team)
+        if tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle] == 0 and not(tTeamData[iM28Team][refbFocusOnT1Spam]) then
+            GetSafeMexToUpgrade(iM28Team, false, false)
         end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
