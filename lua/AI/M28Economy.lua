@@ -73,6 +73,9 @@ local refiMexQuietTierT2 = 2
 local refiMexQuietTierT25 = 25
 local refiMexQuietTierT3 = 3
 local refiMexQuietTierT35 = 35
+local refiTimeLastMexUpgradeStartBurst = 'M28TeamMexUpBurstTm'
+local refiMexUpgradeStartsInBurst = 'M28TeamMexUpBurstCnt'
+local refiMexUpgradeStartBurstWindow = 1.5
 local tiQuietMexTierPriority = {
     [refiMexQuietTierT1] = 1,
     [refiMexQuietTierT2] = 2,
@@ -228,6 +231,157 @@ function GetAllowedQuietParallelMexTier(iTeam, iOutstandingTier)
     return nil
 end
 
+local function DoesTeamHaveBufferedMexUpgradeEco(iTeam)
+    local tCurTeamData = M28Team.tTeamData[iTeam]
+    if not(tCurTeamData) then return false end
+
+    local iMassStored = tCurTeamData[M28Team.subrefiTeamMassStored] or 0
+    local iMassStoredRatio = tCurTeamData[M28Team.subrefiTeamAverageMassPercentStored] or 0
+    local iEnergyStoredRatio = tCurTeamData[M28Team.subrefiTeamAverageEnergyPercentStored] or 0
+    local iGrossMass = tCurTeamData[M28Team.subrefiTeamGrossMass] or 0
+    local iNetMass = tCurTeamData[M28Team.subrefiTeamNetMass] or 0
+
+    return iMassStored >= 200
+            and iMassStoredRatio >= 0.08
+            and iEnergyStoredRatio >= 0.35
+            and iNetMass >= -math.max(1, iGrossMass * 0.12)
+end
+
+local function GetTeamMexUpgradeStartBurstCap(iTeam, oCandidateMex)
+    local tCurTeamData = M28Team.tTeamData[iTeam]
+    if not(tCurTeamData) then return 1 end
+
+    local iActiveBrains = math.max(1, tCurTeamData[M28Team.subrefiActiveM28BrainCount] or 1)
+    local iBurstCap = 1
+    local bBufferedEco = DoesTeamHaveBufferedMexUpgradeEco(iTeam)
+    local bOverflowingEco = (tCurTeamData[M28Team.subrefiTeamMassStored] or 0) >= 1500 * iActiveBrains
+            and (tCurTeamData[M28Team.subrefiTeamAverageMassPercentStored] or 0) >= 0.9
+            and (tCurTeamData[M28Team.subrefiTeamAverageEnergyPercentStored] or 0) >= 0.95
+            and (tCurTeamData[M28Team.subrefiTeamNetMass] or 0) >= -math.max(1, (tCurTeamData[M28Team.subrefiTeamGrossMass] or 0) * 0.03)
+            and not(tCurTeamData[M28Team.subrefbTeamIsStallingMass] or false)
+    if (bBufferedEco and not(tCurTeamData[M28Team.subrefbTeamIsStallingMass] or false)) or bOverflowingEco or M28Overseer.bNoRushActive then
+        iBurstCap = 2
+    end
+
+    if M28Utilities.bQuietModActive and M28UnitInfo.IsUnitValid(oCandidateMex) then
+        local iOutstandingQuietTier = GetLowestOutstandingQuietMexTier(iTeam)
+        local iCandidateQuietTier = GetQuietMexProgressionTier(oCandidateMex)
+        if iOutstandingQuietTier and iCandidateQuietTier and ShouldAllowQuietParallelMexTier(iTeam, iOutstandingQuietTier, iCandidateQuietTier) then
+            iBurstCap = math.max(iBurstCap, 2)
+        end
+    end
+
+    return iBurstCap
+end
+
+local function GetMexUpgradeValueForUnit(oMex)
+    if not(M28UnitInfo.IsUnitValid(oMex)) then return 0 end
+    if EntityCategoryContains(categories.TECH1, oMex.UnitId) then
+        return 1
+    elseif EntityCategoryContains(categories.TECH2, oMex.UnitId) then
+        return 2.5
+    end
+    return 1.5
+end
+
+local function GetCurrentMexUpgradeValueAndCount(iTeam)
+    local tCurTeamData = M28Team.tTeamData[iTeam]
+    if not(tCurTeamData) then return 0, 0 end
+
+    local iCurrentMexUpgradeValue = 0
+    local iCurrentMexUpgradeCount = 0
+    if M28Conditions.IsTableOfUnitsStillValid(tCurTeamData[M28Team.subreftTeamUpgradingMexes]) then
+        for _, oUpgradingMex in tCurTeamData[M28Team.subreftTeamUpgradingMexes] do
+            iCurrentMexUpgradeCount = iCurrentMexUpgradeCount + 1
+            iCurrentMexUpgradeValue = iCurrentMexUpgradeValue + GetMexUpgradeValueForUnit(oUpgradingMex)
+        end
+    end
+    return iCurrentMexUpgradeValue, iCurrentMexUpgradeCount
+end
+
+local function GetMaxConcurrentMexUpgradeValue(iTeam)
+    local tCurTeamData = M28Team.tTeamData[iTeam]
+    if not(tCurTeamData) then return 1 end
+
+    local iActiveBrains = math.max(1, tCurTeamData[M28Team.subrefiActiveM28BrainCount] or 1)
+    local iHighestFactoryTech = tCurTeamData[M28Team.subrefiHighestFriendlyFactoryTech] or 1
+    local iMaxConcurrentMexUpgradeValue = math.max(1, iActiveBrains)
+    local iMassStored = tCurTeamData[M28Team.subrefiTeamMassStored] or 0
+    local iMassStoredRatio = tCurTeamData[M28Team.subrefiTeamAverageMassPercentStored] or 0
+    local iGrossMass = tCurTeamData[M28Team.subrefiTeamGrossMass] or 0
+    local iNetMass = tCurTeamData[M28Team.subrefiTeamNetMass] or 0
+    local iEnergyStoredRatio = tCurTeamData[M28Team.subrefiTeamAverageEnergyPercentStored] or 0
+    local bBufferedEco = DoesTeamHaveBufferedMexUpgradeEco(iTeam)
+
+    if bBufferedEco then
+        iMaxConcurrentMexUpgradeValue = math.max(iMaxConcurrentMexUpgradeValue, 1.5 + iActiveBrains)
+    end
+    if iHighestFactoryTech >= 2 then
+        iMaxConcurrentMexUpgradeValue = math.max(iMaxConcurrentMexUpgradeValue, 2.5 + iActiveBrains)
+    end
+    if iHighestFactoryTech >= 3 then
+        iMaxConcurrentMexUpgradeValue = math.max(iMaxConcurrentMexUpgradeValue, 3.5 + iActiveBrains)
+    end
+
+    local bStrongEco = iMassStored >= 350 * iActiveBrains
+            and iMassStoredRatio >= 0.1
+            and iGrossMass >= 2 * iActiveBrains
+            and iEnergyStoredRatio >= 0.45
+            and iNetMass >= -1 * iActiveBrains
+    local bVeryStrongEco = iMassStored >= 800 * iActiveBrains
+            and iMassStoredRatio >= 0.18
+            and iGrossMass >= 3.25 * iActiveBrains
+            and iEnergyStoredRatio >= 0.65
+            and iNetMass >= -0.5 * iActiveBrains
+    if bStrongEco then
+        iMaxConcurrentMexUpgradeValue = iMaxConcurrentMexUpgradeValue + math.min(1.5, 0.75 * iActiveBrains)
+    end
+    if bVeryStrongEco or M28Overseer.bNoRushActive then
+        iMaxConcurrentMexUpgradeValue = iMaxConcurrentMexUpgradeValue + math.min(2.5, 1.25 * iActiveBrains)
+    end
+
+    if iHighestFactoryTech <= 1 and not(bBufferedEco) then
+        iMaxConcurrentMexUpgradeValue = math.min(iMaxConcurrentMexUpgradeValue, math.max(1, iActiveBrains))
+    end
+
+    return iMaxConcurrentMexUpgradeValue
+end
+
+function CanTeamStartMexUpgradeNow(iTeam, oCandidateMex, bConsumeSlot)
+    local tCurTeamData = M28Team.tTeamData[iTeam]
+    if not(tCurTeamData) then return true end
+
+    local iCurTime = GetGameTimeSeconds()
+    if iCurTime - (tCurTeamData[refiTimeLastMexUpgradeStartBurst] or -100) >= refiMexUpgradeStartBurstWindow then
+        tCurTeamData[refiTimeLastMexUpgradeStartBurst] = iCurTime
+        tCurTeamData[refiMexUpgradeStartsInBurst] = 0
+    end
+
+    if M28UnitInfo.IsUnitValid(oCandidateMex) then
+        local iCurrentMexUpgradeValue, iCurrentMexUpgradeCount = GetCurrentMexUpgradeValueAndCount(iTeam)
+        local iCandidateMexUpgradeValue = GetMexUpgradeValueForUnit(oCandidateMex)
+        local iMexRecoveryFloor = GetMinimumMexUpgradesToKeepDuringMassStall(iTeam)
+        local bNeedRecoveryMexUpgrade = ((tCurTeamData[M28Team.subrefbTeamIsStallingMass] or false) or M28Conditions.TeamHasLowMass(iTeam))
+                and iCurrentMexUpgradeCount < iMexRecoveryFloor
+        if not(bNeedRecoveryMexUpgrade) then
+            local iMaxConcurrentMexUpgradeValue = GetMaxConcurrentMexUpgradeValue(iTeam)
+            if iCurrentMexUpgradeValue + iCandidateMexUpgradeValue > iMaxConcurrentMexUpgradeValue then
+                return false, iMaxConcurrentMexUpgradeValue
+            end
+        end
+    end
+
+    local iBurstCap = GetTeamMexUpgradeStartBurstCap(iTeam, oCandidateMex)
+    if (tCurTeamData[refiMexUpgradeStartsInBurst] or 0) >= iBurstCap then
+        return false, iBurstCap
+    end
+
+    if bConsumeSlot then
+        tCurTeamData[refiMexUpgradeStartsInBurst] = (tCurTeamData[refiMexUpgradeStartsInBurst] or 0) + 1
+    end
+    return true, iBurstCap
+end
+
 function GetMinimumMexUpgradesToKeepDuringMassStall(iTeam)
     local tTeamData = M28Team.tTeamData[iTeam]
     if not(tTeamData) then return 1 end
@@ -246,7 +400,63 @@ function GetMinimumMexUpgradesToKeepDuringMassStall(iTeam)
     if iGrossMass >= 9 * iActiveBrains and iNetMass >= -0.25 * iActiveBrains then
         iMexRecoveryFloor = 4
     end
+    if DoesTeamHaveBufferedMexUpgradeEco(iTeam) then
+        iMexRecoveryFloor = math.max(iMexRecoveryFloor, 1 + math.ceil(iActiveBrains * 0.5))
+    end
     return iMexRecoveryFloor
+end
+
+local function GetMassStallMexUpgradeKeepCount(iTeam, iExistingMexesOfTech)
+    local tTeamData = M28Team.tTeamData[iTeam]
+    if not(tTeamData) then return 1 end
+
+    local iActiveBrains = math.max(1, tTeamData[M28Team.subrefiActiveM28BrainCount] or 1)
+    local iGrossMass = tTeamData[M28Team.subrefiTeamGrossMass] or 0
+    local iKeepCount = GetMinimumMexUpgradesToKeepDuringMassStall(iTeam)
+
+    if DoesTeamHaveBufferedMexUpgradeEco(iTeam) or iGrossMass >= 3.5 * iActiveBrains then
+        iKeepCount = math.max(iKeepCount, iActiveBrains + 1)
+    end
+    if (iExistingMexesOfTech or 0) >= 1 + iActiveBrains and iGrossMass >= 4 * iActiveBrains then
+        iKeepCount = math.max(iKeepCount, iActiveBrains + 1)
+    end
+    if (iExistingMexesOfTech or 0) >= 2 * iActiveBrains and iGrossMass >= 6 * iActiveBrains then
+        iKeepCount = math.max(iKeepCount, iActiveBrains + 2)
+    end
+    if (iExistingMexesOfTech or 0) >= 3 * iActiveBrains and iGrossMass >= 9 * iActiveBrains then
+        iKeepCount = math.max(iKeepCount, iActiveBrains + 3)
+    end
+
+    return iKeepCount
+end
+
+local function GetEnergyStallMexUpgradeKeepCount(iTeam)
+    local tTeamData = M28Team.tTeamData[iTeam]
+    if not(tTeamData) then return 0 end
+
+    local iActiveMexUpgrades = 0
+    if M28Conditions.IsTableOfUnitsStillValid(tTeamData[M28Team.subreftTeamUpgradingMexes]) then
+        iActiveMexUpgrades = table.getn(tTeamData[M28Team.subreftTeamUpgradingMexes])
+    end
+    -- Don't pause mex upgrades for ordinary energy stalls; only treat it as a mex-pause case once storage is effectively empty.
+    if (tTeamData[M28Team.subrefiTeamEnergyStored] or 0) > 1 or (tTeamData[M28Team.subrefiTeamAverageEnergyPercentStored] or 0) > 0.001 then
+        return iActiveMexUpgrades
+    end
+
+    local iActiveBrains = math.max(1, tTeamData[M28Team.subrefiActiveM28BrainCount] or 1)
+    local iGrossEnergy = tTeamData[M28Team.subrefiTeamGrossEnergy] or 0
+    local iKeepCount = 0
+
+    if iGrossEnergy >= 150 * iActiveBrains then
+        iKeepCount = iActiveBrains + 1
+    elseif iGrossEnergy > 35 * iActiveBrains then
+        iKeepCount = iActiveBrains
+    end
+    if DoesTeamHaveBufferedMexUpgradeEco(iTeam) and iGrossEnergy >= 50 * iActiveBrains then
+        iKeepCount = math.max(iKeepCount, iActiveBrains + 1)
+    end
+
+    return iKeepCount
 end
 
 function ShouldAllowMexRecoveryUpgradeStart(iTeam, iLocalActiveMexUpgrades)
@@ -320,6 +530,15 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
 
         if not(oUnitToUpgrade:IsUnitState('Upgrading')) then
             if not(oUnitToUpgrade:IsUnitState('BeingUpgraded')) then
+                if EntityCategoryContains(M28UnitInfo.refCategoryMex, oUnitToUpgrade.UnitId) then
+                    local bCanStartMexUpgrade, iBurstCap = CanTeamStartMexUpgradeNow(aiBrain.M28Team, oUnitToUpgrade, true)
+                    if not(bCanStartMexUpgrade) then
+                        if bDebugMessages == true then LOG(sFunctionRef..': Deferring mex upgrade for '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' because team mex burst cap of '..iBurstCap..' starts per '..refiMexUpgradeStartBurstWindow..'s window is already full') end
+                        ForkThread(ConsiderFutureMexUpgrade, oUnitToUpgrade, 5)
+                        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                        return nil
+                    end
+                end
                 local bAddToExistingQueue = true
 
 
@@ -1947,10 +2166,8 @@ function ManageMassStalls(iTeam)
                                 if M28Conditions.IsTableOfUnitsStillValid(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) then
                                     local iTeamMexRecoveryFloor = GetMinimumMexUpgradesToKeepDuringMassStall(iTeam)
                                     local iTeamUpgradingMexCount = table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes])
-                                    local iMexesToPause
-                                    if M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] <= 2.5 * M28Team.tTeamData[oBrain.M28Team][M28Team.subrefiActiveM28BrainCount] then
-                                        iMexesToPause = math.max(0, table.getn(M28Team.tTeamData[oBrain.M28Team][M28Team.subreftTeamUpgradingMexes]) - (0.5 + 0.5 * M28Team.tTeamData[oBrain.M28Team][M28Team.subrefiActiveM28BrainCount]))
-                                    else
+                                    local iExistingMexesOfTech = 0
+                                    if M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] > 2.5 * M28Team.tTeamData[oBrain.M28Team][M28Team.subrefiActiveM28BrainCount] then
                                         --Get highest tech level of mex that is upgrading, and how many of that mex we already have; if we already have several, then pause fewer mexes
                                         local bUpgradingT2OrT3Mex = false
                                         for iMex, oMex in M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes] do
@@ -1959,27 +2176,14 @@ function ManageMassStalls(iTeam)
                                                 break
                                             end
                                         end
-                                        local iExistingMexesOfTech = 0
                                         for iMexBrain, oMexBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains] do
-                                            if bUpgradingT2OrT3Mex then  iExistingMexesOfTech = iExistingMexesOfTech + oMexBrain:GetCurrentUnits(M28UnitInfo.refCategoryMex - categories.TECH1 - categories.TECH2)
+                                            if bUpgradingT2OrT3Mex then iExistingMexesOfTech = iExistingMexesOfTech + oMexBrain:GetCurrentUnits(M28UnitInfo.refCategoryMex - categories.TECH1 - categories.TECH2)
                                             else iExistingMexesOfTech = iExistingMexesOfTech + oMexBrain:GetCurrentUnits(M28UnitInfo.refCategoryMex - categories.TECH1)
                                             end
                                         end
                                         if bDebugMessages == true then LOG(sFunctionRef..': iExistingMexesOfTech='..iExistingMexesOfTech) end
-                                        if iExistingMexesOfTech >= 1 + M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] then
-                                            if iExistingMexesOfTech >= 2 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] then
-                                                if iExistingMexesOfTech >= 3 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] then
-                                                    iMexesToPause = math.max(0, table.getn(M28Team.tTeamData[oBrain.M28Team][M28Team.subreftTeamUpgradingMexes]) - (0.25 + 1.2 * M28Team.tTeamData[oBrain.M28Team][M28Team.subrefiActiveM28BrainCount]))
-                                                else
-                                                    iMexesToPause = math.max(0, table.getn(M28Team.tTeamData[oBrain.M28Team][M28Team.subreftTeamUpgradingMexes]) - (M28Team.tTeamData[oBrain.M28Team][M28Team.subrefiActiveM28BrainCount]))
-                                                end
-                                            else
-                                                iMexesToPause = math.max(0, table.getn(M28Team.tTeamData[oBrain.M28Team][M28Team.subreftTeamUpgradingMexes]) - (0.25 + 0.75 * M28Team.tTeamData[oBrain.M28Team][M28Team.subrefiActiveM28BrainCount]))
-                                            end
-                                        else
-                                            iMexesToPause = math.max(0, table.getn(M28Team.tTeamData[oBrain.M28Team][M28Team.subreftTeamUpgradingMexes]) - (0.5 + 0.5 * M28Team.tTeamData[oBrain.M28Team][M28Team.subrefiActiveM28BrainCount]))
-                                        end
                                     end
+                                    local iMexesToPause = math.max(0, iTeamUpgradingMexCount - GetMassStallMexUpgradeKeepCount(iTeam, iExistingMexesOfTech))
                                     --Want to allow multiple upgrading mexes for a brain if we have lots of mexes
                                     if iMexesToPause > 0 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 14 or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] > 10 and M28Conditions.GetHighestOtherTeamT3MexCount(iTeam) > M28Team.tTeamData[iTeam][M28Team.refiMexCountByTech][3])) then
                                         local iMexPerPlayer
@@ -2658,14 +2862,7 @@ function ManageEnergyStalls(iTeam)
                                     --Pause all but 1 upgrade per brain, pausing the lowest progress first, if we have multiple upgrades
                                     tRelevantUnits = {}
                                     if M28Conditions.IsTableOfUnitsStillValid(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) then
-                                        local iMexesToPause
-                                        if M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 150 * M28Team.tTeamData[oBrain.M28Team][M28Team.subrefiActiveM28BrainCount] then
-                                            iMexesToPause = math.max(0, table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) - M28Team.tTeamData[oBrain.M28Team][M28Team.subrefiActiveM28BrainCount])
-                                        elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 35 * M28Team.tTeamData[oBrain.M28Team][M28Team.subrefiActiveM28BrainCount] then
-                                            iMexesToPause = math.max(0, table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]))
-                                        else
-                                            iMexesToPause = math.max(0, table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) - (0.5 + 0.5 * M28Team.tTeamData[oBrain.M28Team][M28Team.subrefiActiveM28BrainCount]))
-                                        end
+                                        local iMexesToPause = math.max(0, table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) - GetEnergyStallMexUpgradeKeepCount(iTeam))
 
                                         while iMexesToPause > 0 do
                                             local iLowestProgress = 0.85

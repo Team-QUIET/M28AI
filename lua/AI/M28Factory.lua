@@ -55,6 +55,9 @@ refiTimeOfLastFacBlockOrder = 'M28FacBlkO' --Gametimeseconds that a unit was tol
 refiHighestFactoryBuildCount = 'M28FacBrTotBC' --against aiBrain, Highest build count of a factory
 refbJustBuiltFirstT1Bomber = 'M28AirBlt1B' --true if we have just built the first t1 bomber (Changes to false after 5s)
 
+local DoesT1LandFactoryPassAttackAirGate
+local GetMaxT1MAACount
+
 function GetMostExpensiveBlueprintOfCategory(iCategoryCondition)
     --Much more simplified version of 'GetBlueprintThatCanBuildOfCategory', for cases where we dont yet have the engineer so want a potential blueprint to work with
     local tBlueprints = EntityCategoryGetUnitList(iCategoryCondition)
@@ -1492,11 +1495,11 @@ function GetAttackAirThreatAgainstLand(tLZTeamData)
     return tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0, true
 end
 
-local function DoesT1LandFactoryPassAttackAirGate(iFactoryTechLevel, bAttackAirPresent, iAttackAirThreat)
+DoesT1LandFactoryPassAttackAirGate = function(iFactoryTechLevel, bAttackAirPresent, iAttackAirThreat)
     return iFactoryTechLevel >= 2 or (bAttackAirPresent and iAttackAirThreat >= 750)
 end
 
-local function GetMaxT1MAACount()
+GetMaxT1MAACount = function()
     return 20
 end
 

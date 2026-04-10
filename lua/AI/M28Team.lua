@@ -3743,12 +3743,21 @@ function GetSafeMexToUpgrade(iM28Team, bReturnIfSafeInsteadOfUpgrading, bDontUpg
             if bDebugMessages == true then LOG(sFunctionRef..': Have a total of '..table.getn(toSafeUnitsToUpgrade)..' units to upgrade, will pick the best one') end
             local oUnitToUpgrade = M28Economy.GetBestUnitToUpgrade(toSafeUnitsToUpgrade)
             if oUnitToUpgrade then
+                local bCanStartMexUpgrade, iMexStartCap = M28Economy.CanTeamStartMexUpgradeNow(iM28Team, oUnitToUpgrade, false)
+                if not(bCanStartMexUpgrade) then
+                    if bDebugMessages == true then LOG(sFunctionRef..': Holding mex upgrade shortlist because team mex start cap of '..iMexStartCap..' is already reached') end
+                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                    return false, true
+                end
                 if bDebugMessages == true then LOG(sFunctionRef..': Will try to upgrade unit '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)) end
                 M28Economy.UpgradeUnit(oUnitToUpgrade, true)
+                M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                return true, false
             end
         end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return false, false
 end
 
 function GetSafeHQUpgrade(iM28Team, bOnlyConsiderLandFactory)
@@ -4145,6 +4154,7 @@ function ConsiderNormalUpgrades(iM28Team)
             while HaveEcoToSupportUpgrades(iM28Team) do
                 iCycleCount = iCycleCount + 1
                 iMassUpgradesAtLoopStart = tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle] --so we can check we actually upgraded something
+                local bHitMexUpgradeStartCap = false
                 if bDebugMessages == true then LOG(sFunctionRef..': We think we have enough eco to support another upgrade, will decide if we want a mex or a factoroy, iCycleCOunt='..iCycleCount..'; bPreferLandToAirHQ='..tostring(bPreferLandToAirHQ)) end
 
                 bLookForMexNotHQ = not(tTeamData[iM28Team][refbFocusOnT1Spam])
@@ -4196,10 +4206,12 @@ function ConsiderNormalUpgrades(iM28Team)
                 
                 if bDebugMessages == true then LOG(sFunctionRef..': iCycleCount='..iCycleCount..'; bLookForMexNotHQ='..tostring(bLookForMexNotHQ)..'; Is table of upgrading mexes empty='..tostring(M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]))..'; Is table of upgrading HQs empty='..tostring(M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingHQs]))..'; Team gross mass='..tTeamData[iM28Team][subrefiTeamGrossMass]..'; Lowest land fac tech='..tTeamData[iM28Team][subrefiLowestFriendlyLandFactoryTech]..'; Lowest air fac tech='..tTeamData[iM28Team][subrefiLowestFriendlyAirFactoryTech]) end
                 if bLookForMexNotHQ then
-                    GetSafeMexToUpgrade(iM28Team, false, false)
+                    _, bHitMexUpgradeStartCap = GetSafeMexToUpgrade(iM28Team, false, false)
                     --Backup - if didnt find anything then get a HQ upgrade if we dont already ahve a HQ upgrade active
                     if bDebugMessages == true then LOG(sFunctionRef..': Tried to get a mex upgrade, tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle]='..tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle]..'; iMassUpgradesAtLoopStart='..iMassUpgradesAtLoopStart) end
-                    if tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle] == iMassUpgradesAtLoopStart then
+                    if bHitMexUpgradeStartCap then
+                        if bDebugMessages == true then LOG(sFunctionRef..': Hit mex upgrade start cap, so will stop looking for more upgrades this pass') end
+                    elseif tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle] == iMassUpgradesAtLoopStart then
                         if tTeamData[iM28Team][subrefiTeamGrossMass] >= 4 and M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingHQs]) then
                             if bDebugMessages == true then LOG(sFunctionRef..': Trying backup HQ upgrade as no mexes could be found') end
                             GetSafeHQUpgrade(iM28Team, bPreferLandToAirHQ)
@@ -4211,9 +4223,13 @@ function ConsiderNormalUpgrades(iM28Team)
                     if tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle] == iMassUpgradesAtLoopStart and (not(tTeamData[iM28Team][refbFocusOnT1Spam]) or tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] >= 0.8) then
                         --Further check - want to have 100% E or no upgrading mexes, or be overflowing mass
                         if tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] > 0.99 or  tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] > 0.99 or GetGameTimeSeconds() >= 600 or (iPlayersAtGameStart > 4 and M28Map.iMapSize >= 750) then
-                            GetSafeMexToUpgrade(iM28Team, false, false)
+                            _, bHitMexUpgradeStartCap = GetSafeMexToUpgrade(iM28Team, false, false)
                         end
                     end
+                end
+                if bHitMexUpgradeStartCap then
+                    if bDebugMessages == true then LOG(sFunctionRef..': Mex upgrade start cap prevented another mex start, so will stop the normal upgrade loop here') end
+                    break
                 end
                 --If failed to find a mex or HQ upgrade from above:
                 if tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle] == iMassUpgradesAtLoopStart then
