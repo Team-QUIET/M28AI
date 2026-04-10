@@ -831,7 +831,7 @@ local function TryOpeningFactoryPivotAfterPowerCap(aiBrain, oACU, iTeam, iPlatea
     if not(M28Conditions.WantMoreFactories(iTeam, iPlateauOrZero, iLZOrWZ)) or not(ShouldUseLandFactoryAsMassCrashPivot(aiBrain, iTeam, sFunctionRef, bDebugMessages)) then
         return false
     end
-    if aiBrain:GetEconomyStored('MASS') < 40 and aiBrain:GetEconomyStoredRatio('MASS') < 0.04 then
+    if aiBrain:GetEconomyStored('MASS') < 40 and aiBrain:GetEconomyStoredRatio('MASS') < 0.12 then
         return false
     end
 
