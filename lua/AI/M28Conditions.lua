@@ -2328,6 +2328,85 @@ function GetActiveMexUpgrades(tLZTeamData)
     return iActiveMexUpgrades
 end
 
+function GetDisconnectedIslandLandFactoryState(iTeam, iPlateau, iLandZone, tLZData, tLZTeamData)
+    local sFunctionRef = 'GetDisconnectedIslandLandFactoryState'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelConditions, sFunctionRef)
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local iCurIsland = tLZData and tLZData[M28Map.subrefLZIslandRef]
+    local iEnemyIsland
+    if tLZTeamData and tLZTeamData[M28Map.reftClosestEnemyBase] then
+        iEnemyIsland = NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestEnemyBase])
+    end
+    if not(iPlateau and iLandZone and iCurIsland and iEnemyIsland) or iCurIsland == iEnemyIsland then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false, 0, 0, 0, true, iLandZone
+    end
+
+    local tIslandLandZones = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauIslandLandZones][iCurIsland]
+    if M28Utilities.IsTableEmpty(tIslandLandZones) then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false, 0, 0, 0, true, iLandZone
+    end
+
+    local iIslandLandFactoryCap = 1
+    if tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or tLZTeamData[M28Map.subrefLZFortify] then iIslandLandFactoryCap = 2 end
+
+    local iIslandLandFactoryCount = 0
+    local iZoneLandFactoryCount = 0
+    local iOwnerLandZone = iLandZone
+    local iOwnerScore = -100000
+    local iCurZoneLandFactoryCount
+    local iCurScore
+    local tCurLZData
+    local tCurLZTeamData
+    local tLandFactories
+    local iDistToFriendlyBase
+    for _, iCurLandZone in tIslandLandZones do
+        tCurLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iCurLandZone]
+        tCurLZTeamData = tCurLZData[M28Map.subrefLZTeamData][iTeam]
+        iCurZoneLandFactoryCount = 0
+        if M28Utilities.IsTableEmpty(tCurLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
+            tLandFactories = EntityCategoryFilterDown(M28UnitInfo.refCategoryLandFactory, tCurLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
+            if M28Utilities.IsTableEmpty(tLandFactories) == false then
+                for _, oFactory in tLandFactories do
+                    if M28UnitInfo.IsUnitValid(oFactory) then iCurZoneLandFactoryCount = iCurZoneLandFactoryCount + 1 end
+                end
+            end
+        end
+        iIslandLandFactoryCount = iIslandLandFactoryCount + iCurZoneLandFactoryCount
+        if iCurLandZone == iLandZone then iZoneLandFactoryCount = iCurZoneLandFactoryCount end
+
+        iCurScore = iCurZoneLandFactoryCount * 1000
+        if tCurLZTeamData[M28Map.subrefLZbCoreBase] then iCurScore = iCurScore + 300 end
+        if tCurLZTeamData[M28Map.subrefLZCoreExpansion] then iCurScore = iCurScore + 150 end
+        if tCurLZTeamData[M28Map.subrefLZFortify] then iCurScore = iCurScore + 100 end
+        iCurScore = iCurScore + (tCurLZData[M28Map.subrefLZOrWZMexCount] or 0) * 20
+        if tCurLZTeamData[M28Map.reftClosestFriendlyBase] then
+            iDistToFriendlyBase = M28Utilities.GetDistanceBetweenPositions(tCurLZData[M28Map.subrefMidpoint], tCurLZTeamData[M28Map.reftClosestFriendlyBase])
+            iCurScore = iCurScore - iDistToFriendlyBase * 0.05
+        end
+        if iCurLandZone == iLandZone then iCurScore = iCurScore + 5 end
+
+        if iCurScore > iOwnerScore then
+            iOwnerScore = iCurScore
+            iOwnerLandZone = iCurLandZone
+        end
+    end
+
+    local bAllowLandFactoryInThisZone = false
+    if iZoneLandFactoryCount > 0 then
+        bAllowLandFactoryInThisZone = iIslandLandFactoryCount < iIslandLandFactoryCap
+    elseif iIslandLandFactoryCount < iIslandLandFactoryCap and iOwnerLandZone == iLandZone then
+        bAllowLandFactoryInThisZone = true
+    end
+
+    if bDebugMessages == true then
+        M28Profiler.DebugLog(tDebugContext, sFunctionRef..': P'..iPlateau..'Z'..iLandZone..'; iCurIsland='..(iCurIsland or 'nil')..'; iEnemyIsland='..(iEnemyIsland or 'nil')..'; iIslandLandFactoryCount='..iIslandLandFactoryCount..'; iIslandLandFactoryCap='..iIslandLandFactoryCap..'; iZoneLandFactoryCount='..iZoneLandFactoryCount..'; iOwnerLandZone='..(iOwnerLandZone or 'nil')..'; bAllowLandFactoryInThisZone='..tostring(bAllowLandFactoryInThisZone)) end
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return true, iIslandLandFactoryCount, iIslandLandFactoryCap, iZoneLandFactoryCount, bAllowLandFactoryInThisZone, iOwnerLandZone
+end
+
 function CanUnitUseOvercharge(aiBrain, oUnit, tLZTeamDataIfACU)
     --For now checks if enough energy and not underwater and not fired in last 5s; separate function used as may want to expand this with rate of fire check in future
     local sFunctionRef = 'CanUnitUseOvercharge'
@@ -2486,7 +2565,7 @@ function HaveEnoughThreatToAttack(iPlateau, iLandZone, tLZData, tLZTeamData, iOu
     return false
 end
 
-function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOptionalBrainOverride)
+function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOptionalBrainOverride, iOptionalPlateau, iOptionalLandZone)
     --Returns true if want an air factory - to be used where we want more production, so we can decide whether to get +1 air fac or +1 land fac
 
     local sFunctionRef = 'DoWeWantAirFactoryInsteadOfLandFactory'
@@ -2548,6 +2627,25 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
         end
 
         local aiBrain = oOptionalBrainOverride or ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
+        local iPlateau = iOptionalPlateau
+        local iLandZone = iOptionalLandZone
+        if not(iPlateau and iLandZone) and tLZData and tLZData[M28Map.subrefMidpoint] then
+            iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(tLZData[M28Map.subrefMidpoint])
+        end
+        if iPlateau and iLandZone then
+            local bDisconnectedIslandFactoryCap, iIslandLandFactoryCount, iIslandLandFactoryCap, iZoneLandFactoryCount, bAllowLandFactoryInThisZone = GetDisconnectedIslandLandFactoryState(iTeam, iPlateau, iLandZone, tLZData, tLZTeamData)
+            if bDisconnectedIslandFactoryCap then
+                if iIslandLandFactoryCount == 0 and iZoneLandFactoryCount == 0 and bAllowLandFactoryInThisZone then
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Disconnected island owner zone with no existing land factory, so will keep first factory as land') end
+                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                    return false
+                elseif not(bAllowLandFactoryInThisZone) then
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Disconnected island already has its land-factory allowance elsewhere, so will prefer air instead of more land factories') end
+                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                    return true
+                end
+            end
+        end
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Near start, iLandFactoriesHave='..iLandFactoriesHave..'; Highest air fac tech='..(aiBrain[M28Economy.refiOurHighestAirFactoryTech] or 'nil')..'; bGoingSecondAir='..tostring(aiBrain[M28Economy.refbGoingSecondAir] or false)..'; M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]..'; Focus on T1 spam='..tostring(M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam] or false)..'; oOptionalBrainOverride='..(oOptionalBrainOverride.Nickname or 'nil')..'; aiBrain='..(aiBrain.Nickname or 'nil')) end
 
         --Early game where ACU wants to go second air - build air fac if low on mass to avoid a case where we stall mass while trying to build 2 different factories at once

@@ -14118,6 +14118,8 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     local iCurrentMexCount = (tLZTeamData[M28Map.subrefMexCountByTech][1] or 0) + (tLZTeamData[M28Map.subrefMexCountByTech][2] or 0) + (tLZTeamData[M28Map.subrefMexCountByTech][3] or 0)
     local iCurrentPowerCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryPower)
     local bCoreOpeningPhase = GetGameTimeSeconds() <= 240 and tLZTeamData[M28Map.subrefLZbCoreBase] and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] <= 1
+    local bDisconnectedIslandLandFactoryCap, iIslandLandFactoryCount, iIslandLandFactoryCap, iZoneLandFactoryCount, bAllowLandFactoryInThisZone = M28Conditions.GetDisconnectedIslandLandFactoryState(iTeam, iPlateau, iLandZone, tLZData, tLZTeamData)
+    local bForceAirInsteadOfLandFactory = bDisconnectedIslandLandFactoryCap and not(bAllowLandFactoryInThisZone) and not(M28Overseer.bAirFactoriesCantBeBuilt)
     local bOpeningMassCrash = aiBrain:GetEconomyStored('MASS') <= iOpeningMassCrashStoredFloor and aiBrain[M28Economy.refiNetMassBaseIncome] <= iOpeningMassCrashNetFloor
     local iLocalStoredEnergy = aiBrain:GetEconomyStored('ENERGY')
     local iLocalGrossEnergy = aiBrain[M28Economy.refiGrossEnergyBaseIncome] or 0
@@ -15097,7 +15099,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
 
     --Very High priority factory if we have fewer than 4 (or if lwoer thre number of mexes in the LZ or small map and signif mass stored) and is a smaller map - takes priority over mex expansion; also build more than 4 if dont have low mass and outtech enemy; also if enemy only at T1 and small map then keep building
     iCurPriority = iCurPriority + 1
-    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if want v.high priority factory builder, mass stored='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]..'; bWantMoreFactories='..tostring(bWantMoreFactories)..'; Team gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Want air instead of land fac='..tostring(M28Conditions.DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData))..'; GameTime='..GetGameTimeSeconds()) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if want v.high priority factory builder, mass stored='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored]..'; bWantMoreFactories='..tostring(bWantMoreFactories)..'; Team gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; Want air instead of land fac='..tostring(M28Conditions.DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, nil, iPlateau, iLandZone))..'; Force air due to disconnected island='..tostring(bForceAirInsteadOfLandFactory)..'; GameTime='..GetGameTimeSeconds()) end
     if M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 11 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 100 and bWantMoreFactories and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 1 and (GetGameTimeSeconds() >= 200 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 1.5 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or M28Map.iMapSize <= 256) then
 
         if iFactoriesInLZ == 0 or not(tFactoriesInLZ) then
@@ -15141,9 +15143,9 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will try and build factory, iBPWanted='..iBPWanted..'; iFactoriesInLZ='..(iFactoriesInLZ or 'nil')) end
             local bWantAirNotLand
             if iFactoriesInLZ == 0 then
-                bWantAirNotLand = false
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': No factoreis in LZ so will get land fac') end
-            else bWantAirNotLand = M28Conditions.DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData)
+                bWantAirNotLand = bForceAirInsteadOfLandFactory
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': No factories in LZ, bWantAirNotLand='..tostring(bWantAirNotLand)..'; bDisconnectedIslandLandFactoryCap='..tostring(bDisconnectedIslandLandFactoryCap)..'; iIslandLandFactoryCount='..iIslandLandFactoryCount..'; iIslandLandFactoryCap='..iIslandLandFactoryCap) end
+            else bWantAirNotLand = M28Conditions.DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, nil, iPlateau, iLandZone)
             end
             local iFactoryAction
             if bWantAirNotLand then
@@ -15194,7 +15196,14 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                         if ((iFactoryAction == refActionBuildLandFactory or (not(bHaveLowPower) and iFactoriesInLZ <= 2 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.98)) and not(aiBrain[M28Overseer.refbPrioritiseHighTech] or aiBrain[M28Overseer.refbPrioritiseNavy] or aiBrain[M28Overseer.refbPrioritiseDefence])) or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.7 and aiBrain[M28Economy.refiOurHighestFactoryTechLevel] >= 3) then
                             local iSecondAction = refActionBuildSecondLandFactory
                             if iFactoryAction == refActionBuildAirFactory then iSecondAction = refActionBuildSecondAirFactory end
-                            HaveActionToAssign(iSecondAction, 1, iBPWanted)
+                            if iSecondAction == refActionBuildSecondLandFactory and bDisconnectedIslandLandFactoryCap and iIslandLandFactoryCount + 1 >= iIslandLandFactoryCap then
+                                if bForceAirInsteadOfLandFactory then
+                                    iSecondAction = refActionBuildSecondAirFactory
+                                else
+                                    iSecondAction = nil
+                                end
+                            end
+                            if iSecondAction then HaveActionToAssign(iSecondAction, 1, iBPWanted) end
                         end
                     else
                         HaveActionToAssign(iFactoryAction, 1, iBPWanted)
@@ -15216,7 +15225,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
             end
         end
         if iFactoriesInLZ < 2 and (iFactoriesInLZ == 0 or not(bHaveLowPower and M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])) then
-            if not(aiBrain[M28Overseer.refbPrioritiseAir]) or not(M28Conditions.DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData)) then
+            if not(bForceAirInsteadOfLandFactory) and (not(aiBrain[M28Overseer.refbPrioritiseAir]) or not(M28Conditions.DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, nil, iPlateau, iLandZone))) then
                 HaveActionToAssign(refActionBuildLandFactory, 1, iBPWanted)
             else
                 HaveActionToAssign(refActionBuildAirFactory, 1, iBPWanted)
@@ -18535,6 +18544,8 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
     -- (tLZTeamData[M28Map.refiNonM28TeammateMexCount] >= tLZData[M28Map.subrefLZOrWZMexCount] tLZTeamData[M28Map.refiNonM28TeammateFactoryCount] > 0 and (tLZTeamData[M28Map.refiNonM28TeammateFactoryCount] >= 3 or
     --local iCurCondition = 0
     local iCurPriority = 0
+    local bDisconnectedIslandLandFactoryCap, iIslandLandFactoryCount, iIslandLandFactoryCap, iZoneLandFactoryCount, bAllowLandFactoryInThisZone = M28Conditions.GetDisconnectedIslandLandFactoryState(iTeam, iPlateau, iLandZone, tLZData, tLZTeamData)
+    local bForceAirInsteadOfLandFactory = bDisconnectedIslandLandFactoryCap and not(bAllowLandFactoryInThisZone) and not(M28Overseer.bAirFactoriesCantBeBuilt)
 
 
 
@@ -19121,7 +19132,7 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
         if bEngineersRecentlyRunFromEnemy then iBPWanted = 5 end
 
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want a land facotry, iExistingFactory='..iExistingFactory..'; iFactoriesWanted='..iFactoriesWanted..'; gross mass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]..'; bExistingFactoryIsComplete='..tostring(bExistingFactoryIsComplete or false)) end
-        if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 750 or aiBrain[M28Overseer.refbPrioritiseAir]) and M28Conditions.DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData) then
+        if bForceAirInsteadOfLandFactory or M28Conditions.DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, nil, iPlateau, iLandZone) then
             HaveActionToAssign(refActionBuildAirFactory, iMinFacTechLevelWanted, iBPWanted, iMaxTechLevelIfAny)
         else
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will try and build land fac, iMinFacTechLevelWanted='..(iMinFacTechLevelWanted or 'nil')..'; iBPWanted='..(iBPWanted or 'nil')..'; iMaxTechLevelIfAny='..(iMaxTechLevelIfAny or 'nil')) end
@@ -19426,7 +19437,7 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
         if bEngineersRecentlyRunFromEnemy then iBPWanted = 5
         elseif not(bHaveLowMass) then iBPWanted = math.min(30, 3 * tiBPByTech[M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]]) end
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want more BP for land factories, iBPWanted='..iBPWanted..' iExistingFactory='..iExistingFactory..'; iFactoriesWanted='..iFactoriesWanted) end
-        if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 750 or aiBrain[M28Overseer.refbPrioritiseAir]) and M28Conditions.DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData) then
+        if bForceAirInsteadOfLandFactory or M28Conditions.DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, nil, iPlateau, iLandZone) then
             HaveActionToAssign(refActionBuildAirFactory, 1, iBPWanted, nil)
         else
             HaveActionToAssign(refActionBuildLandFactory, 1, iBPWanted, nil)
