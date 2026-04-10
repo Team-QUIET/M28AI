@@ -1539,8 +1539,9 @@ local function ShouldRedirectEarlyT1IndirectPick(aiBrain, oFactory, tLZTeamData,
 
     local iProjectedCurrentIndirect = iCurrentT1Indirect + 1
     local iProjectedLifetimeIndirect = iLifetimeT1Indirect + 1
-    local bCurrentDFRatioHealthy = iCurrentT1DFEquivalent >= iProjectedCurrentIndirect * 2.5
-    local bLifetimeDFRatioHealthy = iLifetimeT1DFEquivalent >= iProjectedLifetimeIndirect * 2.5
+    local iDFPerIndirectWanted = 3
+    local bCurrentDFRatioHealthy = iCurrentT1DFEquivalent >= iProjectedCurrentIndirect * iDFPerIndirectWanted
+    local bLifetimeDFRatioHealthy = iLifetimeT1DFEquivalent >= iProjectedLifetimeIndirect * iDFPerIndirectWanted
     return not(bCurrentDFRatioHealthy or bLifetimeDFRatioHealthy)
 end
 
