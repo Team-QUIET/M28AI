@@ -18,9 +18,6 @@ M28RunGamePerformanceCheck = false --Aug 22 profiling tourney profiling - Runs r
 M28RunSimpleProfiling = false --if this is true then will output time taken every 10s
 M28DebugFunctionCalls = false --Separate from normal debug so profiling traces don't wake up every module's logs
 
---Land support debug
-M28LandSupportDebug = false --Enable detailed logs for land support selection/rally targeting
-
 --Centralized debug config
 M28DebugGlobal = false --Enable all channels, still subject to interval and duplicate suppression
 M28DebugDefaultInterval = 5 --Seconds between debug-enabled passes of the same function
