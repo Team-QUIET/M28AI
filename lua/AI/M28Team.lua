@@ -3553,6 +3553,7 @@ function ConsiderPriorityMexUpgrades(iM28Team)
                         end
 
                         if iTechLevelToUpgrade <= 0 and tTeamData[iM28Team][subrefiTeamMassStored] >= 1000 and ( tTeamData[iM28Team][subrefiTeamMassStored] >= 1600 or tTeamData[iM28Team][subrefiTeamNetMass] > 0 or (tTeamData[iM28Team][subrefiTeamMassStored] >= 1250 and tTeamData[iM28Team][subrefiTeamNetMass] > -1)) and (tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.7 or ((M28Utilities.bLoudModActive) and tTeamData[iM28Team][subrefiTeamNetEnergy] > 0)) and (tTeamData[iM28Team][subrefiTeamEnergyStored] >= 9000 or tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored] >= 0.9) and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 30 then iTechLevelToUpgrade = 1 end
+                        iTechLevelToUpgrade = M28Economy.GetPriorityMexTechLevelToUpgrade(iM28Team, iTechLevelToUpgrade)
 
                         --Dont upgrade if have ACUs in rush mode on the team and are already upgrading
                         if iTechLevelToUpgrade >= 1 and iActiveTeamMexUpgrades > 0 and not(bNeedMinimumMexUpgrade) then
@@ -3682,43 +3683,44 @@ function GetSafeMexToUpgrade(iM28Team, bReturnIfSafeInsteadOfUpgrading, bDontUpg
     local toSafeUnitsToUpgrade = {}
     local tPotentialUnits
     local tiMexCategory
-    local iOutstandingQuietTier
-    local iParallelQuietTier
-    local bCollectAcrossQuietParallelTier = false
+    local bQuietActive = M28Utilities.bQuietModActive
+    local toPriorityQuietTimeoutCandidates = {}
+    local toPriorityHigherTierCandidates = {}
     if bDontUpgradeT2Plus then
         --Dont want to upgrade t2 mexes as we have enough upgrading already
         tiMexCategory = {[1] = M28UnitInfo.refCategoryT1Mex}
-    else
-        --First prioritise the current Quiet rung, and optionally allow the next rung in parallel
-        iOutstandingQuietTier = M28Economy.GetLowestOutstandingQuietMexTier(iM28Team)
-        tiMexCategory = {}
-        if iOutstandingQuietTier then
-            local iQuietCategory = M28Economy.GetQuietMexCategoryForProgressionTier(iOutstandingQuietTier)
-            if iQuietCategory then
-                table.insert(tiMexCategory, iQuietCategory)
-                iParallelQuietTier = M28Economy.GetAllowedQuietParallelMexTier(iM28Team, iOutstandingQuietTier)
-                if iParallelQuietTier then
-                    local iParallelQuietCategory = M28Economy.GetQuietMexCategoryForProgressionTier(iParallelQuietTier)
-                    if iParallelQuietCategory and not(iParallelQuietCategory == iQuietCategory) then
-                        table.insert(tiMexCategory, iParallelQuietCategory)
-                        bCollectAcrossQuietParallelTier = true
-                    end
-                end
-            else
-                tiMexCategory = {[1] = M28UnitInfo.refCategoryT1Mex}
-                table.insert(tiMexCategory, M28UnitInfo.refCategoryT2Mex)
-                if M28Economy.bT3MexCanBeUpgraded then table.insert(tiMexCategory, M28UnitInfo.refCategoryT3Mex) end
-            end
-        else
-            tiMexCategory = {[1] = M28UnitInfo.refCategoryT1Mex}
+        if M28Utilities.bQuietModActive then
             table.insert(tiMexCategory, M28UnitInfo.refCategoryT2Mex)
             if M28Economy.bT3MexCanBeUpgraded then table.insert(tiMexCategory, M28UnitInfo.refCategoryT3Mex) end
         end
+    else
+        tiMexCategory = {[1] = M28UnitInfo.refCategoryT1Mex}
+        table.insert(tiMexCategory, M28UnitInfo.refCategoryT2Mex)
+        if M28Economy.bT3MexCanBeUpgraded then table.insert(tiMexCategory, M28UnitInfo.refCategoryT3Mex) end
     end
     for iTech, iMexCategory in tiMexCategory do
         for iBrain, oBrain in tTeamData[iM28Team][subreftoFriendlyActiveM28Brains] do
             tPotentialUnits = oBrain:GetListOfUnits(iMexCategory, false, true)
-            if iTech >= 2 and M28Utilities.IsTableEmpty(tPotentialUnits) == false then
+            if bQuietActive and M28Utilities.IsTableEmpty(tPotentialUnits) == false then
+                local tEligibleMexes = {}
+                for iMex, oMex in tPotentialUnits do
+                    if not(((oMex:GetBlueprint().General.UpgradesTo or '') == '')) then
+                        local tQuietGateState = M28Economy.GetQuietMexTierGateState(iM28Team, oMex)
+                        local tHigherTierPriorityState = M28Economy.GetHigherTierMexPriorityState(iM28Team, oMex, tQuietGateState)
+                        if not(tQuietGateState.bBlocked) then
+                            if tQuietGateState.bTimedOut then
+                                table.insert(toPriorityQuietTimeoutCandidates, oMex)
+                            elseif tHigherTierPriorityState.bPrioritise then
+                                table.insert(toPriorityHigherTierCandidates, oMex)
+                            end
+                            if iTech == 1 or not(bDontUpgradeT2Plus) then
+                                table.insert(tEligibleMexes, oMex)
+                            end
+                        end
+                    end
+                end
+                AddPotentialUnitsToShortlist(toSafeUnitsToUpgrade, tEligibleMexes)
+            elseif iTech >= 2 and M28Utilities.IsTableEmpty(tPotentialUnits) == false then
                 local tEligibleMexes = {}
                 for iMex, oMex in tPotentialUnits do
                     if not(M28Economy.ShouldDelayMexUpgradeForQuietTierOrder(oMex, iM28Team)) and not(((oMex:GetBlueprint().General.UpgradesTo or '') == '')) then
@@ -3730,8 +3732,22 @@ function GetSafeMexToUpgrade(iM28Team, bReturnIfSafeInsteadOfUpgrading, bDontUpg
                 AddPotentialUnitsToShortlist(toSafeUnitsToUpgrade, tPotentialUnits)
             end
         end
-        if M28Utilities.IsTableEmpty(toSafeUnitsToUpgrade) == false and not(bCollectAcrossQuietParallelTier) then
+        if M28Utilities.IsTableEmpty(toSafeUnitsToUpgrade) == false and not(bQuietActive) then
             break
+        end
+    end
+    if M28Utilities.IsTableEmpty(toPriorityQuietTimeoutCandidates) == false then
+        local toFilteredPriorityQuietTimeoutCandidates = {}
+        AddPotentialUnitsToShortlist(toFilteredPriorityQuietTimeoutCandidates, toPriorityQuietTimeoutCandidates)
+        if M28Utilities.IsTableEmpty(toFilteredPriorityQuietTimeoutCandidates) == false then
+            toSafeUnitsToUpgrade = toFilteredPriorityQuietTimeoutCandidates
+        end
+    end
+    if M28Utilities.IsTableEmpty(toSafeUnitsToUpgrade) and M28Utilities.IsTableEmpty(toPriorityHigherTierCandidates) == false then
+        local toFilteredPriorityHigherTierCandidates = {}
+        AddPotentialUnitsToShortlist(toFilteredPriorityHigherTierCandidates, toPriorityHigherTierCandidates)
+        if M28Utilities.IsTableEmpty(toFilteredPriorityHigherTierCandidates) == false then
+            toSafeUnitsToUpgrade = toFilteredPriorityHigherTierCandidates
         end
     end
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished searching for units to upgrade at time '..GetGameTimeSeconds()..', is table empty='..tostring(M28Utilities.IsTableEmpty(toSafeUnitsToUpgrade))) end

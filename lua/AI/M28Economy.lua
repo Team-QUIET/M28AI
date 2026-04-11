@@ -76,6 +76,9 @@ local refiMexQuietTierT35 = 35
 local refiTimeLastMexUpgradeStartBurst = 'M28TeamMexUpBurstTm'
 local refiMexUpgradeStartsInBurst = 'M28TeamMexUpBurstCnt'
 local refiMexUpgradeStartBurstWindow = 1.5
+local refiQuietBaseClusterMaxModDistance = 0.35
+local refiQuietTierTimeoutEscapeWait = 5 * 60
+local DoesTeamHaveBufferedMexUpgradeEco
 local tiQuietMexTierPriority = {
     [refiMexQuietTierT1] = 1,
     [refiMexQuietTierT2] = 2,
@@ -88,6 +91,16 @@ local tiNextQuietMexTier = {
     [refiMexQuietTierT2] = refiMexQuietTierT25,
     [refiMexQuietTierT25] = refiMexQuietTierT3,
     [refiMexQuietTierT3] = refiMexQuietTierT35,
+}
+local tiQuietTierTimeoutEscapeWait = {
+    [refiMexQuietTierT2] = refiQuietTierTimeoutEscapeWait,
+    [refiMexQuietTierT25] = refiQuietTierTimeoutEscapeWait,
+    [refiMexQuietTierT3] = refiQuietTierTimeoutEscapeWait,
+}
+local tiQuietTierPriorityWaitCap = {
+    [refiMexQuietTierT2] = 3 * 60,
+    [refiMexQuietTierT25] = 4 * 60,
+    [refiMexQuietTierT3] = 5 * 60,
 }
 local iQuietT25MexCategory = categories.ALLUNITS - categories.ALLUNITS
 local iQuietT35MexCategory = categories.ALLUNITS - categories.ALLUNITS
@@ -133,7 +146,116 @@ function GetQuietMexCategoryForProgressionTier(iTier)
     return nil
 end
 
-function GetLowestOutstandingQuietMexTier(iTeam)
+local function GetQuietMexConstructedTime(oMex)
+    if not(M28UnitInfo.IsUnitValid(oMex)) then return 0 end
+    return oMex[M28UnitInfo.refiTimeMexConstructed] or oMex[M28UnitInfo.refiTimeCreated] or 0
+end
+
+local function AreQuietClusterBasePositionsMatching(tBaseA, tBaseB)
+    if not(tBaseA) or not(tBaseB) then return false end
+    return M28Utilities.GetDistanceBetweenPositions(tBaseA, tBaseB) <= 5
+end
+
+local function GetQuietMexClusterContext(iTeam, oMex)
+    if not(M28UnitInfo.IsUnitValid(oMex)) then return nil end
+    local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oMex:GetPosition())
+    if iPlateauOrZero == nil or iLandOrWaterZone == nil then return nil end
+
+    local tZoneData, tZoneTeamData = M28Map.GetLandOrWaterZoneData(oMex:GetPosition(), true, iTeam)
+    if not(tZoneData) or not(tZoneTeamData) then
+        return {
+            iPlateauOrZero = iPlateauOrZero,
+            iLandOrWaterZone = iLandOrWaterZone,
+            bBaseCluster = false,
+        }
+    end
+
+    local bBaseCluster = (tZoneTeamData[M28Map.refiModDistancePercent] or 1) <= refiQuietBaseClusterMaxModDistance
+    if iPlateauOrZero > 0 then
+        bBaseCluster = bBaseCluster or (tZoneTeamData[M28Map.subrefLZbCoreBase] or false)
+    else
+        bBaseCluster = bBaseCluster or (tZoneTeamData[M28Map.subrefWZbCoreBase] or false)
+    end
+
+    return {
+        iPlateauOrZero = iPlateauOrZero,
+        iLandOrWaterZone = iLandOrWaterZone,
+        tZoneData = tZoneData,
+        tZoneTeamData = tZoneTeamData,
+        bBaseCluster = bBaseCluster,
+        tClosestFriendlyBase = tZoneTeamData[M28Map.reftClosestFriendlyBase] or M28Map.GetPlayerStartPosition(oMex:GetAIBrain()),
+    }
+end
+
+local function DoesQuietClusterIncludeMex(iTeam, oMex, tClusterContext)
+    if not(tClusterContext) then return true end
+    if not(M28UnitInfo.IsUnitValid(oMex)) then return false end
+
+    local iOtherPlateauOrZero, iOtherLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oMex:GetPosition())
+    if iOtherPlateauOrZero == nil or iOtherLandOrWaterZone == nil then return false end
+    local tOtherZoneData, tOtherZoneTeamData = M28Map.GetLandOrWaterZoneData(oMex:GetPosition(), true, iTeam)
+    if not(tOtherZoneData) or not(tOtherZoneTeamData) then return false end
+
+    if tClusterContext.bBaseCluster then
+        local bOtherNearBase = (tOtherZoneTeamData[M28Map.refiModDistancePercent] or 1) <= refiQuietBaseClusterMaxModDistance
+        if iOtherPlateauOrZero > 0 then
+            bOtherNearBase = bOtherNearBase or (tOtherZoneTeamData[M28Map.subrefLZbCoreBase] or false)
+        else
+            bOtherNearBase = bOtherNearBase or (tOtherZoneTeamData[M28Map.subrefWZbCoreBase] or false)
+        end
+        return bOtherNearBase and AreQuietClusterBasePositionsMatching(tClusterContext.tClosestFriendlyBase, tOtherZoneTeamData[M28Map.reftClosestFriendlyBase] or M28Map.GetPlayerStartPosition(oMex:GetAIBrain()))
+    end
+
+    if not(tClusterContext.iPlateauOrZero == iOtherPlateauOrZero) then return false end
+    if tClusterContext.iLandOrWaterZone == iOtherLandOrWaterZone then return true end
+
+    if tClusterContext.iPlateauOrZero > 0 then
+        if M28Utilities.IsTableEmpty(tClusterContext.tZoneData[M28Map.subrefLZAdjacentLandZones]) == false then
+            for _, iAdjacentZone in tClusterContext.tZoneData[M28Map.subrefLZAdjacentLandZones] do
+                if iAdjacentZone == iOtherLandOrWaterZone then
+                    return true
+                end
+            end
+        end
+        local tEntryRefs = tClusterContext.tZoneData[M28Map.subrefLZPathingToOtherLZEntryRef]
+        local iPathEntryRef = tEntryRefs and tEntryRefs[iOtherLandOrWaterZone]
+        if iPathEntryRef and tClusterContext.tZoneData[M28Map.subrefLZPathingToOtherLandZones] and tClusterContext.tZoneData[M28Map.subrefLZPathingToOtherLandZones][iPathEntryRef] then
+            local iTravelDist = tClusterContext.tZoneData[M28Map.subrefLZPathingToOtherLandZones][iPathEntryRef][M28Map.subrefLZTravelDist] or 999999
+            local iClusterTravelThreshold = math.max(120, (tClusterContext.tZoneData[M28Map.subrefLZFurthestAdjacentLandZoneTravelDist] or 40) * 2.5)
+            return iTravelDist <= iClusterTravelThreshold
+        end
+        return false
+    end
+
+    if M28Utilities.IsTableEmpty(tClusterContext.tZoneData[M28Map.subrefWZAdjacentWaterZones]) == false then
+        for _, iAdjacentWaterZone in tClusterContext.tZoneData[M28Map.subrefWZAdjacentWaterZones] do
+            if iAdjacentWaterZone == iOtherLandOrWaterZone then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function GetQuietClusterConstructedMexCount(iTeam, iTier, tOptionalClusterContext)
+    local tFriendlyBrains = M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]
+    local iMexCount = 0
+    if M28Utilities.IsTableEmpty(tFriendlyBrains) then return 0 end
+
+    for _, oBrain in tFriendlyBrains do
+        local tMexes = oBrain:GetListOfUnits(M28UnitInfo.refCategoryMex, false, true)
+        if M28Utilities.IsTableEmpty(tMexes) == false then
+            for _, oMex in tMexes do
+                if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 and GetQuietMexProgressionTier(oMex) == iTier and not(((oMex:GetBlueprint().General.UpgradesTo or '') == '')) and DoesQuietClusterIncludeMex(iTeam, oMex, tOptionalClusterContext) then
+                    iMexCount = iMexCount + 1
+                end
+            end
+        end
+    end
+    return iMexCount
+end
+
+function GetLowestOutstandingQuietMexTier(iTeam, tOptionalClusterContext)
     if not(M28Utilities.bQuietModActive) then return nil end
     local tFriendlyBrains = M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]
     local iLowestTier
@@ -144,7 +266,7 @@ function GetLowestOutstandingQuietMexTier(iTeam)
             local tMexes = oBrain:GetListOfUnits(M28UnitInfo.refCategoryMex, false, true)
             if M28Utilities.IsTableEmpty(tMexes) == false then
                 for iMex, oMex in tMexes do
-                    if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 and not(oMex:IsUnitState('Upgrading')) and not(oMex:IsUnitState('BeingUpgraded')) and not(((oMex:GetBlueprint().General.UpgradesTo or '') == '')) then
+                    if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 and not(oMex:IsUnitState('Upgrading')) and not(oMex:IsUnitState('BeingUpgraded')) and not(((oMex:GetBlueprint().General.UpgradesTo or '') == '')) and DoesQuietClusterIncludeMex(iTeam, oMex, tOptionalClusterContext) then
                         local iTier = GetQuietMexProgressionTier(oMex)
                         local iPriority = tiQuietMexTierPriority[iTier]
                         if iPriority and (not(iLowestPriority) or iPriority < iLowestPriority) then
@@ -172,6 +294,7 @@ function DoesTeamWantAggressiveQuietMexTier(iTeam, iCandidateTier)
     local iNetMass = tTeamData[M28Team.subrefiTeamNetMass] or 0
     local iGrossEnergy = tTeamData[M28Team.subrefiTeamGrossEnergy] or 0
     local iNetEnergy = tTeamData[M28Team.subrefiTeamNetEnergy] or 0
+    local iEnergyStoredRatio = tTeamData[M28Team.subrefiTeamAverageEnergyPercentStored] or 0
     local iEnemyT3Mex = M28Conditions.GetHighestOtherTeamT3MexCount(iTeam)
     local iOurT3Mex = (tTeamData[M28Team.refiMexCountByTech][3] or 0)
     local iEnemyT2PlusMex = M28Conditions.GetHighestOtherTeamT2AndT3MexCount(iTeam)
@@ -182,56 +305,131 @@ function DoesTeamWantAggressiveQuietMexTier(iTeam, iCandidateTier)
     local iNetMassFloor
     local iGrossEnergyWanted
     local iNetEnergyFloor
+    local iBufferedGrossMassWanted
+    local iBufferedNetMassFloor
+    local iBufferedGrossEnergyWanted
+    local iBufferedNetEnergyFloor
+    local iBufferedEnergyStoredRatioWanted
     if iCandidateTier == refiMexQuietTierT2 then
         bEnemyEcoPressure = iEnemyT2PlusMex > iOurT2PlusMex
         iGrossMassWanted = 4 * iActiveBrains
         iNetMassFloor = -1.5 * iActiveBrains
         iGrossEnergyWanted = 8 * iActiveBrains
         iNetEnergyFloor = -18 * iActiveBrains
+        iBufferedGrossMassWanted = 3.5 * iActiveBrains
+        iBufferedNetMassFloor = -1.75 * iActiveBrains
+        iBufferedGrossEnergyWanted = 10 * iActiveBrains
+        iBufferedNetEnergyFloor = -20 * iActiveBrains
+        iBufferedEnergyStoredRatioWanted = 0.35
     elseif iCandidateTier == refiMexQuietTierT35 then
         bEnemyEcoPressure = iEnemyT3Mex > iOurT3Mex
         iGrossMassWanted = 8 * iActiveBrains
         iNetMassFloor = -2.5 * iActiveBrains
         iGrossEnergyWanted = 20 * iActiveBrains
         iNetEnergyFloor = -30 * iActiveBrains
+        iBufferedGrossMassWanted = 7 * iActiveBrains
+        iBufferedNetMassFloor = -3 * iActiveBrains
+        iBufferedGrossEnergyWanted = 18 * iActiveBrains
+        iBufferedNetEnergyFloor = -32 * iActiveBrains
+        iBufferedEnergyStoredRatioWanted = 0.55
     else
         bEnemyEcoPressure = iEnemyT3Mex > iOurT3Mex
         iGrossMassWanted = 6 * iActiveBrains
         iNetMassFloor = -2 * iActiveBrains
         iGrossEnergyWanted = 14 * iActiveBrains
         iNetEnergyFloor = -24 * iActiveBrains
+        iBufferedGrossMassWanted = 5 * iActiveBrains
+        iBufferedNetMassFloor = -2.25 * iActiveBrains
+        iBufferedGrossEnergyWanted = 12 * iActiveBrains
+        iBufferedNetEnergyFloor = -24 * iActiveBrains
+        iBufferedEnergyStoredRatioWanted = 0.45
     end
 
     local bVeryStrongEco = iGrossMass >= iGrossMassWanted
             and iNetMass >= iNetMassFloor
             and iGrossEnergy >= iGrossEnergyWanted
             and iNetEnergy >= iNetEnergyFloor
+    local bBufferedTierEco = DoesTeamHaveBufferedMexUpgradeEco and DoesTeamHaveBufferedMexUpgradeEco(iTeam)
+            and iGrossMass >= iBufferedGrossMassWanted
+            and iNetMass >= iBufferedNetMassFloor
+            and iGrossEnergy >= iBufferedGrossEnergyWanted
+            and iNetEnergy >= iBufferedNetEnergyFloor
+            and iEnergyStoredRatio >= iBufferedEnergyStoredRatioWanted
 
     if iNetMass <= -math.max(3, iGrossMass * 0.55) and iGrossMass < 4 * iActiveBrains then
         return false
     end
 
-    return bEnemyEcoPressure or bVeryStrongEco
+    return bEnemyEcoPressure or bVeryStrongEco or bBufferedTierEco
 end
 
-function ShouldAllowQuietParallelMexTier(iTeam, iOutstandingTier, iCandidateTier)
+function ShouldAllowQuietParallelMexTier(iTeam, iOutstandingTier, iCandidateTier, tOptionalClusterContext)
     if not(M28Utilities.bQuietModActive) then return false end
     if not(tiNextQuietMexTier[iOutstandingTier] == iCandidateTier) then return false end
-    local iCandidateMexCount = M28Conditions.GetCurrentM28UnitsOfCategoryInTeam(GetQuietMexCategoryForProgressionTier(iCandidateTier), iTeam)
+    local iCandidateMexCount = GetQuietClusterConstructedMexCount(iTeam, iCandidateTier, tOptionalClusterContext)
     if iCandidateMexCount <= 0 then return false end
 
     return DoesTeamWantAggressiveQuietMexTier(iTeam, iCandidateTier)
 end
 
-function GetAllowedQuietParallelMexTier(iTeam, iOutstandingTier)
+function GetAllowedQuietParallelMexTier(iTeam, iOutstandingTier, tOptionalClusterContext)
     local iCandidateTier = tiNextQuietMexTier[iOutstandingTier]
-    if iCandidateTier and ShouldAllowQuietParallelMexTier(iTeam, iOutstandingTier, iCandidateTier) then
+    if iCandidateTier and ShouldAllowQuietParallelMexTier(iTeam, iOutstandingTier, iCandidateTier, tOptionalClusterContext) then
         return iCandidateTier
     end
     return nil
 end
 
-local function DoesTeamHaveBufferedMexUpgradeEco(iTeam)
+function GetQuietMexTierGateState(iTeam, oMex, tOptionalClusterContext)
+    local tGateState = {
+        bBlocked = false,
+        bTimedOut = false,
+        iCandidateTier = nil,
+        iOutstandingTier = nil,
+        iParallelTier = nil,
+        tClusterContext = tOptionalClusterContext,
+    }
+    if not(M28Utilities.bQuietModActive) or not(M28UnitInfo.IsUnitValid(oMex)) then
+        return tGateState
+    end
+    if ((oMex:GetBlueprint().General.UpgradesTo or '') == '') then
+        return tGateState
+    end
+
+    local iCandidateTier = GetQuietMexProgressionTier(oMex)
+    local iCandidatePriority = tiQuietMexTierPriority[iCandidateTier]
+    if not(iCandidatePriority) then
+        return tGateState
+    end
+    tGateState.iCandidateTier = iCandidateTier
+
+    local tClusterContext = tOptionalClusterContext or GetQuietMexClusterContext(iTeam, oMex)
+    tGateState.tClusterContext = tClusterContext
+
+    local iOutstandingTier = GetLowestOutstandingQuietMexTier(iTeam, tClusterContext)
+    tGateState.iOutstandingTier = iOutstandingTier
+    local iOutstandingPriority = tiQuietMexTierPriority[iOutstandingTier]
+    if not(iOutstandingPriority) or iOutstandingPriority >= iCandidatePriority then
+        return tGateState
+    end
+
+    local iTimeoutEscapeWait = tiQuietTierTimeoutEscapeWait[iCandidateTier]
+    if iTimeoutEscapeWait and GetGameTimeSeconds() - GetQuietMexConstructedTime(oMex) >= iTimeoutEscapeWait then
+        tGateState.bTimedOut = true
+        return tGateState
+    end
+
+    local iParallelTier = GetAllowedQuietParallelMexTier(iTeam, iOutstandingTier, tClusterContext)
+    tGateState.iParallelTier = iParallelTier
+    if iParallelTier and iParallelTier == iCandidateTier then
+        return tGateState
+    end
+
+    tGateState.bBlocked = true
+    return tGateState
+end
+
+DoesTeamHaveBufferedMexUpgradeEco = function(iTeam)
     local tCurTeamData = M28Team.tTeamData[iTeam]
     if not(tCurTeamData) then return false end
 
@@ -245,6 +443,56 @@ local function DoesTeamHaveBufferedMexUpgradeEco(iTeam)
             and iMassStoredRatio >= 0.08
             and iEnergyStoredRatio >= 0.35
             and iNetMass >= -math.max(1, iGrossMass * 0.12)
+end
+
+function GetHigherTierMexPriorityState(iTeam, oMex, tOptionalQuietGateState)
+    local tPriorityState = {
+        bPrioritise = false,
+        bTimedOut = false,
+        iCandidateTier = nil,
+        iPriorityTechLevel = nil,
+        iWaitCap = nil,
+    }
+    if not(M28UnitInfo.IsUnitValid(oMex)) then return tPriorityState end
+    if ((oMex:GetBlueprint().General.UpgradesTo or '') == '') then return tPriorityState end
+
+    local iCandidateTier = GetQuietMexProgressionTier(oMex)
+    tPriorityState.iCandidateTier = iCandidateTier
+    if not(iCandidateTier) or iCandidateTier == refiMexQuietTierT1 or iCandidateTier == refiMexQuietTierT35 then
+        return tPriorityState
+    end
+
+    if iCandidateTier == refiMexQuietTierT3 then
+        tPriorityState.iPriorityTechLevel = 3
+    else
+        tPriorityState.iPriorityTechLevel = 2
+    end
+    tPriorityState.iWaitCap = tiQuietTierPriorityWaitCap[iCandidateTier]
+
+    if not(M28Utilities.bQuietModActive) then return tPriorityState end
+
+    local tQuietGateState = tOptionalQuietGateState or GetQuietMexTierGateState(iTeam, oMex)
+    if tQuietGateState.bBlocked and not(tQuietGateState.bTimedOut) then
+        return tPriorityState
+    end
+    if tQuietGateState.bTimedOut then
+        tPriorityState.bTimedOut = true
+    end
+    if tPriorityState.bTimedOut or DoesTeamWantAggressiveQuietMexTier(iTeam, iCandidateTier) then
+        tPriorityState.bPrioritise = true
+    end
+    return tPriorityState
+end
+
+function GetPriorityMexTechLevelToUpgrade(iTeam, iDefaultTechLevel)
+    local iTechLevelToUpgrade = iDefaultTechLevel or 1
+    if DoesTeamWantAggressiveQuietMexTier(iTeam, refiMexQuietTierT2) or DoesTeamWantAggressiveQuietMexTier(iTeam, refiMexQuietTierT25) then
+        iTechLevelToUpgrade = math.max(iTechLevelToUpgrade, 2)
+    end
+    if bT3MexCanBeUpgraded and DoesTeamWantAggressiveQuietMexTier(iTeam, refiMexQuietTierT3) then
+        iTechLevelToUpgrade = math.max(iTechLevelToUpgrade, 3)
+    end
+    return iTechLevelToUpgrade
 end
 
 local function GetTeamMexUpgradeStartBurstCap(iTeam, oCandidateMex)
@@ -264,9 +512,10 @@ local function GetTeamMexUpgradeStartBurstCap(iTeam, oCandidateMex)
     end
 
     if M28Utilities.bQuietModActive and M28UnitInfo.IsUnitValid(oCandidateMex) then
-        local iOutstandingQuietTier = GetLowestOutstandingQuietMexTier(iTeam)
+        local tQuietClusterContext = GetQuietMexClusterContext(iTeam, oCandidateMex)
+        local iOutstandingQuietTier = GetLowestOutstandingQuietMexTier(iTeam, tQuietClusterContext)
         local iCandidateQuietTier = GetQuietMexProgressionTier(oCandidateMex)
-        if iOutstandingQuietTier and iCandidateQuietTier and ShouldAllowQuietParallelMexTier(iTeam, iOutstandingQuietTier, iCandidateQuietTier) then
+        if iOutstandingQuietTier and iCandidateQuietTier and ShouldAllowQuietParallelMexTier(iTeam, iOutstandingQuietTier, iCandidateQuietTier, tQuietClusterContext) then
             iBurstCap = math.max(iBurstCap, 2)
         end
     end
@@ -475,7 +724,7 @@ local function GetEnergyStallMexUpgradeKeepCount(iTeam)
     return iKeepCount
 end
 
-function ShouldAllowMexRecoveryUpgradeStart(iTeam, iLocalActiveMexUpgrades)
+function ShouldAllowMexRecoveryUpgradeStart(iTeam, iLocalActiveMexUpgrades, oOptionalCandidateMex)
     local tTeamData = M28Team.tTeamData[iTeam]
     if not(tTeamData) then return false end
     if (iLocalActiveMexUpgrades or 0) > 1 then return false end
@@ -487,23 +736,18 @@ function ShouldAllowMexRecoveryUpgradeStart(iTeam, iLocalActiveMexUpgrades)
     if M28Utilities.IsTableEmpty(tTeamData[M28Team.subreftTeamUpgradingMexes]) == false then
         iActiveTeamMexUpgrades = table.getn(tTeamData[M28Team.subreftTeamUpgradingMexes])
     end
-    return iActiveTeamMexUpgrades < GetMinimumMexUpgradesToKeepDuringMassStall(iTeam)
-end
-
-function ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam)
-    if not(M28Utilities.bQuietModActive) or not(M28UnitInfo.IsUnitValid(oMex)) then return false end
-    local iMexTier = GetQuietMexProgressionTier(oMex)
-    local iMexPriority = tiQuietMexTierPriority[iMexTier]
-    if not(iMexPriority) then return false end
-    local iLowestOutstandingTier = GetLowestOutstandingQuietMexTier(iTeam)
-    local iLowestOutstandingPriority = tiQuietMexTierPriority[iLowestOutstandingTier]
-    if iLowestOutstandingPriority and iLowestOutstandingPriority < iMexPriority then
-        if ShouldAllowQuietParallelMexTier(iTeam, iLowestOutstandingTier, iMexTier) then
-            return false
-        end
+    local iRecoveryFloor = GetMinimumMexUpgradesToKeepDuringMassStall(iTeam)
+    if iActiveTeamMexUpgrades < iRecoveryFloor then
         return true
     end
+    if M28UnitInfo.IsUnitValid(oOptionalCandidateMex) and GetHigherTierMexPriorityState(iTeam, oOptionalCandidateMex).bPrioritise then
+        return iActiveTeamMexUpgrades < iRecoveryFloor + 1
+    end
     return false
+end
+
+function ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam, tOptionalClusterContext)
+    return GetQuietMexTierGateState(iTeam, oMex, tOptionalClusterContext).bBlocked
 end
 
 function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReasonRef)
@@ -3754,6 +3998,7 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
             --Only do this if there are 3+ mexes in the zone, or it's a plateau
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering whether we want to upgrade mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..'; safe to upgrade='..tostring(M28Conditions.SafeToUpgradeUnit(oMex))..'; iMexTechLevel='..iMexTechLevel..'; Team has low mass='..tostring(M28Conditions.TeamHasLowMass(iTeam))..'; Time='..GetGameTimeSeconds()) end
             if M28Conditions.SafeToUpgradeUnit(oMex) and (not(M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refbPrioritiseProduction]) or ((tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) <= 1 and aiBrain[refiGrossMassBaseIncome] >= 2)) then
+                local tHigherTierPriorityState = GetHigherTierMexPriorityState(iTeam, oMex)
                 local bUpgradeDueToHowLongHadMex = false
                 if (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) <= 1 then
                     local iTimeThreshold
@@ -3798,6 +4043,9 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
                         iTimeThreshold = iTimeThreshold * (3 - 2 * iMexesOfHigherTech / (3 * (1 + iUpgradingMexCount)))
                         if iMexesOfHigherTech <= 2 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] then iTimeThreshold = iTimeThreshold * 2 end
                     end
+                    if tHigherTierPriorityState.iWaitCap then
+                        iTimeThreshold = math.min(iTimeThreshold, tHigherTierPriorityState.iWaitCap)
+                    end
 
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time since constructed='..(GetGameTimeSeconds() - (oMex[M28UnitInfo.refiTimeMexConstructed] or oMex[M28UnitInfo.refiTimeCreated]))..'; M28Team.tTeamData[iTeam][M28Team.refiUpgradedMexCount]='..M28Team.tTeamData[iTeam][M28Team.refiUpgradedMexCount]..'; iMexesOfHigherTech='..iMexesOfHigherTech..'; iUpgradingMexCount='..iUpgradingMexCount) end
                     if GetGameTimeSeconds() - (oMex[M28UnitInfo.refiTimeMexConstructed] or oMex[M28UnitInfo.refiTimeCreated]) >= iTimeThreshold and iUpgradingMexCount < M28Team.tTeamData[iTeam][M28Team.refiUpgradedMexCount] * 0.8 then
@@ -3833,9 +4081,9 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
                     end
                 end
                 local bTeamLowMass = M28Conditions.TeamHasLowMass(iTeam)
-                local bAllowRecoveryMexStart = ShouldAllowMexRecoveryUpgradeStart(iTeam, tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0)
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Zoen wants t1 spam='..tostring(M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam) or false)..'; Team has low mass='..tostring(bTeamLowMass or false)..'; bAllowRecoveryMexStart='..tostring(bAllowRecoveryMexStart)..'; iMexTechLevel='..iMexTechLevel..'; LZ mex count='..(tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0)..'; Active mex upgrades='..(tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0)..'; T1 mexes in zone='..tLZOrWZTeamData[M28Map.subrefMexCountByTech][1]..'; Brain gross mass='..aiBrain[refiGrossMassBaseIncome]..'; bUpgradeDueToHowLongHadMex='..tostring(bUpgradeDueToHowLongHadMex)) end
-                if not(M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam)) and (bUpgradeDueToHowLongHadMex or bAllowRecoveryMexStart or not(bTeamLowMass) or iMexTechLevel == 3 or ((tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0) >= 3 and (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) <= 1 and (tLZOrWZTeamData[M28Map.subrefMexCountByTech][1] > 0 or aiBrain[refiGrossMassBaseIncome] >= 8 or M28Utilities.bLoudModActive))) then
+                local bAllowRecoveryMexStart = ShouldAllowMexRecoveryUpgradeStart(iTeam, tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0, oMex)
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Zoen wants t1 spam='..tostring(M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam) or false)..'; Team has low mass='..tostring(bTeamLowMass or false)..'; bAllowRecoveryMexStart='..tostring(bAllowRecoveryMexStart)..'; iMexTechLevel='..iMexTechLevel..'; LZ mex count='..(tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0)..'; Active mex upgrades='..(tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0)..'; T1 mexes in zone='..tLZOrWZTeamData[M28Map.subrefMexCountByTech][1]..'; Brain gross mass='..aiBrain[refiGrossMassBaseIncome]..'; bUpgradeDueToHowLongHadMex='..tostring(bUpgradeDueToHowLongHadMex)..'; bPrioritiseHigherTierMex='..tostring(tHigherTierPriorityState.bPrioritise or false)..'; bHigherTierMexTimedOut='..tostring(tHigherTierPriorityState.bTimedOut or false)) end
+                if not(M28Conditions.ZoneWantsT1Spam(tLZOrWZTeamData, iTeam)) and (bUpgradeDueToHowLongHadMex or tHigherTierPriorityState.bPrioritise or bAllowRecoveryMexStart or not(bTeamLowMass) or iMexTechLevel == 3 or ((tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0) >= 3 and (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) <= 1 and (tLZOrWZTeamData[M28Map.subrefMexCountByTech][1] > 0 or aiBrain[refiGrossMassBaseIncome] >= 8 or M28Utilities.bLoudModActive))) then
 
                     --Are there enough mexes that we want to consider upgrading?
                     if bDebugMessages == true then
@@ -3862,19 +4110,17 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
                             end
                         end
 
-                        if (iMexTechLevel == 3 and M28Utilities.bLoudModActive) or (bAllowRecoveryMexStart or bTeamLowMass or (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) <= 1 and
+                        if (iMexTechLevel == 3 and M28Utilities.bLoudModActive) or (tHigherTierPriorityState.bPrioritise or bAllowRecoveryMexStart or bTeamLowMass or (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) <= 1 and
                                 (not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) or
                                         M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) or
                                         (tLZOrWZData[M28Map.subrefLZOrWZMexCount] >= 3 and table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) < math.max(2, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] * 1.5) and aiBrain[refiGrossMassBaseIncome] >= 3 * iMexTechLevel and (iMexTechLevel == 1 or  table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) < math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]))) or
-                                        ((tLZOrWZData[M28Map.subrefLZOrWZMexCount] >= 4 or tLZOrWZData[M28Map.subrefLZbCoreBase]) and DoesTeamWantAggressiveQuietMexTier(iTeam, refiMexQuietTierT3))
+                                        ((tLZOrWZData[M28Map.subrefLZOrWZMexCount] >= 4 or tLZOrWZData[M28Map.subrefLZbCoreBase]) and tHigherTierPriorityState.bPrioritise)
                                 )) then
                             --Do we have any mexes lower than this tech level? if so then dont upgrade
 
                             if iMexTechLevel > 1 and (tLZOrWZTeamData[M28Map.subrefMexCountByTech][1] > 0 or (iMexTechLevel >= 3 and tLZOrWZTeamData[M28Map.subrefMexCountByTech][2] > 0)) then
                                 ForkThread(ConsiderFutureMexUpgrade, oMex, 60)
                                 --If this is a T2+ mex and as a team we have more than enough upgrading already then also dont upgrade unless this is a core base with no active upgrades
-                            elseif not(tLZOrWZTeamData[M28Map.subrefLZbCoreBase] and (tLZOrWZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) <= 1) and M28Utilities.bQuietModActive and not(DoesTeamWantAggressiveQuietMexTier(iTeam, refiMexQuietTierT3)) then
-                                ForkThread(ConsiderFutureMexUpgrade, oMex, 20) --check in a bit as we want another upgrade but once some existing ones have finished
                             elseif ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam) then
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Delaying mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..' because a lower Quiet mex rung still has outstanding upgrades elsewhere on the team') end
                                 ForkThread(ConsiderFutureMexUpgrade, oMex, 30)
@@ -3984,10 +4230,12 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
                                 elseif M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then --redundancy
                                     local iMexCategory
 
+                                    local tQuietClusterContext
                                     if M28Utilities.bQuietModActive then
+                                        tQuietClusterContext = GetQuietMexClusterContext(iTeam, oJustBuilt)
                                         if iMexTechLevel <= 2 then
-                                            local iOutstandingQuietTier = GetLowestOutstandingQuietMexTier(iTeam)
-                                            local iParallelQuietTier = GetAllowedQuietParallelMexTier(iTeam, iOutstandingQuietTier)
+                                            local iOutstandingQuietTier = GetLowestOutstandingQuietMexTier(iTeam, tQuietClusterContext)
+                                            local iParallelQuietTier = GetAllowedQuietParallelMexTier(iTeam, iOutstandingQuietTier, tQuietClusterContext)
                                             iMexCategory = GetQuietMexCategoryForProgressionTier(iOutstandingQuietTier) or M28UnitInfo.refCategoryT1Mex
                                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will look for mexes in current Quiet rung, iOutstandingQuietTier='..(iOutstandingQuietTier or 'nil')..'; iParallelQuietTier='..(iParallelQuietTier or 'nil')) end
                                             if iParallelQuietTier then
@@ -4041,7 +4289,7 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
                                                             tMexOfCategory = EntityCategoryFilterDown(iMexCategory, tAdjLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
                                                             if M28Utilities.IsTableEmpty(tMexOfCategory) == false then
                                                                 for iMex, oMex in tMexOfCategory do
-                                                                    if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 and not(oMex:IsUnitState('Upgrading')) and not(oMex:IsUnitState('BeingUpgraded')) and not(ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam)) then
+                                                                    if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 and not(oMex:IsUnitState('Upgrading')) and not(oMex:IsUnitState('BeingUpgraded')) and not(ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam, tQuietClusterContext)) then
                                                                         UpgradeUnit(oMex, true)
                                                                         bAlreadyUpgraded = true
                                                                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will upgrade mex in adj zone P'..iPlateauOrZero..'Z'..iAdjLZ..', oMex='..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)) end
@@ -4056,12 +4304,15 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
                                         end
                                     end
                                     if M28Utilities.IsTableEmpty(tMexOfCategory) and iMexTechLevel <= 2 then
-                                        local bGetT3Mex = DoesTeamWantAggressiveQuietMexTier(iTeam, refiMexQuietTierT3)
-                                        local iLowestOutstandingQuietTier = GetLowestOutstandingQuietMexTier(iTeam)
-                                        local bAllowParallelNextQuietRungToT3 = M28Utilities.bQuietModActive and ShouldAllowQuietParallelMexTier(iTeam, iLowestOutstandingQuietTier, refiMexQuietTierT25)
-                                        if M28Utilities.bQuietModActive and iLowestOutstandingQuietTier and not(iLowestOutstandingQuietTier == refiMexQuietTierT25 or bAllowParallelNextQuietRungToT3) then
-                                            bGetT3Mex = false
-                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Wont open a fresh T3 mex start because the outstanding Quiet mex rung is '..iLowestOutstandingQuietTier..' and parallel runging does not allow T3 yet') end
+                                        local bGetT3Mex = false
+                                        if M28Utilities.bQuietModActive then
+                                            local tQuietGateState = GetQuietMexTierGateState(iTeam, oJustBuilt, tQuietClusterContext)
+                                            bGetT3Mex = tQuietGateState.bTimedOut and GetQuietMexProgressionTier(oJustBuilt) == refiMexQuietTierT25
+                                            if not(bGetT3Mex) and bDebugMessages == true and tQuietGateState.iOutstandingTier then
+                                                M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Wont open a fresh T3 mex start because Quiet gate is still owned by tier '..tQuietGateState.iOutstandingTier..' in this cluster')
+                                            end
+                                        else
+                                            bGetT3Mex = DoesTeamWantAggressiveQuietMexTier(iTeam, refiMexQuietTierT3)
                                         end
                                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if we want to get another t3 mex at this stage, bGetT3Mex='..tostring(bGetT3Mex)) end
                                         if bGetT3Mex then
@@ -4083,7 +4334,7 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will try and find a mex to upgrade, is M28Utilities.IsTableEmpty(tMexOfCategory)='..tostring(M28Utilities.IsTableEmpty(tMexOfCategory))) end
                                     if M28Utilities.IsTableEmpty(tMexOfCategory) == false and not(bAlreadyUpgraded) then
                                         for iMex, oMex in tMexOfCategory do
-                                            if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 and not(oMex:IsUnitState('Upgrading')) and not(oMex:IsUnitState('BeingUpgraded')) and not(oMex == oJustBuilt) and not(oMex == oOptionalEngineer) and not((oMex:GetBlueprint().General.UpgradesTo or '') == '') and not(ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam)) then
+                                            if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 and not(oMex:IsUnitState('Upgrading')) and not(oMex:IsUnitState('BeingUpgraded')) and not(oMex == oJustBuilt) and not(oMex == oOptionalEngineer) and not((oMex:GetBlueprint().General.UpgradesTo or '') == '') and not(ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam, tQuietClusterContext)) then
                                                 bAlreadyUpgraded = true
                                                 UpgradeUnit(oMex, true)
                                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will upgrade the mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..' as have just compelted a mex upgrade in this zone') end
