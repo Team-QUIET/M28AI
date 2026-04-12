@@ -285,7 +285,7 @@ refActionLoadOntoTransport = 38
 refActionFortifyFirebase = 39
 refActionAssistShield = 40
 refActionBuildSecondShield = 41
-refActionBuildEmergencyArti = 42 --Not yet got the main code in place that M27 used, for now just have basic placeholder that builds T2 the same as a normal building
+refActionBuildEmergencyArti = 42 --Central owner for true T2 emergency artillery
 refActionAssistTML = 43
 refActionBuildQuantumGateway = 44
 refActionBuildQuantumOptics = 45
@@ -329,6 +329,7 @@ refActionBuildThirdTMD = 82 --used for T2 arti builder
 refActionReclaimPath = 83 --queue up efficient reclaim path through multiple rocks using move orders at max build range
 refActionMexBuildPath = 84 --queue up efficient mex build path through multiple unbuilt mex locations
 refActionExpandToLandZone = 85 --queue mexes in target zone directly with reclaim along path
+refActionBuildEmergencyBarrageArti = 86 --Central owner for capped T3 barrage artillery spawned from the emergency static-indirect flow
 
 --tiEngiActionsThatDontBuild = {refActionReclaimArea, refActionSpare, refActionNavalSpareAction, refActionHasNearbyEnemies, refActionReclaimFriendlyUnit, refActionReclaimTrees, refActionUpgradeBuilding, refActionAssistSMD, refActionAssistTML, refActionAssistMexUpgrade, refActionAssistAirFactory, refActionAssistNavalFactory, refActionUpgradeHQ, refActionAssistNuke, refActionLoadOntoTransport, refActionAssistShield}
 
@@ -366,7 +367,8 @@ tiActionCategory = {
     [refActionBuildAA] = M28UnitInfo.refCategoryStructureAA - categories.EXPERIMENTAL,
     --refActionBuildEmergencyPD - will use custom code as sometimes want T1 PD
     [refActionBuildSecondPD] = M28UnitInfo.refCategoryPD,
-    [refActionBuildEmergencyArti] = M28UnitInfo.refCategoryFixedT2Arti,
+    [refActionBuildEmergencyArti] = M28UnitInfo.refCategoryFixedT2ArtiOnly,
+    [refActionBuildEmergencyBarrageArti] = M28UnitInfo.refCategoryFixedT3BarrageArti,
     [refActionBuildQuantumGateway] = M28UnitInfo.refCategoryQuantumGateway,
     [refActionBuildQuantumOptics] = M28UnitInfo.refCategoryQuantumOptics,
     [refActionBuildSecondLandFactory] = M28UnitInfo.refCategoryLandFactory,
@@ -428,6 +430,7 @@ tiActionOrder = {
     [refActionBuildEmergencyPD] = M28Orders.refiOrderIssueBuild,
     [refActionBuildSecondPD] = M28Orders.refiOrderIssueBuild,
     [refActionBuildEmergencyArti] = M28Orders.refiOrderIssueBuild,
+    [refActionBuildEmergencyBarrageArti] = M28Orders.refiOrderIssueBuild,
     [refActionBuildQuantumGateway] = M28Orders.refiOrderIssueBuild,
     [refActionBuildQuantumOptics] = M28Orders.refiOrderIssueBuild,
     [refActionBuildSecondLandFactory] = M28Orders.refiOrderIssueBuild,
@@ -1858,7 +1861,7 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
                     break
                 end
             end
-        elseif iOptionalEngineerAction == refActionBuildEmergencyArti and EntityCategoryContains(M28UnitInfo.refCategoryFixedT2Arti + M28UnitInfo.refCategoryFixedT3Arti, sBlueprintToBuild) and tLZData and tLZTeamData then
+        elseif (iOptionalEngineerAction == refActionBuildEmergencyArti or iOptionalEngineerAction == refActionBuildEmergencyBarrageArti) and EntityCategoryContains(M28UnitInfo.refCategoryFixedT2Arti + M28UnitInfo.refCategoryFixedT3Arti, sBlueprintToBuild) and tLZData and tLZTeamData then
             --Place artillery behind the frontline PD so it sits under the PD/shield layer instead of in front.
             local tEnemyAnchor = tLZTeamData[M28Map.reftClosestEnemyBase]
             if M28Utilities.IsTableEmpty(tEnemyAnchor) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoNearestDFEnemies]) == false then
@@ -1889,7 +1892,7 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
                     if oFrontPD then
                         local tFrontPDPos = oFrontPD:GetPosition()
                         local iBehindDistance = 10
-                        if EntityCategoryContains(M28UnitInfo.refCategoryFixedT3Arti, sBlueprintToBuild) then iBehindDistance = 14 end
+                        if EntityCategoryContains(M28UnitInfo.refCategoryFixedT3Arti + M28UnitInfo.refCategoryFixedT3BarrageArti, sBlueprintToBuild) then iBehindDistance = 14 end
                         local tBehindPD = M28Utilities.MoveInDirection(tFrontPDPos, M28Utilities.GetAngleFromAToB(tEnemyAnchor, tFrontPDPos), iBehindDistance, true, false, true)
                         local iFrontPDPlateau = NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, tFrontPDPos)
                         if NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, tBehindPD) == iFrontPDPlateau then
@@ -5295,7 +5298,7 @@ function FilterToAvailableEngineersByTech(tEngineers, bInCoreZone, tLZData, tLZT
                         bConsiderReclaimableEnemiesInBuildRangeOnly = false
 
                         --If engi is building emergency PD or Arti or torp launcher then dont run
-                        if not(oEngineer[refiAssignedAction] == refActionBuildEmergencyPD or oEngineer[refiAssignedAction] == refActionBuildSecondPD or oEngineer[refiAssignedAction] == refActionBuildEmergencyArti or oEngineer[refiAssignedAction] == refActionBuildWall or oEngineer[refiAssignedAction] == refActionBuildT1TorpLauncher or oEngineer[refiAssignedAction] == refActionBuildTorpLauncher) then
+                        if not(oEngineer[refiAssignedAction] == refActionBuildEmergencyPD or oEngineer[refiAssignedAction] == refActionBuildSecondPD or oEngineer[refiAssignedAction] == refActionBuildEmergencyArti or oEngineer[refiAssignedAction] == refActionBuildEmergencyBarrageArti or oEngineer[refiAssignedAction] == refActionBuildWall or oEngineer[refiAssignedAction] == refActionBuildT1TorpLauncher or oEngineer[refiAssignedAction] == refActionBuildTorpLauncher) then
                             --Is the engineer reclaiming an engineer or combat unit, or alternatively building something whose fraction complete is almost done?
                             if oEngineer:IsUnitState('Reclaiming') then
                                 local oReclaimTarget = oEngineer:GetFocusUnit()
@@ -5787,6 +5790,58 @@ function FilterToAvailableEngineersByTech(tEngineers, bInCoreZone, tLZData, tLZT
     if bHaveAvailableEngi then return toAvailableEngineersByTech, toAssignedEngineers
     else return nil, toAssignedEngineers
     end
+end
+
+local function GetEmergencyStaticArtiBuildAction(iTeam, tLZData, tLZTeamData, iOptionalThreatWanted)
+    local iTrueT2ArtiCount = 0
+    local iBarrageArtiCount = 0
+    local bHaveBarrageUnderConstruction = false
+    if not(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])) then
+        for iUnit, oUnit in tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits] do
+            if M28UnitInfo.IsUnitValid(oUnit) then
+                if EntityCategoryContains(M28UnitInfo.refCategoryFixedT3BarrageArti, oUnit.UnitId) then
+                    iBarrageArtiCount = iBarrageArtiCount + 1
+                    if oUnit:GetFractionComplete() < 1 then
+                        bHaveBarrageUnderConstruction = true
+                    end
+                elseif EntityCategoryContains(M28UnitInfo.refCategoryFixedT2ArtiOnly, oUnit.UnitId) and oUnit:GetFractionComplete() == 1 then
+                    iTrueT2ArtiCount = iTrueT2ArtiCount + 1
+                end
+            end
+        end
+    end
+
+    if bHaveBarrageUnderConstruction then
+        return refActionBuildEmergencyBarrageArti, iTrueT2ArtiCount, iBarrageArtiCount, true
+    end
+
+    local iActiveBrains = math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1)
+    local iNearbyLRThreat = math.max(iOptionalThreatWanted or 0, (tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeDFThreat] or 0) + (tLZTeamData[M28Map.subrefiNearbyEnemyLongRangeIFThreat] or 0))
+    local iT3MexCount = (tLZTeamData[M28Map.subrefMexCountByTech][3] or 0)
+    local iTeamGrossMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0
+    local bStrongEco = iTeamGrossMass >= 10 * iActiveBrains and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])
+    local bEnemyFirebase = not(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftEnemyFirebasesInRange]))
+    local bEnemyT2Arti = not(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoAllNearbyEnemyT2ArtiUnits]))
+    local bForwardZone = (tLZTeamData[M28Map.refiModDistancePercent] or 0) >= 0.18 and not(tLZTeamData[M28Map.refbBaseInSafePosition])
+    local iMaxBarrageWanted = 0
+
+    if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 3 and iT3MexCount >= 1 and bStrongEco then
+        if tLZTeamData[M28Map.subrefLZbCoreBase] and (bEnemyFirebase or bEnemyT2Arti or iNearbyLRThreat >= 3500) then
+            iMaxBarrageWanted = 1
+        end
+        if tLZTeamData[M28Map.subrefLZbCoreBase] and iT3MexCount >= 2 and iTeamGrossMass >= 18 * iActiveBrains and (iNearbyLRThreat >= 9000 or (bEnemyFirebase and iNearbyLRThreat >= 4500)) then
+            iMaxBarrageWanted = 2
+        elseif bForwardZone and iT3MexCount >= 2 and iTeamGrossMass >= 14 * iActiveBrains and (bEnemyFirebase or bEnemyT2Arti or iNearbyLRThreat >= 7000) then
+            iMaxBarrageWanted = 1
+        end
+    end
+
+    local iTrueT2SupportNeededForNextBarrage = 2 + iBarrageArtiCount * 2
+    if iBarrageArtiCount < iMaxBarrageWanted and iTrueT2ArtiCount >= iTrueT2SupportNeededForNextBarrage then
+        return refActionBuildEmergencyBarrageArti, iTrueT2ArtiCount, iBarrageArtiCount, false
+    end
+
+    return refActionBuildEmergencyArti, iTrueT2ArtiCount, iBarrageArtiCount, false
 end
 
 function GetCategoryToBuildOrAssistFromAction(iActionToAssign, iMinTechLevel, aiBrain, tbEngineersOfFactionOrNilIfAlreadyAssigned, tLZOrWZData, tLZOrWZTeamData, iPlateauOrZero, iLandOrWaterZone)
@@ -11822,7 +11877,7 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                                             M28Utilities.DelayChangeVariable(vOptionalVariable, refiFailedShieldConstructionCount, -1, 180, nil, nil, nil, nil, true)
                                         end
                                     end
-                                elseif vOptionalVariable and (iActionToAssign == refActionBuildEmergencyPD or iActionToAssign == refActionBuildSecondPD or iActionToAssign == refActionBuildEmergencyArti or iActionToAssign == refActionBuildT1TorpLauncher or iActionToAssign == refActionBuildTorpLauncher) then
+                                elseif vOptionalVariable and (iActionToAssign == refActionBuildEmergencyPD or iActionToAssign == refActionBuildSecondPD or iActionToAssign == refActionBuildEmergencyArti or iActionToAssign == refActionBuildEmergencyBarrageArti or iActionToAssign == refActionBuildT1TorpLauncher or iActionToAssign == refActionBuildTorpLauncher) then
                                     --GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAction, iCategoryToBuild, iMaxAreaToSearch, iCatToBuildBy,                tAlternativePositionToLookFrom, bNotYetUsedLookForQueuedBuildings, oUnitToBuildBy, iOptionalCategoryForStructureToBuild, bBuildCheapestStructure, tLZData, tLZTeamData, bCalledFromGetBestLocation, sBlueprintOverride)
                                     sBlueprint, tBuildLocation = GetBlueprintAndLocationToBuild(aiBrain, oFirstEngineer, iActionToAssign, iCategoryWanted, iMaxSearchRange, tiActionAdjacentCategory[iActionToAssign], vOptionalVariable,       false,                              nil,             nil,                                   bGetCheapest,                   tLZOrWZData, tLZOrWZTeamData)
                                     if bDebugMessages == true then
@@ -16846,6 +16901,9 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                 if iT2ArtiCount < iT2ArtiWanted then
                     iBPWanted = 50
                     if not(bHaveLowMass) and not(bHaveLowPower) then iBPWanted = 120 end
+                    local iArtiActionToAssign, iTrueT2ArtiCount, iBarrageArtiCount, bHaveBarrageUnderConstruction = GetEmergencyStaticArtiBuildAction(iTeam, tLZData, tLZTeamData, iTotalNearbyWaterThreat)
+                    local iArtiMinTechWanted = 2
+                    if iArtiActionToAssign == refActionBuildEmergencyBarrageArti and not(bHaveBarrageUnderConstruction) then iArtiMinTechWanted = 3 end
 
                     local tLocationToBuild
                     if iT2ArtiCount >= 3 and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) then
@@ -16856,8 +16914,8 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                     else
                         tLocationToBuild = {tLZData[M28Map.subrefMidpoint][1], tLZData[M28Map.subrefMidpoint][2], tLZData[M28Map.subrefMidpoint][3]}
                     end
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Getting T2 arti to deal with enemy navy') end
-                    HaveActionToAssign(refActionBuildEmergencyArti, 2, iBPWanted, tLocationToBuild)
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Getting emergency static arti to deal with enemy navy, iArtiActionToAssign='..iArtiActionToAssign..'; iT2ArtiCount='..iT2ArtiCount..'; iT2ArtiWanted='..iT2ArtiWanted..'; iTrueT2ArtiCount='..iTrueT2ArtiCount..'; iBarrageArtiCount='..iBarrageArtiCount..'; bHaveBarrageUnderConstruction='..tostring(bHaveBarrageUnderConstruction)) end
+                    HaveActionToAssign(iArtiActionToAssign, iArtiMinTechWanted, iBPWanted, tLocationToBuild)
                 end
             end
         end
@@ -23848,7 +23906,7 @@ function GiveOrderForEmergencyT2Arti(HaveActionToAssign, bHaveLowMass, bHaveLowP
                     --Get friendly T2 arti threat
                     local iT2ArtiThreat = 0
                     local iT2ArtiCount = 0
-                    local iT3ArtiCount = 0
+                    local iBarrageArtiCount = 0
                     local toT2ArtiWantingShields = {}
                     local toT2ArtiWithDownedShields = {}
                     local toPartCompleteShields = {}
@@ -23901,11 +23959,11 @@ function GiveOrderForEmergencyT2Arti(HaveActionToAssign, bHaveLowMass, bHaveLowP
                             end
                         end
                     end
-                    local tT3Arti = EntityCategoryFilterDown(M28UnitInfo.refCategoryFixedT2Arti * categories.TECH3, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
-                    if M28Utilities.IsTableEmpty(tT3Arti) == false then
-                        for iArti, oArti in tT3Arti do
+                    local tBarrageArti = EntityCategoryFilterDown(M28UnitInfo.refCategoryFixedT3BarrageArti, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
+                    if M28Utilities.IsTableEmpty(tBarrageArti) == false then
+                        for iArti, oArti in tBarrageArti do
                             if M28UnitInfo.IsUnitValid(oArti) and oArti:GetFractionComplete() == 1 then
-                                iT3ArtiCount = iT3ArtiCount + 1
+                                iBarrageArtiCount = iBarrageArtiCount + 1
                             end
                         end
                     end
@@ -23923,22 +23981,11 @@ function GiveOrderForEmergencyT2Arti(HaveActionToAssign, bHaveLowMass, bHaveLowP
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Not fired t2 arti recently so reducing threat further') end
                     end
                     local iNetThreatWanted = iThreatWanted - iT2ArtiThreat
-                    local iMinT2ArtiCountWanted = 0
-                    if iT3ArtiCount >= 1 then
-                        iMinT2ArtiCountWanted = 4
-                        if iT3ArtiCount >= 2 then iMinT2ArtiCountWanted = 6 end
-                    end
-                    if iMinT2ArtiCountWanted > 0 and iT2ArtiCount < iMinT2ArtiCountWanted and (not(bHaveLowMass and bHaveLowPower) or tLZTeamData[M28Map.subrefMexCountByTech][3] > 0) then
-                        local iThreatPerArtiWanted = 700
-                        if not(bHaveLowMass) and not(bHaveLowPower) then iThreatPerArtiWanted = 900 end
-                        iNetThreatWanted = math.max(iNetThreatWanted, (iMinT2ArtiCountWanted - iT2ArtiCount) * iThreatPerArtiWanted)
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Increasing T2 arti demand due to in-zone T3 arti, iT3ArtiCount='..iT3ArtiCount..'; iT2ArtiCount='..iT2ArtiCount..'; iMinT2ArtiCountWanted='..iMinT2ArtiCountWanted..'; iNetThreatWanted='..iNetThreatWanted) end
-                    end
                     iBPWanted = 240 --default
                     local bAreBuildingShieldOrTML = false
                     local iTMLBPWanted = 0
                     if tLZTeamData[M28Map.refbGetTMLBattery] and (not(M28Team.tTeamData[iTeam][M28Team.refbTMLBatteryMissedLots]) or iT2ArtiCount >= 6 or (iT2ArtiCount >= 3 and (M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoTMLBatteryUnits]) or table.getn(tLZTeamData[M28Map.reftoTMLBatteryUnits]) <= iT2ArtiCount))) then iTMLBPWanted = GetBPToAssignToBuildingTML(tLZData, tLZTeamData, iPlateau, iLandZone, iTeam, bHaveLowMass) end
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iT2ArtiThreat='..iT2ArtiThreat..'; iThreatWanted='..iThreatWanted..'; iNetThreatWanted='..iNetThreatWanted..'; iLongRangeFurtherAwayThreat='..iLongRangeFurtherAwayThreat..'; Threat rating of all nearby enemy T2 arti='..M28UnitInfo.GetMassCostOfUnits(tLZTeamData[M28Map.subreftoAllNearbyEnemyT2ArtiUnits], true)..'; iLongRangeFurtherAwayThreat='..iLongRangeFurtherAwayThreat..'; iTMLBPWanted='..(iTMLBPWanted or 'nil')) end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iT2ArtiThreat='..iT2ArtiThreat..'; iThreatWanted='..iThreatWanted..'; iNetThreatWanted='..iNetThreatWanted..'; iLongRangeFurtherAwayThreat='..iLongRangeFurtherAwayThreat..'; Threat rating of all nearby enemy T2 arti='..M28UnitInfo.GetMassCostOfUnits(tLZTeamData[M28Map.subreftoAllNearbyEnemyT2ArtiUnits], true)..'; iLongRangeFurtherAwayThreat='..iLongRangeFurtherAwayThreat..'; iTMLBPWanted='..(iTMLBPWanted or 'nil')..'; iBarrageArtiCount='..iBarrageArtiCount) end
                     if iT2ArtiThreat > 0 and tLZTeamData[M28Map.refiRadarCoverage] <= math.min(60, M28UnitInfo.iT1RadarSize - 20) then
                         if tLZTeamData[M28Map.subrefLZbCoreBase] then
                             HaveActionToAssign(refActionBuildT2Radar, 2, iBPWanted)
@@ -24138,8 +24185,11 @@ function GiveOrderForEmergencyT2Arti(HaveActionToAssign, bHaveLowMass, bHaveLowP
                             else
                                 tLocationToBuild = {tLZData[M28Map.subrefMidpoint][1], tLZData[M28Map.subrefMidpoint][2], tLZData[M28Map.subrefMidpoint][3]}
                             end
-                            HaveActionToAssign(refActionBuildEmergencyArti, 2, iBPWanted, tLocationToBuild)
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want to build emergency arti, iBPWanted='..iBPWanted) end
+                            local iArtiActionToAssign, iTrueT2ArtiCount, iBarrageArtiCount, bHaveBarrageUnderConstruction = GetEmergencyStaticArtiBuildAction(iTeam, tLZData, tLZTeamData, iThreatWanted)
+                            local iArtiMinTechWanted = 2
+                            if iArtiActionToAssign == refActionBuildEmergencyBarrageArti and not(bHaveBarrageUnderConstruction) then iArtiMinTechWanted = 3 end
+                            HaveActionToAssign(iArtiActionToAssign, iArtiMinTechWanted, iBPWanted, tLocationToBuild)
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want to build emergency arti, iArtiActionToAssign='..iArtiActionToAssign..'; iTrueT2ArtiCount='..iTrueT2ArtiCount..'; iBarrageArtiCount='..iBarrageArtiCount..'; bHaveBarrageUnderConstruction='..tostring(bHaveBarrageUnderConstruction)..'; iBPWanted='..iBPWanted) end
                         end
 
                     end

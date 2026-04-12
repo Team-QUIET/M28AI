@@ -248,7 +248,9 @@ refCategoryT2PlusPD = refCategoryPD - categories.TECH1
 refCategoryT3PD = refCategoryPD * categories.TECH3
 refCategoryTMD = categories.STRUCTURE * categories.ANTIMISSILE - categories.SILO * categories.TECH3 --Not perfect but should pick up most TMD without picking up SMD
 refCategoryFixedShield = categories.SHIELD * categories.STRUCTURE
-refCategoryFixedT2Arti = categories.STRUCTURE * categories.INDIRECTFIRE * categories.ARTILLERY * categories.TECH2 - categories.TACTICALMISSILEPLATFORM + categories.STRUCTURE * categories.INDIRECTFIRE * categories.ARTILLERY * categories.TECH3 * categories.SIZE8 --done so mods like LOUD that add a t3 smaller arti can be built as well
+refCategoryFixedT2ArtiOnly = categories.STRUCTURE * categories.INDIRECTFIRE * categories.ARTILLERY * categories.TECH2 - categories.TACTICALMISSILEPLATFORM
+refCategoryFixedT3BarrageArti = categories.STRUCTURE * categories.INDIRECTFIRE * categories.ARTILLERY * categories.TECH3 * categories.SIZE8 --Used for smaller T3 barrage-style artillery pieces in mods like QUIET/LOUD
+refCategoryFixedT2Arti = refCategoryFixedT2ArtiOnly + refCategoryFixedT3BarrageArti --Kept as the broad "emergency static indirect" bucket for shared threat/defence logic
 refCategoryFixedT3Arti = categories.STRUCTURE * categories.INDIRECTFIRE * categories.ARTILLERY * categories.TECH3 - categories.SIZE8 --done to support mods (like in LOUD) that add a t3 arti unit like the t2 arti unit (rather than like a duke)
 
 
@@ -1285,9 +1287,9 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                                 end
                                 if EntityCategoryContains(refCategoryStructure, oUnit.UnitId) then
                                     --T2 arti - reduce its value because it sucks
-                                    if EntityCategoryContains(refCategoryFixedT2Arti, oUnit.UnitId) then
+                                    if EntityCategoryContains(refCategoryFixedT2ArtiOnly, oUnit.UnitId) then
                                         iMassMod = iMassMod * 0.6
-                                    elseif EntityCategoryContains(refCategoryFixedT2Arti * categories.TECH3, oUnit.UnitId) then
+                                    elseif EntityCategoryContains(refCategoryFixedT3BarrageArti, oUnit.UnitId) then
                                         iMassMod = iMassMod * 0.3
                                     elseif EntityCategoryContains(refCategoryStructureAA * categories.TECH1, oUnit.UnitId) then
                                         iMassMod = iMassMod * 1.5
