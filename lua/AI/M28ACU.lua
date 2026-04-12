@@ -198,13 +198,71 @@ local function ResolveACURetreatPoint(oACU, iTeam, iPlateauOrZero, iLandOrWaterZ
     return tResolvedPoint, 'Default', bDefaultUnsafe
 end
 
+local function ShouldACUPreferBaseRetreatWhenArmiesClash(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
+    local sFunctionRef = 'ShouldACUPreferBaseRetreatWhenArmiesClash'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelACU, sFunctionRef)
+    if iPlateauOrZero <= 0 or iLandOrWaterZone <= 0 then return false end
+    if tLZOrWZTeamData[M28Map.subrefLZbCoreBase] then return false end
+    if not(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase]) then return false end
+
+    local iDistToFriendlyBase = M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])
+    if iDistToFriendlyBase > 150 and (tLZOrWZTeamData[M28Map.refiModDistancePercent] or 0) > 0.2 then return false end
+
+    local iNearbyAllyCombatThreat = tLZOrWZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+    local iNearbyEnemyCombatThreat = tLZOrWZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+    local tiVisitedZones = {[iLandOrWaterZone] = true}
+    if M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subrefLZAdjacentLandZones]) == false then
+        for _, iAdjLZ in tLZOrWZData[M28Map.subrefLZAdjacentLandZones] do
+            tiVisitedZones[iAdjLZ] = true
+            local tAdjLZData = M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iAdjLZ]
+            local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][oACU:GetAIBrain().M28Team]
+            iNearbyAllyCombatThreat = iNearbyAllyCombatThreat + (tAdjLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) * 0.8
+            iNearbyEnemyCombatThreat = iNearbyEnemyCombatThreat + (tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) * 0.8
+
+            if M28Utilities.IsTableEmpty(tAdjLZData[M28Map.subrefLZAdjacentLandZones]) == false then
+                for _, iAdjLZ2 in tAdjLZData[M28Map.subrefLZAdjacentLandZones] do
+                    if not(tiVisitedZones[iAdjLZ2]) then
+                        tiVisitedZones[iAdjLZ2] = true
+                        local tAdjLZ2TeamData = M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iAdjLZ2][M28Map.subrefLZTeamData][oACU:GetAIBrain().M28Team]
+                        iNearbyAllyCombatThreat = iNearbyAllyCombatThreat + (tAdjLZ2TeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) * 0.35
+                        iNearbyEnemyCombatThreat = iNearbyEnemyCombatThreat + (tAdjLZ2TeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) * 0.35
+                    end
+                end
+            end
+        end
+    end
+
+    if iNearbyAllyCombatThreat < 14000 or iNearbyEnemyCombatThreat < 9000 then return false end
+    if iNearbyAllyCombatThreat + iNearbyEnemyCombatThreat < 28000 then return false end
+
+    local iACUThreat = oACU[M28UnitInfo.refiDFMassThreatOverride] or M28UnitInfo.GetCombatThreatRating({oACU}, false) or 0
+    if HasMeaningfulUpgradeLeadForACUStrength(oACU, oACU:GetAIBrain().M28Team, 0.95, 1) and iACUThreat >= 2500 and M28UnitInfo.GetUnitHealthAndShieldPercent(oACU) >= 0.95 then
+        return false
+    end
+    if bDebugMessages == true then
+        M28Profiler.DebugLog(
+            tDebugContext,
+            sFunctionRef..': Promoting ACU retreat to core base due to nearby army clash; ally combat='..iNearbyAllyCombatThreat
+            ..'; enemy combat='..iNearbyEnemyCombatThreat
+            ..'; dist to base='..iDistToFriendlyBase
+            ..'; moddist='..(tLZOrWZTeamData[M28Map.refiModDistancePercent] or 'nil')
+        )
+    end
+    return true
+end
+
 local function GetACURetreatDecisionState(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
     local bWantCoreBase = DoesACUWantToReturnToCoreBase(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
     local bRawWantRun = DoesACUWantToRun(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
+    local bPreferBaseRetreat = false
+    if not(bWantCoreBase) and bRawWantRun then
+        bPreferBaseRetreat = ShouldACUPreferBaseRetreatWhenArmiesClash(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
+    end
     return {
-        bWantCoreBase = bWantCoreBase,
+        bWantCoreBase = bWantCoreBase or bPreferBaseRetreat,
         bWantRun = bWantCoreBase or bRawWantRun,
         bRawWantRun = bRawWantRun,
+        bPreferBaseRetreat = bPreferBaseRetreat,
     }
 end
 
@@ -332,6 +390,7 @@ local function IssueACURetreatOrder(oACU, iPlateauOrZero, iLandOrWaterZone, tLZO
     local bDisableMexesAndReclaim = tArgs.bDisableMexesAndReclaim or false
     local bDisableAttackMove = tArgs.bDisableAttackMove or false
     local bOverrideMicroOrder = tArgs.bOverrideMicroOrder or false
+    local bPreferBaseRetreat = tArgs.bPreferBaseRetreat or false
     local sMoveOrderRef = tArgs.sMoveOrderRef or 'RunRP'
     local sAttackMoveOrderRef = tArgs.sAttackMoveOrderRef or 'RunARP'
 
@@ -437,7 +496,7 @@ local function IssueACURetreatOrder(oACU, iPlateauOrZero, iLandOrWaterZone, tLZO
         tLZOrWZTeamData,
         tRallyPoint,
         oPrimaryRetreatEnemy,
-        M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.5 or M28Team.tTeamData[iTeam][M28Team.refbDangerousForACUs]
+        bPreferBaseRetreat or M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.5 or M28Team.tTeamData[iTeam][M28Team.refbDangerousForACUs]
     )
     if tResolvedRallyPoint then
         tRallyPoint = tResolvedRallyPoint
