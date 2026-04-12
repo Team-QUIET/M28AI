@@ -11378,7 +11378,8 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to remove BP wanted for experimental construction if we already have one under construction nearby that has recently started, or are about to start construction, and we cant support multiple at once, and dont have one in this zone') end
             local bProtectLandExperimentalReserve = false
             if iActionToAssign == refActionBuildLandExperimental and not(bIsWaterZone) then
-                bProtectLandExperimentalReserve = ShouldMaintainLandExperimentalConstruction(iTeam, iPlateauOrPond, iLandOrWaterZone, aiBrain.M28AirSubteam)
+                local aiBrainLocal = ArmyBrains[tLZOrWZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
+                bProtectLandExperimentalReserve = ShouldMaintainLandExperimentalConstruction(iTeam, iPlateauOrPond, iLandOrWaterZone, aiBrainLocal and aiBrainLocal.M28AirSubteam)
             end
             if not(bProtectLandExperimentalReserve) and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamEngineersBuildingExperimentals]) == false and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] < 400 then
                 --Do we have negative mass income, or have less than 70% mass stored? Also only consider for land experimentals (not navy) for now:
