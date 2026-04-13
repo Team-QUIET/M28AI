@@ -2930,7 +2930,7 @@ function OnConstructed(oEngineer, oJustBuilt)
                             if bDebugMessages == true then
                                 LOG(sFunctionRef..': A factory has just built a unit so will get the next order for the factory, oEngineer='..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer))
                             end
-                            ForkThread(M28Factory.DecideAndBuildUnitForFactory, oEngineer:GetAIBrain(), oEngineer)
+                            M28Factory.RegisterCompletedFactoryBuild(oEngineer, oJustBuilt.UnitId)
                             --Treat the unit just built as having micro active so it doesn't receive orders for a couple of seconds (so it can clear the factory)
                             if EntityCategoryContains(M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryNavalFactory + M28UnitInfo.refCategoryMobileLandFactory, oEngineer.UnitId) and EntityCategoryContains(categories.MOBILE - categories.AIR, oJustBuilt.UnitId) then
                                 --Also give unit a move order (queued onto its existing order)
@@ -2960,14 +2960,7 @@ function OnConstructed(oEngineer, oJustBuilt)
                                 end
                             end
 
-
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if we want to clear refiFirstTimeOfLastOrder='..(oEngineer[M28Factory.refiFirstTimeOfLastOrder] or 'nil')..' for facotyr '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..' at game time '..GetGameTimeSeconds()) end
-                            if oEngineer[M28Factory.refiFirstTimeOfLastOrder] and GetGameTimeSeconds() - oEngineer[M28Factory.refiFirstTimeOfLastOrder] > 0.1 then
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Clearing refiFirstTimeOfLastOrder for the factory') end
-                                oEngineer[M28Factory.refiFirstTimeOfLastOrder] = nil
-                            end --Clear time as only want to use this to track incase have blocking unit
-                            oEngineer[M28Factory.refiTotalBuildCount] = (oEngineer[M28Factory.refiTotalBuildCount] or 0) + 1
-                            oEngineer:GetAIBrain()[M28Factory.refiHighestFactoryBuildCount] = math.max((oEngineer:GetAIBrain()[M28Factory.refiHighestFactoryBuildCount] or 0), (oEngineer[M28Factory.refiTotalBuildCount] or 0))
+                            ForkThread(M28Factory.DecideAndBuildUnitForFactory, oEngineer:GetAIBrain(), oEngineer)
                             --If T3 support factory just built a T1 unit, then consider gifting it to a teammate
                             if EntityCategoryContains(M28UnitInfo.categories.SUPPORTFACTORY * categories.TECH3, oEngineer.UnitId) and EntityCategoryContains(categories.TECH1, oJustBuilt.UnitId) then
                                 --Do we lack HQs for this brain and are dealing with an air or naval fac (since land fac should rebuild anyway)
@@ -3860,6 +3853,7 @@ function OnCreate(oUnit, bIgnoreMapSetup)
                         if EntityCategoryContains(M28UnitInfo.refCategoryFactory + M28UnitInfo.refCategoryQuantumGateway + M28UnitInfo.refCategoryMobileLandFactory + M28UnitInfo.refCategorySpecialFactory + M28UnitInfo.refCategoryMobileAircraftFactory + categories.EXTERNALFACTORYUNIT, oUnit.UnitId) then
                         --If have been gifted factory or created via cheat then want to start building something
                             oUnit[M28Factory.refiTotalBuildCount] = 0
+                            oUnit[M28Factory.refiBuildCountByBlueprint] = {}
                             if oUnit:GetFractionComplete() >= 1 then
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Calling logic to try and build something from this factory') end
                                 ForkThread(M28Factory.DecideAndBuildUnitForFactory, oUnit:GetAIBrain(), oUnit)
