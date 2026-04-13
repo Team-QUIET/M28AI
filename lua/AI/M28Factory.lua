@@ -59,6 +59,8 @@ local iMaxStandardFactoryQueueDepth = 12
 
 local DoesT1LandFactoryPassAttackAirGate
 local GetMaxT1MAACount
+local GetPreferredLandMAACategory
+local GetPreferredLowTechGunshipResponseMAACategory
 
 local function GetFactoryEcoState(aiBrain, iTeam)
     iTeam = iTeam or aiBrain.M28Team
@@ -983,19 +985,10 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
 
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering iPlateau '..iPlateau..'; iTargetLandZone='..iTargetLandZone..'; bInSameIsland='..tostring(bInSameIsland)..'; bDontConsiderBuildingMAA='..tostring(bDontConsiderBuildingMAA)..'; tLZTargetTeamData[M28Map.subrefbLZWantsIndirectSupport]='..tostring(tLZTargetTeamData[M28Map.subrefbLZWantsIndirectSupport])..'; M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]..'; tLZTargetTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]='..tLZTargetTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]..'; subrefLZThreatAllyMAA='..tLZTargetTeamData[M28Map.subrefLZThreatAllyMAA]..'; tLZTargetTeamData[M28Map.subrefLZMAAThreatWanted]='..tLZTargetTeamData[M28Map.subrefLZMAAThreatWanted]..'; tLZTargetTeamData[M28Map.subrefbLZWantsSupport]='..tostring(tLZTargetTeamData[M28Map.subrefbLZWantsSupport])..'; LZ Air to ground enemy threat='..tLZTargetTeamData[M28Map.refiEnemyAirToGroundThreat]..'; tLZTargetTeamData[M28Map.refbLZWantsMobileShield]='..tostring(tLZTargetTeamData[M28Map.refbLZWantsMobileShield])..'; tLZTargetTeamData[M28Map.refbLZWantsMobileStealth]='..tostring(tLZTargetTeamData[M28Map.refbLZWantsMobileStealth])..'; tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ]='..tostring(tLZTargetTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ])..'; bDontConsiderBuildingMAA='..tostring(bDontConsiderBuildingMAA or false)..'; bDontGetIndirect='..tostring(bDontGetIndirect or false)..'; bConsiderMobileShields='..tostring(bConsiderMobileShields)..'; tLZTeamData[M28Map.subrefLZTimeMAARetreatedFromGunships]='..(tLZTargetTeamData[M28Map.subrefLZTimeMAARetreatedFromGunships] or 'nil')) end
 
-    local bUrgentFrontlineScoutWanted = false
-    if not(bDontConsiderLandScouts) and bInSameIsland and tLZTargetTeamData[M28Map.refbWantLandScout] and M28Utilities.IsTableEmpty(tLZTargetTeamData[M28Map.subrefTScoutsTravelingHere]) then
-        local iFrontlineScoutRadarThreshold = math.min(90, M28Land.iIntelThresholdForPriorityScout + 25)
-        if tLZTargetTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]
-                and tLZTargetTeamData[M28Map.refiRadarCoverage] < iFrontlineScoutRadarThreshold
-                and ((tLZTargetTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0) >= 90 or M28Utilities.IsTableEmpty(tLZTargetTeamData[M28Map.reftoUnitsWantingPriorityScouts]) == false) then
-            bUrgentFrontlineScoutWanted = true
-        end
-    end
-
     local iTargetLowTechGunshipCount, iTargetLowTechGunshipPressure, bTargetLowTechGunshipPressure = GetLowTechGunshipPressureAgainstLand(tLZTargetTeamData)
     local iTargetAttackAirThreat, bTargetAttackAirPresent = GetAttackAirThreatAgainstLand(tLZTargetTeamData)
     local bT1LandFactoryAttackAirGatePassed = DoesT1LandFactoryPassAttackAirGate(iFactoryTechLevel, bTargetAttackAirPresent, iTargetAttackAirThreat)
+    local bEnemyHasT3Air = M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3
     if bDebugMessages == true and bTargetLowTechGunshipPressure then
         LOG(sFunctionRef..': Low-tech gunship flak pressure detected for target zone '..iTargetLandZone..'; Count='..iTargetLowTechGunshipCount..'; Pressure='..iTargetLowTechGunshipPressure..'; GroundAA have='..(tLZTargetTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0)..'; Wanted='..(tLZTargetTeamData[M28Map.subrefLZMAAThreatWanted] or 0))
     end
@@ -1004,37 +997,40 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
     end
 
     --Priority scouts
-    if not(bDontConsiderLandScouts) and bInSameIsland and tLZTargetTeamData[M28Map.refbWantLandScout] and M28Utilities.IsTableEmpty(tLZTargetTeamData[M28Map.subrefTScoutsTravelingHere]) and (bUrgentFrontlineScoutWanted or (tLZTargetTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] and GetGameTimeSeconds() - tLZTargetTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] <= 20)) then
+    if not(bDontConsiderLandScouts) and tLZTargetTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] and bInSameIsland and tLZTargetTeamData[M28Map.refbWantLandScout] and (tLZTargetTeamData[M28Map.refiRadarCoverage] or 0) < 60 and M28Utilities.IsTableEmpty(tLZTargetTeamData[M28Map.subrefTScoutsTravelingHere]) and GetGameTimeSeconds() - tLZTargetTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] <= 10 then
         iBaseCategoryWanted = M28UnitInfo.refCategoryLandScout
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Priority land scout requested, bUrgentFrontlineScoutWanted='..tostring(bUrgentFrontlineScoutWanted)..'; Radar coverage='..(tLZTargetTeamData[M28Map.refiRadarCoverage] or 'nil')..'; Allied combat threat='..(tLZTargetTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 'nil')) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We recently failed to get a land scout for this zone so want to get one now') end
     end
 
     --MAA due to units retreating from gunships recently
     if not(bDontConsiderBuildingMAA) and tLZTargetTeamData[M28Map.subrefLZTimeMAARetreatedFromGunships] and GetGameTimeSeconds() - tLZTargetTeamData[M28Map.subrefLZTimeMAARetreatedFromGunships] <= 20 then
-        local bEnemyHasT3Air = M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3
         local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
         if iFactoryTechLevel == 1 and not(bT1LandFactoryAttackAirGatePassed) then
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': T1_ATTACK_AIR_GATE - Skipping MAA0 because target zone lacks 750+ bomber/gunship threat') end
         elseif bEnemyHasT3Air and iFactoryTechLevel < 3 then
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': MAA_TIGHTEN - Skipping MAA0 (enemy has T3 air, T2 MAA ineffective)') end
         else
-            if M28Conditions.WantT3MAAInsteadOfT2(oFactory, iTeam) then
-                iBaseCategoryWanted = M28UnitInfo.refCategoryMAA
-            else
-                iBaseCategoryWanted = M28UnitInfo.refCategoryMAA - categories.TECH3
-            end
+            iBaseCategoryWanted = GetPreferredLandMAACategory(oFactory, iTeam, false, true)
             if not(bInSameIsland) then iBaseCategoryWanted = iBaseCategoryWanted * M28UnitInfo.refCategoryAmphibious + iBaseCategoryWanted * categories.HOVER end
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will get MAA0') end
         end
     end
 
     --Low-tech gunships pressuring land units: bias earlier to T2 flak if we can build it
-    if not(iBaseCategoryWanted) and M28UnitInfo.GetUnitTechLevel(oFactory) >= 2 and ((not(bDontConsiderBuildingMAA)) or bTargetLowTechGunshipPressure) and bTargetLowTechGunshipPressure then
+    if not(iBaseCategoryWanted) and M28UnitInfo.GetUnitTechLevel(oFactory) >= 2 and not(bDontConsiderBuildingMAA) and bTargetLowTechGunshipPressure then
         local iFlakNeedThreshold = math.max((tLZTargetTeamData[M28Map.subrefLZMAAThreatWanted] or 0), iTargetLowTechGunshipPressure, 350 + 140 * iTargetLowTechGunshipCount)
-        if (tLZTargetTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0) < iFlakNeedThreshold or not(bHaveLowMass) then
-            iBaseCategoryWanted = M28UnitInfo.refCategoryMAA * categories.TECH2
+        local iGroundAAHave = tLZTargetTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0
+        local iFlakShortfall = iFlakNeedThreshold - iGroundAAHave
+        local bUsingT3LowTechGunshipResponse = false
+        if iFlakShortfall >= math.max(75, math.floor(iFlakNeedThreshold * 0.2)) then
+            iBaseCategoryWanted, bUsingT3LowTechGunshipResponse = GetPreferredLowTechGunshipResponseMAACategory(oFactory, iTeam, iTargetLowTechGunshipCount, iTargetLowTechGunshipPressure, iTargetAttackAirThreat)
+            if not(iBaseCategoryWanted) then
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': LOW_TECH_GUNSHIP_FLAK - Skipping T2 flak bias because team is behind on air versus T3 air and local low-tech gunship pressure is not severe enough') end
+            end
+        end
+        if iBaseCategoryWanted then
             if not(bInSameIsland) then iBaseCategoryWanted = iBaseCategoryWanted * M28UnitInfo.refCategoryAmphibious + iBaseCategoryWanted * categories.HOVER end
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': LOW_TECH_GUNSHIP_FLAK - Prioritising T2 flak for land units under T1/T2 gunship pressure. NeedThreshold='..iFlakNeedThreshold..'; Have='..(tLZTargetTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0)..'; Count='..iTargetLowTechGunshipCount) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': LOW_TECH_GUNSHIP_FLAK - Prioritising flak response for land units under T1/T2 gunship pressure. NeedThreshold='..iFlakNeedThreshold..'; Have='..iGroundAAHave..'; Shortfall='..iFlakShortfall..'; Count='..iTargetLowTechGunshipCount..'; UsingT3='..tostring(bUsingT3LowTechGunshipResponse)) end
         end
     end
 
@@ -1079,11 +1075,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': MAA_TIGHTEN - Skipping MAA1, building indirect instead (enemy has T3 air, T2 MAA ineffective)') end
                 bWantMAANotIndirect = false
             else
-                if M28Conditions.WantT3MAAInsteadOfT2(oFactory, iTeam) then
-                    iBaseCategoryWanted = M28UnitInfo.refCategoryMAA
-                else
-                    iBaseCategoryWanted = M28UnitInfo.refCategoryMAA - categories.TECH3
-                end
+                iBaseCategoryWanted = GetPreferredLandMAACategory(oFactory, iTeam, false, true)
                 if not(bInSameIsland) then iBaseCategoryWanted = iBaseCategoryWanted * M28UnitInfo.refCategoryAmphibious + iBaseCategoryWanted * categories.HOVER end
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will get MAA1') end
             end
@@ -1198,11 +1190,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
                 if bEnemyHasT3Air and iFactoryTechLevel < 3 then
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': MAA_TIGHTEN - Skipping MAA2 (enemy has T3 air, T2 MAA ineffective)') end
                 else
-                    if M28Conditions.WantT3MAAInsteadOfT2(oFactory, iTeam) then
-                        iBaseCategoryWanted = M28UnitInfo.refCategoryMAA
-                    else
-                        iBaseCategoryWanted = M28UnitInfo.refCategoryMAA - categories.TECH3
-                    end
+                    iBaseCategoryWanted = GetPreferredLandMAACategory(oFactory, iTeam, false, true)
                     if not(bInSameIsland) then iBaseCategoryWanted = iBaseCategoryWanted * M28UnitInfo.refCategoryAmphibious + iBaseCategoryWanted * categories.HOVER end
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will build MAA2') end
                 end
@@ -1551,6 +1539,44 @@ function GetAttackAirThreatAgainstLand(tLZTeamData)
     return tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0, true
 end
 
+local function IsSevereLowTechGunshipPressure(iGunshipCount, iGunshipPressure, iAttackAirThreat)
+    return (iGunshipCount or 0) >= 4 or (iGunshipPressure or 0) >= math.max(550, (iAttackAirThreat or 0) * 0.65)
+end
+
+GetPreferredLandMAACategory = function(oFactory, iTeam, bPreferT2Flak, bAllowT1MAA)
+    local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
+    local bPreferT3MAA = false
+    if iFactoryTechLevel >= 3 then
+        bPreferT3MAA = M28Conditions.WantT3MAAInsteadOfT2(oFactory, iTeam)
+            or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3 and M28Conditions.TeamIsFarBehindOnAir(iTeam))
+    end
+
+    if bPreferT3MAA then
+        return M28UnitInfo.refCategoryMAA, true
+    elseif iFactoryTechLevel <= 1 then
+        return M28UnitInfo.refCategoryMAA * categories.TECH1, false
+    elseif bPreferT2Flak then
+        return M28UnitInfo.refCategoryMAA * categories.TECH2, false
+    elseif bAllowT1MAA then
+        return M28UnitInfo.refCategoryMAA - categories.TECH3, false
+    else
+        return M28UnitInfo.refCategoryMAA - categories.TECH1, false
+    end
+end
+
+GetPreferredLowTechGunshipResponseMAACategory = function(oFactory, iTeam, iGunshipCount, iGunshipPressure, iAttackAirThreat)
+    local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
+    local bEnemyHasT3Air = M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3
+    local bTeamFarBehindOnAir = M28Conditions.TeamIsFarBehindOnAir(iTeam)
+    local bSevereLocalLowTechGunshipPressure = IsSevereLowTechGunshipPressure(iGunshipCount, iGunshipPressure, iAttackAirThreat)
+
+    if bEnemyHasT3Air and iFactoryTechLevel < 3 and (bTeamFarBehindOnAir or not(bSevereLocalLowTechGunshipPressure)) then
+        return nil, false, true
+    end
+
+    return GetPreferredLandMAACategory(oFactory, iTeam, true, false)
+end
+
 DoesT1LandFactoryPassAttackAirGate = function(iFactoryTechLevel, bAttackAirPresent, iAttackAirThreat)
     return iFactoryTechLevel >= 2 or (bAttackAirPresent and iAttackAirThreat >= 750)
 end
@@ -1860,6 +1886,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bDontConsiderLandScouts='..tostring(bDontConsiderLandScouts or false)..'; M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauIslandTimeLastFailedLandScoutByTeam][iTeam][tLZData[M28Map.subrefLZIslandRef]]='..(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauIslandTimeLastFailedLandScoutByTeam][iTeam][tLZData[M28Map.subrefLZIslandRef]] or 'nil')) end
     local bDontConsiderBuildingMAA = false
     local iEnemyLowTechGunshipCountInZone, iEnemyLowTechGunshipPressureInZone, bEnemyLowTechGunshipsPressuringLandInZone = GetLowTechGunshipPressureAgainstLand(tLZTeamData)
+    local bSevereLowTechGunshipsPressuringLandInZone = IsSevereLowTechGunshipPressure(iEnemyLowTechGunshipCountInZone, iEnemyLowTechGunshipPressureInZone, tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0)
 
     --Don't build T2 MAA when enemy has T3 air
     --T2 MAA is technically efficient but if the enemy has T3 Air, we can assume we have T3 factories
@@ -1869,10 +1896,10 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     if bEnemyHasT3Air and bWeCanOnlyBuildT2OrLowerMAA then
         --Default to not building MAA since T2 flak is ineffective vs T3 air
         bDontConsiderBuildingMAA = true
-        --Exception: Allow T2 MAA if enemy has low-tech gunships actively pressuring land units in this zone
-        if bEnemyLowTechGunshipsPressuringLandInZone then
+        --Exception: Allow T2 MAA only for severe local low-tech gunship pressure
+        if bSevereLowTechGunshipsPressuringLandInZone then
             bDontConsiderBuildingMAA = false
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': T3_AIR_FIX - Enemy has T3 air but low-tech gunships are pressuring land units here, allowing T2 flak response. Count='..iEnemyLowTechGunshipCountInZone..'; Pressure='..iEnemyLowTechGunshipPressureInZone) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': T3_AIR_FIX - Enemy has T3 air but severe low-tech gunships are pressuring land units here, allowing T2 flak response. Count='..iEnemyLowTechGunshipCountInZone..'; Pressure='..iEnemyLowTechGunshipPressureInZone) end
         else
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': T3_AIR_FIX - Blocking T2 MAA production because enemy has T3 air and we only have T2 factories - T2 flak is ineffective vs T3 air') end
         end
@@ -1950,23 +1977,26 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     --MAA cannot regain air control - only fighters can. Mass spent on MAA is mass not spent on interceptors.
     --We keep a bit of MAA production per Normander because we might want some MAA to force Air Fights to be more efficient
     if not(M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbHaveAirControl]) and not(M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam]) then
-        if bEnemyLowTechGunshipsPressuringLandInZone then
-            iMinMAARatioFactor = math.max(4, iMinMAARatioFactor * 0.6)
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': LOW_TECH_GUNSHIP_FLAK - Local low-tech gunship pressure, easing MAA suppression. Count='..iEnemyLowTechGunshipCountInZone..'; Pressure='..iEnemyLowTechGunshipPressureInZone..'; factor='..iMinMAARatioFactor) end
+        if bSevereLowTechGunshipsPressuringLandInZone then
+            iMinMAARatioFactor = math.max(7, iMinMAARatioFactor * 0.85)
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': LOW_TECH_GUNSHIP_FLAK - Severe local low-tech gunship pressure, slightly easing MAA suppression. Count='..iEnemyLowTechGunshipCountInZone..'; Pressure='..iEnemyLowTechGunshipPressureInZone..'; factor='..iMinMAARatioFactor) end
+        elseif bEnemyLowTechGunshipsPressuringLandInZone then
+            iMinMAARatioFactor = iMinMAARatioFactor * 1.15
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': LOW_TECH_GUNSHIP_FLAK - Local gunship pressure not severe, keeping stronger MAA suppression. Count='..iEnemyLowTechGunshipCountInZone..'; Pressure='..iEnemyLowTechGunshipPressureInZone..'; factor='..iMinMAARatioFactor) end
         elseif M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbFarBehindOnAir] then
             local bEarlyGameNoAirThreat = GetGameTimeSeconds() <= 600 and
                 M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] == 0 and
                 M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftoAllEnemyAir])
 
             if bEarlyGameNoAirThreat then
-                iMinMAARatioFactor = iMinMAARatioFactor * 1.25
+                iMinMAARatioFactor = iMinMAARatioFactor * 1.5
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': MAA_RATIO_FIX - Early game no air threat, reducing MAA priority (factor='..iMinMAARatioFactor..')') end
             else
-                iMinMAARatioFactor = iMinMAARatioFactor * 1.5
+                iMinMAARatioFactor = iMinMAARatioFactor * 2.25
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': MAA_RATIO_FIX - Far behind on air, significantly reducing MAA priority to save mass for interceptors (factor='..iMinMAARatioFactor..')') end
             end
         else
-            iMinMAARatioFactor = iMinMAARatioFactor * 1.1
+            iMinMAARatioFactor = iMinMAARatioFactor * 1.35
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': MAA_RATIO_FIX - Behind on air, slightly reducing MAA priority (factor='..iMinMAARatioFactor..')') end
         end
     end
@@ -1980,16 +2010,19 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         -- If we have more than 1 mobile AA for every 8 ground combat units, and enemy air threat is low, stop building MAA
         if iMobileAACount > 0 and iGroundCombatCount > 0 then
             local iMAAToGroundRatio = iMobileAACount / math.max(1, iGroundCombatCount)
-            local iDesiredMAAToGroundRatio = 0.125 -- 1 MAA per 8 ground units
+            local iDesiredMAAToGroundRatio = 0.08 -- 1 MAA per 12.5 ground units
 
             -- Adjust desired ratio based on enemy air threat
-            if iEnemyAirThreat > 1000 then
-                iDesiredMAAToGroundRatio = 0.2 -- Allow more MAA if significant air threat
-            elseif iEnemyAirThreat > 2000 then
-                iDesiredMAAToGroundRatio = 0.25
+            if iEnemyAirThreat > 2000 then
+                iDesiredMAAToGroundRatio = 0.14
+            elseif iEnemyAirThreat > 1000 then
+                iDesiredMAAToGroundRatio = 0.11
+            end
+            if M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbFarBehindOnAir] then
+                iDesiredMAAToGroundRatio = iDesiredMAAToGroundRatio * 0.85
             end
 
-            if iMAAToGroundRatio >= iDesiredMAAToGroundRatio and iEnemyGroundThreat > iEnemyAirThreat then
+            if iMAAToGroundRatio >= iDesiredMAAToGroundRatio and (iEnemyGroundThreat >= iEnemyAirThreat * 0.75 or M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbFarBehindOnAir]) then
                 bDontConsiderBuildingMAA = true
                 if bDebugMessages == true then
                     LOG(sFunctionRef .. ': Mobile AA to ground unit ratio check: iMobileAACount=' .. iMobileAACount .. '; iGroundCombatCount=' .. iGroundCombatCount .. '; Ratio=' .. iMAAToGroundRatio .. '; Desired=' .. iDesiredMAAToGroundRatio .. '; Prioritizing ground combat units')
@@ -4205,33 +4238,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         iCurrentConditionToTry = iCurrentConditionToTry + 1
         if iFactoryTechLevel == 1 and tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex] then
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Land scout to check for approaching enemies before getting more engis, bDontConsiderLandScouts='..tostring(bDontConsiderLandScouts)..'; refbWantLandScout='..tostring(tLZTeamData[M28Map.refbWantLandScout])..'; subrefLZbCoreBase='..tostring(tLZTeamData[M28Map.subrefLZbCoreBase])..'; refiTotalBuildCount='..oFactory[refiTotalBuildCount]..'; Factory engi LC='..M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryEngineer)..'; Factory land scout LC='..M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryLandScout)) end
-            if not(bDontConsiderLandScouts) and not(tLZTeamData[M28Map.subrefLZbCoreBase]) and oFactory[refiTotalBuildCount] < 10 and iFactoryTechLevel == 1 and M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryEngineer) >= 3 and M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryLandScout) == 0 then
-                if tLZTeamData[M28Map.refbWantLandScout] then
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will get land scout so can make sure no appraoching enemies, before getting more engis') end
-                    if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then return sBPIDToBuild end
-                else
-                    --We might have set the flag to flase because we have a land scout travling to this zone; however if we have an adjacent zone that wants a land scout then still build one
-                    if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
-                        for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
-                            local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
-                            if tAdjLZTeamData[M28Map.refbWantLandScout] then
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will get land scout so can make sure no appraoching enemies in adjacent zone, before getting more engis') end
-                                if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then return sBPIDToBuild end
-                                break
-                            end
-                        end
-                    end
-                    --We might also have a scout travling here that is so far away we should just build a new one
-                    if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTScoutsTravelingHere]) == false then
-                        for iScout, oScout in tLZTeamData[M28Map.subrefTScoutsTravelingHere] do
-                            if oScout.Dead or M28Utilities.GetDistanceBetweenPositions(oScout:GetPosition(), oFactory:GetPosition()) >= 175 then
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Scout travling here quite far away so will build a new one, oScout='..oScout.UnitId..M28UnitInfo.GetUnitLifetimeCount(oScout)..'; Dist='..M28Utilities.GetDistanceBetweenPositions(oScout:GetPosition(), oFactory:GetPosition())) end
-                                if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then return sBPIDToBuild end
-                            end
-                        end
-                    end
-                end
-            end
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will get engineer for adjacent zones') end
             if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end
         end
@@ -4265,35 +4271,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Delaying low-zone-engineer response from T'..iFactoryTechLevel..' factory until it has opened on units, GetCurrentTechMobileUnitLifetimeCount()='..GetCurrentTechMobileUnitLifetimeCount()) end
                 elseif ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end
             elseif GetEngiCountInZone() < 10 then
-                --If we have built 3+ engis already then build a land scout as dont want to overbuild engis if appraoching enemies (if not core base)
-                if not(bDontConsiderLandScouts)  and not(tLZTeamData[M28Map.subrefLZbCoreBase]) and oFactory[refiTotalBuildCount] < 10 and iFactoryTechLevel == 1 and M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryEngineer) >= 3 and M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryLandScout) == 0 then
-                    if tLZTeamData[M28Map.refbWantLandScout] then
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will get land scout so can make sure no appraoching enemies, before getting more engis') end
-                        if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then return sBPIDToBuild end
-                        --We might have set the flag to flase because we have a land scout travling to this zone; however if we have an adjacent zone that wants a land scout then still build one
-                    else
-                        if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
-                            for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
-                                local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
-                                if tAdjLZTeamData[M28Map.refbWantLandScout] then
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will get a land scout so can make sure no appraoching enemies in adjacent zone, before getting more engis') end
-                                    if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then return sBPIDToBuild end
-                                    break
-                                end
-                            end
-                        end
-                        --We might also have a scout travling here that is so far away we should just build a new one
-                        if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTScoutsTravelingHere]) == false then
-                            for iScout, oScout in tLZTeamData[M28Map.subrefTScoutsTravelingHere] do
-                                if oScout.Dead or M28Utilities.GetDistanceBetweenPositions(oScout:GetPosition(), oFactory:GetPosition()) >= 175 then
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Scout travling here is quite far away so will build a new one') end
-                                    if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then return sBPIDToBuild end
-                                end
-                            end
-                        end
-                    end
-
-                end
                 local bAdjacentLandZoneWantsEngineers = tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex]
                 if not(bAdjacentLandZoneWantsEngineers) and M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
                     for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
@@ -4525,12 +4502,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                         iThreatFactor = 13
                     end
                     if M28Team.tTeamData[iTeam][M28Team.subrefiAlliedDFThreat] + (M28Team.tTeamData[iTeam][M28Team.subrefiAlliedIndirectThreat] + iUnderConstructionIndirect) > M28Team.tTeamData[iTeam][M28Team.subrefiAlliedMAAThreat] * iThreatFactor then
-                        local iMAACat
-                        if M28Conditions.WantT3MAAInsteadOfT2(oFactory, iTeam) then
-                            iMAACat = M28UnitInfo.refCategoryMAA
-                        else
-                            iMAACat = M28UnitInfo.refCategoryMAA - categories.TECH3
-                        end
+                        local iMAACat = GetPreferredLandMAACategory(oFactory, iTeam, false, true)
                         if M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, iMAACat) <= 1 then
                             local iLocalAttackAirThreat, bLocalAttackAirPresent = GetAttackAirThreatAgainstLand(tLZTeamData)
                             local bT1LocalAttackAirGatePassed = DoesT1LandFactoryPassAttackAirGate(iFactoryTechLevel, bLocalAttackAirPresent, iLocalAttackAirThreat)
@@ -5111,29 +5083,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             end
         end
 
-        --More land scouts (no cap)
-        iCurrentConditionToTry = iCurrentConditionToTry + 1
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Uncapped land scout builder, tLZTeamData[M28Map.refbWantLandScout]='..tostring(tLZTeamData[M28Map.refbWantLandScout])) end
-        if (not(M28Map.bIsLowMexMap) or not(bHaveLowMass))  and not (bDontConsiderLandScouts) then
-            local bAdjZoneWantsScout = tLZTeamData[M28Map.refbWantLandScout]
-            --Workaround for issue that core bases shouldnt be requesting land scouts for themselves
-            if not(bAdjZoneWantsScout) and tLZTeamData[M28Map.subrefLZbCoreBase] and M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
-                for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
-                    local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
-                    if not(bAdjZoneWantsScout) and tAdjLZTeamData[M28Map.refbWantLandScout] then
-                        bAdjZoneWantsScout = true
-                        break
-                    end
-                end
-            end
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bAdjZoneWantsScout='..tostring(bAdjZoneWantsScout)) end
-            if bAdjZoneWantsScout then
-                if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then
-                    return sBPIDToBuild
-                end
-            end
-        end
-
         --Get mobile stealth if we have low lifetime count, a cybran T2+ factory, and dont have low power
         iCurrentConditionToTry = iCurrentConditionToTry + 1
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Mobile stealth low lifetime count low priority builder, bHaveLowPower='..tostring(bHaveLowPower)..'; Factory build count='..oFactory[refiTotalBuildCount]..'; Mobile stealth LC='..M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategoryMobileLandStealth)..'; Team built omni='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbEnemyBuiltOmni])..'; Our gross power='..tostring(aiBrain[M28Economy.refiGrossEnergyBaseIncome])) end
@@ -5165,13 +5114,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                 if tLZTeamData[M28Map.subrefTbWantBP] and ConsiderBuildingCategory(M28UnitInfo.refCategoryLandCombat + M28UnitInfo.refCategoryIndirect) then return sBPIDToBuild end
                 if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandCombat + M28UnitInfo.refCategoryIndirect) then return sBPIDToBuild end
             end
-        end
-
-        --Build land scouts if need more if in LZ expansion with poor radar coverage
-        iCurrentConditionToTry = iCurrentConditionToTry + 1
-        if tLZTeamData[M28Map.refiRadarCoverage] < 50 and tLZTeamData[M28Map.refbWantLandScout] and (not(M28Map.bIsLowMexMap) or not(bHaveLowMass))  and not (bDontConsiderLandScouts) then
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want to get scout due to poor radar coverage') end
-            if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then return sBPIDToBuild end
         end
     end
 
@@ -9130,7 +9072,7 @@ function GetBlueprintToBuildForMobileLandFactory(aiBrain, oFactory)
             end
         end
 
-        local iMAACategoryWanted = M28UnitInfo.refCategoryMAA - categories.TECH1
+        local iMAACategoryWanted = GetPreferredLandMAACategory(oFactory, iTeam, false, false)
         local tFactoryGuards
         if oFactory.Parent.UnitId and EntityCategoryContains(M28UnitInfo.refCategoryFatboy, oFactory.Parent.UnitId) then
             tFactoryGuards = oFactory.Parent[M28Land.reftoAssignedMAAGuards]
@@ -9139,8 +9081,8 @@ function GetBlueprintToBuildForMobileLandFactory(aiBrain, oFactory)
         end
         if not(aiBrain[M28Overseer.refbCloseToUnitCap]) then
             if M28Utilities.IsTableEmpty(tFactoryGuards) then
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We have no MAA guards so want some asap will get t2 maa only') end
-                iMAACategoryWanted = M28UnitInfo.refCategoryMAA * categories.TECH2
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We have no MAA guards so want some asap') end
+                iMAACategoryWanted = GetPreferredLandMAACategory(oFactory, iTeam, true, false)
                 --Do we want more MAA for fatboys personal escort?
             elseif M28Land.ConsiderAssigningMAABodyguardToFatboy(nil, oFactory, true) then
                 --Want our first couple of MAA units to be flak as well
@@ -9153,14 +9095,19 @@ function GetBlueprintToBuildForMobileLandFactory(aiBrain, oFactory)
                 end
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iExistingT2MAA='..iExistingT2MAA..'; iExistingT3MAA='..iExistingT3MAA..'; iFatboySafeMAACount='..M28Land.iFatboySafeMAACount..'; T2 MAA factory LC='..M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMAA - categories.TECH3, false)) end
                 if iExistingT2MAA < 4 and iExistingT3MAA + iExistingT2MAA < M28Land.iFatboySafeMAACount and (iExistingT3MAA >= iExistingT2MAA or (iExistingT2MAA < 2 and M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMAA - categories.TECH3, false) < 2)) then
-                    iMAACategoryWanted = M28UnitInfo.refCategoryMAA * categories.TECH2
+                    iMAACategoryWanted = GetPreferredLandMAACategory(oFactory, iTeam, true, false)
                 end
             end
         end
         local iEnemyLowTechGunshipCountInZone, iEnemyLowTechGunshipPressureInZone, bEnemyLowTechGunshipsPressuringLandInZone = GetLowTechGunshipPressureAgainstLand(tLZTeamData)
         if bEnemyLowTechGunshipsPressuringLandInZone then
-            iMAACategoryWanted = M28UnitInfo.refCategoryMAA * categories.TECH2
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': LOW_TECH_GUNSHIP_FLAK - T3 land fac preferring T2 flak due to local T1/T2 gunship pressure. Count='..iEnemyLowTechGunshipCountInZone..'; Pressure='..iEnemyLowTechGunshipPressureInZone) end
+            local bUsingT3LowTechGunshipResponse
+            iMAACategoryWanted, bUsingT3LowTechGunshipResponse = GetPreferredLowTechGunshipResponseMAACategory(oFactory, iTeam, iEnemyLowTechGunshipCountInZone, iEnemyLowTechGunshipPressureInZone, tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0)
+            if iMAACategoryWanted then
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': LOW_TECH_GUNSHIP_FLAK - Land factory selecting mobile AA response for local T1/T2 gunship pressure. Count='..iEnemyLowTechGunshipCountInZone..'; Pressure='..iEnemyLowTechGunshipPressureInZone..'; UsingT3='..tostring(bUsingT3LowTechGunshipResponse)) end
+            elseif bDebugMessages == true then
+                M28Profiler.DebugLog(tDebugContext, sFunctionRef..': LOW_TECH_GUNSHIP_FLAK - Skipping local flak response because team is behind on air versus T3 air and local low-tech gunship pressure is not severe enough')
+            end
         end
 
         --Build T2 MAA if enemy has air units in this zone

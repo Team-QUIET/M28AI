@@ -1283,14 +1283,15 @@ function ManageLandZoneScouts(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, 
     end
 
     local bFrontlineBlindScoutWanted = false
-    local iFrontlineBlindScoutRadarThreshold = math.min(90, iIntelThresholdForPriorityScout + 25)
+    local bPriorityUnitsWantingScout = M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoUnitsWantingPriorityScouts]) == false
+    local iFrontlineBlindScoutRadarThreshold = math.min(65, iIntelThresholdForPriorityScout + 10)
     if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTScoutsTravelingHere]) and not(tLZData[M28Map.subrefbPacifistArea]) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision]) then
         local iActiveFrontlineCombat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
         if tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]
                 and tLZTeamData[M28Map.refiRadarCoverage] < iFrontlineBlindScoutRadarThreshold
-                and (iActiveFrontlineCombat >= 90 or (bLandZoneContainsNonScouts and iActiveFrontlineCombat >= 45) or M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoUnitsWantingPriorityScouts]) == false) then
+                and (iActiveFrontlineCombat >= 140 or (bLandZoneContainsNonScouts and iActiveFrontlineCombat >= 90) or bPriorityUnitsWantingScout) then
             bFrontlineBlindScoutWanted = true
-            if GetGameTimeSeconds() - (tLZTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] or -100) >= 4 then
+            if GetGameTimeSeconds() - (tLZTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] or -100) >= 10 then
                 tLZTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] = GetGameTimeSeconds()
                 M28Intel.RequestPriorityScoutingForZone(iPlateau, iLandZone, iTeam, M28Intel.iArmyDestinationScoutBoost + 20)
             end
@@ -1298,7 +1299,12 @@ function ManageLandZoneScouts(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, 
         end
     end
 
-    if (bFrontlineBlindScoutWanted or ((bLandZoneContainsNonScouts or tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] <= 2 or (GetGameTimeSeconds() <= 420 and tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] <= 3000 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] < 3)) and (tLZData[M28Map.subrefLZOrWZMexCount] > 0 or tLZData[M28Map.subrefLZTotalSegmentCount] > 30))) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTScoutsTravelingHere]) then
+    local bGeneralScoutWanted = (bLandZoneContainsNonScouts or bPriorityUnitsWantingScout)
+        and (tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) > 0)
+        and (tLZTeamData[M28Map.refiRadarCoverage] or 0) < math.max(35, iIntelThresholdForPriorityScout)
+        and (tLZData[M28Map.subrefLZOrWZMexCount] > 0 or tLZData[M28Map.subrefLZTotalSegmentCount] > 30)
+
+    if (bFrontlineBlindScoutWanted or bGeneralScoutWanted) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTScoutsTravelingHere]) then
         --Want a land scout for htis land zone, unless we already have one traveling here; if we have available land scouts then will change this flag back to false
         if not(tLZData[M28Map.subrefbPacifistArea]) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision]) then
             if not(M28Map.bIsCampaignMap) or M28Conditions.IsLocationInPlayableArea(tLZData[M28Map.subrefMidpoint]) then
