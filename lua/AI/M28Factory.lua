@@ -5946,7 +5946,9 @@ function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
     end
     local sUpgradeBlueprint = GetFactoryQueuePreemptingUpgradeBlueprint(aiBrain, oFactory)
     if sUpgradeBlueprint then
-        LOG('M28FactoryQueueUpgradePreempt: Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; UpgradeBlueprint='..sUpgradeBlueprint..'; ActualBuildOrders='..(GetFactoryActualBuildOrderCount(oFactory) or 0)..'; PlanLength='..table.getn(tBuildPlan or {})..'; IssuedCount='..(oFactory[refiFactoryBuildPlanIssuedCount] or 0)..'; WorkProgress='..(oFactory:GetWorkProgress() or 0)..'; State='..M28UnitInfo.GetUnitState(oFactory)..'; Time='..GetGameTimeSeconds())
+        if bDebugMessages == true then
+            LOG('M28FactoryQueueUpgradePreempt: Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; UpgradeBlueprint='..sUpgradeBlueprint..'; ActualBuildOrders='..(GetFactoryActualBuildOrderCount(oFactory) or 0)..'; PlanLength='..table.getn(tBuildPlan or {})..'; IssuedCount='..(oFactory[refiFactoryBuildPlanIssuedCount] or 0)..'; WorkProgress='..(oFactory:GetWorkProgress() or 0)..'; State='..M28UnitInfo.GetUnitState(oFactory)..'; Time='..GetGameTimeSeconds())
+        end
         ClearFactoryQueueForUpgradePreemption(oFactory)
         return false
     end

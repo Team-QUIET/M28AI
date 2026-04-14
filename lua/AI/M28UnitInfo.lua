@@ -7,12 +7,14 @@
 local M28Map = import('/mods/M28AI/lua/AI/M28Map.lua')
 local M28Profiler = import('/mods/M28AI/lua/AI/M28Profiler.lua')
 local M28Utilities = import('/mods/M28AI/lua/AI/M28Utilities.lua')
+local M28Config = import('/mods/M28AI/lua/M28Config.lua')
 --Dont include m28factory or m28engineer here or will get a crash at start of the game
 
 --global (non-category) varaibles:
 --Threat values
 tUnitThreatByIDAndType = {} --Calculated at the start of the game
 tiThreatRefsCalculated = {} --table of the threat ID references that have done blueprint checks on
+tbThreatDebugLoggedByBlueprintAndMode = {}
 bCustomThreatFactor = false --true if ScenarioInfo.Options.M28Aggression is not 1
 iThreatFactor = 1
 iLandThreatIgnoreHealthThreshold = 5 --If base threat value is < this then will just return base threat value
@@ -786,8 +788,116 @@ local function LayerCapsContainsValue(sValue, sNeedle)
     return sValue and string.find(string.lower(sValue), string.lower(sNeedle), 1, true)
 end
 
-local function GetBlueprintWeaponVolleyCount(tWeapon)
-    return math.max(1, tWeapon.ProjectilesPerOnFire or 1) * math.max(1, tWeapon.MuzzleSalvoSize or 1)
+local function RoundThreatDebugValue(iValue)
+    return math.floor(((iValue or 0) * 100) + 0.5) / 100
+end
+
+local function GetApproxBlueprintThreatModeRef(bIndirectFireThreatOnly, bAntiNavyOnly, bAddAntiNavy, bSubmersibleOnly, bLongRangeThreatOnly)
+    if bSubmersibleOnly then
+        return 'SUB'
+    elseif bAntiNavyOnly then
+        return 'AN'
+    elseif bIndirectFireThreatOnly then
+        return 'IF'
+    elseif bLongRangeThreatOnly then
+        return 'LR'
+    elseif bAddAntiNavy then
+        return 'GND+AN'
+    else
+        return 'GND'
+    end
+end
+
+local function ShouldDebugApproxBlueprintThreat(oBP)
+    local sDebugBlueprints = M28Config.M28DebugThreatBlueprints or ''
+    if sDebugBlueprints == '' or not(oBP) then
+        return false
+    end
+
+    sDebugBlueprints = string.lower(string.gsub(sDebugBlueprints, '%s+', ''))
+    if sDebugBlueprints == '*' then
+        return true
+    end
+
+    local sBlueprintId = string.lower(oBP.BlueprintId or oBP.BlueprintID or '')
+    if sBlueprintId == '' then
+        return false
+    end
+
+    return string.find(','..sDebugBlueprints..',', ','..sBlueprintId..',', 1, true) ~= nil
+end
+
+local function LogApproxBlueprintThreatOutcome(oBP, sModeRef, iDurability, iRelevantDPS, iBestRange, iBestAOE, iBestVolley, iCombatStatThreat, tThreatDebugLines)
+    local sBlueprintId = oBP.BlueprintId or oBP.BlueprintID or 'UnknownBlueprint'
+    local sDebugKey = sBlueprintId..'|'..sModeRef
+    if tbThreatDebugLoggedByBlueprintAndMode[sDebugKey] then
+        return
+    end
+    tbThreatDebugLoggedByBlueprintAndMode[sDebugKey] = true
+
+    LOG('M28ThreatDebugSummary: Blueprint='..sBlueprintId..'; Mode='..sModeRef..'; Durability='..RoundThreatDebugValue(iDurability)..'; DPS='..RoundThreatDebugValue(iRelevantDPS)..'; BestRange='..RoundThreatDebugValue(iBestRange)..'; BestAOE='..RoundThreatDebugValue(iBestAOE)..'; BestVolley='..RoundThreatDebugValue(iBestVolley)..'; Threat='..RoundThreatDebugValue(iCombatStatThreat))
+    if M28Utilities.IsTableEmpty(tThreatDebugLines) then
+        LOG('M28ThreatDebugWeapon: Blueprint='..sBlueprintId..'; Mode='..sModeRef..'; No relevant weapons matched this threat mode')
+    else
+        for _, sDebugLine in tThreatDebugLines do
+            LOG(sDebugLine)
+        end
+    end
+end
+
+local function RoundBlueprintWeaponCycleToTick(iTime)
+    return math.floor((math.max(0.1, iTime or 0.1) * 10) + 0.5) / 10
+end
+
+local function GetBlueprintWeaponMuzzleEventCount(tWeapon)
+    local iMuzzleEventCount = math.max(1, tWeapon.MuzzleSalvoSize or 1)
+    local tRackBones = tWeapon.RackBones or {}
+
+    if (tWeapon.MuzzleSalvoDelay or 0) == 0 and tRackBones[1] and tRackBones[1].MuzzleBones then
+        iMuzzleEventCount = math.max(1, table.getn(tRackBones[1].MuzzleBones))
+    end
+
+    if tWeapon.RackFireTogether then
+        iMuzzleEventCount = iMuzzleEventCount * math.max(1, table.getn(tRackBones))
+    end
+
+    return iMuzzleEventCount
+end
+
+local function GetBlueprintWeaponProjectileCount(tWeapon)
+    return GetBlueprintWeaponMuzzleEventCount(tWeapon) * math.max(1, tWeapon.ProjectilesPerOnFire or 1)
+end
+
+local function GetApproxBlueprintWeaponDPS(tWeapon)
+    local iProjectileCount = GetBlueprintWeaponProjectileCount(tWeapon)
+    local iMuzzleEventCount = GetBlueprintWeaponMuzzleEventCount(tWeapon)
+    local iVolleyDamage = ((tWeapon.Damage or 0) + (tWeapon.NukeInnerRingDamage or 0)) * iProjectileCount * math.max(1, tWeapon.DoTPulses or 1)
+    local iRateOfFireCycle = RoundBlueprintWeaponCycleToTick(tWeapon.RateOfFire and (1 / tWeapon.RateOfFire) or 0.1)
+    local iCycleTime = iRateOfFireCycle
+    local iMuzzleChargeDelay = math.max(0, tWeapon.MuzzleChargeDelay or 0)
+    local iMuzzleSalvoDelay = math.max(0, tWeapon.MuzzleSalvoDelay or 0)
+    local iBeamPulseInterval = math.max(0.1, 0.1 + (tWeapon.BeamCollisionDelay or 0))
+    local iBeamLifetime = math.max(0, tWeapon.BeamLifetime or 0)
+
+    if iMuzzleChargeDelay > 0 then
+        iCycleTime = iCycleTime + iMuzzleChargeDelay * iMuzzleEventCount
+    end
+    if iMuzzleSalvoDelay > 0 and iMuzzleEventCount > 1 then
+        iCycleTime = iCycleTime + iMuzzleSalvoDelay * (iMuzzleEventCount - 1)
+    end
+    if (tWeapon.RackSalvoChargeTime or 0) > 0 then
+        iCycleTime = iCycleTime + tWeapon.RackSalvoChargeTime
+    end
+
+    if iBeamLifetime == 0 and (tWeapon.ContinuousBeam or tWeapon.BeamCollisionDelay) then
+        return math.min(4000, iVolleyDamage / iBeamPulseInterval), iVolleyDamage, iBeamPulseInterval, iProjectileCount, iMuzzleEventCount
+    elseif iBeamLifetime > 0 then
+        iVolleyDamage = iVolleyDamage * math.max(1, iBeamLifetime / iBeamPulseInterval)
+        iCycleTime = iCycleTime + iBeamLifetime
+    end
+
+    iCycleTime = math.max(0.1, iCycleTime, tWeapon.RackSalvoReloadTime or 0)
+    return math.min(4000, iVolleyDamage / iCycleTime), iVolleyDamage, iCycleTime, iProjectileCount, iMuzzleEventCount
 end
 
 local function GetApproxBlueprintCombatStatThreat(oBP, bIndirectFireThreatOnly, bAntiNavyOnly, bAddAntiNavy, bSubmersibleOnly, bLongRangeThreatOnly)
@@ -807,9 +917,14 @@ local function GetApproxBlueprintCombatStatThreat(oBP, bIndirectFireThreatOnly, 
     local tCaps
     local bIsRelevantWeapon
     local bIsIndirectWeapon
-    local iVolleyCount
     local iVolleyDamage
-    local iReloadTime
+    local iWeaponDPS
+    local iCycleTime
+    local iProjectileCount
+    local iMuzzleEventCount
+    local bDebugThreat = ShouldDebugApproxBlueprintThreat(oBP)
+    local sThreatModeRef = GetApproxBlueprintThreatModeRef(bIndirectFireThreatOnly, bAntiNavyOnly, bAddAntiNavy, bSubmersibleOnly, bLongRangeThreatOnly)
+    local tThreatDebugLines = bDebugThreat and {} or nil
 
     for _, tWeapon in oBP.Weapon do
         if (tWeapon.Damage or 0) > 0 and (tWeapon.MaxRadius or 0) > 1 and not(tWeapon.EnabledByEnhancement) then
@@ -845,18 +960,24 @@ local function GetApproxBlueprintCombatStatThreat(oBP, bIndirectFireThreatOnly, 
             end
 
             if bIsRelevantWeapon then
-                iVolleyCount = GetBlueprintWeaponVolleyCount(tWeapon) * math.max(1, tWeapon.DoTPulses or 1)
-                iVolleyDamage = math.min(12000, (tWeapon.Damage or 0) * iVolleyCount)
-                iReloadTime = math.max(0.2, math.max(tWeapon.RackSalvoReloadTime or 0, tWeapon.RateOfFire and (1 / tWeapon.RateOfFire) or 0.2))
-                iRelevantDPS = iRelevantDPS + math.min(4000, iVolleyDamage / iReloadTime)
+                iWeaponDPS, iVolleyDamage, iCycleTime, iProjectileCount, iMuzzleEventCount = GetApproxBlueprintWeaponDPS(tWeapon)
+                iRelevantDPS = iRelevantDPS + iWeaponDPS
                 iBestRange = math.max(iBestRange, tWeapon.MaxRadius or 0)
                 iBestAOE = math.max(iBestAOE, tWeapon.DamageRadius or 0)
-                iBestVolley = math.max(iBestVolley, iVolleyDamage)
+                iBestVolley = math.max(iBestVolley, math.min(12000, iVolleyDamage))
+                if bDebugThreat then
+                    table.insert(tThreatDebugLines, 'M28ThreatDebugWeapon: Blueprint='..(oBP.BlueprintId or oBP.BlueprintID or 'UnknownBlueprint')..'; Mode='..sThreatModeRef..'; Weapon='..(tWeapon.Label or tWeapon.DisplayName or tWeapon.WeaponCategory or 'UnknownWeapon')..'; Relevant=true; DPS='..RoundThreatDebugValue(iWeaponDPS)..'; Volley='..RoundThreatDebugValue(iVolleyDamage)..'; Cycle='..RoundThreatDebugValue(iCycleTime)..'; Range='..RoundThreatDebugValue(tWeapon.MaxRadius or 0)..'; AOE='..RoundThreatDebugValue(tWeapon.DamageRadius or 0)..'; BeamLifetime='..RoundThreatDebugValue(tWeapon.BeamLifetime or 0)..'; BeamCollisionDelay='..RoundThreatDebugValue(tWeapon.BeamCollisionDelay or 0)..'; MuzzleEvents='..(iMuzzleEventCount or 0)..'; Projectiles='..(iProjectileCount or 0)..'; RateOfFire='..RoundThreatDebugValue(tWeapon.RateOfFire or 0)..'; MuzzleChargeDelay='..RoundThreatDebugValue(tWeapon.MuzzleChargeDelay or 0)..'; MuzzleSalvoDelay='..RoundThreatDebugValue(tWeapon.MuzzleSalvoDelay or 0)..'; RackSalvoChargeTime='..RoundThreatDebugValue(tWeapon.RackSalvoChargeTime or 0)..'; RackSalvoReloadTime='..RoundThreatDebugValue(tWeapon.RackSalvoReloadTime or 0)..'; Indirect='..tostring(bIsIndirectWeapon))
+                end
+            elseif bDebugThreat then
+                table.insert(tThreatDebugLines, 'M28ThreatDebugWeapon: Blueprint='..(oBP.BlueprintId or oBP.BlueprintID or 'UnknownBlueprint')..'; Mode='..sThreatModeRef..'; Weapon='..(tWeapon.Label or tWeapon.DisplayName or tWeapon.WeaponCategory or 'UnknownWeapon')..'; Relevant=false; RangeCategory='..(tWeapon.RangeCategory or 'nil')..'; WeaponCategory='..(tWeapon.WeaponCategory or 'nil')..'; Range='..RoundThreatDebugValue(tWeapon.MaxRadius or 0)..'; BeamLifetime='..RoundThreatDebugValue(tWeapon.BeamLifetime or 0)..'; BeamCollisionDelay='..RoundThreatDebugValue(tWeapon.BeamCollisionDelay or 0))
             end
         end
     end
 
     if iRelevantDPS <= 0 or iBestRange <= 0 then
+        if bDebugThreat then
+            LogApproxBlueprintThreatOutcome(oBP, sThreatModeRef, iDurability, iRelevantDPS, iBestRange, iBestAOE, iBestVolley, 0, tThreatDebugLines)
+        end
         return 0
     end
 
@@ -876,6 +997,10 @@ local function GetApproxBlueprintCombatStatThreat(oBP, bIndirectFireThreatOnly, 
 
     if bAddAntiNavy and not(bWantNavalThreat) then
         iCombatStatThreat = math.max(iCombatStatThreat, GetApproxBlueprintCombatStatThreat(oBP, false, true, false, false, false) * 0.65)
+    end
+
+    if bDebugThreat then
+        LogApproxBlueprintThreatOutcome(oBP, sThreatModeRef, iDurability, iRelevantDPS, iBestRange, iBestAOE, iBestVolley, iCombatStatThreat, tThreatDebugLines)
     end
 
     return iCombatStatThreat

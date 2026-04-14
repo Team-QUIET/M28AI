@@ -46,6 +46,7 @@ M28DebugProfiler = false
 M28DebugTeam = false
 M28DebugUnitInfo = false
 M28DebugUtilities = false
+M28DebugThreatBlueprints = '' --Comma-separated blueprint ids (or *). When set, GetApproxBlueprintCombatStatThreat logs per-weapon threat outcomes for those blueprints.
 
 M28DebugACUInterval = 2
 M28DebugAirInterval = 3
