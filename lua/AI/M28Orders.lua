@@ -692,6 +692,7 @@ end
 
 function IssueTrackedFactoryBuild(oUnit, sOrderBlueprint, bAddToExistingQueue, sOptionalOrderDesc)
     if bDontConsiderCombinedArmy or oUnit.M28Active then
+        local M28Factory = import('/mods/M28AI/lua/AI/M28Factory.lua')
         UpdateRecordedOrders(oUnit)
         local tLastOrder
         if oUnit[reftiLastOrders] then
@@ -707,12 +708,14 @@ function IssueTrackedFactoryBuild(oUnit, sOrderBlueprint, bAddToExistingQueue, s
         end
 
         if not(bSkipDuplicateOrder) then
+            if not(M28Factory.CanIssueFactoryBlueprintToQueue(oUnit, sOrderBlueprint, bAddToExistingQueue)) then
+                return
+            end
             if not(bAddToExistingQueue) then IssueTrackedClearCommands(oUnit) end
             if not(oUnit[reftiLastOrders]) then oUnit[reftiLastOrders] = {} oUnit[refiOrderCount] = 0 end
             oUnit[refiOrderCount] = oUnit[refiOrderCount] + 1
             table.insert(oUnit[reftiLastOrders], {[subrefiOrderType] = refiOrderIssueFactoryBuild, [subrefsOrderBlueprint] = sOrderBlueprint})
             IssueBuildFactory({ oUnit }, sOrderBlueprint, 1)
-            local M28Factory = import('/mods/M28AI/lua/AI/M28Factory.lua')
             M28Factory.UpdateLastOrderedTracker(oUnit, sOrderBlueprint)
 
         end

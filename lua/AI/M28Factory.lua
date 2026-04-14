@@ -44,6 +44,7 @@ reftFactoryRallyPoint = 'M28FacRally' --against oFactory, Location to send units
 reftFactoryBuildPlan = 'M28FacPlan' --against oFactory, queued build plan owned by the factory queue manager; leading entries mirror issued orders, trailing entries are pending refills
 refiFactoryBuildPlanIssuedCount = 'M28FacPlanI' --against oFactory, number of entries at the start of reftFactoryBuildPlan that have been issued to the engine queue
 reftFactoryBuildPlanCategoryBlacklist = 'M28FacPlanBlk' --against oFactory during a queue planning pass, temporary category blacklist to stop support units dominating a single plan fill
+refbFactoryBuildPlanUpdateActive = 'M28FacPlanAct' --against oFactory, true while one thread owns queue-plan sync/fill for this factory
 refiFirstTimeOfLastOrder = 'M28FOrTim' --against oFactory, time that we gave an order for the factory to build a unit (cleared when a unit is built or a different blueprint order is given) - used to spot for factories with units blocking them
 refbWantMoreEngineersBeforeUpgrading = 'M28FWnE' --against oFactory, true if have run the factory condition and it concluded wen eeded more engineers before upgrading
 refbPausedToStopDefaultAI = 'M28FPsC' --true if we have paused factory to stop a campaign AI giving it orders
@@ -181,9 +182,9 @@ end
 
 local function GetTeamLandScoutCap(aiBrain, iTeam)
     iTeam = iTeam or aiBrain.M28Team
-    local iCap = 2
+    local iCap = 12
     if (M28Map.iMapSize or 256) >= 768 or (M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1) >= 3 then
-        iCap = 3
+        iCap = 26
     end
     return iCap
 end
@@ -202,12 +203,32 @@ local function GetLandScoutCoverageForZone(tLZTeamData)
             + (tLZTeamData[M28Map.refiSpareLandScouts] or 0)
 end
 
+local function GetFactoryActualBuildOrderCount(oFactory, iCategoryWanted)
+    if not(M28UnitInfo.IsUnitValid(oFactory)) or not(oFactory.GetNumBuildOrders) then
+        return nil
+    end
+
+    return oFactory:GetNumBuildOrders(iCategoryWanted or categories.ALLUNITS)
+end
+
 local function GetFactoryPendingBuildCountByCategory(oFactory, iCategoryWanted)
     if not(oFactory) then
         return 0
     end
 
-    local iPendingBuilds = 0
+    local iActualPendingBuilds = GetFactoryActualBuildOrderCount(oFactory, iCategoryWanted) or 0
+    local tBuildPlan = oFactory[reftFactoryBuildPlan]
+    if M28Utilities.IsTableEmpty(tBuildPlan) == false then
+        local iPlannedBuilds = 0
+        for iEntry = 1, table.getn(tBuildPlan) do
+            if EntityCategoryContains(iCategoryWanted, tBuildPlan[iEntry]) then
+                iPlannedBuilds = iPlannedBuilds + 1
+            end
+        end
+        return math.max(iPlannedBuilds, iActualPendingBuilds)
+    end
+
+    local iRecordedPendingBuilds = 0
     if M28UnitInfo.IsUnitValid(oFactory) then
         M28Orders.UpdateRecordedOrders(oFactory)
     end
@@ -215,22 +236,70 @@ local function GetFactoryPendingBuildCountByCategory(oFactory, iCategoryWanted)
         for _, tOrder in oFactory[M28Orders.reftiLastOrders] do
             if tOrder and tOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueFactoryBuild and tOrder[M28Orders.subrefsOrderBlueprint]
                     and EntityCategoryContains(iCategoryWanted, tOrder[M28Orders.subrefsOrderBlueprint]) then
-                iPendingBuilds = iPendingBuilds + 1
+                iRecordedPendingBuilds = iRecordedPendingBuilds + 1
             end
         end
     end
 
-    local tBuildPlan = oFactory[reftFactoryBuildPlan]
-    local iIssuedCount = oFactory[refiFactoryBuildPlanIssuedCount] or 0
-    if M28Utilities.IsTableEmpty(tBuildPlan) == false and table.getn(tBuildPlan) > iIssuedCount then
-        for iEntry = iIssuedCount + 1, table.getn(tBuildPlan) do
-            if EntityCategoryContains(iCategoryWanted, tBuildPlan[iEntry]) then
-                iPendingBuilds = iPendingBuilds + 1
-            end
-        end
+    return math.max(iRecordedPendingBuilds, iActualPendingBuilds)
+end
+
+local function GetFactoryLiveQueueCapCategory(sBlueprint)
+    if not(sBlueprint) then
+        return nil
     end
 
-    return iPendingBuilds
+    local iBlacklistCategory = GetFactoryBuildPlanBlacklistCategory(sBlueprint)
+    if iBlacklistCategory then
+        return iBlacklistCategory
+    elseif EntityCategoryContains(M28UnitInfo.refCategorySniperBot * categories.TECH3, sBlueprint) then
+        return M28UnitInfo.refCategorySniperBot * categories.TECH3
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, sBlueprint) then
+        return M28UnitInfo.refCategoryT3MobileArtillery
+    end
+
+    return nil
+end
+
+local function GetFactoryLiveQueueCapForCategory(iCategoryWanted)
+    if not(iCategoryWanted) then
+        return nil
+    elseif iCategoryWanted == M28UnitInfo.refCategoryLandScout or iCategoryWanted == M28UnitInfo.refCategoryAirScout or iCategoryWanted == (M28UnitInfo.refCategoryLandScout + M28UnitInfo.refCategoryAirScout) then
+        return 5
+    elseif iCategoryWanted == M28UnitInfo.refCategoryEngineer then
+        return 3
+    elseif iCategoryWanted == M28UnitInfo.refCategoryT3MobileArtillery then
+        return 2
+    elseif iCategoryWanted == M28UnitInfo.refCategoryTransport
+            or iCategoryWanted == M28UnitInfo.refCategoryMobileLandShield
+            or iCategoryWanted == M28UnitInfo.refCategoryMAA
+            or iCategoryWanted == M28UnitInfo.refCategoryMML
+            or iCategoryWanted == (M28UnitInfo.refCategorySniperBot * categories.TECH3)
+            or (categories.ual0204 and iCategoryWanted == categories.ual0204) then
+        return 1
+    end
+
+    return nil
+end
+
+local function GetFactoryLiveQueueCapForBlueprint(sBlueprint)
+    return GetFactoryLiveQueueCapForCategory(GetFactoryLiveQueueCapCategory(sBlueprint))
+end
+
+local function GetFactoryLiveQueuedCountForBlueprint(oFactory, sBlueprint)
+    local iCategory = GetFactoryLiveQueueCapCategory(sBlueprint)
+    if not(iCategory) then
+        return 0
+    end
+    return GetFactoryPendingBuildCountByCategory(oFactory, iCategory)
+end
+
+local function DoesFactoryQueueHaveRoomForBlueprint(oFactory, sBlueprint)
+    local iCap = GetFactoryLiveQueueCapForBlueprint(sBlueprint)
+    if not(iCap) then
+        return true
+    end
+    return GetFactoryLiveQueuedCountForBlueprint(oFactory, sBlueprint) < iCap
 end
 
 local function GetFactoryPendingLandScoutCount(oFactory)
@@ -335,7 +404,7 @@ local function ShouldAllowAnotherLandScout(aiBrain, oFactory, tLZTeamData)
     if GetTeamCurrentLandScoutCount(aiBrain, iTeam) + GetTeamPendingLandScoutCount(aiBrain, iTeam) >= GetTeamLandScoutCap(aiBrain, iTeam) then
         return false
     end
-    if GetFactoryPendingLandScoutCount(oFactory) > 0 then
+    if GetFactoryPendingLandScoutCount(oFactory) >= (GetFactoryLiveQueueCapForCategory(M28UnitInfo.refCategoryLandScout) or 1) then
         return false
     end
 
@@ -742,6 +811,12 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
 
     if EntityCategoryContains(M28UnitInfo.refCategoryLandScout, sBPIDToBuild) and not(ShouldAllowAnotherLandScout(aiBrain, oFactory, tLZTeamData)) then
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Central land scout clamp rejected extra scout build for factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return nil
+    end
+
+    if not(DoesFactoryQueueHaveRoomForBlueprint(oFactory, sBPIDToBuild)) then
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Live queue cap rejected blueprint '..(sBPIDToBuild or 'nil')..'; PendingCount='..GetFactoryLiveQueuedCountForBlueprint(oFactory, sBPIDToBuild)..'; Cap='..(GetFactoryLiveQueueCapForBlueprint(sBPIDToBuild) or -1)) end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         return nil
     end
@@ -5483,7 +5558,11 @@ function DelayedCheckIfFactoryBuildingAndRetry(oFactory)
                     if not(EntityCategoryContains(categories.EXTERNALFACTORYUNIT + categories.MOBILE, oFactory.UnitId)) then
                         MovePotentialBlockingUnitsFromFactory(oFactory)
                     end
-                    DecideAndBuildUnitForFactory(oFactory:GetAIBrain(), oFactory, true, false)
+                    if (GetFactoryActualBuildOrderCount(oFactory) or GetFactoryBuildOrderCount(oFactory)) > 0 or IsFactoryActivelyBuilding(oFactory) or M28Utilities.IsTableEmpty(oFactory[reftFactoryBuildPlan]) == false then
+                        QueueAdditionalFactoryBuildOrders(oFactory:GetAIBrain(), oFactory, GetFactoryLatestQueuedBlueprint(oFactory))
+                    else
+                        DecideAndBuildUnitForFactory(oFactory:GetAIBrain(), oFactory, true, false)
+                    end
                     --T3 naval facs - more likely to be unable ot build due to blocking buildings
                     if EntityCategoryContains(M28UnitInfo.refCategoryNavalFactory * categories.TECH3, oFactory.UnitId) then
                         local oBP = oFactory:GetBlueprint()
@@ -5524,6 +5603,16 @@ function DelayedCheckIfFactoryBuildingAndRetry(oFactory)
 end
 
 function GetFactoryBuildOrderCount(oFactory)
+    local tBuildPlan = oFactory and oFactory[reftFactoryBuildPlan]
+    local iActualBuildOrders = GetFactoryActualBuildOrderCount(oFactory)
+    if M28Utilities.IsTableEmpty(tBuildPlan) == false then
+        return math.min(table.getn(tBuildPlan), math.max(0, iActualBuildOrders or oFactory[refiFactoryBuildPlanIssuedCount] or 0))
+    end
+
+    if iActualBuildOrders ~= nil then
+        return iActualBuildOrders
+    end
+
     local iBuildOrders = 0
     if M28UnitInfo.IsUnitValid(oFactory) then
         M28Orders.UpdateRecordedOrders(oFactory)
@@ -5545,7 +5634,39 @@ function InvalidateFactoryBuildPlan(oFactory)
     end
 end
 
-function GetQueuedFactoryBlueprints(oFactory)
+local function ConsumeFactoryBuildPlanEntry(oFactory, sBlueprint)
+    local tBuildPlan = oFactory and oFactory[reftFactoryBuildPlan]
+    if M28Utilities.IsTableEmpty(tBuildPlan) then
+        return
+    end
+
+    local iIssuedCount = math.min(table.getn(tBuildPlan), math.max(0, oFactory[refiFactoryBuildPlanIssuedCount] or 0))
+    local iRemovalIndex = 1
+    if sBlueprint and iIssuedCount > 0 then
+        for iBlueprint = 1, iIssuedCount do
+            if tBuildPlan[iBlueprint] == sBlueprint then
+                iRemovalIndex = iBlueprint
+                break
+            end
+        end
+    end
+
+    if tBuildPlan[iRemovalIndex] then
+        table.remove(tBuildPlan, iRemovalIndex)
+    end
+    if iIssuedCount > 0 then
+        iIssuedCount = iIssuedCount - 1
+    end
+
+    if M28Utilities.IsTableEmpty(tBuildPlan) then
+        InvalidateFactoryBuildPlan(oFactory)
+    else
+        oFactory[reftFactoryBuildPlan] = tBuildPlan
+        oFactory[refiFactoryBuildPlanIssuedCount] = math.min(iIssuedCount, table.getn(tBuildPlan))
+    end
+end
+
+local function GetRecordedFactoryQueuedBlueprints(oFactory)
     local tQueuedBlueprints = {}
     if M28UnitInfo.IsUnitValid(oFactory) then
         M28Orders.UpdateRecordedOrders(oFactory)
@@ -5560,66 +5681,84 @@ function GetQueuedFactoryBlueprints(oFactory)
     return tQueuedBlueprints
 end
 
-local function SyncFactoryBuildPlanWithQueue(oFactory)
+function GetQueuedFactoryBlueprints(oFactory)
+    local tBuildPlan = oFactory and oFactory[reftFactoryBuildPlan]
+    local iIssuedCount = GetFactoryBuildOrderCount(oFactory)
+    if M28Utilities.IsTableEmpty(tBuildPlan) == false and iIssuedCount > 0 then
+        local tQueuedBlueprints = {}
+        for iBlueprint = 1, iIssuedCount do
+            tQueuedBlueprints[iBlueprint] = tBuildPlan[iBlueprint]
+        end
+        return tQueuedBlueprints
+    end
+    return GetRecordedFactoryQueuedBlueprints(oFactory)
+end
+
+local function GetFactoryIssuedQueueCountByCategory(oFactory, iCategoryWanted)
+    if not(oFactory) or not(iCategoryWanted) then
+        return 0
+    end
+
+    local iActualQueuedCount = GetFactoryActualBuildOrderCount(oFactory, iCategoryWanted)
+    if iActualQueuedCount ~= nil then
+        return iActualQueuedCount
+    end
+
+    local iQueuedCount = 0
     local tQueuedBlueprints = GetQueuedFactoryBlueprints(oFactory)
-    local iQueuedBlueprints = table.getn(tQueuedBlueprints)
+    if M28Utilities.IsTableEmpty(tQueuedBlueprints) == false then
+        for iBlueprint, sBlueprint in tQueuedBlueprints do
+            if EntityCategoryContains(iCategoryWanted, sBlueprint) then
+                iQueuedCount = iQueuedCount + 1
+            end
+        end
+    end
+    return iQueuedCount
+end
+
+function CanIssueFactoryBlueprintToQueue(oFactory, sBlueprint, bAddToExistingQueue)
+    if not(bAddToExistingQueue) or not(sBlueprint) then
+        return true
+    end
+
+    local iCapCategory = GetFactoryLiveQueueCapCategory(sBlueprint)
+    local iCap = GetFactoryLiveQueueCapForCategory(iCapCategory)
+    if not(iCapCategory) or not(iCap) then
+        return true
+    end
+
+    return GetFactoryIssuedQueueCountByCategory(oFactory, iCapCategory) < iCap
+end
+
+local function SyncFactoryBuildPlanWithQueue(oFactory)
     local tBuildPlan = oFactory[reftFactoryBuildPlan]
     local iIssuedCount = oFactory[refiFactoryBuildPlanIssuedCount] or 0
+    local iActualBuildOrders = GetFactoryActualBuildOrderCount(oFactory)
 
-    if M28Utilities.IsTableEmpty(tBuildPlan) then
-        if iQueuedBlueprints > 0 then
-            tBuildPlan = {}
-            for iBlueprint, sBlueprint in tQueuedBlueprints do
-                tBuildPlan[iBlueprint] = sBlueprint
-            end
-            iIssuedCount = iQueuedBlueprints
-            oFactory[reftFactoryBuildPlan] = tBuildPlan
-            oFactory[refiFactoryBuildPlanIssuedCount] = iIssuedCount
-        else
-            InvalidateFactoryBuildPlan(oFactory)
-            return {}, 0, 0
+    if M28Utilities.IsTableEmpty(tBuildPlan) == false then
+        if iActualBuildOrders ~= nil then
+            iIssuedCount = iActualBuildOrders
         end
-    else
-        if iIssuedCount > iQueuedBlueprints then
-            local iConsumedOrders = iIssuedCount - iQueuedBlueprints
-            for iOrder = 1, iConsumedOrders do
-                if table.getn(tBuildPlan) > 0 then
-                    table.remove(tBuildPlan, 1)
-                end
-            end
-            iIssuedCount = iQueuedBlueprints
-        end
-
-        local bMismatch = false
-        if iQueuedBlueprints > iIssuedCount then
-            bMismatch = true
-        elseif table.getn(tBuildPlan) < iQueuedBlueprints then
-            bMismatch = true
-        else
-            for iBlueprint = 1, iQueuedBlueprints do
-                if tBuildPlan[iBlueprint] ~= tQueuedBlueprints[iBlueprint] then
-                    bMismatch = true
-                    break
-                end
-            end
-        end
-
-        if bMismatch then
-            tBuildPlan = {}
-            for iBlueprint, sBlueprint in tQueuedBlueprints do
-                tBuildPlan[iBlueprint] = sBlueprint
-            end
-            iIssuedCount = iQueuedBlueprints
-        end
-
-        if M28Utilities.IsTableEmpty(tBuildPlan) and iQueuedBlueprints == 0 then
-            InvalidateFactoryBuildPlan(oFactory)
-            return {}, 0, 0
-        end
-
+        iIssuedCount = math.min(math.max(0, iIssuedCount), table.getn(tBuildPlan))
         oFactory[reftFactoryBuildPlan] = tBuildPlan
         oFactory[refiFactoryBuildPlanIssuedCount] = iIssuedCount
+        return tBuildPlan, iIssuedCount, iIssuedCount
     end
+
+    local tQueuedBlueprints = GetRecordedFactoryQueuedBlueprints(oFactory)
+    local iQueuedBlueprints = table.getn(tQueuedBlueprints)
+    if iQueuedBlueprints == 0 then
+        InvalidateFactoryBuildPlan(oFactory)
+        return {}, 0, 0
+    end
+
+    tBuildPlan = {}
+    for iBlueprint, sBlueprint in tQueuedBlueprints do
+        tBuildPlan[iBlueprint] = sBlueprint
+    end
+    iIssuedCount = iQueuedBlueprints
+    oFactory[reftFactoryBuildPlan] = tBuildPlan
+    oFactory[refiFactoryBuildPlanIssuedCount] = iIssuedCount
 
     return oFactory[reftFactoryBuildPlan], iQueuedBlueprints, oFactory[refiFactoryBuildPlanIssuedCount] or 0
 end
@@ -5698,20 +5837,33 @@ local function GetFactoryBuildPlanRunLength(aiBrain, oFactory, sBlueprint, iRema
 end
 
 local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBlueprint)
+    if oFactory[refbFactoryBuildPlanUpdateActive] then
+        return GetFactoryActualBuildOrderCount(oFactory) or GetFactoryBuildOrderCount(oFactory)
+    end
+    oFactory[refbFactoryBuildPlanUpdateActive] = true
+
+    local function FinishFactoryBuildPlanCoverage(iResult)
+        oFactory[refbFactoryBuildPlanUpdateActive] = nil
+        return iResult
+    end
+
     local tBuildPlan, iCurBuildOrders, iIssuedCount = SyncFactoryBuildPlanWithQueue(oFactory)
+    iCurBuildOrders = math.max(iCurBuildOrders, GetFactoryActualBuildOrderCount(oFactory) or 0)
     local iTargetQueueDepth = GetFactoryTargetQueueDepth(aiBrain, oFactory, sReferenceBlueprint or GetFactoryLatestQueuedBlueprint(oFactory))
     local iDesiredPlanLength = iTargetQueueDepth + GetFactoryQueueRefillFloor(aiBrain, oFactory, iTargetQueueDepth)
     local bFactoryActivelyBuilding = IsFactoryActivelyBuilding(oFactory)
 
     if iCurBuildOrders > iTargetQueueDepth then
-        return iCurBuildOrders
+        return FinishFactoryBuildPlanCoverage(iCurBuildOrders)
     end
     if M28Utilities.IsTableEmpty(tBuildPlan) and iCurBuildOrders == 0 and not(bFactoryActivelyBuilding) then
-        return 0
+        return FinishFactoryBuildPlanCoverage(0)
     end
     if not(tBuildPlan) then
         tBuildPlan = {}
     end
+    oFactory[reftFactoryBuildPlan] = tBuildPlan
+    oFactory[refiFactoryBuildPlanIssuedCount] = iIssuedCount
 
     oFactory[reftFactoryBuildPlanCategoryBlacklist] = {}
 
@@ -5745,7 +5897,7 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
 
     oFactory[reftFactoryBuildPlan] = tBuildPlan
     oFactory[refiFactoryBuildPlanIssuedCount] = iIssuedCount
-    return iCurBuildOrders
+    return FinishFactoryBuildPlanCoverage(iCurBuildOrders)
 end
 
 function QueueAdditionalFactoryBuildOrders(aiBrain, oFactory, sReferenceBlueprint)
@@ -5754,6 +5906,7 @@ end
 
 function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
     local tBuildPlan, iBuildOrders = SyncFactoryBuildPlanWithQueue(oFactory)
+    iBuildOrders = math.max(iBuildOrders, GetFactoryActualBuildOrderCount(oFactory) or 0)
     local bFactoryActivelyBuilding = IsFactoryActivelyBuilding(oFactory)
     if iBuildOrders == 0 and M28Utilities.IsTableEmpty(tBuildPlan) and not(bFactoryActivelyBuilding) then
         return false
@@ -5762,7 +5915,7 @@ function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
         return false
     end
     QueueAdditionalFactoryBuildOrders(aiBrain, oFactory, GetFactoryLatestQueuedBlueprint(oFactory))
-    return GetFactoryBuildOrderCount(oFactory) > 0 or bFactoryActivelyBuilding
+    return (GetFactoryActualBuildOrderCount(oFactory) or GetFactoryBuildOrderCount(oFactory)) > 0 or bFactoryActivelyBuilding
 end
 
 function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait, bConsiderDestroyingForMass)
@@ -5882,7 +6035,7 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait, bConsiderDes
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Setting refiFirstTimeOfLastOrder='..oFactory[refiFirstTimeOfLastOrder]) end
                             ForkThread(DelayedCheckIfFactoryBuildingAndRetry, oFactory)
                         end
-                        local bAddToExistingQueue = GetFactoryBuildOrderCount(oFactory) > 0
+                        local bAddToExistingQueue = (GetFactoryActualBuildOrderCount(oFactory) or GetFactoryBuildOrderCount(oFactory)) > 0
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to send a tracked factory build, sBPToBuild='..sBPToBuild..'; bAddToExistingQueue='..tostring(bAddToExistingQueue or false)..'; Factory work progress='..oFactory:GetWorkProgress()..'; Factory last orders='..repru(oFactory[M28Orders.reftiLastOrders])) end
                         --Campaign - clear orders if work progress is 0 to protect against issues where campaign AI script tells the factory to build something it cant due to unit restrictions
                         if M28Map.bIsCampaignMap and oFactory:GetWorkProgress() == 0 then M28Orders.IssueTrackedClearCommands(oFactory) end
@@ -9063,13 +9216,14 @@ function RegisterCompletedFactoryBuild(oFactory, sBlueprint)
     end
     oFactory[refiBuildCountByBlueprint][sBlueprint] = (oFactory[refiBuildCountByBlueprint][sBlueprint] or 0) + 1
     oFactory[refsLastBlueprintBuilt] = sBlueprint
+    ConsumeFactoryBuildPlanEntry(oFactory, sBlueprint)
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Registered completed build '..(sBlueprint or 'nil')..' for factory '..(oFactory.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oFactory) or 'nil')) end
     if oFactory[refiFirstTimeOfLastOrder] and GetGameTimeSeconds() - oFactory[refiFirstTimeOfLastOrder] > 0.1 then
         oFactory[refiFirstTimeOfLastOrder] = nil
     end
     oFactory[refiTotalBuildCount] = (oFactory[refiTotalBuildCount] or 0) + 1
     oFactory:GetAIBrain()[refiHighestFactoryBuildCount] = math.max((oFactory:GetAIBrain()[refiHighestFactoryBuildCount] or 0), (oFactory[refiTotalBuildCount] or 0))
-    if GetFactoryBuildOrderCount(oFactory) > 0 then
+    if (GetFactoryActualBuildOrderCount(oFactory) or GetFactoryBuildOrderCount(oFactory)) > 0 then
         oFactory[refiFirstTimeOfLastOrder] = GetGameTimeSeconds()
         ForkThread(DelayedCheckIfFactoryBuildingAndRetry, oFactory)
     end
