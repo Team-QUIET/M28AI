@@ -5810,6 +5810,35 @@ local function GetFactoryQueueRefillFloor(aiBrain, oFactory, iTargetQueueDepth)
     return math.min(iTargetQueueDepth, math.max(2, math.ceil(iTargetQueueDepth * 0.75)))
 end
 
+local function GetFactoryQueuePreemptingUpgradeBlueprint(aiBrain, oFactory)
+    if not(M28UnitInfo.IsUnitValid(oFactory)) or oFactory:IsPaused() or oFactory[M28UnitInfo.refbPaused]
+            or oFactory:IsUnitState('Upgrading') or oFactory:IsUnitState('BeingUpgraded') then
+        return nil
+    end
+
+    local sBlueprintToBuild, bEnhancement = DetermineWhatToBuild(aiBrain, oFactory)
+    if bEnhancement or not(sBlueprintToBuild) then
+        return nil
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryFactory, sBlueprintToBuild) then
+        return sBlueprintToBuild
+    end
+
+    return nil
+end
+
+local function ClearFactoryQueueForUpgradePreemption(oFactory)
+    if not(M28UnitInfo.IsUnitValid(oFactory)) then
+        return
+    end
+
+    InvalidateFactoryBuildPlan(oFactory)
+
+    if (GetFactoryActualBuildOrderCount(oFactory) or 0) > 0 then
+        IssueClearFactoryCommands({oFactory})
+        M28Orders.UpdateRecordedOrders(oFactory)
+    end
+end
+
 local function GetFactoryBuildPlanRunLength(aiBrain, oFactory, sBlueprint, iRemainingPlanDepth)
     if not(sBlueprint) then
         return 0
@@ -5913,6 +5942,12 @@ function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
     iBuildOrders = math.max(iBuildOrders, GetFactoryActualBuildOrderCount(oFactory) or 0)
     local bFactoryActivelyBuilding = IsFactoryActivelyBuilding(oFactory)
     if iBuildOrders == 0 and M28Utilities.IsTableEmpty(tBuildPlan) and not(bFactoryActivelyBuilding) then
+        return false
+    end
+    local sUpgradeBlueprint = GetFactoryQueuePreemptingUpgradeBlueprint(aiBrain, oFactory)
+    if sUpgradeBlueprint then
+        LOG('M28FactoryQueueUpgradePreempt: Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; UpgradeBlueprint='..sUpgradeBlueprint..'; ActualBuildOrders='..(GetFactoryActualBuildOrderCount(oFactory) or 0)..'; PlanLength='..table.getn(tBuildPlan or {})..'; IssuedCount='..(oFactory[refiFactoryBuildPlanIssuedCount] or 0)..'; WorkProgress='..(oFactory:GetWorkProgress() or 0)..'; State='..M28UnitInfo.GetUnitState(oFactory)..'; Time='..GetGameTimeSeconds())
+        ClearFactoryQueueForUpgradePreemption(oFactory)
         return false
     end
     if iBuildOrders > 0 and oFactory[refiFirstTimeOfLastOrder] and GetGameTimeSeconds() - oFactory[refiFirstTimeOfLastOrder] >= 5 and oFactory:GetWorkProgress() == 0 and not(oFactory:IsUnitState('Building')) and not(oFactory:IsUnitState('Busy')) then
