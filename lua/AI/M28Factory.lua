@@ -133,6 +133,8 @@ local function GetFactoryBuildPlanBlacklistCategory(sBlueprint)
         return M28UnitInfo.refCategoryTransport
     elseif EntityCategoryContains(M28UnitInfo.refCategoryMobileLandShield, sBlueprint) then
         return M28UnitInfo.refCategoryMobileLandShield
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryMobileLandStealth, sBlueprint) then
+        return M28UnitInfo.refCategoryMobileLandStealth
     elseif EntityCategoryContains(M28UnitInfo.refCategoryMAA, sBlueprint) then
         return M28UnitInfo.refCategoryMAA
     elseif EntityCategoryContains(M28UnitInfo.refCategoryMML, sBlueprint) then
@@ -269,6 +271,8 @@ local function GetFactoryLiveQueueCapForCategory(iCategoryWanted)
     elseif iCategoryWanted == M28UnitInfo.refCategoryEngineer then
         return 3
     elseif iCategoryWanted == M28UnitInfo.refCategoryT3MobileArtillery then
+        return 2
+    elseif iCategoryWanted == M28UnitInfo.refCategoryMobileLandStealth then
         return 2
     elseif iCategoryWanted == M28UnitInfo.refCategoryTransport
             or iCategoryWanted == M28UnitInfo.refCategoryMobileLandShield
