@@ -120,6 +120,9 @@ function IssueTrackedClearCommands(oUnit)
         oUnit[reftiLastOrders] = nil
         oUnit[refiOrderCount] = 0
         if oUnit[reftMoveDestinationIgnoredDueToMicro] then oUnit[reftMoveDestinationIgnoredDueToMicro] = nil end
+        if oUnit.UnitId and EntityCategoryContains(M28UnitInfo.refCategoryFactory + categories.EXTERNALFACTORYUNIT, oUnit.UnitId) then
+            import('/mods/M28AI/lua/AI/M28Factory.lua').InvalidateFactoryBuildPlan(oUnit)
+        end
         if oUnit[M28Engineer.reftUnitsWeAreReclaiming] and M28Utilities.IsTableEmpty(oUnit[M28Engineer.reftUnitsWeAreReclaiming]) == false then
             for iUnitBeingReclaimed, oUnitBeingReclaimed in oUnit[M28Engineer.reftUnitsWeAreReclaiming] do
                 if oUnitBeingReclaimed.UnitId and M28Utilities.IsTableEmpty(oUnitBeingReclaimed[M28Engineer.reftUnitsReclaimingUs]) == false then

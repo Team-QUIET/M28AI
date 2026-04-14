@@ -41,6 +41,9 @@ refiTotalBuildCount = 'M28FacTotBC' --against oFactory, Total number of units th
 refsLastBlueprintBuilt = 'M28FLstB' --blueprint the factory last built
 refsLastBlueprintOrdered = 'M28FLstOrd' --blueprint the factory was last told to build; separate from completed build tracking so queues dont masquerade as completed output
 reftFactoryRallyPoint = 'M28FacRally' --against oFactory, Location to send units to when theyre built
+reftFactoryBuildPlan = 'M28FacPlan' --against oFactory, queued build plan owned by the factory queue manager; leading entries mirror issued orders, trailing entries are pending refills
+refiFactoryBuildPlanIssuedCount = 'M28FacPlanI' --against oFactory, number of entries at the start of reftFactoryBuildPlan that have been issued to the engine queue
+reftFactoryBuildPlanCategoryBlacklist = 'M28FacPlanBlk' --against oFactory during a queue planning pass, temporary category blacklist to stop support units dominating a single plan fill
 refiFirstTimeOfLastOrder = 'M28FOrTim' --against oFactory, time that we gave an order for the factory to build a unit (cleared when a unit is built or a different blueprint order is given) - used to spot for factories with units blocking them
 refbWantMoreEngineersBeforeUpgrading = 'M28FWnE' --against oFactory, true if have run the factory condition and it concluded wen eeded more engineers before upgrading
 refbPausedToStopDefaultAI = 'M28FPsC' --true if we have paused factory to stop a campaign AI giving it orders
@@ -112,6 +115,261 @@ local function WaitForFactoryCampaignDelayIfNeeded(aiBrain)
     if iWaitTime > 0 then
         WaitSeconds(iWaitTime)
         return true
+    end
+    return false
+end
+
+local function IsFactoryActivelyBuilding(oFactory)
+    return M28UnitInfo.IsUnitValid(oFactory) and ((oFactory:GetWorkProgress() or 0) > 0 or oFactory:IsUnitState('Building') or oFactory:IsUnitState('Busy'))
+end
+
+local function GetFactoryBuildPlanBlacklistCategory(sBlueprint)
+    if not(sBlueprint) then
+        return nil
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBlueprint) then
+        return M28UnitInfo.refCategoryEngineer
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryTransport, sBlueprint) then
+        return M28UnitInfo.refCategoryTransport
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryMobileLandShield, sBlueprint) then
+        return M28UnitInfo.refCategoryMobileLandShield
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryMAA, sBlueprint) then
+        return M28UnitInfo.refCategoryMAA
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryMML, sBlueprint) then
+        return M28UnitInfo.refCategoryMML
+    elseif categories.ual0204 and EntityCategoryContains(categories.ual0204, sBlueprint) then
+        return categories.ual0204
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryLandScout + M28UnitInfo.refCategoryAirScout, sBlueprint) then
+        return M28UnitInfo.refCategoryLandScout + M28UnitInfo.refCategoryAirScout
+    end
+    return nil
+end
+
+local function IsFactoryBuildPlanSupportBlueprint(sBlueprint)
+    return sBlueprint and (GetFactoryBuildPlanBlacklistCategory(sBlueprint) ~= nil)
+end
+
+local function CanRepeatFactoryQueueCombatBlueprint(sBlueprint)
+    return sBlueprint
+            and not(EntityCategoryContains(categories.SUBCOMMANDER + categories.EXPERIMENTAL + M28UnitInfo.refCategoryFactory, sBlueprint))
+            and not(IsFactoryBuildPlanSupportBlueprint(sBlueprint))
+end
+
+local function GetFactoryBuildPlanRepeatFallbackBlueprint(oFactory, tBuildPlan)
+    if M28Utilities.IsTableEmpty(tBuildPlan) == false then
+        for iEntry = table.getn(tBuildPlan), 1, -1 do
+            if CanRepeatFactoryQueueCombatBlueprint(tBuildPlan[iEntry]) then
+                return tBuildPlan[iEntry]
+            end
+        end
+    end
+
+    local sLastBlueprint = oFactory[refsLastBlueprintOrdered] or oFactory[refsLastBlueprintBuilt]
+    if CanRepeatFactoryQueueCombatBlueprint(sLastBlueprint) then
+        return sLastBlueprint
+    end
+
+    return nil
+end
+
+local function GetFactoryIndirectBuildCategory(iFactoryTechLevel)
+    local iIndirectCategory = M28UnitInfo.refCategoryIndirect + M28UnitInfo.refCategoryMML
+    if iFactoryTechLevel then
+        iIndirectCategory = iIndirectCategory * M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)
+    end
+    return iIndirectCategory
+end
+
+local function GetTeamLandScoutCap(aiBrain, iTeam)
+    iTeam = iTeam or aiBrain.M28Team
+    local iCap = 2
+    if (M28Map.iMapSize or 256) >= 768 or (M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1) >= 3 then
+        iCap = 3
+    end
+    return iCap
+end
+
+local function GetLandScoutCoverageForZone(tLZTeamData)
+    if not(tLZTeamData) then
+        return 0
+    end
+    local iTravelingScouts = 0
+    if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTScoutsTravelingHere]) == false then
+        iTravelingScouts = table.getn(tLZTeamData[M28Map.subrefTScoutsTravelingHere])
+    end
+    return M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryLandScout)
+            + M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryLandScout, false)
+            + iTravelingScouts
+            + (tLZTeamData[M28Map.refiSpareLandScouts] or 0)
+end
+
+local function GetFactoryPendingBuildCountByCategory(oFactory, iCategoryWanted)
+    if not(oFactory) then
+        return 0
+    end
+
+    local iPendingBuilds = 0
+    if M28UnitInfo.IsUnitValid(oFactory) then
+        M28Orders.UpdateRecordedOrders(oFactory)
+    end
+    if oFactory[M28Orders.reftiLastOrders] then
+        for _, tOrder in oFactory[M28Orders.reftiLastOrders] do
+            if tOrder and tOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueFactoryBuild and tOrder[M28Orders.subrefsOrderBlueprint]
+                    and EntityCategoryContains(iCategoryWanted, tOrder[M28Orders.subrefsOrderBlueprint]) then
+                iPendingBuilds = iPendingBuilds + 1
+            end
+        end
+    end
+
+    local tBuildPlan = oFactory[reftFactoryBuildPlan]
+    local iIssuedCount = oFactory[refiFactoryBuildPlanIssuedCount] or 0
+    if M28Utilities.IsTableEmpty(tBuildPlan) == false and table.getn(tBuildPlan) > iIssuedCount then
+        for iEntry = iIssuedCount + 1, table.getn(tBuildPlan) do
+            if EntityCategoryContains(iCategoryWanted, tBuildPlan[iEntry]) then
+                iPendingBuilds = iPendingBuilds + 1
+            end
+        end
+    end
+
+    return iPendingBuilds
+end
+
+local function GetFactoryPendingLandScoutCount(oFactory)
+    return GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryLandScout)
+end
+
+local function GetTeamCurrentLandScoutCount(aiBrain, iTeam)
+    iTeam = iTeam or aiBrain.M28Team
+    local iCurrentScouts = 0
+    local tFriendlyBrains = M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]
+    if M28Utilities.IsTableEmpty(tFriendlyBrains) then
+        return aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandScout)
+    end
+
+    for _, oBrain in tFriendlyBrains do
+        if oBrain and oBrain.M28AI then
+            iCurrentScouts = iCurrentScouts + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandScout)
+        end
+    end
+    return iCurrentScouts
+end
+
+local function GetTeamPendingLandScoutCount(aiBrain, iTeam)
+    iTeam = iTeam or aiBrain.M28Team
+    local iPendingScouts = 0
+    local tFriendlyBrains = M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]
+    if M28Utilities.IsTableEmpty(tFriendlyBrains) then
+        tFriendlyBrains = {aiBrain}
+    end
+
+    for _, oBrain in tFriendlyBrains do
+        if oBrain and oBrain.M28AI then
+            local toFactories = oBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryMobileLandFactory, false, true)
+            if M28Utilities.IsTableEmpty(toFactories) == false then
+                for _, oCurFactory in toFactories do
+                    if M28UnitInfo.IsUnitValid(oCurFactory) and oCurFactory:GetFractionComplete() == 1 then
+                        iPendingScouts = iPendingScouts + GetFactoryPendingBuildCountByCategory(oCurFactory, M28UnitInfo.refCategoryLandScout)
+                    end
+                end
+            end
+        end
+    end
+    return iPendingScouts
+end
+
+local function GetTeamTransportCount(aiBrain, iTeam)
+    iTeam = iTeam or aiBrain.M28Team
+    local iTransportCount = 0
+    local tFriendlyBrains = M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]
+    if M28Utilities.IsTableEmpty(tFriendlyBrains) then
+        tFriendlyBrains = {aiBrain}
+    end
+
+    for _, oBrain in tFriendlyBrains do
+        if oBrain and oBrain.M28AI then
+            local toTransports = oBrain:GetListOfUnits(M28UnitInfo.refCategoryTransport, false, true)
+            if M28Utilities.IsTableEmpty(toTransports) == false then
+                for _, oTransport in toTransports do
+                    if M28UnitInfo.IsUnitValid(oTransport) then
+                        iTransportCount = iTransportCount + 1
+                    end
+                end
+            end
+        end
+    end
+    return iTransportCount
+end
+
+local function GetTeamPendingTransportCount(aiBrain, iTeam)
+    iTeam = iTeam or aiBrain.M28Team
+    local iPendingTransports = 0
+    local tFriendlyBrains = M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]
+    if M28Utilities.IsTableEmpty(tFriendlyBrains) then
+        tFriendlyBrains = {aiBrain}
+    end
+
+    for _, oBrain in tFriendlyBrains do
+        if oBrain and oBrain.M28AI then
+            local toFactories = oBrain:GetListOfUnits(M28UnitInfo.refCategoryAirFactory + M28UnitInfo.refCategoryMobileAircraftFactory, false, true)
+            if M28Utilities.IsTableEmpty(toFactories) == false then
+                for _, oCurFactory in toFactories do
+                    if M28UnitInfo.IsUnitValid(oCurFactory) and oCurFactory:GetFractionComplete() == 1 then
+                        iPendingTransports = iPendingTransports + GetFactoryPendingBuildCountByCategory(oCurFactory, M28UnitInfo.refCategoryTransport)
+                    end
+                end
+            end
+        end
+    end
+    return iPendingTransports
+end
+
+local function ShouldAllowAnotherTransport(aiBrain, iTeam)
+    iTeam = iTeam or aiBrain.M28Team
+    return GetTeamTransportCount(aiBrain, iTeam) + GetTeamPendingTransportCount(aiBrain, iTeam) < 1
+end
+
+local function ShouldAllowAnotherLandScout(aiBrain, oFactory, tLZTeamData)
+    local iTeam = aiBrain.M28Team
+    if M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision] or not(tLZTeamData) then
+        return false
+    end
+    if GetTeamCurrentLandScoutCount(aiBrain, iTeam) + GetTeamPendingLandScoutCount(aiBrain, iTeam) >= GetTeamLandScoutCap(aiBrain, iTeam) then
+        return false
+    end
+    if GetFactoryPendingLandScoutCount(oFactory) > 0 then
+        return false
+    end
+
+    local iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oFactory:GetPosition(), true, oFactory)
+    if (iLandZone or 0) <= 0 or not(M28Map.tAllPlateaus[iPlateau]) then
+        return false
+    end
+
+    local tLocalLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone]
+    if tLZTeamData[M28Map.refbWantLandScout] and GetLandScoutCoverageForZone(tLZTeamData) == 0 then
+        return true
+    end
+
+    if M28Utilities.IsTableEmpty(tLocalLZData[M28Map.subrefLZAdjacentLandZones]) == false then
+        for _, iAdjLZ in tLocalLZData[M28Map.subrefLZAdjacentLandZones] do
+            local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
+            if tAdjLZTeamData[M28Map.refbWantLandScout] and GetLandScoutCoverageForZone(tAdjLZTeamData) == 0 then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function IsFactoryBuildPlanTemporarilyBlacklisted(oFactory, sBlueprint)
+    local tiCategoryBlacklist = oFactory and oFactory[reftFactoryBuildPlanCategoryBlacklist]
+    if M28Utilities.IsTableEmpty(tiCategoryBlacklist) or not(sBlueprint) then
+        return false
+    end
+    for _, iBlacklistedCategory in tiCategoryBlacklist do
+        if EntityCategoryContains(iBlacklistedCategory, sBlueprint) then
+            return true
+        end
     end
     return false
 end
@@ -343,6 +601,23 @@ function GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryCondition, oFactor
 
 end
 
+local function GetEnemyT3MobileArtilleryCount(iTeam)
+    local iEnemyT3MobileArtiCount = 0
+    if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains]) == false then
+        for iBrain, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains] do
+            iEnemyT3MobileArtiCount = iEnemyT3MobileArtiCount + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryT3MobileArtillery)
+        end
+    end
+    return iEnemyT3MobileArtiCount
+end
+
+local function GetNearbyEnemyLongRangeSniperCount(tLZTeamData)
+    if not(tLZTeamData) or M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefoNearbyEnemyLongRangeDFThreats]) then
+        return 0
+    end
+    return table.getn(EntityCategoryFilterDown(M28UnitInfo.refCategorySniperBot, tLZTeamData[M28Map.subrefoNearbyEnemyLongRangeDFThreats]))
+end
+
 local function GetLongRangeT3BuildAllowance(aiBrain, iTeam, tLZTeamData)
     --Returns whether we can add more T3 sniper or T3 mobile artillery without skewing armies away from direct-fire.
     local iT3DFCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand * categories.TECH3 - M28UnitInfo.refCategorySkirmisher)
@@ -350,6 +625,8 @@ local function GetLongRangeT3BuildAllowance(aiBrain, iTeam, tLZTeamData)
     local iT3MobileArtiCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryT3MobileArtillery)
     local iT3SniperUnderConstruction = 0
     local iT3MobileArtiUnderConstruction = 0
+    local iEnemyT3MobileArtiCount = GetEnemyT3MobileArtilleryCount(iTeam)
+    local iNearbyEnemySniperCount = GetNearbyEnemyLongRangeSniperCount(tLZTeamData)
     if tLZTeamData then
         iT3SniperUnderConstruction = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategorySniperBot * categories.TECH3, false)
         iT3MobileArtiUnderConstruction = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryT3MobileArtillery, false)
@@ -359,10 +636,91 @@ local function GetLongRangeT3BuildAllowance(aiBrain, iTeam, tLZTeamData)
 
     local iMaxSnipersWanted = math.max(2, math.floor(iT3DFCount * (bEnemyHasLandExperimental and 0.35 or 0.28)))
     local iMaxT3MobileArtiWanted = math.max((bEnemyHasNearbyFirebase and 2 or 1), math.floor(iT3DFCount * (bEnemyHasNearbyFirebase and 0.22 or 0.16)))
+    if iEnemyT3MobileArtiCount > 0 then
+        iMaxT3MobileArtiWanted = math.max(iMaxT3MobileArtiWanted, math.min(iT3DFCount, iEnemyT3MobileArtiCount))
+    end
+    if iNearbyEnemySniperCount > 0 then
+        iMaxT3MobileArtiWanted = math.max(iMaxT3MobileArtiWanted, math.max(2, math.floor(iT3DFCount * 0.22)))
+    end
 
     local bCanAddT3Sniper = iT3DFCount >= 8 and (iT3SniperCount + iT3SniperUnderConstruction) < iMaxSnipersWanted
     local bCanAddT3MobileArti = iT3DFCount >= 10 and (iT3MobileArtiCount + iT3MobileArtiUnderConstruction) < iMaxT3MobileArtiWanted
     return bCanAddT3Sniper, bCanAddT3MobileArti
+end
+
+local function ShouldPreferT3MobileArtiBeforeSniper(aiBrain, oFactory)
+    local iFacLifetimeSniperBuild = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategorySniperBot)
+    if iFacLifetimeSniperBuild <= 0 then
+        return false
+    end
+
+    local iBrainLifetimeSniperBuild = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategorySniperBot * categories.TECH3)
+    if iBrainLifetimeSniperBuild < 3 then
+        return false
+    end
+
+    local iBrainLifetimeMobileArtiBuild = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryIndirectT3)
+    if iBrainLifetimeSniperBuild >= 4 and iBrainLifetimeSniperBuild > 4 * iBrainLifetimeMobileArtiBuild then
+        return true
+    end
+
+    if iBrainLifetimeSniperBuild <= iBrainLifetimeMobileArtiBuild and iBrainLifetimeMobileArtiBuild > 0 then
+        return false
+    end
+
+    local tCurSniperBots = aiBrain:GetListOfUnits(M28UnitInfo.refCategorySniperBot * categories.TECH3, false, true)
+    local iRecentlyRetreatedNotFiredBotCount = 0
+    local iRecentlyFiredBotCount = 0
+    local iTimeThreshold = 20
+    if M28Utilities.IsTableEmpty(tCurSniperBots) == false then
+        for iSniper, oSniper in tCurSniperBots do
+            if oSniper:GetFractionComplete() >= 1 then
+                if oSniper[M28UnitInfo.refiLastWeaponEvent] and GetGameTimeSeconds() - oSniper[M28UnitInfo.refiLastWeaponEvent] <= iTimeThreshold then
+                    iRecentlyFiredBotCount = iRecentlyFiredBotCount + 1
+                elseif oSniper[M28UnitInfo.refiTimeLastTriedRetreating] and GetGameTimeSeconds() - oSniper[M28UnitInfo.refiTimeLastTriedRetreating] <= iTimeThreshold then
+                    iRecentlyRetreatedNotFiredBotCount = iRecentlyRetreatedNotFiredBotCount + 1
+                end
+            end
+        end
+    end
+
+    return iRecentlyRetreatedNotFiredBotCount > math.max(1, iRecentlyFiredBotCount)
+end
+
+local function GetPreferredGenericT3LongRangeLandCategory(aiBrain, oFactory, tLZData, tLZTeamData, iTeam, iPlateau, iLandZone)
+    if not(tLZData) or not(tLZTeamData) or M28UnitInfo.GetUnitTechLevel(oFactory) < 3 then
+        return nil
+    end
+
+    local bCanAddT3Sniper, bCanAddT3MobileArti = GetLongRangeT3BuildAllowance(aiBrain, iTeam, tLZTeamData)
+    local bCanBuildT3Sniper = false
+    local bCanBuildT3MobileArti = false
+    if bCanAddT3Sniper and (M28Utilities.bLoudModActive or EntityCategoryContains(categories.AEON + categories.SERAPHIM, oFactory.UnitId)) then
+        bCanBuildT3Sniper = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategorySniperBot * categories.TECH3, oFactory) ~= nil
+    end
+    if bCanAddT3MobileArti then
+        bCanBuildT3MobileArti = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryT3MobileArtillery, oFactory) ~= nil
+    end
+    if not(bCanBuildT3Sniper or bCanBuildT3MobileArti) then
+        return nil
+    end
+
+    local iEnemyT3MobileArtiCount = GetEnemyT3MobileArtilleryCount(iTeam)
+    local iNearbyEnemySniperCount = GetNearbyEnemyLongRangeSniperCount(tLZTeamData)
+    local bEnemyNearbyFirebase = M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftEnemyFirebasesInRange]) == false
+    if bCanBuildT3MobileArti and (iEnemyT3MobileArtiCount > 0 or iNearbyEnemySniperCount > 0 or bEnemyNearbyFirebase or ShouldPreferT3MobileArtiBeforeSniper(aiBrain, oFactory)) then
+        return M28UnitInfo.refCategoryT3MobileArtillery
+    end
+
+    local iT3DFCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand * categories.TECH3 - M28UnitInfo.refCategorySkirmisher)
+    if bCanBuildT3Sniper and iEnemyT3MobileArtiCount == 0 then
+        if M28Conditions.PrioritiseSniperBots(tLZData, iTeam, tLZTeamData, iPlateau, iLandZone, true)
+                or (iT3DFCount >= 16 and (tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or tLZTeamData[M28Map.refbEnemiesInNearbyPlateau])) then
+            return M28UnitInfo.refCategorySniperBot * categories.TECH3
+        end
+    end
+
+    return nil
 end
 
 function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamData, iFactoryTechLevel)
@@ -375,6 +733,18 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
     local iCurTime = GetGameTimeSeconds()
     local iTimeSinceLastHQUpgrade = iCurTime - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastHQUpgradeCompleted] or -1000)
     local bUpgradingHQ = M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs]) == false or iTimeSinceLastHQUpgrade <= 180
+
+    if IsFactoryBuildPlanTemporarilyBlacklisted(oFactory, sBPIDToBuild) then
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Temporary queue-plan blacklist removed blueprint '..(sBPIDToBuild or 'nil')) end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return nil
+    end
+
+    if EntityCategoryContains(M28UnitInfo.refCategoryLandScout, sBPIDToBuild) and not(ShouldAllowAnotherLandScout(aiBrain, oFactory, tLZTeamData)) then
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Central land scout clamp rejected extra scout build for factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return nil
+    end
 
     if M28Team.tTeamData[iTeam][M28Team.refbEcoStagnant] and M28Team.tTeamData[iTeam][M28Team.refiTimeEcoStagnantSince] then
         local iTimeStagnant = iCurTime - M28Team.tTeamData[iTeam][M28Team.refiTimeEcoStagnantSince]
@@ -997,7 +1367,7 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
     end
 
     --Priority scouts
-    if not(bDontConsiderLandScouts) and tLZTargetTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] and bInSameIsland and tLZTargetTeamData[M28Map.refbWantLandScout] and (tLZTargetTeamData[M28Map.refiRadarCoverage] or 0) < 60 and M28Utilities.IsTableEmpty(tLZTargetTeamData[M28Map.subrefTScoutsTravelingHere]) and GetGameTimeSeconds() - tLZTargetTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] <= 10 then
+    if not(bDontConsiderLandScouts) and tLZTargetTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] and bInSameIsland and tLZTargetTeamData[M28Map.refbWantLandScout] and (tLZTargetTeamData[M28Map.refiRadarCoverage] or 0) < 60 and M28Utilities.IsTableEmpty(tLZTargetTeamData[M28Map.subrefTScoutsTravelingHere]) and GetGameTimeSeconds() - tLZTargetTeamData[M28Map.refiTimeLastFailedToKiteDueToScoutIntel] <= 10 and ShouldAllowAnotherLandScout(oFactory:GetAIBrain(), oFactory, tLZTargetTeamData) then
         iBaseCategoryWanted = M28UnitInfo.refCategoryLandScout
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We recently failed to get a land scout for this zone so want to get one now') end
     end
@@ -1291,6 +1661,14 @@ function GetLandZoneSupportCategoryWanted(oFactory, iTeam, tBaseLZTeamData, iPla
                         if iBaseCategoryWanted == M28UnitInfo.refCategorySkirmisher * iTechCategory and M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategorySniperBot * iTechCategory) <= 5 then
                             iAltCategoryWanted = M28UnitInfo.refCategorySniperBot * iTechCategory
                             if GetBlueprintThatCanBuildOfCategory(oFactory:GetAIBrain(), iAltCategoryWanted, oFactory) then iBaseCategoryWanted = iAltCategoryWanted end
+                        end
+                    end
+
+                    if iFactoryTechLevel >= 3 and not(bNeedMoreDFCore) then
+                        local iLongRangeCategoryWanted = GetPreferredGenericT3LongRangeLandCategory(oFactory:GetAIBrain(), oFactory, tTargetLZData, tLZTargetTeamData, iTeam, iPlateau, iTargetLandZone)
+                        if iLongRangeCategoryWanted then
+                            iBaseCategoryWanted = iLongRangeCategoryWanted
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Generic T3 long-range owner selected category '..repru(iBaseCategoryWanted)..' for target LZ '..iTargetLandZone) end
                         end
                     end
 
@@ -1639,11 +2017,6 @@ local function ShouldRedirectEarlyT1IndirectPick(aiBrain, oFactory, tLZTeamData,
 end
 
 local function GetPreferredEarlyT1DirectFallbackCategory(aiBrain, oFactory, tLZTeamData)
-    if tLZTeamData[M28Map.subrefLZbCoreBase]
-        and EntityCategoryContains(categories.AEON + categories.UEF, oFactory.UnitId)
-        and (aiBrain[M28Overseer.refiCombatLandScoutThreshold] or 0) > M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandScout) then
-        return M28UnitInfo.refCategoryLandScout
-    end
     return M28UnitInfo.refCategoryMobileDFLand * categories.TECH1 - M28UnitInfo.refCategorySkirmisher
 end
 
@@ -2728,13 +3101,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandCombat) then
                 return sBPIDToBuild
             end
-        elseif  not (bDontConsiderLandScouts) and M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryLandScout) == 0 then
-            if bDebugMessages == true then
-                LOG(sFunctionRef .. ': Core expansion - have no land scout so will try to get some')
-            end
-            if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then
-                return sBPIDToBuild
-            end
         end
     end
 
@@ -2770,15 +3136,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                 if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer * categories.TECH1) then return sBPIDToBuild end
                 if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end
             end
-        end
-    end
-
-    --Core expansion with enemies in an adjacent zone or this, and a notable combat threat in this zone, that needs land scouts
-    iCurrentConditionToTry = iCurrentConditionToTry + 1
-    if not(bDontConsiderLandScouts) and tLZTeamData[M28Map.refiRadarCoverage] < 20 and tLZTeamData[M28Map.refbWantLandScout] and tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] and M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryLandScout, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])) then
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want to get land scout to support other units unless we lack any combat or AA (If vs air therat), tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] ='..tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] ) end
-        if tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] > 50 and (tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] >= 30 or M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftLZEnemyAirUnits])) then
-            if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then return sBPIDToBuild end
         end
     end
 
@@ -2979,159 +3336,16 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileLandStealth) then return sBPIDToBuild end
     end
 
-    --Counter enemy T3 mobile artillery with our own T3 mobile artillery (high priority)
+    --Upgrade toward T3 long-range land when the generic long-range owner wants sniper/artillery access.
     iCurrentConditionToTry = iCurrentConditionToTry + 1
-    if iFactoryTechLevel >= 3 and not(bHaveLowMass) then
-        --Count enemy T3 mobile artillery across all enemy brains
-        local iEnemyT3MobileArtiCount = 0
-        if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains]) == false then
-            for iBrain, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains] do
-                iEnemyT3MobileArtiCount = iEnemyT3MobileArtiCount + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryT3MobileArtillery)
-            end
+    if iFactoryTechLevel < 3 and tLZTeamData[M28Map.subrefLZbCoreBase] and not(bHaveLowMass) then
+        local bWantT3LongRange = GetEnemyT3MobileArtilleryCount(iTeam) > 0
+        if not(bWantT3LongRange) and (M28Utilities.bLoudModActive or EntityCategoryContains(categories.AEON + categories.SERAPHIM, oFactory.UnitId)) then
+            bWantT3LongRange = M28Conditions.PrioritiseSniperBots(tLZData, iTeam, tLZTeamData, iPlateau, iLandZone, true)
         end
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Enemy T3 mobile arti count='..iEnemyT3MobileArtiCount) end
-        if iEnemyT3MobileArtiCount >= 1 then
-            --Enemy has T3 mobile arti - ramp up our own production significantly
-            local iOurT3MobileArtiCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryT3MobileArtillery)
-            local iT3MobileArtiUnderConstruction = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryT3MobileArtillery, false)
-            local iT3MobileArtiWanted = math.max(iEnemyT3MobileArtiCount, math.floor(iEnemyT3MobileArtiCount))
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Our T3 mobile arti='..iOurT3MobileArtiCount..'; Under construction='..iT3MobileArtiUnderConstruction..'; Wanted='..iT3MobileArtiWanted) end
-            if iOurT3MobileArtiCount + iT3MobileArtiUnderConstruction < iT3MobileArtiWanted then
-                local _, bCanAddT3MobileArti = GetLongRangeT3BuildAllowance(aiBrain, iTeam, tLZTeamData)
-                if bCanAddT3MobileArti and ConsiderBuildingCategory(M28UnitInfo.refCategoryT3MobileArtillery) then return sBPIDToBuild end
-                if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher) then return sBPIDToBuild end
-            end
-        end
-    end
-
-    --Want to prioritise sniperbots to deal with enemy land experimental (when enemy lacks fatboy/megalith) or ACU.
-    iCurrentConditionToTry = iCurrentConditionToTry + 1
-    if (M28Utilities.bLoudModActive or EntityCategoryContains(categories.AEON + categories.SERAPHIM, oFactory.UnitId)) and not(bHaveLowMass) and (iFactoryTechLevel == 3 or tLZTeamData[M28Map.subrefLZbCoreBase]) then
-        --Don't build sniperbots if enemy has 3+ T3 mobile artillery (they hard counter sniperbots)
-        local bEnemyHasT3MobileArtiCounter = false
-        if iFactoryTechLevel >= 3 then
-            local iEnemyT3MobileArtiCount = 0
-            if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains]) == false then
-                for iBrain, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains] do
-                    iEnemyT3MobileArtiCount = iEnemyT3MobileArtiCount + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryT3MobileArtillery)
-                end
-            end
-            if iEnemyT3MobileArtiCount >= 1 then
-                bEnemyHasT3MobileArtiCounter = true
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Enemy has 1+ T3 mobile arti, skipping sniperbots') end
-            end
-        end
-        if not(bEnemyHasT3MobileArtiCounter) and M28Conditions.PrioritiseSniperBots(tLZData, iTeam, tLZTeamData, iPlateau, iLandZone, true) and (not(bHaveLowMass) or not(aiBrain[M28Overseer.refbPrioritiseAir]) and not(aiBrain[M28Overseer.refbPrioritiseNavy])) then
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want to either build sniperbots, or upgrade to t3 so we can build them, unless enemy has lots of nearby t1 spam such that we want to get a small number of DF units') end
-            if iFactoryTechLevel < 3 then
-                if ConsiderUpgrading() then  return sBPIDToBuild end
-            else
-                --Also check - if we have built a number of sniperbots and enenmy still has T1 spam then we want to get some DF tanks to support them (unless in core base with enemies already here since we probably have ACU and PD to help)
-                local bGetDFSupport = false
-                local iFacLifetimeSniperBuild = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategorySniperBot)
-                if oFactory[refsLastBlueprintBuilt] and M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] >= 500 and EntityCategoryContains( M28UnitInfo.refCategorySniperBot, oFactory[refsLastBlueprintBuilt]) and (not(tLZTeamData[M28Map.subrefLZbCoreBase]) or tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] == 0) then
-                    if iFacLifetimeSniperBuild >= 3  then
-                        local iDFLifetimeBuild = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher)
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iDFLifetimeBuild='..iDFLifetimeBuild..'; iFacLifetimeSniperBuild='..iFacLifetimeSniperBuild) end
-                        if iFacLifetimeSniperBuild > 3 * iDFLifetimeBuild then
-                            if iFacLifetimeSniperBuild > 8*math.max(1,iDFLifetimeBuild) then
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Even if we think sniperbots would be best, we have built more than 8 sniperbots for every tank so will get a tank anyway') end
-                                bGetDFSupport = true
-                            else
-                                local iSnipersBuiltPerDF = iFacLifetimeSniperBuild / math.max(0.5, iDFLifetimeBuild)
-                                --Find the zone with the nearest enemies in, and also how much short ranged mobile DF threat we have; if enemy zone has t1 units, then get more DF tanks
-                                function ConsiderCurZone(iCurLandZone)
-                                    local tCurLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iCurLandZone]
-                                    local tCurLZTeamData = tCurLZData[M28Map.subrefLZTeamData][iTeam]
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering the amount of very short range mobile DF units enemy has in this zone, iCurLandZone='..iCurLandZone..';  tCurLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal]='.. tCurLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal]) end
-                                    if tCurLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] > 0 then
-                                        local iLowRangeThreat = 0
-                                        local iMediumRangeThreat = 0
-                                        for iRange, iThreat in tCurLZTeamData[M28Map.subrefLZThreatEnemyMobileDFByRange] do
-                                            if iRange <= 26 then --Aurora is best t1 land range at 26; so if use this as the threshold should act as a basic proxy for enemy t1 land threat
-                                                iLowRangeThreat = iLowRangeThreat + iThreat
-                                            elseif iRange <= 70 then
-                                                iMediumRangeThreat = iMediumRangeThreat + iThreat
-                                            else
-                                                break
-                                            end
-                                        end
-                                        if iLowRangeThreat >= 200 and (iMediumRangeThreat < iLowRangeThreat or (iSnipersBuiltPerDF >= 4 and iMediumRangeThreat * 0.7 < iLowRangeThreat) or (iSnipersBuiltPerDF >= 6 and iLowRangeThreat >= 300)) then
-                                            bGetDFSupport = true
-                                        end
-                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iLowRangeThreat='..iLowRangeThreat..'; iMediumRangeThreat='..iMediumRangeThreat..'; bGetDFSupport='..tostring(bGetDFSupport)) end
-                                        --Return true if enemy has threat here
-                                        return true
-                                    end
-                                end
-                                local bFoundZoneWithEnemyThreat
-                                if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZPathingToOtherLandZones]) == false then
-                                    for iEntry, tSubtable in tLZData[M28Map.subrefLZPathingToOtherLandZones] do
-                                        if tSubtable[M28Map.subrefLZTravelDist] >= 225 then break end
-                                        if ConsiderCurZone(tSubtable[M28Map.subrefLZNumber]) then break end
-                                    end
-                                else
-                                    M28Air.RecordOtherLandAndWaterZonesByDistance(tLZData)
-                                    if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefOtherLandAndWaterZonesByDistance]) == false then
-                                        for _, tSubtable in tLZData[M28Map.subrefOtherLandAndWaterZonesByDistance] do
-                                            if tSubtable[M28Map.subrefiDistance] >= 225 then break end
-                                            if tSubtable[M28Map.subrefiPlateauOrPond] == iPlateau and not(tSubtable[M28Map.subrefbIsWaterZone]) then
-                                                if ConsiderCurZone(tSubtable[M28Map.subrefiLandOrWaterZoneRef]) then break end
-                                            end
-                                        end
-                                    end
-                                end
-                            end
-
-                        end
-                    end
-                end
-                if bGetDFSupport and ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher) then return sBPIDToBuild end
-                --Consider mobile arti instead of sniperbots if this factory has built sniperbot before, and our brain has built a decent number, and we have sniperbots who have retreated recently but not fired a shot (suggesting shot might be blocked)
-                if iFacLifetimeSniperBuild > 0 then
-                    local bGetMobileArtiBeforeSniperBot = false
-                    local iBrainLifetimeSniperBuild = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategorySniperBot * categories.TECH3)
-                    if iBrainLifetimeSniperBuild >= 3 then
-                        local iBrainLifetimeMobileArtiBuild = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryIndirectT3)
-                        if iBrainLifetimeSniperBuild >= 4 and iBrainLifetimeSniperBuild > 4 * iBrainLifetimeMobileArtiBuild then
-                            bGetMobileArtiBeforeSniperBot = true
-                        elseif iBrainLifetimeSniperBuild > iBrainLifetimeMobileArtiBuild and (iBrainLifetimeSniperBuild > iBrainLifetimeMobileArtiBuild * 1.5 or iBrainLifetimeMobileArtiBuild < 0) then
-                            local tCurSniperBots = aiBrain:GetListOfUnits(M28UnitInfo.refCategorySniperBot * categories.TECH3, false, true)
-                            local iRecentlyRetreatedNotFiredBotCount = 0
-                            local iRecentlyFiredBotCount = 0
-                            local iNotFiredOrRetreatedCount = 0
-                            local iTimeThreshold = 20
-                            if M28Utilities.IsTableEmpty(tCurSniperBots) == false then
-                                for iSniper, oSniper in tCurSniperBots do
-                                    if oSniper:GetFractionComplete() >= 1 then
-                                        if oSniper[M28UnitInfo.refiLastWeaponEvent] and GetGameTimeSeconds() - oSniper[M28UnitInfo.refiLastWeaponEvent] <= iTimeThreshold then
-                                            iRecentlyFiredBotCount = iRecentlyFiredBotCount + 1
-                                        elseif oSniper[M28UnitInfo.refiTimeLastTriedRetreating] and GetGameTimeSeconds() - oSniper[M28UnitInfo.refiTimeLastTriedRetreating] <= iTimeThreshold then
-                                            iRecentlyRetreatedNotFiredBotCount = iRecentlyRetreatedNotFiredBotCount + 1
-                                        else
-                                            iNotFiredOrRetreatedCount = iNotFiredOrRetreatedCount + 1
-                                        end
-                                    end
-                                end
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iRecentlyRetreatedNotFiredBotCount='..iRecentlyRetreatedNotFiredBotCount..'; iRecentlyFiredBotCount='..iRecentlyFiredBotCount..'; iNotFiredOrRetreatedCount='..iNotFiredOrRetreatedCount..'; iBrainLifetimeSniperBuild='..iBrainLifetimeSniperBuild..'; iBrainLifetimeMobileArtiBuild='..iBrainLifetimeMobileArtiBuild) end
-                                if iRecentlyRetreatedNotFiredBotCount > iRecentlyFiredBotCount and iRecentlyRetreatedNotFiredBotCount / iRecentlyFiredBotCount > iBrainLifetimeMobileArtiBuild / iBrainLifetimeSniperBuild then
-                                    bGetMobileArtiBeforeSniperBot = true
-                                end
-                            end
-                        end
-                    end
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iBrainLifetimeSniperBuild='..iBrainLifetimeSniperBuild..'; bGetMobileArtiBeforeSniperBot='..tostring(bGetMobileArtiBeforeSniperBot)) end
-                    if bGetMobileArtiBeforeSniperBot then
-                        local _, bCanAddT3MobileArti = GetLongRangeT3BuildAllowance(aiBrain, iTeam, tLZTeamData)
-                        if bCanAddT3MobileArti and ConsiderBuildingCategory(M28UnitInfo.refCategoryT3MobileArtillery) then return sBPIDToBuild end
-                        if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher) then return sBPIDToBuild end
-                    end
-
-                end
-                local bCanAddT3Sniper = GetLongRangeT3BuildAllowance(aiBrain, iTeam, tLZTeamData)
-                if bCanAddT3Sniper and ConsiderBuildingCategory(M28UnitInfo.refCategorySniperBot) then return sBPIDToBuild end
-                if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher) then return sBPIDToBuild end
-            end
+        if bWantT3LongRange then
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': T3 long-range owner wants tech upgrade for this core factory') end
+            if ConsiderUpgrading() then return sBPIDToBuild end
         end
     end
 
@@ -3283,6 +3497,8 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Enemy has ravagers or lots of sniperbots, want to build mobile arti unless we have already built a lot, T3 indirect under construction in zone='..M28Conditions.GetNumberOfUnitsCurrentlyBeingBuiltOfCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryIndirect * categories.TECH3)..'; Factory mobile indirect count='..M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryIndirect * categories.TECH3)..'; Factory total build count='..oFactory[refiTotalBuildCount]..'; iFactoryTechLevel='..iFactoryTechLevel) end
                 if oFactory[refiTotalBuildCount] < 10 or M28Conditions.GetNumberOfUnitsCurrentlyBeingBuiltOfCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryIndirect * categories.TECH3) == 0 or M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryIndirect * categories.TECH3) < oFactory[refiTotalBuildCount] * 0.35 then
                     if iFactoryTechLevel >= 3 then
+                        local iLongRangeCategoryWanted = GetPreferredGenericT3LongRangeLandCategory(aiBrain, oFactory, tLZData, tLZTeamData, iTeam, iPlateau, iLandZone)
+                        if iLongRangeCategoryWanted == M28UnitInfo.refCategoryT3MobileArtillery and ConsiderBuildingCategory(iLongRangeCategoryWanted) then return sBPIDToBuild end
                         if ConsiderBuildingCategory(M28UnitInfo.refCategoryIndirect * categories.TECH3) then return sBPIDToBuild end
                     elseif aiBrain[M28Economy.refiGrossMassBaseIncome] >= 4 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) then --redundancy for niche cases such as e.g. a map that has ravagers near the start
                         --If we have no units upgrading in this zone, then upgrade if we either have t3 land or no active t3 land upgrade for this brain
@@ -3490,15 +3706,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             end
         end
 
-        --Seraphim high priority land scouts at start for 'lurker' mode - decided to remove as after testing M28 did significantly worse on polar depression 1v1 with RNG (with this, it got crushed by 1.1 RNG; wtihout it, it crushed RNG)
-        --[[iCurrentConditionToTry = iCurrentConditionToTry + 1
-        if iFactoryTechLevel == 1 and M28UnitInfo.GetUnitLifetimeCount(oFactory) == 1 and EntityCategoryContains(categories.SERAPHIM, oFactory.UnitId) then
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': High priority selen builder, total build count='..oFactory[refiTotalBuildCount]..'; Cur land scouts='.. aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandScout)) end
-            if oFactory[refiTotalBuildCount] <= 15 and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandScout) <= 1 + 1.5 * M28Map.iMapSize / 256 then
-                if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then return sBPIDToBuild end
-            end
-        end--]]
-
         --Enemies nearby and have built fewer tanks of this tech level than engineers; or are on a core expansion and have no combat threat in this LZ
         iCurrentConditionToTry = iCurrentConditionToTry + 1
         if bDebugMessages == true then
@@ -3523,10 +3730,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                     end
                 end
 
-                --Combat land scouts
-                if iFactoryTechLevel == 1 and aiBrain[M28Overseer.refiCombatLandScoutThreshold] > 0 and EntityCategoryContains(categories.AEON + categories.UEF, oFactory.UnitId) and tLZTeamData[M28Map.subrefLZbCoreBase] and aiBrain[M28Overseer.refiCombatLandScoutThreshold] * 0.5 > M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandScout) then
-                    iCategoryToGet = M28UnitInfo.refCategoryLandScout
-                end
                 local bDontGetCombat = false
                 if not (iCategoryToGet) and M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
                     --If dont have highest factory tech level vs enemy ground, and have either very low mass or stalling E power, and on same island as core base, then dont build afterall
@@ -3672,8 +3875,8 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 
 
                                     if iDFTotalThreat >= 8000 and iIndirectTotalThreat < iIndirectThreatWanted and iEnemyAirToGroundThreat <= tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] then
-                                        local _, bCanAddT3MobileArti = GetLongRangeT3BuildAllowance(aiBrain, iTeam, tLZTeamData)
-                                        if bCanAddT3MobileArti and ConsiderBuildingCategory(M28UnitInfo.refCategoryT3MobileArtillery) then return sBPIDToBuild end
+                                        local iLongRangeCategoryWanted = GetPreferredGenericT3LongRangeLandCategory(aiBrain, oFactory, tLZData, tLZTeamData, iTeam, iPlateau, iLandZone)
+                                        if iLongRangeCategoryWanted == M28UnitInfo.refCategoryT3MobileArtillery and ConsiderBuildingCategory(iLongRangeCategoryWanted) then return sBPIDToBuild end
                                         if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher) then return sBPIDToBuild end
                                     elseif ConsiderBuildingCategory(iCategoryToGet) then
                                         return sBPIDToBuild
@@ -3840,43 +4043,17 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             local iAttackBotLifetimeCount = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLightAttackBot)
             if not(EntityCategoryContains(categories.SERAPHIM, oFactory.UnitId)) and iAttackBotLifetimeCount <= 1 and (iAttackBotLifetimeCount == 0 or M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], tLZTeamData[M28Map.reftClosestEnemyBase]) >= 200) and ConsiderBuildingCategory(M28UnitInfo.refCategoryLightAttackBot) then
                 return sBPIDToBuild
-            elseif iAttackBotLifetimeCount >= 2 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandScout) <= 1 and (not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision]) or EntityCategoryContains(categories.SERAPHIM, oFactory.UnitId)) and ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then
-                return sBPIDToBuild
             elseif ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategoryLightAttackBot) then
                 return sBPIDToBuild
             end
         end
 
-        --Scouts if we want any, subject to limit based on number of engineers we have
+        --General land-scout production is owned by explicit scout demand plus the central clamp.
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': Considering if we want land scouts, does this LZ want scouts=' .. tostring(tLZTeamData[M28Map.refbWantLandScout])) end
         iCurrentConditionToTry = iCurrentConditionToTry + 1
-        if (tLZTeamData[M28Map.refbWantLandScout] or (tLZTeamData[M28Map.refiRadarCoverage] <= 30 and iFactoryTechLevel == 1 and oFactory[refiTotalBuildCount] <= 10 and tLZTeamData[M28Map.subrefLZbCoreBase] and not (bDontConsiderLandScouts) and ((EntityCategoryContains(categories.SERAPHIM, oFactory.UnitId) and M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryLandScout) <= 4) or (M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryLandScout) == 0 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandScout) <= 3)))) then
-            if not (bHaveHighestLZTech) then
-                if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then
-                    return sBPIDToBuild
-                end
-            else
-                local iCurLandScouts = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandScout)
-                if iCurLandScouts < 8 or iCurLandScouts < aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer) or iCurLandScouts * 2 < aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandCombat) then
-                    if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then
-                        return sBPIDToBuild
-                    end
-                end
-            end
-        elseif tLZTeamData[M28Map.refiRadarCoverage] <= 150 and iFactoryTechLevel <= 2 and not(bDontConsiderLandScouts) and M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
-            --If we have t1 radar in this zone we still want land scouts to support units further away
-            local iCurLandScouts = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandScout)
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Land scouts for adjacent zone builder, iCurLandScouts='..iCurLandScouts) end
-            if iCurLandScouts <= 2 or (iFactoryTechLevel == 1 and EntityCategoryContains(categories.SERAPHIM, oFactory.UnitId) and iCurLandScouts <= 2 + 3 * M28Map.iMapSize / 256 and aiBrain[M28Economy.refiOurHighestFactoryTechLevel] == 1) then
-                if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then return sBPIDToBuild end
-            elseif iCurLandScouts <= 6 and iCurLandScouts <= oFactory[refiTotalBuildCount] / 3 then
-                for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
-                    local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Does adj LZ='..iAdjLZ..' want land scout='..tostring(tAdjLZTeamData[M28Map.refbWantLandScout])) end
-                    if tAdjLZTeamData[M28Map.refbWantLandScout] then
-                        if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then return sBPIDToBuild end
-                    end
-                end
+        if not(bDontConsiderLandScouts) and ShouldAllowAnotherLandScout(aiBrain, oFactory, tLZTeamData) then
+            if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then
+                return sBPIDToBuild
             end
         end
 
@@ -4184,10 +4361,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                         --Larger maps need to be careful we dont underbuild engineers early on
                         --If have fewer than 2 tanks for each t1 arti then restrict to only building tanks
                         local iCombatCategoryWanted
-                        --Aeon - get scouts to use in combat role
-                        if EntityCategoryContains(categories.AEON + categories.UEF, oFactory.UnitId) and tLZTeamData[M28Map.subrefLZbCoreBase] and aiBrain[M28Overseer.refiCombatLandScoutThreshold] > 0 and aiBrain[M28Overseer.refiCombatLandScoutThreshold] > M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandScout) then
-                            iCombatCategoryWanted = M28UnitInfo.refCategoryLandScout
-                        elseif iLifetimeLandCombat <= 5 or aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandCombat - categories.INDIRECTFIRE) / iLifetimeLandCombat < 0.65 then
+                        if iLifetimeLandCombat <= 5 or aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandCombat - categories.INDIRECTFIRE) / iLifetimeLandCombat < 0.65 then
                             iCombatCategoryWanted = M28UnitInfo.refCategoryLandCombat - categories.INDIRECTFIRE
                         else
                             iCombatCategoryWanted = M28UnitInfo.refCategoryLandCombat
@@ -4200,14 +4374,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                             if ConsiderBuildingCategory(iCombatCategoryWanted) then return sBPIDToBuild end
                         end
                     end
-                end
-            end
-            --Consider land scouts to accompany the early combat
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if want land scout, tLZTeamData[M28Map.refbWantLandScout]='..tostring(tLZTeamData[M28Map.refbWantLandScout])..'; Radar coverage='..tLZTeamData[M28Map.refiRadarCoverage]..'; Does enemy have omni='..tostring((M28Team.tTeamData[iTeam][M28Team.subrefbEnemyHasOmni]))) end
-            if (tLZTeamData[M28Map.refbWantLandScout] or (tLZTeamData[M28Map.refiRadarCoverage] <= 30 and iFactoryTechLevel == 1 and tLZTeamData[M28Map.subrefLZbCoreBase] and (oFactory[refiTotalBuildCount] <= 10 and (EntityCategoryContains(categories.SERAPHIM, oFactory.UnitId) and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandScout) <= 2 + 3 * M28Map.iMapSize / 256 and aiBrain[M28Economy.refiOurHighestFactoryTechLevel] == 1) or (M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryLandScout) == 0 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandScout) <= 3)))) and tLZTeamData[M28Map.refiRadarCoverage] <= 20  and not (bDontConsiderLandScouts) then
-                local iLifetimeScout = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandScout)
-                if iLifetimeScout <= 5 and M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryLandScout) < math.min(2, M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat)) then
-                    if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then return sBPIDToBuild end
                 end
             end
         end
@@ -4326,12 +4492,16 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         if M28Conditions.IsTableOfUnitsStillValid(M28Team.tLandSubteamData[iLandSubteam][M28Team.reftoPriorityUnitsWantingLandScout]) and not(aiBrain[M28Overseer.refbCloseToUnitCap]) and tLZTeamData[M28Map.refiRadarCoverage] <= 550 and not (bDontConsiderLandScouts) and M28Conditions.GetNumberOfUnitsCurrentlyBeingBuiltOfCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryLandScout) == 0 then
             --Check we are in same plateau as a unit wanting priority scout, and the unit is within 550 of here
             local bHaveUnitToGetScoutFor = false
+            local tPriorityScoutZoneData
             for iUnit, oUnit in M28Team.tLandSubteamData[iLandSubteam][M28Team.reftoPriorityUnitsWantingLandScout] do
                 if oUnit[M28Land.refiCurrentAssignmentPlateauAndLZ][1] == iPlateau and M28UnitInfo.IsUnitValid(oUnit) and (not(oUnit[M28Land.refiTimeLastBuiltLandScoutForUnit]) or GetGameTimeSeconds() - oUnit[M28Land.refiTimeLastBuiltLandScoutForUnit] >= 40) and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oFactory:GetPosition()) <= 550 then
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have unit wanting priority land scout, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' assigned to P'..oUnit[M28Land.refiCurrentAssignmentPlateauAndLZ][1]..'Z'..oUnit[M28Land.refiCurrentAssignmentPlateauAndLZ][2]..'; Dist to factory='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oFactory:GetPosition())..'; Does the LZ it is assigned to want land scouts='..tostring(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][oUnit[M28Land.refiCurrentAssignmentPlateauAndLZ][2]][M28Map.subrefLZTeamData][iTeam][M28Map.refbWantLandScout])) end
-                    bHaveUnitToGetScoutFor = true
-                    oUnit[M28Land.refiTimeLastBuiltLandScoutForUnit] = GetGameTimeSeconds()
-                    break
+                    tPriorityScoutZoneData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][oUnit[M28Land.refiCurrentAssignmentPlateauAndLZ][2]][M28Map.subrefLZTeamData][iTeam]
+                    if ShouldAllowAnotherLandScout(aiBrain, oFactory, tPriorityScoutZoneData) then
+                        bHaveUnitToGetScoutFor = true
+                        oUnit[M28Land.refiTimeLastBuiltLandScoutForUnit] = GetGameTimeSeconds()
+                        break
+                    end
                 end
             end
             if bHaveUnitToGetScoutFor then
@@ -4873,14 +5043,12 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if we have a base level of threat around this land factory, iThreatFactor='..iThreatFactor..'; iNearbyDFThreat='..iNearbyDFThreat..'; iFriendlyDFThreatWanted='..iFriendlyDFThreatWanted..'; iThreatFactor='..iThreatFactor) end
 
             if iNearbyDFThreat < iFriendlyDFThreatWanted or iNearbyIFThreat < iFriendlyIFThreatWanted or iNearbyGroundAAThreat < iFriendlyAAThreatWanted then
-                local bAdjZoneWantsScout = false
                 if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
                     for iEntry, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
                         local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
                         iNearbyDFThreat = iNearbyDFThreat + tAdjLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal]
                         iNearbyIFThreat = iNearbyIFThreat + tAdjLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal]
                         iNearbyGroundAAThreat = iNearbyGroundAAThreat + tAdjLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]
-                        if not(bAdjZoneWantsScout) and tAdjLZTeamData[M28Map.refbWantLandScout] then bAdjZoneWantsScout = true end
                     end
                 end
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Threat after factoring in adjacent land zones: iNearbyDFThreat='..iNearbyDFThreat..'; iNearbyIFThreat='..iNearbyIFThreat..'; iNearbyGroundAAThreat='..iNearbyGroundAAThreat..'; iFriendlyDFThreatWanted='..iFriendlyDFThreatWanted) end
@@ -4908,11 +5076,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                     if iNearbyIFThreat < 50 then
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want indirect threat') end
                         if ConsiderBuildingCategory(M28UnitInfo.refCategoryIndirect) then return sBPIDToBuild end
-                    end
-
-                    --If want a land scout then build this
-                    if bAdjZoneWantsScout and tLZTeamData[M28Map.refiRadarCoverage] <= 60  and not (bDontConsiderLandScouts) then
-                        if ConsiderBuildingCategory(M28UnitInfo.refCategoryLandScout) then return sBPIDToBuild end
                     end
 
                     --Now get the one that we ahve the lowest ratio for
@@ -5375,26 +5538,109 @@ function GetFactoryBuildOrderCount(oFactory)
     return iBuildOrders
 end
 
-function GetFactoryLatestQueuedBlueprint(oFactory)
+function InvalidateFactoryBuildPlan(oFactory)
+    if oFactory then
+        oFactory[reftFactoryBuildPlan] = nil
+        oFactory[refiFactoryBuildPlanIssuedCount] = nil
+    end
+end
+
+function GetQueuedFactoryBlueprints(oFactory)
+    local tQueuedBlueprints = {}
+    if M28UnitInfo.IsUnitValid(oFactory) then
+        M28Orders.UpdateRecordedOrders(oFactory)
+    end
     if oFactory[M28Orders.reftiLastOrders] then
-        for iOrder = (oFactory[M28Orders.refiOrderCount] or 0), 1, -1 do
-            local tOrder = oFactory[M28Orders.reftiLastOrders][iOrder]
+        for iOrder, tOrder in oFactory[M28Orders.reftiLastOrders] do
             if tOrder and tOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueFactoryBuild and tOrder[M28Orders.subrefsOrderBlueprint] then
-                return tOrder[M28Orders.subrefsOrderBlueprint]
+                table.insert(tQueuedBlueprints, tOrder[M28Orders.subrefsOrderBlueprint])
             end
         end
+    end
+    return tQueuedBlueprints
+end
+
+local function SyncFactoryBuildPlanWithQueue(oFactory)
+    local tQueuedBlueprints = GetQueuedFactoryBlueprints(oFactory)
+    local iQueuedBlueprints = table.getn(tQueuedBlueprints)
+    local tBuildPlan = oFactory[reftFactoryBuildPlan]
+    local iIssuedCount = oFactory[refiFactoryBuildPlanIssuedCount] or 0
+
+    if M28Utilities.IsTableEmpty(tBuildPlan) then
+        if iQueuedBlueprints > 0 then
+            tBuildPlan = {}
+            for iBlueprint, sBlueprint in tQueuedBlueprints do
+                tBuildPlan[iBlueprint] = sBlueprint
+            end
+            iIssuedCount = iQueuedBlueprints
+            oFactory[reftFactoryBuildPlan] = tBuildPlan
+            oFactory[refiFactoryBuildPlanIssuedCount] = iIssuedCount
+        else
+            InvalidateFactoryBuildPlan(oFactory)
+            return {}, 0, 0
+        end
+    else
+        if iIssuedCount > iQueuedBlueprints then
+            local iConsumedOrders = iIssuedCount - iQueuedBlueprints
+            for iOrder = 1, iConsumedOrders do
+                if table.getn(tBuildPlan) > 0 then
+                    table.remove(tBuildPlan, 1)
+                end
+            end
+            iIssuedCount = iQueuedBlueprints
+        end
+
+        local bMismatch = false
+        if iQueuedBlueprints > iIssuedCount then
+            bMismatch = true
+        elseif table.getn(tBuildPlan) < iQueuedBlueprints then
+            bMismatch = true
+        else
+            for iBlueprint = 1, iQueuedBlueprints do
+                if tBuildPlan[iBlueprint] ~= tQueuedBlueprints[iBlueprint] then
+                    bMismatch = true
+                    break
+                end
+            end
+        end
+
+        if bMismatch then
+            tBuildPlan = {}
+            for iBlueprint, sBlueprint in tQueuedBlueprints do
+                tBuildPlan[iBlueprint] = sBlueprint
+            end
+            iIssuedCount = iQueuedBlueprints
+        end
+
+        if M28Utilities.IsTableEmpty(tBuildPlan) and iQueuedBlueprints == 0 then
+            InvalidateFactoryBuildPlan(oFactory)
+            return {}, 0, 0
+        end
+
+        oFactory[reftFactoryBuildPlan] = tBuildPlan
+        oFactory[refiFactoryBuildPlanIssuedCount] = iIssuedCount
+    end
+
+    return oFactory[reftFactoryBuildPlan], iQueuedBlueprints, oFactory[refiFactoryBuildPlanIssuedCount] or 0
+end
+
+function GetFactoryLatestQueuedBlueprint(oFactory)
+    local tQueuedBlueprints = GetQueuedFactoryBlueprints(oFactory)
+    if table.getn(tQueuedBlueprints) > 0 then
+        return tQueuedBlueprints[table.getn(tQueuedBlueprints)]
+    end
+    local tBuildPlan = oFactory[reftFactoryBuildPlan]
+    local iIssuedCount = oFactory[refiFactoryBuildPlanIssuedCount] or 0
+    if M28Utilities.IsTableEmpty(tBuildPlan) == false and table.getn(tBuildPlan) > iIssuedCount then
+        return tBuildPlan[iIssuedCount + 1]
     end
     return oFactory[refsLastBlueprintOrdered] or oFactory[refsLastBlueprintBuilt]
 end
 
 function GetFactoryTargetQueueDepth(aiBrain, oFactory, sReferenceBlueprint)
     local iTeam = aiBrain.M28Team
-    local tFactoryEco = GetFactoryEcoState(aiBrain, iTeam)
     local iQueueDepth = 1
     if not(M28UnitInfo.IsUnitValid(oFactory)) or oFactory[M28UnitInfo.refbPaused] or oFactory:IsPaused() or oFactory:IsUnitState('Upgrading') or oFactory:IsUnitState('BeingUpgraded') or aiBrain[M28Overseer.refbCloseToUnitCap] then
-        return 1
-    end
-    if tFactoryEco.bProductionPaused then
         return 1
     end
 
@@ -5407,46 +5653,116 @@ function GetFactoryTargetQueueDepth(aiBrain, oFactory, sReferenceBlueprint)
         return 1
     end
 
-    if sReferenceBlueprint then
-        if EntityCategoryContains(M28UnitInfo.refCategoryEngineer + M28UnitInfo.refCategoryLandScout + M28UnitInfo.refCategoryAirScout + M28UnitInfo.refCategoryTransport, sReferenceBlueprint) or
-                EntityCategoryContains(M28UnitInfo.refCategoryIndirect + M28UnitInfo.refCategoryMAA, sReferenceBlueprint) then
-            iQueueDepth = math.min(iQueueDepth, 2)
-        elseif EntityCategoryContains(categories.SUBCOMMANDER + categories.EXPERIMENTAL, sReferenceBlueprint) then
-            iQueueDepth = 1
-        end
+    if sReferenceBlueprint and EntityCategoryContains(categories.SUBCOMMANDER + categories.EXPERIMENTAL, sReferenceBlueprint) then
+        iQueueDepth = 1
     end
 
     return math.max(1, iQueueDepth)
 end
 
-function QueueAdditionalFactoryBuildOrders(aiBrain, oFactory, sReferenceBlueprint)
-    local iCurBuildOrders = GetFactoryBuildOrderCount(oFactory)
+local function GetFactoryQueueRefillFloor(aiBrain, oFactory, iTargetQueueDepth)
+    if (iTargetQueueDepth or 0) <= 1 then
+        return 0
+    end
+    return math.min(iTargetQueueDepth, math.max(2, math.ceil(iTargetQueueDepth * 0.75)))
+end
+
+local function GetFactoryBuildPlanRunLength(aiBrain, oFactory, sBlueprint, iRemainingPlanDepth)
+    if not(sBlueprint) then
+        return 0
+    elseif EntityCategoryContains(categories.SUBCOMMANDER + categories.EXPERIMENTAL + M28UnitInfo.refCategoryFactory, sBlueprint) then
+        return 1
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryLandScout + M28UnitInfo.refCategoryAirScout, sBlueprint) then
+        return math.min(iRemainingPlanDepth, 1)
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryEngineer + M28UnitInfo.refCategoryTransport, sBlueprint) then
+        return math.min(iRemainingPlanDepth, 1)
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryMML, sBlueprint) then
+        return math.min(iRemainingPlanDepth, 1)
+    elseif categories.ual0204 and EntityCategoryContains(categories.ual0204, sBlueprint) then
+        return math.min(iRemainingPlanDepth, 1)
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryMobileLandShield, sBlueprint) then
+        return math.min(iRemainingPlanDepth, 1)
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryMAA, sBlueprint) then
+        return math.min(iRemainingPlanDepth, 1)
+    elseif EntityCategoryContains(M28UnitInfo.refCategorySniperBot * categories.TECH3, sBlueprint) then
+        return math.min(iRemainingPlanDepth, 1)
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, sBlueprint) then
+        return math.min(iRemainingPlanDepth, 2)
+    elseif EntityCategoryContains(GetFactoryIndirectBuildCategory(), sBlueprint) then
+        return math.min(iRemainingPlanDepth, 3)
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryMobileDFLand + M28UnitInfo.refCategoryAirAA + M28UnitInfo.refCategoryBomber + M28UnitInfo.refCategoryGunship + M28UnitInfo.refCategoryMobileNavalSurface, sBlueprint) then
+        return math.min(iRemainingPlanDepth, 6)
+    else
+        return math.min(iRemainingPlanDepth, 4)
+    end
+end
+
+local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBlueprint)
+    local tBuildPlan, iCurBuildOrders, iIssuedCount = SyncFactoryBuildPlanWithQueue(oFactory)
     local iTargetQueueDepth = GetFactoryTargetQueueDepth(aiBrain, oFactory, sReferenceBlueprint or GetFactoryLatestQueuedBlueprint(oFactory))
-    if iCurBuildOrders >= iTargetQueueDepth then
+    local iDesiredPlanLength = iTargetQueueDepth + GetFactoryQueueRefillFloor(aiBrain, oFactory, iTargetQueueDepth)
+    local bFactoryActivelyBuilding = IsFactoryActivelyBuilding(oFactory)
+
+    if iCurBuildOrders > iTargetQueueDepth then
         return iCurBuildOrders
     end
+    if M28Utilities.IsTableEmpty(tBuildPlan) and iCurBuildOrders == 0 and not(bFactoryActivelyBuilding) then
+        return 0
+    end
+    if not(tBuildPlan) then
+        tBuildPlan = {}
+    end
 
-    for iQueueEntry = iCurBuildOrders + 1, iTargetQueueDepth do
+    oFactory[reftFactoryBuildPlanCategoryBlacklist] = {}
+
+    while table.getn(tBuildPlan) < iDesiredPlanLength do
         local sBPToBuild, bEnhancement = DetermineWhatToBuild(aiBrain, oFactory)
+        if not(sBPToBuild) then
+            sBPToBuild = GetFactoryBuildPlanRepeatFallbackBlueprint(oFactory, tBuildPlan)
+        end
         if not(sBPToBuild) or bEnhancement or EntityCategoryContains(M28UnitInfo.refCategoryFactory, sBPToBuild) then
             break
         end
-        M28Orders.IssueTrackedFactoryBuild(oFactory, sBPToBuild, true)
+        local iRunLength = GetFactoryBuildPlanRunLength(aiBrain, oFactory, sBPToBuild, iDesiredPlanLength - table.getn(tBuildPlan))
+        if iRunLength <= 0 then
+            break
+        end
+        for iRun = 1, iRunLength do
+            table.insert(tBuildPlan, sBPToBuild)
+        end
+        local iBlacklistCategory = GetFactoryBuildPlanBlacklistCategory(sBPToBuild)
+        if iBlacklistCategory then
+            table.insert(oFactory[reftFactoryBuildPlanCategoryBlacklist], iBlacklistCategory)
+        end
+    end
+    oFactory[reftFactoryBuildPlanCategoryBlacklist] = nil
+
+    while iCurBuildOrders < iTargetQueueDepth and iIssuedCount < table.getn(tBuildPlan) do
+        iIssuedCount = iIssuedCount + 1
+        M28Orders.IssueTrackedFactoryBuild(oFactory, tBuildPlan[iIssuedCount], true)
+        iCurBuildOrders = iCurBuildOrders + 1
     end
 
-    return GetFactoryBuildOrderCount(oFactory)
+    oFactory[reftFactoryBuildPlan] = tBuildPlan
+    oFactory[refiFactoryBuildPlanIssuedCount] = iIssuedCount
+    return iCurBuildOrders
+end
+
+function QueueAdditionalFactoryBuildOrders(aiBrain, oFactory, sReferenceBlueprint)
+    return EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBlueprint)
 end
 
 function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
-    local iBuildOrders = GetFactoryBuildOrderCount(oFactory)
-    if iBuildOrders == 0 then
+    local tBuildPlan, iBuildOrders = SyncFactoryBuildPlanWithQueue(oFactory)
+    local bFactoryActivelyBuilding = IsFactoryActivelyBuilding(oFactory)
+    if iBuildOrders == 0 and M28Utilities.IsTableEmpty(tBuildPlan) and not(bFactoryActivelyBuilding) then
         return false
     end
-    if oFactory[refiFirstTimeOfLastOrder] and GetGameTimeSeconds() - oFactory[refiFirstTimeOfLastOrder] >= 5 and oFactory:GetWorkProgress() == 0 and not(oFactory:IsUnitState('Building')) and not(oFactory:IsUnitState('Busy')) then
+    if iBuildOrders > 0 and oFactory[refiFirstTimeOfLastOrder] and GetGameTimeSeconds() - oFactory[refiFirstTimeOfLastOrder] >= 5 and oFactory:GetWorkProgress() == 0 and not(oFactory:IsUnitState('Building')) and not(oFactory:IsUnitState('Busy')) then
         return false
     end
     QueueAdditionalFactoryBuildOrders(aiBrain, oFactory, GetFactoryLatestQueuedBlueprint(oFactory))
-    return true
+    return GetFactoryBuildOrderCount(oFactory) > 0 or bFactoryActivelyBuilding
 end
 
 function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait, bConsiderDestroyingForMass)
@@ -5548,8 +5864,10 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait, bConsiderDes
                     if oFactory[refbPausedToStopDefaultAI] then M28UnitInfo.PauseOrUnpauseMassUsage(oFactory, false) end
                     --Is this an upgrade or a unit to build?
                     if bEnhancement then
+                        InvalidateFactoryBuildPlan(oFactory)
                         M28Orders.IssueTrackedEnhancement(oFactory, sBPToBuild, false, 'FacEnh')
                     elseif EntityCategoryContains(M28UnitInfo.refCategoryFactory, sBPToBuild) then
+                        InvalidateFactoryBuildPlan(oFactory)
                         M28Economy.UpgradeUnit(oFactory, true, nil, 'FactoryDetermineWhatToBuild')
                     else
                         --Do we already have this order? If so then want to start tracking how long we have had this order for, and consider redundancies after a while in case a unit is blocking us
@@ -5572,6 +5890,7 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait, bConsiderDes
                         QueueAdditionalFactoryBuildOrders(aiBrain, oFactory, sBPToBuild)
                     end
                 else
+                    InvalidateFactoryBuildPlan(oFactory)
                     oFactory[refiTimeSinceLastFailedToGetOrder] = GetGameTimeSeconds()
                     --Clear any assisting engineers
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We dont have anything to build, will wait 10 ticks and try again.  In the meantime will clear all assisting engineers. Is table of assisting units empty='..tostring(M28Utilities.IsTableEmpty(oFactory[M28UnitInfo.reftoUnitsAssistingThis]))) end
@@ -6129,7 +6448,7 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': High priority transport builder even if have low power, Team net energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy]..'; Factoyr b uild count='..oFactory[refiTotalBuildCount]..'; Brain % energy stored='..aiBrain:GetEconomyStoredRatio('ENERGY')..'; Brain gross energy='..aiBrain[M28Economy.refiGrossEnergyBaseIncome]) end
         if iFactoryTechLevel == 1 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] >= 10 * (0.5 + 0.5 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) * aiBrain[M28Economy.refiBrainBuildRateMultiplier] or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] >= 6 and aiBrain:GetEconomyStored('ENERGY') >= 2000) or (((aiBrain:GetEconomyStored('ENERGY') >= 3900 and aiBrain[M28Economy.refiNetEnergyBaseIncome] >= -2) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] >= 0) and aiBrain[M28Economy.refiBrainBuildRateMultiplier] <= 1 and aiBrain:GetEconomyStored('ENERGY') >= 1750 and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 35 and M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryLandFactory) >= 4 and M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryEngineer) + M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryEngineer) >= 5)) and aiBrain:GetEconomyStoredRatio('ENERGY') >= 0.15 and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 22 then
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is island shortlist empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftTransportIslandDropShortlist]))) end
-            if (M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftTransportIslandDropShortlist]) == false or M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftTransportFarAwaySameIslandPlateauLandZoneDropShortlist]) == false or M28Team.tTeamData[iTeam][M28Team.refbEnemyBaseInCombatDropShortlist]) and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryTransport) == 0 and ((M28Team.tTeamData[iTeam][M28Team.refbEnemyBaseInCombatDropShortlist] and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTransport) >= 1) or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTransport) == 0) then
+            if (M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftTransportIslandDropShortlist]) == false or M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftTransportFarAwaySameIslandPlateauLandZoneDropShortlist]) == false or M28Team.tTeamData[iTeam][M28Team.refbEnemyBaseInCombatDropShortlist]) and ShouldAllowAnotherTransport(aiBrain, iTeam) and ((M28Team.tTeamData[iTeam][M28Team.refbEnemyBaseInCombatDropShortlist] and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTransport) >= 1) or M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTransport) == 0) then
                 local iAlreadyBuilding = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryTransport, false)
                 if iAlreadyBuilding == 0 then
 
@@ -6854,6 +7173,7 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
                             if iExistingCombatCargoInZone >= 12 and iFactoryTechLevel >= 3 then iPreferredTransportTech = math.max(iPreferredTransportTech, 3) end
                         end
                     end
+                    iTransportsWanted = math.min(iTransportsWanted, 1)
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurTransports='..iCurTransports..'; iDifIslandDropLocations='..iDifIslandDropLocations..'; iSameIslandDropLocations='..iSameIslandDropLocations..'; iCombatDropLocations='..iCombatDropLocations..'; iHighTechEngiDropLocations='..iHighTechEngiDropLocations..'; iTransportsWanted='..iTransportsWanted..'; iPreferredTransportTech='..iPreferredTransportTech..'; iExistingCombatCargoInZone='..iExistingCombatCargoInZone) end
 
                     local iTransportBuildRetryDelay = 150
@@ -6862,7 +7182,7 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
                     end
                     if iExistingCombatCargoInZone >= 6 then iTransportBuildRetryDelay = math.min(iTransportBuildRetryDelay, 60) end
 
-                    if iCurTransports < iTransportsWanted and ((iFactoryTechLevel <= 2 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTransport) <= iTransportsWanted + 2) or (M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] and GetGameTimeSeconds() - (M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] or -100) >= iTransportBuildRetryDelay) or (GetGameTimeSeconds() - (M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] or -100) >= iTransportBuildRetryDelay * 2) or (iCurTransports == 0 and M28Team.tTeamData[iTeam][M28Team.refbEnemyBaseInCombatDropShortlist] and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTransport) <= 5)) then
+                    if iCurTransports < iTransportsWanted and ShouldAllowAnotherTransport(aiBrain, iTeam) and ((iFactoryTechLevel <= 2 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTransport) <= iTransportsWanted + 2) or (M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] and GetGameTimeSeconds() - (M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] or -100) >= iTransportBuildRetryDelay) or (GetGameTimeSeconds() - (M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] or -100) >= iTransportBuildRetryDelay * 2) or (iCurTransports == 0 and M28Team.tTeamData[iTeam][M28Team.refbEnemyBaseInCombatDropShortlist] and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTransport) <= 5)) then
                         local iAlreadyBuilding = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryTransport, false)
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iAlreadyBuilding='..iAlreadyBuilding) end
                         if iAlreadyBuilding == 0 then
@@ -7048,7 +7368,7 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
                 for iBrain, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains] do
                     iCurTransports = iCurTransports + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryTransport)
                 end
-                if iCurTransports == 0 then
+                if ShouldAllowAnotherTransport(aiBrain, iTeam) then
                     local iLifetimeBrainCount = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryTransport)
                     if iLifetimeBrainCount <= 1 or GetGameTimeSeconds() - (M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] or -100) >= 300 then
                         --Check we have none under construction either
@@ -7625,12 +7945,13 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
                             if iExistingCombatCargoInZone >= 12 and iFactoryTechLevel >= 3 then iPreferredTransportTech = math.max(iPreferredTransportTech, 3) end
                         end
                     end
+                    iTransportsWanted = math.min(iTransportsWanted, 1)
                     local iTransportBuildRetryDelay = 120
                     if iCombatDropLocations > 0 then iTransportBuildRetryDelay = 60
                     elseif iTransportsWanted >= 2 then iTransportBuildRetryDelay = 90
                     end
                     if iExistingCombatCargoInZone >= 6 then iTransportBuildRetryDelay = math.min(iTransportBuildRetryDelay, 45) end
-                    if iCurTransports < iTransportsWanted and GetGameTimeSeconds() - (M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] or -100) >= iTransportBuildRetryDelay then
+                    if iCurTransports < iTransportsWanted and ShouldAllowAnotherTransport(aiBrain, iTeam) and GetGameTimeSeconds() - (M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] or -100) >= iTransportBuildRetryDelay then
                         local iAlreadyBuilding = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryTransport, false)
                         if iAlreadyBuilding == 0 then
                             M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refiTimeLastTriedBuildingTransport] = GetGameTimeSeconds()
