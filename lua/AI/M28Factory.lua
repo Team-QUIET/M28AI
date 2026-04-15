@@ -135,6 +135,12 @@ local function GetFactoryBuildPlanBlacklistCategory(sBlueprint)
         return M28UnitInfo.refCategoryMobileLandShield
     elseif EntityCategoryContains(M28UnitInfo.refCategoryMobileLandStealth, sBlueprint) then
         return M28UnitInfo.refCategoryMobileLandStealth
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryCruiser, sBlueprint) then
+        return M28UnitInfo.refCategoryCruiser
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryShieldBoat, sBlueprint) then
+        return M28UnitInfo.refCategoryShieldBoat
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryStealthBoat, sBlueprint) then
+        return M28UnitInfo.refCategoryStealthBoat
     elseif EntityCategoryContains(M28UnitInfo.refCategoryMAA, sBlueprint) then
         return M28UnitInfo.refCategoryMAA
     elseif EntityCategoryContains(M28UnitInfo.refCategoryMML, sBlueprint) then
@@ -276,6 +282,9 @@ local function GetFactoryLiveQueueCapForCategory(iCategoryWanted)
         return 2
     elseif iCategoryWanted == M28UnitInfo.refCategoryTransport
             or iCategoryWanted == M28UnitInfo.refCategoryMobileLandShield
+            or iCategoryWanted == M28UnitInfo.refCategoryCruiser
+            or iCategoryWanted == M28UnitInfo.refCategoryShieldBoat
+            or iCategoryWanted == M28UnitInfo.refCategoryStealthBoat
             or iCategoryWanted == M28UnitInfo.refCategoryMAA
             or iCategoryWanted == M28UnitInfo.refCategoryMML
             or iCategoryWanted == (M28UnitInfo.refCategorySniperBot * categories.TECH3)
@@ -5235,7 +5244,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bEnemiesRelativelyNear is true, bEnemyLongerRangedPDNearby='..tostring(bEnemyLongerRangedPDNearby)..'; bHaveHighestLZTech='..tostring(bHaveHighestLZTech)..'; iFactoryTechLevel='..iFactoryTechLevel..'; refiOurHighestLandFactoryTech='..aiBrain[M28Economy.refiOurHighestLandFactoryTech]..'; Lifetime T2+ land combat='..M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat - categories.TECH1)..'; Lifetime T3 land combat='..M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * categories.TECH3)) end
                 if bEnemyLongerRangedPDNearby then
                     if ConsiderUpgrading() then return sBPIDToBuild end
-                elseif bHaveHighestLZTech or bContinueLowerTechLandProduction or (iFactoryTechLevel == aiBrain[M28Economy.refiOurHighestLandFactoryTech] - 1 and ((iFactoryTechLevel == 1 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat - categories.TECH1) <= 6) or (iFactoryTechLevel == 2 and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * categories.TECH3) <= 6))) then
+                elseif iFactoryTechLevel >= (aiBrain[M28Economy.refiOurHighestLandFactoryTech] or iFactoryTechLevel) or bContinueLowerTechLandProduction then
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will get tanks and skirmishers if can path by land, bCanPathToEnemyWithLand='..tostring(bCanPathToEnemyWithLand)) end
                     if bCanPathToEnemyWithLand then
                         local iDFCategoryWanted = M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategoryLightAttackBot
@@ -5844,17 +5853,7 @@ local function GetFactoryBuildPlanRunLength(aiBrain, oFactory, sBlueprint, iRema
         return 0
     elseif EntityCategoryContains(categories.SUBCOMMANDER + categories.EXPERIMENTAL + M28UnitInfo.refCategoryFactory, sBlueprint) then
         return 1
-    elseif EntityCategoryContains(M28UnitInfo.refCategoryLandScout + M28UnitInfo.refCategoryAirScout, sBlueprint) then
-        return math.min(iRemainingPlanDepth, 1)
-    elseif EntityCategoryContains(M28UnitInfo.refCategoryEngineer + M28UnitInfo.refCategoryTransport, sBlueprint) then
-        return math.min(iRemainingPlanDepth, 1)
-    elseif EntityCategoryContains(M28UnitInfo.refCategoryMML, sBlueprint) then
-        return math.min(iRemainingPlanDepth, 1)
-    elseif categories.ual0204 and EntityCategoryContains(categories.ual0204, sBlueprint) then
-        return math.min(iRemainingPlanDepth, 1)
-    elseif EntityCategoryContains(M28UnitInfo.refCategoryMobileLandShield, sBlueprint) then
-        return math.min(iRemainingPlanDepth, 1)
-    elseif EntityCategoryContains(M28UnitInfo.refCategoryMAA, sBlueprint) then
+    elseif GetFactoryBuildPlanBlacklistCategory(sBlueprint) then
         return math.min(iRemainingPlanDepth, 1)
     elseif EntityCategoryContains(M28UnitInfo.refCategorySniperBot * categories.TECH3, sBlueprint) then
         return math.min(iRemainingPlanDepth, 1)

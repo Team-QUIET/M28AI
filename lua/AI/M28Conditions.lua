@@ -1757,6 +1757,7 @@ function WantToKeepLowerTechLandProduction(tLZTeamData, iTeam, iFactoryTechLevel
 
     local aiBrain = oOptionalBrainOverride or ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
     if not(aiBrain) then return false end
+    local iCurTime = GetGameTimeSeconds()
 
     local iHighestLandTech = M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] or 0
     local iTimeFirstHigherTech
@@ -1767,28 +1768,32 @@ function WantToKeepLowerTechLandProduction(tLZTeamData, iTeam, iFactoryTechLevel
     if iFactoryTechLevel == 1 then
         if iHighestLandTech < 2 then return false end
         iTimeFirstHigherTech = M28Team.tTeamData[iTeam][M28Team.refiTimeFirstT2LandFactory]
-        iContinuationWindow = M28Factory.GetLandFactoryThrottleDelay(1) + 60
+        iContinuationWindow = M28Factory.GetLandFactoryThrottleDelay(1)
         iHigherTechCombatLifetimeCount = GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat - categories.TECH1)
         iHigherTechCombatThreshold = 14
     else
         if iHighestLandTech < 3 then return false end
         iTimeFirstHigherTech = M28Team.tTeamData[iTeam][M28Team.refiTimeFirstT3LandFactory]
-        iContinuationWindow = M28Factory.GetLandFactoryThrottleDelay(2) + 45
+        iContinuationWindow = M28Factory.GetLandFactoryThrottleDelay(2)
         iHigherTechCombatLifetimeCount = GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandCombat * categories.TECH3)
         iHigherTechCombatThreshold = 10
     end
 
-    if not(iTimeFirstHigherTech) or GetGameTimeSeconds() - iTimeFirstHigherTech > iContinuationWindow then
+    local iTimeSinceFirstHigherTech = iCurTime - (iTimeFirstHigherTech or iCurTime)
+    if not(iTimeFirstHigherTech) or iTimeSinceFirstHigherTech > iContinuationWindow then
         return false
     end
+    local iContinuationProgress = math.min(1, iTimeSinceFirstHigherTech / math.max(1, iContinuationWindow))
+    local iRetirementPressureMod = 1 + iContinuationProgress * 0.7
 
     local iEnemyZoneThreat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
     local iAllyZoneThreat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+    local iZonePressureThreatThreshold = math.max(120 * iRetirementPressureMod, iAllyZoneThreat * (0.65 + iContinuationProgress * 0.25))
     local bZoneUnderPressure = tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]
             and ((tLZTeamData[M28Map.subrefbLZWantsSupport] or false)
                 or (tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or false)
-                or iEnemyZoneThreat >= math.max(120, iAllyZoneThreat * 0.65)
-                or (tLZTeamData[M28Map.refiModDistancePercent] or 0) >= 0.25)
+                or iEnemyZoneThreat >= iZonePressureThreatThreshold
+                or (tLZTeamData[M28Map.refiModDistancePercent] or 0) >= 0.25 + iContinuationProgress * 0.15)
 
     local iEnemyNearOurSide = 0
     local iAllyNearOurSide = 0
@@ -1796,10 +1801,12 @@ function WantToKeepLowerTechLandProduction(tLZTeamData, iTeam, iFactoryTechLevel
         iEnemyNearOurSide = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] or 0
         iAllyNearOurSide = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide] or 0
     end
+    local iNearSidePressureThreshold = math.max((250 * iFactoryTechLevel) * iRetirementPressureMod, iAllyNearOurSide * (0.7 + iContinuationProgress * 0.15))
     local bNearSidePressure = aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]
-            and iEnemyNearOurSide >= math.max(250 * iFactoryTechLevel, iAllyNearOurSide * 0.7)
+            and iEnemyNearOurSide >= iNearSidePressureThreshold
 
-    local bStillRampingHigherTech = iHigherTechCombatLifetimeCount <= iHigherTechCombatThreshold
+    local iHigherTechCombatRetirementThreshold = math.max(0, math.floor(iHigherTechCombatThreshold * math.max(0, 1 - iContinuationProgress * 1.5)))
+    local bStillRampingHigherTech = iHigherTechCombatRetirementThreshold > 0 and iHigherTechCombatLifetimeCount <= iHigherTechCombatRetirementThreshold
     local bImmediateGroundEmergency = (tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or false)
             or ((tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false) and iEnemyZoneThreat >= math.max(180, iAllyZoneThreat * 0.85))
             or (aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] and iEnemyNearOurSide >= math.max(400 * iFactoryTechLevel, iAllyNearOurSide * 0.9))
@@ -1838,6 +1845,10 @@ function WantToKeepLowerTechLandProduction(tLZTeamData, iTeam, iFactoryTechLevel
 
     if (bEconomyStrained or bPowerStrained) and not(bImmediateGroundEmergency) then
         bStillRampingHigherTech = false
+    end
+
+    if iContinuationProgress >= 0.8 and not(bImmediateGroundEmergency) then
+        return false
     end
 
     return bZoneUnderPressure or bNearSidePressure or bStillRampingHigherTech
