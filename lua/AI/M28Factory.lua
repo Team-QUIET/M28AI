@@ -2173,6 +2173,10 @@ local function GetPreferredEarlyT1DirectFallbackCategory(aiBrain, oFactory, tLZT
     return M28UnitInfo.refCategoryMobileDFLand * categories.TECH1 - M28UnitInfo.refCategorySkirmisher
 end
 
+local function ShouldAllowGenericAmphibiousLandFallback(aiBrain)
+    return aiBrain and not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand])
+end
+
 function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     local sFunctionRef = 'GetBlueprintToBuildForLandFactory'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelFactory, sFunctionRef)
@@ -4242,7 +4246,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will get land combat') end
                         return sBPIDToBuild
                     end
-                else
+                elseif ShouldAllowGenericAmphibiousLandFallback(aiBrain) then
                     if ConsiderBuildingCategory(M28UnitInfo.refCategoryAmphibiousCombat - categories.FIELDENGINEER) then
                         return sBPIDToBuild
                     end
@@ -5280,7 +5284,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                         if ConsiderBuildingCategory(iDFCategoryWanted) then
                             return sBPIDToBuild
                         end
-                    else
+                    elseif ShouldAllowGenericAmphibiousLandFallback(aiBrain) then
                         if ConsiderBuildingCategory(M28UnitInfo.refCategoryAmphibiousCombat - categories.FIELDENGINEER) then
                             return sBPIDToBuild
                         end
@@ -9932,7 +9936,7 @@ function GetBlueprintToBuildForMobileLandFactory(aiBrain, oFactory)
                 return sBPIDToBuild
             elseif (tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or NavUtils.GetTerrainLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestFriendlyBase]) == tLZData[M28Map.subrefLZIslandRef]) and ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategoryLightAttackBot) then
                 return sBPIDToBuild
-            elseif tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] and ConsiderBuildingCategory(M28UnitInfo.refCategoryAmphibiousCombat) then return sBPIDToBuild
+            elseif tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] and ShouldAllowGenericAmphibiousLandFallback(aiBrain) and ConsiderBuildingCategory(M28UnitInfo.refCategoryAmphibiousCombat) then return sBPIDToBuild
             end
         end
     end
