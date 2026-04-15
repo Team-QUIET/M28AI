@@ -145,6 +145,10 @@ local function GetFactoryBuildPlanBlacklistCategory(sBlueprint)
         return M28UnitInfo.refCategoryMAA
     elseif EntityCategoryContains(M28UnitInfo.refCategoryMML, sBlueprint) then
         return M28UnitInfo.refCategoryMML
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryIndirect, sBlueprint) then
+        return M28UnitInfo.refCategoryIndirect
+    elseif EntityCategoryContains(M28UnitInfo.refCategorySkirmisher, sBlueprint) then
+        return M28UnitInfo.refCategorySkirmisher
     elseif categories.ual0204 and EntityCategoryContains(categories.ual0204, sBlueprint) then
         return categories.ual0204
     elseif EntityCategoryContains(M28UnitInfo.refCategoryLandScout + M28UnitInfo.refCategoryAirScout, sBlueprint) then
@@ -255,15 +259,17 @@ end
 local function GetFactoryLiveQueueCapCategory(sBlueprint)
     if not(sBlueprint) then
         return nil
+    elseif EntityCategoryContains(M28UnitInfo.refCategorySniperBot * categories.TECH3, sBlueprint) then
+        return M28UnitInfo.refCategorySniperBot * categories.TECH3
+    elseif categories.ual0204 and EntityCategoryContains(categories.ual0204, sBlueprint) then
+        return categories.ual0204
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, sBlueprint) then
+        return M28UnitInfo.refCategoryT3MobileArtillery
     end
 
     local iBlacklistCategory = GetFactoryBuildPlanBlacklistCategory(sBlueprint)
     if iBlacklistCategory then
         return iBlacklistCategory
-    elseif EntityCategoryContains(M28UnitInfo.refCategorySniperBot * categories.TECH3, sBlueprint) then
-        return M28UnitInfo.refCategorySniperBot * categories.TECH3
-    elseif EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, sBlueprint) then
-        return M28UnitInfo.refCategoryT3MobileArtillery
     end
 
     return nil
@@ -279,6 +285,10 @@ local function GetFactoryLiveQueueCapForCategory(iCategoryWanted)
     elseif iCategoryWanted == M28UnitInfo.refCategoryT3MobileArtillery then
         return 2
     elseif iCategoryWanted == M28UnitInfo.refCategoryMobileLandStealth then
+        return 2
+    elseif iCategoryWanted == M28UnitInfo.refCategorySkirmisher then
+        return 2
+    elseif iCategoryWanted == M28UnitInfo.refCategoryIndirect then
         return 2
     elseif iCategoryWanted == M28UnitInfo.refCategoryTransport
             or iCategoryWanted == M28UnitInfo.refCategoryMobileLandShield
@@ -2681,46 +2691,9 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         end
     end
 
-    --Check if we should avoid building skirmishers due to having too many relative to direct-fire units
+    --Land queue composition now owns DF/skirmisher/indirect spacing and anti-spam.
+    --Keep chooser-level intent gates local, but remove the duplicate top-level skirmisher spam owner.
     local bDontConsiderBuildingSkirmishers = false
-    local iSkirmisherCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategorySkirmisher - categories.EXPERIMENTAL)
-    local iDirectFireCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher - categories.EXPERIMENTAL)
-
-    if bDebugMessages == true then
-        LOG(sFunctionRef .. ': Skirmisher check: iSkirmisherCount=' .. iSkirmisherCount .. '; iDirectFireCount=' .. iDirectFireCount .. '; iEnemyGroundThreat=' .. iEnemyGroundThreat)
-    end
-
-    local iMaxSkirmishers = 6
-    if iSkirmisherCount >= iMaxSkirmishers then
-        bDontConsiderBuildingSkirmishers = true
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Hit skirmisher hard cap ('..iSkirmisherCount..'/'..iMaxSkirmishers..'), will prioritize direct-fire units') end
-    elseif iSkirmisherCount > 0 and iDirectFireCount >= 0 then
-        local iSkirmisherToDirectFireRatio = iSkirmisherCount / math.max(1, iDirectFireCount)
-        local iDesiredSkirmisherToDirectFireRatio = 0.06
-
-        -- Detect "deathball" scenario - large concentrated enemy ground force
-        local iEnemyMobileDFThreat = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] or 0
-        local iEnemyGroundConcentration = (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)
-
-        -- If enemy has large ground concentration (deathball), reduce skirmisher ratio even more
-        if iEnemyMobileDFThreat >= 2000 or iEnemyGroundConcentration >= 1500 then
-            iDesiredSkirmisherToDirectFireRatio = 0.04 -- 1 skirmisher per 25 direct-fire units
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Enemy deathball detected (MobileDFThreat='..iEnemyMobileDFThreat..', GroundConcentration='..iEnemyGroundConcentration..'), reducing skirmisher ratio to 0.04') end
-        elseif iEnemyMobileDFThreat >= 1000 or iEnemyGroundConcentration >= 800 then
-            iDesiredSkirmisherToDirectFireRatio = 0.05 -- 1 skirmisher per 20 direct-fire units
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Significant enemy ground force detected, reducing skirmisher ratio to 0.05') end
-        end
-
-        -- If we have too many skirmishers relative to direct-fire units, stop building skirmishers
-        if iSkirmisherToDirectFireRatio >= iDesiredSkirmisherToDirectFireRatio then
-            bDontConsiderBuildingSkirmishers = true
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Skirmisher ratio too high ('..string.format("%.2f", iSkirmisherToDirectFireRatio)..'), will prioritize direct-fire units. Skirmishers='..iSkirmisherCount..'; DirectFire='..iDirectFireCount..'; Desired ratio='..iDesiredSkirmisherToDirectFireRatio) end
-        end
-    end
-
-    if bDebugMessages == true then
-        LOG(sFunctionRef .. ': bDontConsiderBuildingSkirmishers=' .. tostring(bDontConsiderBuildingSkirmishers))
-    end
 
     --Absolvers
     local bConsiderAbsolvers = false
@@ -5798,6 +5771,148 @@ function CanIssueFactoryBlueprintToQueue(oFactory, sBlueprint, bAddToExistingQue
     return GetFactoryIssuedQueueCountByCategory(oFactory, iCapCategory) < iCap
 end
 
+local function GetLandFactoryQueueCompositionRole(sBlueprint)
+    if not(sBlueprint) then
+        return nil
+    elseif EntityCategoryContains(M28UnitInfo.refCategorySkirmisher, sBlueprint) then
+        return 'skirmisher'
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryIndirect + M28UnitInfo.refCategoryMML, sBlueprint) then
+        return 'indirect'
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryMAA + M28UnitInfo.refCategoryMobileLandShield + M28UnitInfo.refCategoryMobileLandStealth + M28UnitInfo.refCategoryAbsolver, sBlueprint) then
+        return 'support'
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher, sBlueprint) then
+        return 'direct'
+    end
+    return nil
+end
+
+local function GetLandFactoryQueueCompositionState(oFactory, tBuildPlan)
+    local tSequence = {}
+    if M28Utilities.IsTableEmpty(tBuildPlan) == false then
+        for iEntry = 1, table.getn(tBuildPlan) do
+            tSequence[iEntry] = tBuildPlan[iEntry]
+        end
+    else
+        tSequence = GetQueuedFactoryBlueprints(oFactory)
+    end
+
+    local tState = {
+        entries = table.getn(tSequence),
+        direct = 0,
+        skirmisher = 0,
+        indirect = 0,
+        support = 0,
+        recentDirect = 0,
+    }
+    local iRecentStart = math.max(1, tState.entries - 1)
+
+    for iEntry = 1, tState.entries do
+        local sRole = GetLandFactoryQueueCompositionRole(tSequence[iEntry])
+        if sRole and tState[sRole] ~= nil then
+            tState[sRole] = tState[sRole] + 1
+            if sRole == 'direct' and iEntry >= iRecentStart then
+                tState.recentDirect = tState.recentDirect + 1
+            end
+        end
+    end
+
+    if tState.entries == 0 then
+        local sLastRole = GetLandFactoryQueueCompositionRole(oFactory[refsLastBlueprintOrdered] or oFactory[refsLastBlueprintBuilt])
+        if sLastRole and tState[sLastRole] ~= nil then
+            tState[sLastRole] = 1
+        end
+        if sLastRole == 'direct' then
+            tState.recentDirect = 1
+        end
+    end
+
+    return tState
+end
+
+local function GetLandFactoryDirectFireFallbackBlueprint(aiBrain, oFactory, sBlueprint)
+    local iTechLevel = M28UnitInfo.GetBlueprintTechLevel(sBlueprint) or M28UnitInfo.GetUnitTechLevel(oFactory) or 1
+    local iTechCategory = M28UnitInfo.ConvertTechLevelToCategory(iTechLevel)
+    local iDirectFireCategory = (M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher) * iTechCategory
+    local sFallbackBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, iDirectFireCategory, oFactory, nil, nil, nil, nil, false)
+    if not(sFallbackBlueprint) then
+        sFallbackBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher, oFactory, nil, nil, nil, nil, false)
+    end
+    return sFallbackBlueprint
+end
+
+local function AdjustLandFactoryBlueprintForQueueComposition(aiBrain, oFactory, sBlueprint, tBuildPlan, sFunctionRef, bDebugMessages, tDebugContext)
+    if not(M28UnitInfo.IsUnitValid(oFactory)) or not(sBlueprint) then
+        return sBlueprint
+    elseif not(EntityCategoryContains(M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryMobileLandFactory, oFactory.UnitId)) then
+        return sBlueprint
+    end
+
+    local sRole = GetLandFactoryQueueCompositionRole(sBlueprint)
+    if not(sRole) or sRole == 'direct' then
+        return sBlueprint
+    end
+
+    local tState = GetLandFactoryQueueCompositionState(oFactory, tBuildPlan)
+    local bForceDirectFire = false
+    local sReason
+
+    if sRole == 'skirmisher' then
+        if tState.skirmisher >= 2 then
+            bForceDirectFire = true
+            sReason = 'SkirmisherLiveCap'
+        elseif tState.direct == 0 then
+            bForceDirectFire = true
+            sReason = 'SkirmisherNeedsDirectAnchor'
+        elseif tState.direct <= tState.skirmisher * 2 then
+            bForceDirectFire = true
+            sReason = 'SkirmisherNeedsMoreDirectMix'
+        elseif tState.recentDirect == 0 then
+            bForceDirectFire = true
+            sReason = 'SkirmisherNeedsRecentDirect'
+        end
+    elseif sRole == 'indirect' then
+        if tState.indirect >= 2 then
+            bForceDirectFire = true
+            sReason = 'IndirectLiveCap'
+        elseif tState.direct == 0 then
+            bForceDirectFire = true
+            sReason = 'IndirectNeedsDirectAnchor'
+        elseif tState.direct <= tState.indirect * 2 then
+            bForceDirectFire = true
+            sReason = 'IndirectNeedsMoreDirectMix'
+        elseif tState.recentDirect == 0 then
+            bForceDirectFire = true
+            sReason = 'IndirectNeedsRecentDirect'
+        end
+    elseif sRole == 'support' then
+        local iQueuedNonDirectCombat = tState.skirmisher + tState.indirect + tState.support
+        if tState.support >= 2 then
+            bForceDirectFire = true
+            sReason = 'SupportLiveCap'
+        elseif iQueuedNonDirectCombat > 0 and tState.direct == 0 then
+            bForceDirectFire = true
+            sReason = 'SupportNeedsDirectAnchor'
+        elseif tState.entries >= 2 and tState.recentDirect == 0 then
+            bForceDirectFire = true
+            sReason = 'SupportNeedsRecentDirect'
+        end
+    end
+
+    if not(bForceDirectFire) then
+        return sBlueprint
+    end
+
+    local sFallbackBlueprint = GetLandFactoryDirectFireFallbackBlueprint(aiBrain, oFactory, sBlueprint)
+    if sFallbackBlueprint and sFallbackBlueprint ~= sBlueprint then
+        if bDebugMessages == true then
+            M28Profiler.DebugLog(tDebugContext, (sFunctionRef or 'AdjustLandFactoryBlueprintForQueueComposition')..': Queue composition forcing DF fallback. Original='..sBlueprint..'; Fallback='..sFallbackBlueprint..'; Role='..sRole..'; Reason='..(sReason or 'nil')..'; Direct='..tState.direct..'; Skirm='..tState.skirmisher..'; Indirect='..tState.indirect..'; Support='..tState.support..'; RecentDirect='..tState.recentDirect)
+        end
+        return sFallbackBlueprint
+    end
+
+    return sBlueprint
+end
+
 local function SyncFactoryBuildPlanWithQueue(oFactory)
     local tBuildPlan = oFactory[reftFactoryBuildPlan]
     local iIssuedCount = oFactory[refiFactoryBuildPlanIssuedCount] or 0
@@ -5959,6 +6074,9 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
         if not(sBPToBuild) then
             sBPToBuild = GetFactoryBuildPlanRepeatFallbackBlueprint(oFactory, tBuildPlan)
         end
+        if not(bEnhancement) then
+            sBPToBuild = AdjustLandFactoryBlueprintForQueueComposition(aiBrain, oFactory, sBPToBuild, tBuildPlan)
+        end
         if not(sBPToBuild) or bEnhancement or EntityCategoryContains(M28UnitInfo.refCategoryFactory, sBPToBuild) then
             break
         end
@@ -6107,6 +6225,9 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait, bConsiderDes
                     SetFactoryRallyPoint(oFactory)
                 end
                 local sBPToBuild, bEnhancement = DetermineWhatToBuild(aiBrain, oFactory)
+                if not(bEnhancement) then
+                    sBPToBuild = AdjustLandFactoryBlueprintForQueueComposition(aiBrain, oFactory, sBPToBuild, nil, sFunctionRef, bDebugMessages, tDebugContext)
+                end
                 if bDebugMessages == true then
                     LOG(sFunctionRef .. ': oFactory=' .. oFactory.UnitId .. M28UnitInfo.GetUnitLifetimeCount(oFactory) .. '; sBPToBuild=' .. (sBPToBuild or 'nil') .. '; Does factory have an empty command queue=' .. tostring(M28Utilities.IsTableEmpty(oFactory:GetCommandQueue())) .. '; Factory work progress=' .. oFactory:GetWorkProgress() .. '; Factory unit state=' .. M28UnitInfo.GetUnitState(oFactory))
                 end
