@@ -6099,6 +6099,8 @@ local function GetFactoryBuildPlanRunLength(aiBrain, oFactory, sBlueprint, iRema
 end
 
 local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBlueprint)
+    local sFunctionRef = 'EnsureFactoryBuildPlanCoverage'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelFactory, sFunctionRef)
     if oFactory[refbFactoryBuildPlanUpdateActive] then
         return GetFactoryActualBuildOrderCount(oFactory) or GetFactoryBuildOrderCount(oFactory)
     end
