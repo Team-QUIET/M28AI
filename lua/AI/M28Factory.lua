@@ -325,68 +325,115 @@ local function DoesFactoryQueueHaveRoomForBlueprint(oFactory, sBlueprint)
     return GetFactoryLiveQueuedCountForBlueprint(oFactory, sBlueprint) < iCap
 end
 
-local function ShouldRetireObsoleteFactoryAfterNoBuild(aiBrain, oFactory, tLZOrWZTeamData, iPlateauOrZero, iLandOrWaterZone)
-    if not(M28UnitInfo.IsUnitValid(oFactory)) or not(tLZOrWZTeamData) or oFactory[refbPrimaryFactoryForIslandOrPond] then
-        return false, nil
+local function ShouldRetireFactoryAfterNoBuild(aiBrain, oFactory, tLZOrWZTeamData, iPlateauOrZero, iLandOrWaterZone)
+    local sFunctionRef = 'ShouldRetireFactoryAfterNoBuild'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelFactory, sFunctionRef)
+    local bFactoryValid = M28UnitInfo.IsUnitValid(oFactory)
+    local sFactoryRef = 'nil'
+    if oFactory then
+        sFactoryRef = tostring(oFactory.UnitId or 'nil')
+        if bFactoryValid then
+            sFactoryRef = sFactoryRef..M28UnitInfo.GetUnitLifetimeCount(oFactory)
+        end
     end
-
+    local bPrimaryFactory = oFactory and oFactory[refbPrimaryFactoryForIslandOrPond] or false
+    local bShouldRetire = false
     local iTeam = aiBrain.M28Team
-    local iCurTime = GetGameTimeSeconds()
-    if iCurTime - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastHQUpgradeCompleted] or -1000) <= 45 then
-        return false, nil
-    end
-
-    local iFactoryType = M28UnitInfo.GetFactoryType(oFactory)
-    local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
+    local iFactoryType
+    local iFactoryTechLevel
     local iHigherTechCategory
-    local iHighestFactoryTech = iFactoryTechLevel
+    local iHighestFactoryTech
+    local bObsoleteByTech = false
+    local bKeepLowerTechLandProduction = false
     local sRetireReason
+    local sVetoReason
     local bOverFactoryMassBudget = false
-    if iPlateauOrZero and iPlateauOrZero > 0 and iLandOrWaterZone then
+    local iHigherTechFactoriesInZone
+    local iHigherTechFactoriesTeam
+    local iTeamReplacementRequirement
+    local iPressureReplacementRequirement
+    local bZoneUnderPressure = false
+    local bLowMassRetirementPressure = false
+    if bFactoryValid and iPlateauOrZero and iPlateauOrZero > 0 and iLandOrWaterZone then
         bOverFactoryMassBudget = M28Conditions.IsZoneOverFactoryMassBudget(iTeam, iPlateauOrZero, iLandOrWaterZone, 0)
     end
 
-    if iFactoryType == refiFactoryTypeLand then
-        iHighestFactoryTech = aiBrain[M28Economy.refiOurHighestLandFactoryTech] or iFactoryTechLevel
-        if iFactoryTechLevel >= iHighestFactoryTech then return false, nil end
-        if M28Conditions.WantToKeepLowerTechLandProduction(tLZOrWZTeamData, iTeam, iFactoryTechLevel, aiBrain) then
-            return false, nil
-        end
-        iHigherTechCategory = M28UnitInfo.refCategoryLandFactory - M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)
-        sRetireReason = 'LandObsolete'
-    elseif iFactoryType == refiFactoryTypeAir then
-        iHighestFactoryTech = aiBrain[M28Economy.refiOurHighestAirFactoryTech] or iFactoryTechLevel
-        if iFactoryTechLevel >= iHighestFactoryTech then return false, nil end
-        iHigherTechCategory = M28UnitInfo.refCategoryAirFactory - M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)
-        sRetireReason = 'AirObsolete'
-    elseif iFactoryType == refiFactoryTypeNaval then
-        iHighestFactoryTech = aiBrain[M28Economy.refiOurHighestNavalFactoryTech] or iFactoryTechLevel
-        if iFactoryTechLevel >= iHighestFactoryTech then return false, nil end
-        iHigherTechCategory = M28UnitInfo.refCategoryNavalFactory - M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)
-        sRetireReason = 'NavalObsolete'
+    if not(bFactoryValid) then
+        sVetoReason = 'InvalidFactory'
+    elseif not(tLZOrWZTeamData) then
+        sVetoReason = 'NoZoneTeamData'
+    elseif bPrimaryFactory then
+        sVetoReason = 'PrimaryFactoryForIslandOrPond'
     else
-        return false, nil
+        iFactoryType = M28UnitInfo.GetFactoryType(oFactory)
+        iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
+        if iFactoryType == refiFactoryTypeLand then
+            iHighestFactoryTech = aiBrain[M28Economy.refiOurHighestLandFactoryTech] or iFactoryTechLevel
+            bObsoleteByTech = iFactoryTechLevel < iHighestFactoryTech
+            if not(bObsoleteByTech) then
+                sVetoReason = 'HighestLandTech'
+            else
+                bKeepLowerTechLandProduction = M28Conditions.WantToKeepLowerTechLandProduction(tLZOrWZTeamData, iTeam, iFactoryTechLevel, aiBrain)
+                if bKeepLowerTechLandProduction then
+                    sVetoReason = 'KeepLowerTechLandProduction'
+                else
+                    iHigherTechCategory = M28UnitInfo.refCategoryLandFactory - M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)
+                    sRetireReason = 'LandObsolete'
+                end
+            end
+        elseif iFactoryType == refiFactoryTypeAir then
+            iHighestFactoryTech = aiBrain[M28Economy.refiOurHighestAirFactoryTech] or iFactoryTechLevel
+            bObsoleteByTech = iFactoryTechLevel < iHighestFactoryTech
+            if not(bObsoleteByTech) then
+                sVetoReason = 'HighestAirTech'
+            else
+                iHigherTechCategory = M28UnitInfo.refCategoryAirFactory - M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)
+                sRetireReason = 'AirObsolete'
+            end
+        elseif iFactoryType == refiFactoryTypeNaval then
+            iHighestFactoryTech = aiBrain[M28Economy.refiOurHighestNavalFactoryTech] or iFactoryTechLevel
+            bObsoleteByTech = iFactoryTechLevel < iHighestFactoryTech
+            if not(bObsoleteByTech) then
+                sVetoReason = 'HighestNavalTech'
+            else
+                iHigherTechCategory = M28UnitInfo.refCategoryNavalFactory - M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)
+                sRetireReason = 'NavalObsolete'
+            end
+        else
+            sVetoReason = 'UnsupportedFactoryType'
+        end
+
+        if not(sVetoReason) then
+            iHigherTechFactoriesInZone = M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZOrWZTeamData, iHigherTechCategory)
+            iHigherTechFactoriesTeam = aiBrain:GetCurrentUnits(iHigherTechCategory)
+            bLowMassRetirementPressure = M28Conditions.HaveLowMass(aiBrain) and iFactoryTechLevel < iHighestFactoryTech
+            iTeamReplacementRequirement = (bOverFactoryMassBudget or bLowMassRetirementPressure) and 1 or 2
+            if iHigherTechFactoriesInZone == 0 and iHigherTechFactoriesTeam < iTeamReplacementRequirement then
+                sVetoReason = 'NoHigherTechReplacement'
+            else
+                iPressureReplacementRequirement = (bOverFactoryMassBudget or bLowMassRetirementPressure) and 1 or 2
+                bZoneUnderPressure = iFactoryType == refiFactoryTypeLand
+                        and ((tLZOrWZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or false)
+                            or (tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false))
+                if bZoneUnderPressure and iHigherTechFactoriesInZone < iPressureReplacementRequirement then
+                    sVetoReason = 'PressureReplacementGate'
+                else
+                    if bOverFactoryMassBudget then
+                        sRetireReason = sRetireReason..'OverBudget'
+                    end
+                    if bLowMassRetirementPressure then
+                        sRetireReason = sRetireReason..'LowMass'
+                    end
+                    bShouldRetire = true
+                end
+            end
+        end
     end
 
-    local iHigherTechFactoriesInZone = M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZOrWZTeamData, iHigherTechCategory)
-    local iHigherTechFactoriesTeam = aiBrain:GetCurrentUnits(iHigherTechCategory)
-    local iTeamReplacementRequirement = bOverFactoryMassBudget and 1 or 2
-    if iHigherTechFactoriesInZone == 0 and iHigherTechFactoriesTeam < iTeamReplacementRequirement then
-        return false, nil
+    if bDebugMessages == true then
+        M28Profiler.DebugLog(tDebugContext, sFunctionRef..': RetireDecision; Factory='..sFactoryRef..'; Type='..(iFactoryType or 'nil')..'; Tech='..(iFactoryTechLevel or 'nil')..'; HighestTech='..(iHighestFactoryTech or 'nil')..'; ObsoleteByTech='..tostring(bObsoleteByTech)..'; Primary='..tostring(bPrimaryFactory)..'; KeepLowerTech='..tostring(bKeepLowerTechLandProduction)..'; OverBudget='..tostring(bOverFactoryMassBudget)..'; LowMass='..tostring(bLowMassRetirementPressure)..'; HigherTechInZone='..(iHigherTechFactoriesInZone or 'nil')..'; HigherTechTeam='..(iHigherTechFactoriesTeam or 'nil')..'; TeamReplacementRequirement='..(iTeamReplacementRequirement or 'nil')..'; UnderPressure='..tostring(bZoneUnderPressure)..'; PressureReplacementRequirement='..(iPressureReplacementRequirement or 'nil')..'; Retire='..tostring(bShouldRetire)..'; Reason='..(sRetireReason or 'nil')..'; Veto='..(sVetoReason or 'nil'))
     end
-
-    local iPressureReplacementRequirement = bOverFactoryMassBudget and 1 or 2
-    if iFactoryType == refiFactoryTypeLand
-            and ((tLZOrWZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or false)
-                or (tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false))
-            and iHigherTechFactoriesInZone < iPressureReplacementRequirement then
-        return false, nil
-    end
-
-    if bOverFactoryMassBudget then
-        sRetireReason = sRetireReason..'OverBudget'
-    end
-    return true, sRetireReason
+    return bShouldRetire, sRetireReason
 end
 
 local function GetFactoryPendingLandScoutCount(oFactory)
@@ -5615,7 +5662,7 @@ function DelayedCheckIfFactoryBuildingAndRetry(oFactory)
                     if (GetFactoryActualBuildOrderCount(oFactory) or GetFactoryBuildOrderCount(oFactory)) > 0 or IsFactoryActivelyBuilding(oFactory) or M28Utilities.IsTableEmpty(oFactory[reftFactoryBuildPlan]) == false then
                         QueueAdditionalFactoryBuildOrders(oFactory:GetAIBrain(), oFactory, GetFactoryLatestQueuedBlueprint(oFactory))
                     else
-                        DecideAndBuildUnitForFactory(oFactory:GetAIBrain(), oFactory, true, false)
+                        DecideAndBuildUnitForFactory(oFactory:GetAIBrain(), oFactory, true)
                     end
                     --T3 naval facs - more likely to be unable ot build due to blocking buildings
                     if EntityCategoryContains(M28UnitInfo.refCategoryNavalFactory * categories.TECH3, oFactory.UnitId) then
@@ -6084,8 +6131,13 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
 
     while table.getn(tBuildPlan) < iDesiredPlanLength do
         local sBPToBuild, bEnhancement = DetermineWhatToBuild(aiBrain, oFactory)
-        if not(sBPToBuild) then
+        if not(sBPToBuild) and (iCurBuildOrders > 0 or bFactoryActivelyBuilding) then
             sBPToBuild = GetFactoryBuildPlanRepeatFallbackBlueprint(oFactory, tBuildPlan)
+            if bDebugMessages == true and sBPToBuild then
+                M28Profiler.DebugLog(tDebugContext, 'EnsureFactoryBuildPlanCoverage: Repeat fallback converted nil factory decision into queued blueprint; Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; FallbackBlueprint='..sBPToBuild..'; CurrentBuildOrders='..iCurBuildOrders..'; FactoryActivelyBuilding='..tostring(bFactoryActivelyBuilding)..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
+            end
+        elseif not(sBPToBuild) and bDebugMessages == true then
+            M28Profiler.DebugLog(tDebugContext, 'EnsureFactoryBuildPlanCoverage: Not applying repeat fallback because factory has no live build orders and is not actively building; Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
         end
         if not(bEnhancement) then
             sBPToBuild = AdjustLandFactoryBlueprintForQueueComposition(aiBrain, oFactory, sBPToBuild, tBuildPlan)
@@ -6128,7 +6180,13 @@ function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
     local tBuildPlan, iBuildOrders = SyncFactoryBuildPlanWithQueue(oFactory)
     iBuildOrders = math.max(iBuildOrders, GetFactoryActualBuildOrderCount(oFactory) or 0)
     local bFactoryActivelyBuilding = IsFactoryActivelyBuilding(oFactory)
-    if iBuildOrders == 0 and M28Utilities.IsTableEmpty(tBuildPlan) and not(bFactoryActivelyBuilding) then
+    if iBuildOrders == 0 and not(bFactoryActivelyBuilding) then
+        if M28Utilities.IsTableEmpty(tBuildPlan) == false then
+            if bDebugMessages == true then
+                M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Invalidating stale idle factory build plan so fresh no-build/retirement logic can run; Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; PlanLength='..table.getn(tBuildPlan)..'; IssuedCount='..(oFactory[refiFactoryBuildPlanIssuedCount] or 0)..'; Time='..GetGameTimeSeconds())
+            end
+            InvalidateFactoryBuildPlan(oFactory)
+        end
         return false
     end
     local sUpgradeBlueprint = GetFactoryQueuePreemptingUpgradeBlueprint(aiBrain, oFactory)
@@ -6146,7 +6204,7 @@ function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
     return (GetFactoryActualBuildOrderCount(oFactory) or GetFactoryBuildOrderCount(oFactory)) > 0 or bFactoryActivelyBuilding
 end
 
-function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait, bConsiderDestroyingForMass)
+function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait)
     --If factory is idle then gets it to build something; if its not idle then keeps checking for up to 20 seconds, but will abort if the factory appears to be building something
     local sFunctionRef = 'DecideAndBuildUnitForFactory'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelFactory, sFunctionRef)
@@ -6309,8 +6367,6 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait, bConsiderDes
                     if M28UnitInfo.IsUnitValid(oFactory) then
                         local bRetireFactoryAfterNoBuild = false
                         local sFactoryRetirementReason
-                        local iExistingT3Factories = 0
-                        --Adjust flag for destroying for mass if dealing with a land factory, and we dont have much mass stored, and we have multiple in this zone, and are a core base
                         local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oFactory:GetPosition())
                         local oBrain = oFactory:GetAIBrain()
                         local iTeam = oBrain.M28Team
@@ -6321,71 +6377,10 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait, bConsiderDes
                             tLZOrWZTeamData = M28Map.tPondDetails[M28Map.tiPondByWaterZone[iLandOrWaterZone]][M28Map.subrefPondWaterZones][iLandOrWaterZone][M28Map.subrefWZTeamData][iTeam]
                         end
                         if tLZOrWZTeamData then
-                            local iFactoryType = M28UnitInfo.GetFactoryType(oFactory)
-                            local bRetireObsoleteFactory, sRetireObsoleteFactoryReason = ShouldRetireObsoleteFactoryAfterNoBuild(oBrain, oFactory, tLZOrWZTeamData, iPlateauOrZero, iLandOrWaterZone)
-                            if bRetireObsoleteFactory then
+                            local bRetireFromNoBuildOwner, sRetireFromNoBuildOwnerReason = ShouldRetireFactoryAfterNoBuild(oBrain, oFactory, tLZOrWZTeamData, iPlateauOrZero, iLandOrWaterZone)
+                            if bRetireFromNoBuildOwner then
                                 bRetireFactoryAfterNoBuild = true
-                                sFactoryRetirementReason = sRetireObsoleteFactoryReason
-                            end
-
-                            --When factory completes something, oFactory[refiFirstTimeOfLastOrder] should get set to nil (unless it has already started construction)
-                            if not(bConsiderDestroyingForMass) and not(oFactory[refiFirstTimeOfLastOrder]) and oBrain:GetEconomyStoredRatio('MASS') <= 0.01 and not(oBrain[M28Overseer.refbPrioritiseLowTech]) and
-                                    ((tLZOrWZTeamData[M28Map.subrefLZbCoreBase] and iFactoryType == refiFactoryTypeLand and (oBrain[M28Overseer.refbPrioritiseDefence] or oBrain[M28Overseer.refbPrioritiseHighTech] or oBrain[M28Overseer.refbPrioritiseLowTech] or oBrain[M28Overseer.refbPrioritiseNavy] or oBrain[M28Overseer.refbPrioritiseAir] or not(oBrain[M28Map.refbCanPathToEnemyBaseWithLand]) or M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZOrWZTeamData, M28UnitInfo.refCategoryLandFactory) >= 4)) or
-                                            (iFactoryType == refiFactoryTypeNaval and not(oFactory[refbPrimaryFactoryForIslandOrPond]) and M28UnitInfo.GetUnitTechLevel(oFactory) < aiBrain[M28Economy.refiOurHighestNavalFactoryTech] and M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZOrWZTeamData, M28UnitInfo.refCategoryNavalFactory) > 1)) then
-                                bConsiderDestroyingForMass = true
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will consider destroying for mass afterall') end
-                            end
-                            if bDebugMessages == true then
-                                LOG(sFunctionRef .. ': Considering at time ' .. GetGameTimeSeconds() .. ' whether to ctrlk factory tech level ' .. M28UnitInfo.GetUnitTechLevel(oFactory) .. ' when bHaveLowMass=' .. tostring(M28Conditions.HaveLowMass(aiBrain)) .. ' and highest tech=' .. M28Team.tTeamData[oFactory:GetAIBrain().M28Team][M28Team.subrefiHighestFriendlyFactoryTech] .. '; factory=' .. oFactory.UnitId .. M28UnitInfo.GetUnitLifetimeCount(oFactory) .. '; bConsiderDestroyingForMass=' .. tostring(bConsiderDestroyingForMass or false)..'; oFactory[refiFirstTimeOfLastOrder]='..(oFactory[refiFirstTimeOfLastOrder] or 'nil'))
-                            end
-                            if bConsiderDestroyingForMass and M28Team.tTeamData[oFactory:GetAIBrain().M28Team][M28Team.subrefiHighestFriendlyFactoryTech] >= 2 and not(oFactory[refbPrimaryFactoryForIslandOrPond]) then
-                                local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
-                                if (not(M28Utilities.bFAFActive) or iFactoryTechLevel == 1 or not(EntityCategoryContains(M28UnitInfo.refCategoryLandHQ, oFactory.UnitId))) and M28Conditions.HaveLowMass(aiBrain) then
-                                    if iFactoryType == refiFactoryTypeLand and (iFactoryTechLevel < oBrain[M28Economy.refiOurHighestLandFactoryTech] or (iFactoryTechLevel >= 2 and oFactory[refiTotalBuildCount] >= 5 and M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZOrWZTeamData, M28UnitInfo.refCategoryLandFactory * categories.TECH3) > math.max(2, math.min(5, aiBrain[M28Economy.refiGrossMassBaseIncome] * 0.1)) and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryMobileLand * categories.TECH3) >= 15)) then
-                                        local iExistingFactoriesOfHigherTech = 0
-                                        local iSearchCategory
-                                        if iFactoryTechLevel == 1 then iSearchCategory = M28UnitInfo.refCategoryLandFactory - categories.TECH1
-                                        else iSearchCategory = M28UnitInfo.refCategoryLandFactory * categories.TECH3
-                                        end
-                                        local tExistingFactories = EntityCategoryFilterDown(iSearchCategory, tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
-                                        if M28Utilities.IsTableEmpty(tExistingFactories) == false then
-                                            iExistingFactoriesOfHigherTech = table.getn(tExistingFactories)
-                                        end
-
-                                        if iExistingFactoriesOfHigherTech >= 2 then
-                                            bRetireFactoryAfterNoBuild = true
-                                            sFactoryRetirementReason = 'MassReclaim'
-                                        elseif iExistingFactoriesOfHigherTech == 1 then
-                                            --Still self destruct if we dont want to prioritise land, or cant navigate by land
-                                            if oBrain[M28Overseer.refbPrioritiseDefence] or oBrain[M28Overseer.refbPrioritiseHighTech] or oBrain[M28Overseer.refbPrioritiseLowTech] or oBrain[M28Overseer.refbPrioritiseNavy] or oBrain[M28Overseer.refbPrioritiseAir] or not(oBrain[M28Map.refbCanPathToEnemyBaseWithLand]) then
-                                                bRetireFactoryAfterNoBuild = true
-                                                sFactoryRetirementReason = 'MassReclaim'
-                                            end
-                                        end
-                                        if bDebugMessages == true then
-                                            LOG(sFunctionRef .. ': iExistingFactoriesOfHigherTech='..iExistingFactoriesOfHigherTech..'; bRetireFactoryAfterNoBuild before check if want more factories='..tostring(bRetireFactoryAfterNoBuild))
-                                        end
-                                        if bRetireFactoryAfterNoBuild and M28Conditions.WantMoreFactories(iTeam, iPlateauOrZero, iLandOrWaterZone, false) then
-                                            --Redundancy
-                                            bRetireFactoryAfterNoBuild = false
-                                            sFactoryRetirementReason = nil
-                                        end
-
-                                    elseif iFactoryType == refiFactoryTypeAir then
-                                        --Consider ctrlking t1/t2 air facs if we have t3 air
-                                        if iFactoryTechLevel <= 2 and oBrain[M28Economy.refiOurHighestAirFactoryTech] >= 3 then
-                                            local tExistingT3Factories = EntityCategoryFilterDown(M28UnitInfo.refCategoryAirFactory * categories.TECH3, tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
-                                            if bDebugMessages == true then
-                                                LOG(sFunctionRef .. ': Is table of existing T3 air factories empty=' .. tostring(M28Utilities.IsTableEmpty(tExistingT3Factories)) .. ' Brain cur T3 factories=' .. oBrain:GetCurrentUnits(M28UnitInfo.refCategoryAirFactory * categories.TECH3))
-                                            end
-                                            iExistingT3Factories = table.getn(tExistingT3Factories)
-                                            if M28Utilities.IsTableEmpty(tExistingT3Factories) == false and iExistingT3Factories >= 2 and oBrain:GetCurrentUnits(M28UnitInfo.refCategoryAirHQ * categories.TECH3) > 0 then
-                                                bRetireFactoryAfterNoBuild = true
-                                                sFactoryRetirementReason = 'MassReclaim'
-                                            end
-                                        end
-                                    end
-                                end
+                                sFactoryRetirementReason = sRetireFromNoBuildOwnerReason
                             end
                         end
 
@@ -6395,23 +6390,13 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait, bConsiderDes
                         if not (bRetireFactoryAfterNoBuild)then
                             ForkThread(DecideAndBuildUnitForFactory, aiBrain, oFactory, false)
                         else
-                            sBPToBuild = nil
-                            if iExistingT3Factories <= 2 then
-                                sBPToBuild, bEnhancement = DetermineWhatToBuild(aiBrain, oFactory)
-                            end
-                            if bDebugMessages == true then
-                                LOG(sFunctionRef .. ': Do we have something to build after checking before ctrlK? sBPToBuild=' .. (sBPToBuild or 'nil'))
-                            end
-                            if sBPToBuild then
-                                ForkThread(DecideAndBuildUnitForFactory, aiBrain, oFactory, false)
-                            else
-                                --CtrlK for mass
-                                if (not(oFactory[M28UnitInfo.refbCampaignTriggerAdded]) or not(M28Map.bIsCampaignMap)) and EntityCategoryContains(M28UnitInfo.refCategoryFactory - categories.EXPERIMENTAL, oFactory.UnitId)  then --entity category contains is a redundancy
-                                    if bDebugMessages == true then
-                                        LOG(sFunctionRef .. ': Will ctrlK factory ' .. oFactory.UnitId .. M28UnitInfo.GetUnitLifetimeCount(oFactory) .. ' after no-build retirement check, reason='..(sFactoryRetirementReason or 'nil'))
-                                    end
-                                    M28Orders.IssueTrackedKillUnit(oFactory)
+                            -- Self-destruct reasons are owned by the retirement decision above; do not
+                            -- bounce through another build-choice pass once a kill reason is selected.
+                            if (not(oFactory[M28UnitInfo.refbCampaignTriggerAdded]) or not(M28Map.bIsCampaignMap)) and EntityCategoryContains(M28UnitInfo.refCategoryFactory - categories.EXPERIMENTAL, oFactory.UnitId)  then --entity category contains is a redundancy
+                                if bDebugMessages == true then
+                                    LOG(sFunctionRef .. ': Will ctrlK factory ' .. oFactory.UnitId .. M28UnitInfo.GetUnitLifetimeCount(oFactory) .. ' after no-build retirement decision, reason='..(sFactoryRetirementReason or 'nil'))
                                 end
+                                M28Orders.IssueTrackedKillUnit(oFactory)
                             end
                         end
                     end

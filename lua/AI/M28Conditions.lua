@@ -1865,27 +1865,21 @@ local function GetZoneFactoryMassBudgetState(iTeam, iPlateau, iLandZone)
     local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
     local aiBrain = ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
 
-    -- e.g. 1 t1 land factory building tank uses 0.4 mass per tick, so would want 1 factory
-    -- for every 0.8 mass as a rough baseline; T2 is 0.9 mass per tick, T3 is 1.6.
-    local tiGrossMassWantedPerFactoryByTech = {[1] = 1.2, [2] = 2.2, [3] = 5.5}
+    -- QUIET land factories have roughly 40 / 70 / 100 build power at T1 / T2 / T3.
+    -- A representative T1 tank (e.g. UEF striker at ~56 mass) spends about 10 mass/sec
+    -- on a T1 land factory, i.e. 1 mass/tick at 10 ticks/sec. Use the BP ratios as the
+    -- rough baseline for continuous combat production: 10 / 17.5 / 25 mass per second.
+    local tiGrossMassWantedPerFactoryByTech = {[1] = 10, [2] = 17.5, [3] = 25}
     local iCurIsland = NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZData[M28Map.subrefMidpoint])
     local iEnemyIsland = NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestEnemyBase])
 
     if iCurIsland ~= iEnemyIsland and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.35 then
-        tiGrossMassWantedPerFactoryByTech = {[1]=3.5, [2] = 3.5, [3] = 6.5}
+        tiGrossMassWantedPerFactoryByTech = {[1]=30, [2] = 28, [3] = 30}
     elseif M28Map.iMapSize <= 256 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 60 then
         if M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 120 then
-            tiGrossMassWantedPerFactoryByTech[1] = 0.4
+            tiGrossMassWantedPerFactoryByTech[1] = 3.5
         else
-            tiGrossMassWantedPerFactoryByTech[1] = 0.6
-        end
-    elseif M28Map.iMapSize >= 1000 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] < 3 and tLZTeamData[M28Map.subrefMexCountByTech][3] == 0 and tLZTeamData[M28Map.refiModDistancePercent] <= 0.2 and not(M28Utilities.bQuietModActive) then
-        for iTech, iValue in tiGrossMassWantedPerFactoryByTech do
-            if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.02) or aiBrain[M28Overseer.refbPrioritiseNavy] or aiBrain[M28Overseer.refbPrioritiseHighTech] then
-                tiGrossMassWantedPerFactoryByTech[iTech] = iValue * 2
-            else
-                tiGrossMassWantedPerFactoryByTech[iTech] = iValue * 1.5
-            end
+            tiGrossMassWantedPerFactoryByTech[1] = 5
         end
     elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.2 and tLZTeamData[M28Map.refiModDistancePercent] <= 0.35 and (tLZTeamData[M28Map.refiModDistancePercent] <= 0.25 or M28Map.iMapSize < 1000) and (tLZData[M28Map.subrefLZOrWZMexCount] <= 3 or tLZTeamData[M28Map.subrefLZbCoreBase]) and tLZTeamData[M28Map.subrefMexCountByTech][3] == 0 and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] == 0 and M28Map.iMapSize >= 512 and M28Map.iMapSize <= 1024 and iCurIsland == NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestFriendlyBase]) and M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] * 1.25 < M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide] and not(M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam]) then
         local tBaseLZData, tBaseLZTeamData = M28Map.GetLandOrWaterZoneData(tLZTeamData[M28Map.reftClosestFriendlyBase], true, iTeam)
