@@ -1757,7 +1757,6 @@ function WantToKeepLowerTechLandProduction(tLZTeamData, iTeam, iFactoryTechLevel
 
     local aiBrain = oOptionalBrainOverride or ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
     if not(aiBrain) then return false end
-    local iCurTime = GetGameTimeSeconds()
 
     local iHighestLandTech = M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] or 0
     local iTimeFirstHigherTech
@@ -1779,79 +1778,26 @@ function WantToKeepLowerTechLandProduction(tLZTeamData, iTeam, iFactoryTechLevel
         iHigherTechCombatThreshold = 10
     end
 
-    local iTimeSinceFirstHigherTech = iCurTime - (iTimeFirstHigherTech or iCurTime)
-    if not(iTimeFirstHigherTech) or iTimeSinceFirstHigherTech > iContinuationWindow then
-        return false
-    end
-    local iContinuationProgress = math.min(1, iTimeSinceFirstHigherTech / math.max(1, iContinuationWindow))
-    local iRetirementPressureMod = 1 + iContinuationProgress * 0.7
-
     local iEnemyZoneThreat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
     local iAllyZoneThreat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
-    local iZonePressureThreatThreshold = math.max(120 * iRetirementPressureMod, iAllyZoneThreat * (0.65 + iContinuationProgress * 0.25))
-    local bZoneUnderPressure = tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]
-            and ((tLZTeamData[M28Map.subrefbLZWantsSupport] or false)
-                or (tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or false)
-                or iEnemyZoneThreat >= iZonePressureThreatThreshold
-                or (tLZTeamData[M28Map.refiModDistancePercent] or 0) >= 0.25 + iContinuationProgress * 0.15)
-
     local iEnemyNearOurSide = 0
     local iAllyNearOurSide = 0
     if aiBrain.M28LandSubteam and M28Team.tLandSubteamData[aiBrain.M28LandSubteam] then
         iEnemyNearOurSide = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] or 0
         iAllyNearOurSide = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide] or 0
     end
-    local iNearSidePressureThreshold = math.max((250 * iFactoryTechLevel) * iRetirementPressureMod, iAllyNearOurSide * (0.7 + iContinuationProgress * 0.15))
-    local bNearSidePressure = aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]
-            and iEnemyNearOurSide >= iNearSidePressureThreshold
-
-    local iHigherTechCombatRetirementThreshold = math.max(0, math.floor(iHigherTechCombatThreshold * math.max(0, 1 - iContinuationProgress * 1.5)))
-    local bStillRampingHigherTech = iHigherTechCombatRetirementThreshold > 0 and iHigherTechCombatLifetimeCount <= iHigherTechCombatRetirementThreshold
     local bImmediateGroundEmergency = (tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or false)
             or ((tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false) and iEnemyZoneThreat >= math.max(180, iAllyZoneThreat * 0.85))
             or (aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] and iEnemyNearOurSide >= math.max(400 * iFactoryTechLevel, iAllyNearOurSide * 0.9))
-
-    local iEnemyBrainCount = 0
-    local iEnemyBrainsAtTopLandTech = 0
-    if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains]) == false then
-        for _, oEnemyBrain in M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains] do
-            if oEnemyBrain and not(oEnemyBrain:IsDefeated()) then
-                iEnemyBrainCount = iEnemyBrainCount + 1
-                if (oEnemyBrain[M28Team.refiHighestSpottedEnemyGroundTech] or 0) >= iHighestLandTech then
-                    iEnemyBrainsAtTopLandTech = iEnemyBrainsAtTopLandTech + 1
-                end
-            end
-        end
+    if bImmediateGroundEmergency then
+        return true
     end
-    local iEnemyBrainsNeededForBroadTopTechLead = 1
-    if iEnemyBrainCount >= 2 then iEnemyBrainsNeededForBroadTopTechLead = 2 end
-    local bBroadEnemyTopTechPresence = iHighestLandTech >= 3 and (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyGroundTech] or 0) >= 3
-            and (iEnemyBrainCount <= 1 or iEnemyBrainsAtTopLandTech >= iEnemyBrainsNeededForBroadTopTechLead)
-    local bEnemyHasSeriousT3Presence = bBroadEnemyTopTechPresence and ((M28Team.tTeamData[iTeam][M28Team.refbEnemyHasHeavyLandT3] or false)
-            or (M28Team.tTeamData[iTeam][M28Team.iEnemyT3MAAActiveCount] or 0) >= 2
-            or M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]) == false)
 
-    local iTeamAvgMassStored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0
-    local iTeamNetMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 0
-    local bEconomyStrained = TeamHasLowMass(iTeam)
-            or (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or false)
-            or iTeamAvgMassStored <= 0.1
-            or (iTeamAvgMassStored <= 0.22 and iTeamNetMass <= 0)
-    local bPowerStrained = HaveLowPower(iTeam) or (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] or false)
-
-    if (bEnemyHasSeriousT3Presence and (bEconomyStrained or bPowerStrained)) and not(bImmediateGroundEmergency) then
+    if not(iTimeFirstHigherTech) or GetGameTimeSeconds() - iTimeFirstHigherTech > iContinuationWindow then
         return false
     end
 
-    if (bEconomyStrained or bPowerStrained) and not(bImmediateGroundEmergency) then
-        bStillRampingHigherTech = false
-    end
-
-    if iContinuationProgress >= 0.8 and not(bImmediateGroundEmergency) then
-        return false
-    end
-
-    return bZoneUnderPressure or bNearSidePressure or bStillRampingHigherTech
+    return iHigherTechCombatLifetimeCount <= iHigherTechCombatThreshold
 end
 
 function ShouldDelayAirTechForLandPressure(aiBrain, tLZData, tLZTeamData, iTeam)
@@ -1913,21 +1859,18 @@ function ZoneWantsT1Spam(tLZTeamData, iTeam)
     return bWantT1Spam
 end
 
-function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
-    local sFunctionRef = 'WantMoreFactories'
-    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelConditions, sFunctionRef)
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-
-    --e.g. 1 t1 land factory building tank uses 0.4 mass per tick, so would want 1 factory for every 0.8 mass as a rough baseline; T2 is 0.9 mass per tick, T3 is 1.6; probably want ratio to be 50%-50%-33%
-    local tiGrossMassWantedPerFactoryByTech = {[1] = 1.2, [2] = 2.2, [3] = 5.5} --i.e. how much mass we want per tick for each factory of the tech level
-    --Adjust factory T1 ratios if we cant path to enemy by land
-    local tLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone]
+local function GetZoneFactoryMassBudgetState(iTeam, iPlateau, iLandZone)
+    local tPlateau = M28Map.tAllPlateaus[iPlateau]
+    local tLZData = tPlateau[M28Map.subrefPlateauLandZones][iLandZone]
     local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
     local aiBrain = ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
 
-
+    -- e.g. 1 t1 land factory building tank uses 0.4 mass per tick, so would want 1 factory
+    -- for every 0.8 mass as a rough baseline; T2 is 0.9 mass per tick, T3 is 1.6.
+    local tiGrossMassWantedPerFactoryByTech = {[1] = 1.2, [2] = 2.2, [3] = 5.5}
     local iCurIsland = NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZData[M28Map.subrefMidpoint])
     local iEnemyIsland = NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestEnemyBase])
+
     if iCurIsland ~= iEnemyIsland and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.35 then
         tiGrossMassWantedPerFactoryByTech = {[1]=3.5, [2] = 3.5, [3] = 6.5}
     elseif M28Map.iMapSize <= 256 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 60 then
@@ -1944,32 +1887,26 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
                 tiGrossMassWantedPerFactoryByTech[iTech] = iValue * 1.5
             end
         end
-        --10km+ maps with lots of mexes in core base and not many in this zone - reduce factories wanted if we have reached t2 already but arent at t3
-    else
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': High mex in base astro style map check, subrefiTeamAverageMassPercentStored='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]..'; subrefLZOrWZMexCount='..tLZData[M28Map.subrefLZOrWZMexCount]..'; subrefMexCountByTech[3]='..tLZTeamData[M28Map.subrefMexCountByTech][3]..'; subrefiHighestFriendlyFactoryTech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]..'; refiModDistancePercent='..tLZTeamData[M28Map.refiModDistancePercent]..'; refiEnemyMobileDFThreatNearOurSide='..M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide]..'; refiAllyMobileDFThreatNearOurSide='..M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide]..'; refbFocusOnT1Spam='..tostring(M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam])..'; subrefLZbCoreBase='..tostring(tLZTeamData[M28Map.subrefLZbCoreBase])) end
-        if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.2 and tLZTeamData[M28Map.refiModDistancePercent] <= 0.35 and (tLZTeamData[M28Map.refiModDistancePercent] <= 0.25 or M28Map.iMapSize < 1000) and (tLZData[M28Map.subrefLZOrWZMexCount] <= 3 or tLZTeamData[M28Map.subrefLZbCoreBase]) and tLZTeamData[M28Map.subrefMexCountByTech][3] == 0 and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] == 0 and M28Map.iMapSize >= 512 and M28Map.iMapSize <= 1024 and iCurIsland == NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestFriendlyBase]) and M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] * 1.25 < M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide] and not(M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam]) then
-            --Are we a 'high mex in safe position' map like astro? If so then want to prioritise eco over land units
-            local tBaseLZData, tBaseLZTeamData = M28Map.GetLandOrWaterZoneData(tLZTeamData[M28Map.reftClosestFriendlyBase], true, iTeam)
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': If majority of mexes are in our nearest base then reduce factories wanted, tBaseLZData[M28Map.subrefLZOrWZMexCount]='..tBaseLZData[M28Map.subrefLZOrWZMexCount]..'; subrefPlateauTotalMexCount='..M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauTotalMexCount]..'; subrefMexCountByTech][3]='..tBaseLZTeamData[M28Map.subrefMexCountByTech][3]) end
-            if tBaseLZTeamData and tBaseLZData[M28Map.subrefLZOrWZMexCount] >= 6 and tBaseLZData[M28Map.subrefLZOrWZMexCount] > M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauTotalMexCount] * (0.3 / M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) and tBaseLZTeamData[M28Map.subrefMexCountByTech][3] < 2 then
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will reduce the number of factories wanted') end
-                for iTech, iValue in tiGrossMassWantedPerFactoryByTech do
-                    if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.02) or aiBrain[M28Overseer.refbPrioritiseNavy] or aiBrain[M28Overseer.refbPrioritiseHighTech] then
-                        tiGrossMassWantedPerFactoryByTech[iTech] = iValue * 2
-                    else
-                        tiGrossMassWantedPerFactoryByTech[iTech] = iValue * 1.5
-                    end
+    elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.2 and tLZTeamData[M28Map.refiModDistancePercent] <= 0.35 and (tLZTeamData[M28Map.refiModDistancePercent] <= 0.25 or M28Map.iMapSize < 1000) and (tLZData[M28Map.subrefLZOrWZMexCount] <= 3 or tLZTeamData[M28Map.subrefLZbCoreBase]) and tLZTeamData[M28Map.subrefMexCountByTech][3] == 0 and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] == 0 and M28Map.iMapSize >= 512 and M28Map.iMapSize <= 1024 and iCurIsland == NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestFriendlyBase]) and M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] * 1.25 < M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide] and not(M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam]) then
+        local tBaseLZData, tBaseLZTeamData = M28Map.GetLandOrWaterZoneData(tLZTeamData[M28Map.reftClosestFriendlyBase], true, iTeam)
+        if tBaseLZTeamData and tBaseLZData[M28Map.subrefLZOrWZMexCount] >= 6 and tBaseLZData[M28Map.subrefLZOrWZMexCount] > M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauTotalMexCount] * (0.3 / M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) and tBaseLZTeamData[M28Map.subrefMexCountByTech][3] < 2 then
+            for iTech, iValue in tiGrossMassWantedPerFactoryByTech do
+                if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] >= 3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.02) or aiBrain[M28Overseer.refbPrioritiseNavy] or aiBrain[M28Overseer.refbPrioritiseHighTech] then
+                    tiGrossMassWantedPerFactoryByTech[iTech] = iValue * 2
+                else
+                    tiGrossMassWantedPerFactoryByTech[iTech] = iValue * 1.5
                 end
             end
         end
     end
+
     local iTeamCount = M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]
     if iTeamCount > 1 then
         for iEntry, iFactoryCountWanted in tiGrossMassWantedPerFactoryByTech do
             tiGrossMassWantedPerFactoryByTech[iEntry] = iFactoryCountWanted * iTeamCount
         end
     end
-    --If we have navy then reduce the mass wanted
+
     if (M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyNavalFactoryTech] >= 1 or M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] > 0) and not(aiBrain[M28Overseer.refbPrioritiseAir]) and not(aiBrain[M28Overseer.refbPrioritiseLowTech]) then
         local iReductionFactor = 0.75
         if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyNavalFactoryTech] >= 2 then iReductionFactor = 0.5 end
@@ -1980,8 +1917,27 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
             tiGrossMassWantedPerFactoryByTech[iEntry] = iFactoryCountWanted * iReductionFactor
         end
     end
-    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished updating gross mass wanted per average facotry count, tiGrossMassWantedPerFactoryByTech='..repru(tiGrossMassWantedPerFactoryByTech)..'; refbBaseInSafePosition='..tostring((tLZTeamData[M28Map.refbBaseInSafePosition] or false))) end
+
     local iAverageCurAirAndLandFactories = (M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeLand] or 0) / M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] + (M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeAir] or 0) / M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]
+    local iHighestFriendlyFactoryTech = M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] or 1
+    local iFactoriesWantedByMass = (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0) / math.max(0.1, tiGrossMassWantedPerFactoryByTech[iHighestFriendlyFactoryTech] or 1)
+
+    return tiGrossMassWantedPerFactoryByTech, tLZData, tLZTeamData, aiBrain, iAverageCurAirAndLandFactories, iFactoriesWantedByMass, iCurIsland, iEnemyIsland
+end
+
+function IsZoneOverFactoryMassBudget(iTeam, iPlateau, iLandZone, iAverageFactoryBuffer)
+    local _, _, _, _, iAverageCurAirAndLandFactories, iFactoriesWantedByMass = GetZoneFactoryMassBudgetState(iTeam, iPlateau, iLandZone)
+    return iAverageCurAirAndLandFactories >= iFactoriesWantedByMass + (iAverageFactoryBuffer or 0), iAverageCurAirAndLandFactories, iFactoriesWantedByMass
+end
+
+function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
+    local sFunctionRef = 'WantMoreFactories'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelConditions, sFunctionRef)
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local tiGrossMassWantedPerFactoryByTech, tLZData, tLZTeamData, aiBrain, iAverageCurAirAndLandFactories, iFactoriesWantedByMass, iCurIsland, iEnemyIsland = GetZoneFactoryMassBudgetState(iTeam, iPlateau, iLandZone)
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished updating gross mass wanted per average facotry count, tiGrossMassWantedPerFactoryByTech='..repru(tiGrossMassWantedPerFactoryByTech)..'; refbBaseInSafePosition='..tostring((tLZTeamData[M28Map.refbBaseInSafePosition] or false))..'; iFactoriesWantedByMass='..(iFactoriesWantedByMass or 'nil')) end
+    local iTeamCount = M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]
     local iFactoriesInZone --will change value from nil if needed
     local iAirFacsInZone --will change value from nil if needed
     local iLandFacsInZone

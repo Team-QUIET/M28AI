@@ -341,6 +341,10 @@ local function ShouldRetireObsoleteFactoryAfterNoBuild(aiBrain, oFactory, tLZOrW
     local iHigherTechCategory
     local iHighestFactoryTech = iFactoryTechLevel
     local sRetireReason
+    local bOverFactoryMassBudget = false
+    if iPlateauOrZero and iPlateauOrZero > 0 and iLandOrWaterZone then
+        bOverFactoryMassBudget = M28Conditions.IsZoneOverFactoryMassBudget(iTeam, iPlateauOrZero, iLandOrWaterZone, 0)
+    end
 
     if iFactoryType == refiFactoryTypeLand then
         iHighestFactoryTech = aiBrain[M28Economy.refiOurHighestLandFactoryTech] or iFactoryTechLevel
@@ -366,17 +370,22 @@ local function ShouldRetireObsoleteFactoryAfterNoBuild(aiBrain, oFactory, tLZOrW
 
     local iHigherTechFactoriesInZone = M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZOrWZTeamData, iHigherTechCategory)
     local iHigherTechFactoriesTeam = aiBrain:GetCurrentUnits(iHigherTechCategory)
-    if iHigherTechFactoriesInZone == 0 and iHigherTechFactoriesTeam < 2 then
+    local iTeamReplacementRequirement = bOverFactoryMassBudget and 1 or 2
+    if iHigherTechFactoriesInZone == 0 and iHigherTechFactoriesTeam < iTeamReplacementRequirement then
         return false, nil
     end
 
+    local iPressureReplacementRequirement = bOverFactoryMassBudget and 1 or 2
     if iFactoryType == refiFactoryTypeLand
             and ((tLZOrWZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or false)
                 or (tLZOrWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false))
-            and iHigherTechFactoriesInZone < 2 then
+            and iHigherTechFactoriesInZone < iPressureReplacementRequirement then
         return false, nil
     end
 
+    if bOverFactoryMassBudget then
+        sRetireReason = sRetireReason..'OverBudget'
+    end
     return true, sRetireReason
 end
 
