@@ -3018,11 +3018,7 @@ function ConsiderPriorityLandFactoryUpgrades(iM28Team)
         for _, oBrain in tTeamData[iM28Team][subreftoFriendlyActiveM28Brains] do
             local tBaseZoneData, tBaseZoneTeamData = M28Map.GetLandOrWaterZoneData(M28Map.GetPlayerStartPosition(oBrain), true, iM28Team)
             if tBaseZoneData and tBaseZoneTeamData then
-                local iBaseEnemyCombatThreat = tBaseZoneTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
-                local iBaseEnemyDFThreat = tBaseZoneTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0
-                local iBaseAllyCombatThreat = tBaseZoneTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
-                local bBaseUnderPressure = (tBaseZoneTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false) and
-                        (iBaseEnemyDFThreat >= 60 or iBaseEnemyCombatThreat >= 120 or (iBaseAllyCombatThreat > 0 and iBaseEnemyCombatThreat >= iBaseAllyCombatThreat * 0.6))
+                local bBaseUnderPressure = M28Conditions.IsLandHQUpgradeUnderPressure(tBaseZoneTeamData)
                 if bBaseUnderPressure then
                     iBrainsWithBasePressure = iBrainsWithBasePressure + 1
                     tbBrainsWithBasePressureByIndex[oBrain:GetArmyIndex()] = true
@@ -3031,7 +3027,7 @@ function ConsiderPriorityLandFactoryUpgrades(iM28Team)
         end
         local bLimitBroadLandHQResponse = false
         if (tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] < tTeamData[iM28Team][subrefiHighestEnemyGroundTech] and bEnemyTechLeadIsBroad)
-                or (tTeamData[iM28Team][subrefiTeamGrossMass] >= 2.5 * tTeamData[iM28Team][subrefiActiveM28BrainCount] * tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] and (tTeamData[iM28Team][subrefiTeamMassStored] >= 200 * math.min(2, tTeamData[iM28Team][subrefiActiveM28BrainCount]) * tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] or tTeamData[iM28Team][subrefiTeamGrossMass] >= 5 * tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] * tTeamData[iM28Team][subrefiActiveM28BrainCount]) and (tTeamData[iM28Team][subrefiTeamGrossMass] >= 6.5 * (1 + (tTeamData[iM28Team][subrefiActiveM28BrainCount] - 1) *0.5) or tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech] == 1 or M28Conditions.GetTeamLifetimeBuildCount(iM28Team, (M28UnitInfo.refCategoryLandCombat * M28UnitInfo.ConvertTechLevelToCategory(tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech]) + M28UnitInfo.refCategoryIndirect * M28UnitInfo.ConvertTechLevelToCategory(tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech])) ) >= (20 * (2.5-tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech]) + 12 * tTeamData[iM28Team][subrefiActiveM28BrainCount]) * tTeamData[iM28Team][subrefiActiveM28BrainCount])) then
+                or (tTeamData[iM28Team][subrefiTeamGrossMass] >= 2.5 * tTeamData[iM28Team][subrefiActiveM28BrainCount] * tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] and (tTeamData[iM28Team][subrefiTeamMassStored] >= 150 * math.min(2, tTeamData[iM28Team][subrefiActiveM28BrainCount]) * tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] or tTeamData[iM28Team][subrefiTeamGrossMass] >= 4.5 * tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] * tTeamData[iM28Team][subrefiActiveM28BrainCount]) and (tTeamData[iM28Team][subrefiTeamGrossMass] >= 5.5 * (1 + (tTeamData[iM28Team][subrefiActiveM28BrainCount] - 1) *0.5) or tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech] == 1 or M28Conditions.GetTeamLifetimeBuildCount(iM28Team, (M28UnitInfo.refCategoryLandCombat * M28UnitInfo.ConvertTechLevelToCategory(tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech]) + M28UnitInfo.refCategoryIndirect * M28UnitInfo.ConvertTechLevelToCategory(tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech])) ) >= (20 * (2.5-tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech]) + 12 * tTeamData[iM28Team][subrefiActiveM28BrainCount]) * tTeamData[iM28Team][subrefiActiveM28BrainCount])) then
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want to get upgrade as have high eco or enemy outtechs us; however will make exception if are at T3 air and low mass. iEnemyBrainCount='..iEnemyBrainCount..'; iEnemyBrainsAtHigherGroundTech='..iEnemyBrainsAtHigherGroundTech..'; iEnemyBrainsNeededForBroadTechResponse='..iEnemyBrainsNeededForBroadTechResponse..'; bEnemyTechLeadIsBroad='..tostring(bEnemyTechLeadIsBroad)) end
             bInitiallyWantUpgrade = true
             if tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] <= 0.05 and tTeamData[iM28Team][subrefiHighestFriendlyAirFactoryTech] >= 3 and GetGameTimeSeconds() - (tTeamData[iM28Team][refiTimeOfLastMassStall] or -100) <= 45 and tTeamData[iM28Team][refiConstructedExperimentalCount] == 0 then
@@ -3116,14 +3112,14 @@ function ConsiderPriorityLandFactoryUpgrades(iM28Team)
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Skipping priority land HQ for brain '..oBrain.Nickname..' because its base is still under direct pressure and we do not have enough mex control for a broad panic tech response') end
                         else
 
-                            if oBrain[M28Map.refbCanPathToEnemyBaseWithLand] and oBrain[M28Economy.refiOurHighestLandFactoryTech] > 0 and (oBrain[M28Economy.refiOurHighestLandFactoryTech] < tTeamData[iM28Team][subrefiHighestEnemyGroundTech] or (bNearbyUpgradedEnemyACU and oBrain[M28Economy.refiOurHighestLandFactoryTech] == 1) or (tTeamData[iM28Team][subrefiTeamGrossMass] >= 5 * (1 + (tTeamData[iM28Team][subrefiActiveM28BrainCount] - 1) * 0.5) and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 40 * (1 + (tTeamData[iM28Team][subrefiActiveM28BrainCount] - 1)*0.5)) or M28Conditions.GetTeamLifetimeBuildCount(iM28Team, (M28UnitInfo.refCategoryLandCombat * M28UnitInfo.ConvertTechLevelToCategory(tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech]) + M28UnitInfo.refCategoryIndirect * M28UnitInfo.ConvertTechLevelToCategory(tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech]))) >= 20 * (2-tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech]) + 15 * tTeamData[iM28Team][subrefiActiveM28BrainCount]) then
+                            if oBrain[M28Map.refbCanPathToEnemyBaseWithLand] and oBrain[M28Economy.refiOurHighestLandFactoryTech] > 0 and (oBrain[M28Economy.refiOurHighestLandFactoryTech] < tTeamData[iM28Team][subrefiHighestEnemyGroundTech] or (bNearbyUpgradedEnemyACU and oBrain[M28Economy.refiOurHighestLandFactoryTech] == 1) or (tTeamData[iM28Team][subrefiTeamGrossMass] >= 4 * (1 + (tTeamData[iM28Team][subrefiActiveM28BrainCount] - 1) * 0.5) and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 25 * (1 + (tTeamData[iM28Team][subrefiActiveM28BrainCount] - 1)*0.5)) or M28Conditions.GetTeamLifetimeBuildCount(iM28Team, (M28UnitInfo.refCategoryLandCombat * M28UnitInfo.ConvertTechLevelToCategory(tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech]) + M28UnitInfo.refCategoryIndirect * M28UnitInfo.ConvertTechLevelToCategory(tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech]))) >= 20 * (2-tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech]) + 15 * tTeamData[iM28Team][subrefiActiveM28BrainCount]) then
                                 --Do we have any active land factory upgrades?
                                 bWantUpgrade = not(DoesBrainHaveActiveHQUpgradesOfCategory(oBrain, M28UnitInfo.refCategoryLandHQ))
                                 local tBrainStartZoneData
                                 local tBrainStartZoneTeamData
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if we want to hold off so we can get air instead, oBrain[M28Economy.refiOurHighestLandFactoryTech]='..oBrain[M28Economy.refiOurHighestLandFactoryTech]..'; oBrain[M28Economy.refiOurHighestAirFactoryTech]='..oBrain[M28Economy.refiOurHighestAirFactoryTech]..'; Map size='..M28Map.iMapSize) end
                                 --Also hold off if we have an AirHQ upgrading and dont urgently need land
-                                if bWantUpgrade and (oBrain:GetEconomyStoredRatio('MASS') <= 0.2 or bLimitBroadLandHQResponse) then
+                                if bWantUpgrade and (oBrain:GetEconomyStoredRatio('MASS') <= 0.15 or bLimitBroadLandHQResponse) then
                                     local iStartPlateauOrZero, iStartZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(M28Map.GetPlayerStartPosition(oBrain, false))
                                     if iStartPlateauOrZero == 0 then
                                         tBrainStartZoneData = M28Map.tPondDetails[M28Map.tiPondByWaterZone[iStartZone]][M28Map.subrefPondWaterZones][iStartZone]
@@ -3151,7 +3147,7 @@ function ConsiderPriorityLandFactoryUpgrades(iM28Team)
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Holding off this brain from panic land HQ because its start zone is not a safe base while we are behind on map control') end
                                 end
 
-                                if bWantUpgrade and (iExistingBrainsWithHQUpgrades < iMaxConcurrentPriorityLandHQUpgrades or tTeamData[iM28Team][subrefiTeamMassStored] >= 300 * tTeamData[iM28Team][subrefiActiveM28BrainCount]) then
+                                if bWantUpgrade and (iExistingBrainsWithHQUpgrades < iMaxConcurrentPriorityLandHQUpgrades or tTeamData[iM28Team][subrefiTeamMassStored] >= 200 * tTeamData[iM28Team][subrefiActiveM28BrainCount]) then
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will try and upgrade a land factory HQ subject to how many units the factory has built and the shared HQ mex gate, refiOurHighestLandFactoryTech='..oBrain[M28Economy.refiOurHighestLandFactoryTech]..'; refiMexCountByTech[3]='..tTeamData[iM28Team][refiMexCountByTech][3]..'; is reftEnemyLandExperimentals empty='..tostring(M28Utilities.IsTableEmpty(tTeamData[iM28Team][reftEnemyLandExperimentals]))..'; refiGrossMassBaseIncome='..oBrain[M28Economy.refiGrossMassBaseIncome]..'; HaveLowMass='..tostring(M28Conditions.HaveLowMass(oBrain))..'; subrefiHighestEnemyAirTech='..tTeamData[iM28Team][subrefiHighestEnemyAirTech]..'; TeamHasLowMass='..tostring(M28Conditions.TeamHasLowMass(iM28Team))..'; iMaxConcurrentPriorityLandHQUpgrades='..iMaxConcurrentPriorityLandHQUpgrades) end
                                     TryStartPriorityHQUpgradeWithMexGate(oBrain, iM28Team, false, M28UnitInfo.refCategoryLandHQ * M28UnitInfo.ConvertTechLevelToCategory(oBrain[M28Economy.refiOurHighestLandFactoryTech]), 7, sFunctionRef..':LandHQ', sFunctionRef, bDebugMessages)
                                 end
@@ -3830,10 +3826,7 @@ function GetSafeHQUpgrade(iM28Team, bOnlyConsiderLandFactory)
                             tPotentialUnits = oBrain:GetListOfUnits(M28UnitInfo.refCategoryLandHQ * categories.TECH2, false, true)
                             if M28Utilities.IsTableEmpty(tPotentialUnits) == false then
                                 for iFactory, oFactory in tPotentialUnits do
-                                    --Dont add factories that havent built much
-                                    if M28Conditions.GetFactoryLifetimeCount(oFactory, categories.MOBILE * categories.TECH2) > 5 then
-                                        AddPotentialUnitsToShortlist(toSafeUnitsToUpgrade, { oFactory })
-                                    end
+                                    AddPotentialUnitsToShortlist(toSafeUnitsToUpgrade, { oFactory })
                                 end
                             end
                         elseif bDebugMessages == true then
@@ -4047,7 +4040,7 @@ function HaveEcoToSupportUpgrades(iM28Team)
                 else
                     --Adjust net mass income wanted if we will use up our stored mass quickly and have active mex upgrades
                     if (iNetMassIncomeWanted < 0 and tTeamData[iM28Team][subrefiTeamNetMass] < 0) or tTeamData[iM28Team][subrefiTeamMassStored] <= 650 then
-                        if tTeamData[iM28Team][subrefiTeamMassStored] <= 400 then iNetMassIncomeWanted = math.max(0, iNetMassIncomeWanted)
+                        if tTeamData[iM28Team][subrefiTeamMassStored] <= 150 then iNetMassIncomeWanted = math.max(0, iNetMassIncomeWanted)
                         else
                             local iTimeUntilUseUpStoredMass = tTeamData[iM28Team][subrefiTeamMassStored] / -10 * (tTeamData[iM28Team][subrefiTeamNetMass] - tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle])
                             if iTimeUntilUseUpStoredMass <= 80 then
@@ -4160,12 +4153,12 @@ function ConsiderNormalUpgrades(iM28Team)
                 --Get preferred upgrade type - ideally are always improving mass income (if have safe mexes to upgrade)
                 if M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]) == false then
                     --Already have mexes upgrading - do we want to also upgrade an HQ instead of a mex?
-                    if (tTeamData[iM28Team][subrefiTeamGrossMass] >= 2.5 and (tTeamData[iM28Team][subrefiTeamGrossMass] >= 5 and (tTeamData[iM28Team][subrefiLowestFriendlyLandFactoryTech] == 1 or tTeamData[iM28Team][subrefiLowestFriendlyAirFactoryTech] == 1) or (tTeamData[iM28Team][subrefiLowestFriendlyLandFactoryTech] == 1 and tTeamData[iM28Team][subrefiLowestFriendlyAirFactoryTech] == 1))) or ((tTeamData[iM28Team][subrefiLowestFriendlyLandFactoryTech] == 2 or tTeamData[iM28Team][subrefiLowestFriendlyAirFactoryTech] == 2) and tTeamData[iM28Team][subrefiTeamGrossMass] >= 8) then
+                    if (tTeamData[iM28Team][subrefiTeamGrossMass] >= 2.5 and (tTeamData[iM28Team][subrefiTeamGrossMass] >= 5 and (tTeamData[iM28Team][subrefiLowestFriendlyLandFactoryTech] == 1 or tTeamData[iM28Team][subrefiLowestFriendlyAirFactoryTech] == 1) or (tTeamData[iM28Team][subrefiLowestFriendlyLandFactoryTech] == 1 and tTeamData[iM28Team][subrefiLowestFriendlyAirFactoryTech] == 1))) or ((tTeamData[iM28Team][subrefiLowestFriendlyLandFactoryTech] == 2 or tTeamData[iM28Team][subrefiLowestFriendlyAirFactoryTech] == 2) and tTeamData[iM28Team][subrefiTeamGrossMass] >= 6) then
                         --Do we already ahve a factory HQ upgrading? If so then consider income based on player count
                         if M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingHQs]) then
                             bLookForMexNotHQ = false
                         else
-                            if (tTeamData[iM28Team][subrefiTeamGrossMass] >= math.max(1.5, tTeamData[iM28Team][subrefiActiveM28BrainCount]) * 5 and (tTeamData[iM28Team][subrefiLowestFriendlyLandFactoryTech] == 1 or tTeamData[iM28Team][subrefiLowestFriendlyAirFactoryTech] == 1)) or ((tTeamData[iM28Team][subrefiLowestFriendlyLandFactoryTech] == 2 or tTeamData[iM28Team][subrefiLowestFriendlyAirFactoryTech] == 2) and tTeamData[iM28Team][subrefiTeamGrossMass] >= math.max(1.5, tTeamData[iM28Team][subrefiActiveM28BrainCount]) * 8) then
+                            if (tTeamData[iM28Team][subrefiTeamGrossMass] >= math.max(1.5, tTeamData[iM28Team][subrefiActiveM28BrainCount]) * 5 and (tTeamData[iM28Team][subrefiLowestFriendlyLandFactoryTech] == 1 or tTeamData[iM28Team][subrefiLowestFriendlyAirFactoryTech] == 1)) or ((tTeamData[iM28Team][subrefiLowestFriendlyLandFactoryTech] == 2 or tTeamData[iM28Team][subrefiLowestFriendlyAirFactoryTech] == 2) and tTeamData[iM28Team][subrefiTeamGrossMass] >= math.max(1.5, tTeamData[iM28Team][subrefiActiveM28BrainCount]) * 6) then
                                 bLookForMexNotHQ = false
                             end
                         end
@@ -4194,7 +4187,7 @@ function ConsiderNormalUpgrades(iM28Team)
                                 bLookForMexNotHQ = false
                             end
                         elseif tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech] == 2 then
-                            if tTeamData[iM28Team][subrefiTeamGrossMass] > 8 * math.max(1, tTeamData[iM28Team][subrefiActiveM28BrainCount] * 0.7) and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 100 then
+                            if tTeamData[iM28Team][subrefiTeamGrossMass] >= 6 * math.max(1, tTeamData[iM28Team][subrefiActiveM28BrainCount] * 0.65) and tTeamData[iM28Team][subrefiTeamGrossEnergy] >= 70 then
                                 bLookForMexNotHQ = false
                             end
                         end

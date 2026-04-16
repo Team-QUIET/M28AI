@@ -627,6 +627,20 @@ end
 
 function IsUnitVisibleSEEUNITINFOCanSeeUnit()  end --To help with finding canseeunit
 
+function IsLandHQUpgradeUnderPressure(tLZTeamData)
+    if not((tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false)) then
+        return false
+    end
+
+    local iEnemyCombatThreat = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+    local iAllyCombatThreat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+    if iAllyCombatThreat > 0 then
+        return iEnemyCombatThreat >= iAllyCombatThreat * 0.8
+    end
+
+    return iEnemyCombatThreat >= 120 or (tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0) >= 60
+end
+
 function SafeToUpgradeUnit(oUnit)
     --Returns true if safe to upgrade oUnit
 
@@ -683,7 +697,10 @@ function SafeToUpgradeUnit(oUnit)
                     return false
                 end
             end
-            if not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ]) then
+            local bLandHQPressureSafe = EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oUnit.UnitId)
+                    and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ] or false)
+                    and not(IsLandHQUpgradeUnderPressure(tLZTeamData))
+            if bLandHQPressureSafe or not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ]) then
                 bSafeZone = true
             elseif tLZTeamData[M28Map.subrefLZbCoreBase] and tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] < 150 then
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Are in a core base so treating it as safe to upgrade as enemy lacks significant threat in this zone specificaly; however will make an exception if enemy has significant threat nearby, tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]='..tostring(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false)..'; Is table of nearest df enemies empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoNearestDFEnemies]))..'; Dist to closest enemy base='..M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], tLZTeamData[M28Map.reftClosestEnemyBase])) end
