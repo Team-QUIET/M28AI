@@ -6050,6 +6050,25 @@ function GetFactoryTargetQueueDepth(aiBrain, oFactory, sReferenceBlueprint)
         iQueueDepth = 1
     end
 
+    local iDesiredHQTech
+    local bPriorityDesiredHQ
+    local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
+    if EntityCategoryContains(M28UnitInfo.refCategoryLandHQ, oFactory.UnitId) then
+        iDesiredHQTech, bPriorityDesiredHQ = M28Team.GetBrainHQUpgradeDesire(aiBrain, M28UnitInfo.refCategoryLandFactory)
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryAirHQ, oFactory.UnitId) then
+        iDesiredHQTech, bPriorityDesiredHQ = M28Team.GetBrainHQUpgradeDesire(aiBrain, M28UnitInfo.refCategoryAirFactory)
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryNavalHQ, oFactory.UnitId) then
+        iDesiredHQTech, bPriorityDesiredHQ = M28Team.GetBrainHQUpgradeDesire(aiBrain, M28UnitInfo.refCategoryNavalFactory)
+    end
+
+    if iDesiredHQTech == iFactoryTechLevel + 1 then
+        if bPriorityDesiredHQ then
+            iQueueDepth = 1
+        else
+            iQueueDepth = math.min(iQueueDepth, 3)
+        end
+    end
+
     return math.max(1, iQueueDepth)
 end
 
