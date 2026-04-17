@@ -558,7 +558,7 @@ local function IssueACURetreatOrder(oACU, iPlateauOrZero, iLandOrWaterZone, tLZO
     return true
 end
 
-function ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearchForAdjacencyAndUnderConstruction, iMaxAreaToSearchForBuildLocation, iOptionalAdjacencyCategory, iOptionalCategoryBuiltUnitCanBuild, tOptionalSearchLocation)
+function ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearchForAdjacencyAndUnderConstruction, iMaxAreaToSearchForBuildLocation, iOptionalAdjacencyCategory, iOptionalCategoryBuiltUnitCanBuild, tOptionalSearchLocation, bRequireAdjacency, iOptionalEngineerAction)
     local sFunctionRef = 'ACUBuildUnit'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelACU, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -603,8 +603,10 @@ function ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearchForAdjace
         if not(bAlreadyHaveOrder) then
             local tLZData, tLZTeamData = M28Map.GetLandOrWaterZoneData(oACU:GetPosition(), true, oACU:GetAIBrain().M28Team)
             --GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerActionForDebug, iCategoryToBuild, iMaxAreaToSearch,                                   iCatToBuildBy,              tAlternativePositionToLookFrom, bLookForQueuedBuildings, oUnitToBuildBy, iOptionalCategoryForStructureToBuild, bBuildCheapestStructure, tLZData, tLZTeamData)
-            local sBlueprint, tBuildLocation =                       M28Engineer.GetBlueprintAndLocationToBuild(aiBrain, oACU,        nil,                            iCategoryToBuild, iMaxAreaToSearchForAdjacencyAndUnderConstruction, iOptionalAdjacencyCategory, tOptionalSearchLocation,            false,                      nil,         iOptionalCategoryBuiltUnitCanBuild,    nil,                        tLZData, tLZTeamData)
-            if not(tBuildLocation) then sBlueprint, tBuildLocation = M28Engineer.GetBlueprintAndLocationToBuild(aiBrain, oACU,          nil,                        iCategoryToBuild,    iMaxAreaToSearchForBuildLocation,                  nil,                         tOptionalSearchLocation,        false,                      nil,         iOptionalCategoryBuiltUnitCanBuild, nil,                           tLZData, tLZTeamData) end
+            local sBlueprint, tBuildLocation = M28Engineer.GetBlueprintAndLocationToBuild(aiBrain, oACU, iOptionalEngineerAction, iCategoryToBuild, iMaxAreaToSearchForAdjacencyAndUnderConstruction, iOptionalAdjacencyCategory, tOptionalSearchLocation, false, nil, iOptionalCategoryBuiltUnitCanBuild, nil, tLZData, tLZTeamData)
+            if not(tBuildLocation) and not(bRequireAdjacency) then
+                sBlueprint, tBuildLocation = M28Engineer.GetBlueprintAndLocationToBuild(aiBrain, oACU, iOptionalEngineerAction, iCategoryToBuild, iMaxAreaToSearchForBuildLocation, nil, tOptionalSearchLocation, false, nil, iOptionalCategoryBuiltUnitCanBuild, nil, tLZData, tLZTeamData)
+            end
             if bDebugMessages == true then
                 local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oACU:GetPosition())
                 LOG(sFunctionRef..': Blueprint to build='..(sBlueprint or 'nil')..'; tBuildLocation='..repru(tBuildLocation)..'; ACU plateau and land zone based on cur position='..iPlateauOrZero..'; Land or water zone='..(iLandOrWaterZone or 'nil')..'; iMaxAreaToSearchForBuildLocation='..(iMaxAreaToSearchForBuildLocation or 'nil')..'; was iOptionalAdjacencyCategory nil='..tostring(iOptionalAdjacencyCategory == nil)..'; tLZData midpoint='..repru(tLZData[M28Map.subrefMidpoint])..'; Is team data empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData))..'; iMaxAreaToSearchForAdjacencyAndUnderConstruction='..(iMaxAreaToSearchForAdjacencyAndUnderConstruction or 'nil'))
@@ -637,6 +639,29 @@ function ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearchForAdjace
     end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+end
+
+local function GetOpeningFactoryMexAnchor(aiBrain, oACU, iCategoryToBuild, tLZData)
+    if not(oACU[refbDoingInitialBuildOrder]) or not(EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, iCategoryToBuild)) then
+        return nil
+    end
+    if M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryFactory) > 0 or M28Utilities.IsTableEmpty(tLZData[M28Map.subrefMexUnbuiltLocations]) then
+        return nil
+    end
+
+    local tNearestOpenMex
+    local iNearestDistance = 100000
+    local iCurDistance
+    local tACUPosition = oACU:GetPosition()
+    for _, tMexLocation in tLZData[M28Map.subrefMexUnbuiltLocations] do
+        iCurDistance = M28Utilities.GetDistanceBetweenPositions(tMexLocation, tACUPosition)
+        if iCurDistance < iNearestDistance then
+            iNearestDistance = iCurDistance
+            tNearestOpenMex = {tMexLocation[1], tMexLocation[2], tMexLocation[3]}
+        end
+    end
+
+    return tNearestOpenMex
 end
 
 function ACUActionBuildFactory(aiBrain, oACU, iPlateauOrZero, iLandOrWaterZone, tLZData, tLZTeamData, iFactoryCategoryOverride, iEngineerActionOverride)
@@ -695,9 +720,21 @@ function ACUActionBuildFactory(aiBrain, oACU, iPlateauOrZero, iLandOrWaterZone, 
     iSearchSegments = math.floor(iSearchSegments)
     if M28Overseer.refiRoughTotalUnitsInGame <= 500 then iSearchSegments = iSearchSegments * 2 end
 
+    local iEngineerAction = iEngineerActionOverride
+    if not(iEngineerAction) then
+        if iCategoryToBuild == M28UnitInfo.refCategoryAirFactory then
+            iEngineerAction = M28Engineer.refActionBuildAirFactory
+        elseif iCategoryToBuild == M28UnitInfo.refCategoryLandFactory then
+            iEngineerAction = M28Engineer.refActionBuildLandFactory
+        else
+            iEngineerAction = M28Engineer.refActionBuildNavalFactory
+        end
+    end
+    local bRequireAdjacency = M28Engineer.DoesEngineerActionRequireAdjacency(iEngineerAction)
+    local tFactorySearchAnchor = GetOpeningFactoryMexAnchor(aiBrain, oACU, iCategoryToBuild, tLZData)
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will try and search for '..iSearchSegments..' in iPlateauOrZero='..iPlateauOrZero..'; iLandOrWaterZone='..iLandOrWaterZone..' so ACU is picking from best location for factory') end
     M28Engineer.SearchForBuildableLocationsForLandOrWaterZone(aiBrain, iPlateauOrZero, iLandOrWaterZone, iSearchSegments)
-    ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearch, iMaxAreaToSearch * 2, M28Engineer.tiActionAdjacentCategory[(iEngineerActionOverride or M28Engineer.refActionBuildLandFactory)], M28UnitInfo.refCategoryEngineer)
+    ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearch, iMaxAreaToSearch * 2, M28Engineer.tiActionAdjacentCategory[iEngineerAction], M28UnitInfo.refCategoryEngineer, tFactorySearchAnchor, bRequireAdjacency, iEngineerAction)
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
@@ -811,12 +848,10 @@ function ACUActionBuildPower(aiBrain, oACU)
 
     local iCategoryToBuild = M28UnitInfo.refCategoryPower
     local iMaxAreaToSearch = 16
-    local iOptionalAdjacencyCategory
-    if aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryAirFactory) > 0 then iOptionalAdjacencyCategory = M28UnitInfo.refCategoryAirFactory
-    elseif aiBrain[M28Economy.refiGrossEnergyBaseIncome] <= 11 then iOptionalAdjacencyCategory = M28UnitInfo.refCategoryLandFactory
-    end
-    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to tell ACU to build power; is optional adjacency category nil='..tostring(iOptionalAdjacencyCategory == nil)) end
-    ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearch, iMaxAreaToSearch * 3, iOptionalAdjacencyCategory, nil)
+    local iEngineerAction = M28Engineer.refActionBuildPower
+    local iOptionalAdjacencyCategory = M28Engineer.tiActionAdjacentCategory[iEngineerAction]
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to tell ACU to build power; will require adjacency and use engineer adjacency owner') end
+    ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearch, iMaxAreaToSearch * 3, iOptionalAdjacencyCategory, nil, nil, M28Engineer.DoesEngineerActionRequireAdjacency(iEngineerAction), iEngineerAction)
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end

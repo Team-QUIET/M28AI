@@ -475,6 +475,48 @@ tiActionAdjacentCategory = {
     [refActionBuildQuantumOptics] = M28UnitInfo.refCategoryT3Power,
 }
 
+ttiActionAdjacentCategoryPriority = {
+    [refActionBuildPower] = {
+        M28UnitInfo.refCategoryMex,
+        M28UnitInfo.refCategoryRadar,
+        M28UnitInfo.refCategoryAirFactory,
+        M28UnitInfo.refCategoryLandFactory,
+        M28UnitInfo.refCategoryT3Radar,
+        M28UnitInfo.refCategorySMD,
+        M28UnitInfo.refCategorySML,
+        M28UnitInfo.refCategoryFixedT3Arti,
+        M28UnitInfo.refCategoryExperimentalArti * categories.UEF,
+        M28UnitInfo.refCategoryMassFab * categories.TECH3,
+    },
+    [refActionBuildSecondPower] = {
+        M28UnitInfo.refCategoryMex,
+        M28UnitInfo.refCategoryRadar,
+        M28UnitInfo.refCategoryAirFactory,
+        M28UnitInfo.refCategoryLandFactory,
+        M28UnitInfo.refCategoryT3Radar,
+        M28UnitInfo.refCategorySMD,
+        M28UnitInfo.refCategorySML,
+        M28UnitInfo.refCategoryFixedT3Arti,
+        M28UnitInfo.refCategoryExperimentalArti * categories.UEF,
+        M28UnitInfo.refCategoryMassFab * categories.TECH3,
+    },
+    [refActionBuildThirdPower] = {
+        M28UnitInfo.refCategoryMex,
+        M28UnitInfo.refCategoryRadar,
+        M28UnitInfo.refCategoryAirFactory,
+        M28UnitInfo.refCategoryLandFactory,
+        M28UnitInfo.refCategorySML,
+        M28UnitInfo.refCategoryFixedT3Arti,
+        M28UnitInfo.refCategoryExperimentalArti * categories.UEF,
+        M28UnitInfo.refCategoryMassFab * categories.TECH3,
+        M28UnitInfo.refCategoryQuantumOptics,
+    },
+    [refActionBuildLandFactory] = {M28UnitInfo.refCategoryMex},
+    [refActionBuildSecondLandFactory] = {M28UnitInfo.refCategoryMex},
+    [refActionBuildAirFactory] = {M28UnitInfo.refCategoryMex, M28UnitInfo.refCategoryT3Power, M28UnitInfo.refCategoryHydro},
+    [refActionBuildSecondAirFactory] = {M28UnitInfo.refCategoryMex, M28UnitInfo.refCategoryT3Power, M28UnitInfo.refCategoryHydro},
+}
+
 tbEngineerActionRequireAdjacency = {
     [refActionBuildPower] = true,
     [refActionBuildSecondPower] = true,
@@ -485,6 +527,13 @@ tbEngineerActionRequireAdjacency = {
 
 function DoesEngineerActionRequireAdjacency(iEngineerAction)
     return tbEngineerActionRequireAdjacency[iEngineerAction] == true
+end
+
+local function GetEngineerActionAdjacencyCategoryPriority(iEngineerAction, iCatToBuildBy)
+    if iEngineerAction and ttiActionAdjacentCategoryPriority[iEngineerAction] then
+        return ttiActionAdjacentCategoryPriority[iEngineerAction]
+    end
+    return {iCatToBuildBy}
 end
 
 --Include any actions where we wont be building a category or searching for a category to assist
@@ -1475,7 +1524,108 @@ function SearchForBuildableLocationsNearDestroyedBuilding(oDestroyedBuilding)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function GetPotentialAdjacencyLocations(aiBrain, sBlueprintToBuild, tTargetLocation, iMaxAreaToSearch, iCatToBuildBy, oUnitToBuildBy, bStopWhenHaveValidLocation)
+local function GetAdjacencyCandidateLocations(tAdjacencyBuildingPosition, iAdjacencyBuildingRadius, iNewBuildingRadius)
+    local tCandidateLocations = {}
+    local iCycleSize = math.abs(iAdjacencyBuildingRadius - iNewBuildingRadius)
+    local iCurX, iCurZ
+
+    for iZFactor = -1, 1, 2 do
+        iCurZ = tAdjacencyBuildingPosition[3] + (iAdjacencyBuildingRadius + iNewBuildingRadius) * iZFactor
+        for iCurX = tAdjacencyBuildingPosition[1] - iCycleSize, tAdjacencyBuildingPosition[1] + iCycleSize, 1 do
+            local tCandidateLocation = {iCurX, GetSurfaceHeight(iCurX, iCurZ), iCurZ}
+            tCandidateLocation.bTemplateAllowed = iZFactor == -1
+            table.insert(tCandidateLocations, tCandidateLocation)
+        end
+    end
+
+    for iXFactor = -1, 1, 2 do
+        iCurX = tAdjacencyBuildingPosition[1] + (iAdjacencyBuildingRadius + iNewBuildingRadius) * iXFactor
+        for iCurZ = tAdjacencyBuildingPosition[3] - iCycleSize, tAdjacencyBuildingPosition[3] + iCycleSize, 1 do
+            local tCandidateLocation = {iCurX, GetSurfaceHeight(iCurX, iCurZ), iCurZ}
+            tCandidateLocation.bTemplateAllowed = false
+            table.insert(tCandidateLocations, tCandidateLocation)
+        end
+    end
+
+    return tCandidateLocations
+end
+
+local function GetFriendlyPowerBlockingBuildLocation(aiBrain, tBuildLocation, iBuildRadius)
+    local tBlockingUnits = GetUnitsInRect(M28Utilities.GetRectAroundLocation(tBuildLocation, iBuildRadius - 0.3))
+    if M28Utilities.IsTableEmpty(tBlockingUnits) then
+        return nil
+    end
+
+    local tBlockingPower = EntityCategoryFilterDown(M28UnitInfo.refCategoryPower, tBlockingUnits)
+    if M28Utilities.IsTableEmpty(tBlockingPower) then
+        return nil
+    end
+
+    for _, oUnit in tBlockingPower do
+        if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetAIBrain().M28Team == aiBrain.M28Team then
+            local iPowerRadius = M28UnitInfo.GetBuildingSize(oUnit.UnitId) * 0.5
+            if math.abs(oUnit:GetPosition()[1] - tBuildLocation[1]) < iBuildRadius + iPowerRadius - 0.3 and math.abs(oUnit:GetPosition()[3] - tBuildLocation[3]) < iBuildRadius + iPowerRadius - 0.3 then
+                return oUnit
+            end
+        end
+    end
+
+    return nil
+end
+
+local function TryReclaimBlockingPowerForRequiredLandFactoryAdjacency(aiBrain, oEngineer, sBlueprintToBuild, tTargetLocation, iMaxAreaToSearch, iCatToBuildBy)
+    if not(EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, sBlueprintToBuild)) or not(M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryMex, iCatToBuildBy, false)) then
+        return false
+    end
+
+    local iPlateauOrZero, iLandOrWaterZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(tTargetLocation)
+    if (iLandOrWaterZone or 0) <= 0 or (iPlateauOrZero or 0) <= 0 then
+        return false
+    end
+
+    local tLZData = M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iLandOrWaterZone]
+    local tLZTeamData = tLZData[M28Map.subrefLZTeamData][aiBrain.M28Team]
+    local iLandFactoryRadius = M28UnitInfo.GetBuildingSize(sBlueprintToBuild) * 0.5
+    local iMexSearchDist = iMaxAreaToSearch + iLandFactoryRadius
+    local tMexAnchors = {}
+
+    if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefMexUnbuiltLocations]) == false then
+        for _, tMexLocation in tLZData[M28Map.subrefMexUnbuiltLocations] do
+            if M28Utilities.GetDistanceBetweenPositions(tMexLocation, tTargetLocation) <= iMexSearchDist then
+                table.insert(tMexAnchors, tMexLocation)
+            end
+        end
+    end
+
+    if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
+        local tBuiltMexes = EntityCategoryFilterDown(M28UnitInfo.refCategoryMex, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
+        if M28Utilities.IsTableEmpty(tBuiltMexes) == false then
+            for _, oMex in tBuiltMexes do
+                if oMex:GetAIBrain().M28Team == aiBrain.M28Team and M28Utilities.GetDistanceBetweenPositions(oMex:GetPosition(), tTargetLocation) <= iMexSearchDist then
+                    table.insert(tMexAnchors, oMex:GetPosition())
+                end
+            end
+        end
+    end
+
+    for _, tMexAnchor in tMexAnchors do
+        local tCandidateLocations = GetAdjacencyCandidateLocations(tMexAnchor, 1, iLandFactoryRadius)
+        for _, tCandidateLocation in tCandidateLocations do
+            if aiBrain:CanBuildStructureAt(sBlueprintToBuild, tCandidateLocation) then
+                local oBlockingPower = GetFriendlyPowerBlockingBuildLocation(aiBrain, tCandidateLocation, iLandFactoryRadius)
+                if oBlockingPower then
+                    CheckAndClearEngineersConstructingTargetUnit(oBlockingPower, tLZTeamData, iPlateauOrZero, iLandOrWaterZone)
+                    M28Orders.IssueTrackedReclaim(oEngineer, oBlockingPower, false, 'RecAdjFac', false)
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+function GetPotentialAdjacencyLocations(aiBrain, sBlueprintToBuild, tTargetLocation, iMaxAreaToSearch, iCatToBuildBy, oUnitToBuildBy, bStopWhenHaveValidLocation, iOptionalEngineerAction)
     --Returns a table of all locations that are valid buildable locations for sBlueprintToBuild where it will benefit from an adjacencybonus with iCatToBuildBy or oUnitToBuildBy
     --bStopWhenHaveValidLocation - if we are happy to get the first result then this will abort as soon as a valid location is found
     --Returns {} if no valid locations can be found
@@ -1486,7 +1636,6 @@ function GetPotentialAdjacencyLocations(aiBrain, sBlueprintToBuild, tTargetLocat
 
 
     local tPotentialLocations = {}
-    local toPossibleBuildingsToBuildBy = {}
     local iPlateauOrZero, iLandOrWaterZone --Values are set if we have a cat to build by (but need here as refer to again later on)
     local iWaterZone, iPond, sAlliedUnitRef
     local tLZOrWZTeamData
@@ -1496,7 +1645,6 @@ function GetPotentialAdjacencyLocations(aiBrain, sBlueprintToBuild, tTargetLocat
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': sBLueprintToBuild='..(sBlueprintToBuild or 'nil')..'; tTargetLocation='..repru(tTargetLocation)..'; iMaxAreaToSearch='..iMaxAreaToSearch..'; Is iCatToBuildBy empty='..tostring(iCatToBuildBy == nil)..'; is oUnitToBuildBy empty='..tostring(oUnitToBuildBy == nil)..'; bStopWhenHaveValidLocation='..tostring(bStopWhenHaveValidLocation or false)) end
 
     if iCatToBuildBy then
-        --sBlueprintBuildBy = M28FactoryOverseer.GetBlueprintThatCanBuildOfCategory(aiBrain, iCatToBuildBy, oEngineer)--, false, false)
         iPlateauOrZero, iLandOrWaterZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(tTargetLocation)
         if (iLandOrWaterZone or 0) == 0 then
             iWaterZone = M28Map.GetWaterZoneFromPosition(tTargetLocation)
@@ -1514,37 +1662,20 @@ function GetPotentialAdjacencyLocations(aiBrain, sBlueprintToBuild, tTargetLocat
             sAlliedUnitRef = M28Map.subreftoLZOrWZAlliedUnits
         end
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have a cat to build by, tTargetLocation='..repru(tTargetLocation)..'; iPlateauOrZero='..iPlateauOrZero..'; iLandOrWaterZone='..(iLandOrWaterZone or 'nil')..'; Is table of allied units in this LZ empty='..tostring(M28Utilities.IsTableEmpty(tLZOrWZTeamData[sAlliedUnitRef]))) end
-
-        if M28Utilities.IsTableEmpty(tLZOrWZTeamData[sAlliedUnitRef]) == false then --Note - LZ and WZ refs use the same reference
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Size of tLZOrWZTeamData[sAlliedUnitRef]='..table.getn(tLZOrWZTeamData[sAlliedUnitRef])..'; iPlateauOrZero='..iPlateauOrZero..'; iLandOrWaterZone='..iLandOrWaterZone) end
-            local tRelevantBuildingsInSameLandZone = EntityCategoryFilterDown(iCatToBuildBy, tLZOrWZTeamData[sAlliedUnitRef])
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is table of releevant buildings empty='..tostring(M28Utilities.IsTableEmpty(tRelevantBuildingsInSameLandZone))) end
-            if M28Utilities.IsTableEmpty(tRelevantBuildingsInSameLandZone) == false then
-                for iUnit, oUnit in tRelevantBuildingsInSameLandZone do
-                    if oUnit:GetAIBrain() == aiBrain then
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering distance between unit of category wanted for adjacency and target location, unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Dist='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tTargetLocation)..'; Position='..repru(oUnit:GetPosition())) end
-                        if M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tTargetLocation) <= iMaxAreaToSearch then
-                            table.insert(toPossibleBuildingsToBuildBy, oUnit)
-                        end
-                    end
-                end
-            end
-        end
     elseif oUnitToBuildBy and not(oUnitToBuildBy.Dead) then
-        --sBlueprintBuildBy = oUnitToBuildBy.UnitId
-        toPossibleBuildingsToBuildBy = {oUnitToBuildBy}
+        iPlateauOrZero, iLandOrWaterZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oUnitToBuildBy:GetPosition())
     else M28Utilities.ErrorHandler('No adjacency category or unit specified')
     end
 
     local bAbort = false
     local iNewBuildingRadius = M28UnitInfo.GetBuildingSize(sBlueprintToBuild) * 0.5
     local iValidLocationCount = 0
-    local iValidBuildingCount = 0
-    local bHaveValidLocation = false
     local bDontCheckForNoRush = not(M28Overseer.bNoRushActive)
-    local function AddAdjacencyLocationsToPotentialLocations(tAdjacencyBuildingPosition, iAdjacencyBuildingRadius, iNewBuildingRadius, tOptionalGETemplateToAvoid)
-        local iCurZ, iCurX
-        local iCycleSize = math.abs(iAdjacencyBuildingRadius - iNewBuildingRadius)
+    local tProcessedUnits = {}
+    local tProcessedResourceLocations = {}
+    local tPriorityCategories = GetEngineerActionAdjacencyCategoryPriority(iOptionalEngineerAction, iCatToBuildBy)
+
+    local function AddAdjacencyLocationsToPotentialLocations(tAdjacencyBuildingPosition, iAdjacencyBuildingRadius, tOptionalGETemplateToAvoid)
         local iPlateauOrZero, iLandOrWaterZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(tAdjacencyBuildingPosition)
         if iPlateauOrZero > 0 then
             if (iLandOrWaterZone or 0) == 0 then
@@ -1554,84 +1685,97 @@ function GetPotentialAdjacencyLocations(aiBrain, sBlueprintToBuild, tTargetLocat
                 end
             end
             if iLandOrWaterZone > 0 then
-                bHaveValidLocation = false
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tAdjacencyBuildingPosition='..repru(tAdjacencyBuildingPosition)..'; iAdjacencyBuildingRadius='..iAdjacencyBuildingRadius..'; iNewBuildingRadius='..iNewBuildingRadius..'; iCycleSize='..iCycleSize) end
+                local tCandidateLocations = GetAdjacencyCandidateLocations(tAdjacencyBuildingPosition, iAdjacencyBuildingRadius, iNewBuildingRadius)
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tAdjacencyBuildingPosition='..repru(tAdjacencyBuildingPosition)..'; iAdjacencyBuildingRadius='..iAdjacencyBuildingRadius..'; Candidate count='..table.getn(tCandidateLocations)) end
 
-                --First go along top and bottom:
-                for iZFactor = -1, 1, 2 do
-                    iCurZ = tAdjacencyBuildingPosition[3] + (iAdjacencyBuildingRadius + iNewBuildingRadius) * iZFactor
-                    for iCurX = tAdjacencyBuildingPosition[1] - iCycleSize, tAdjacencyBuildingPosition[1] + iCycleSize, 1 do
-                        --CanBuildAtLocation(aiBrain, sBlueprintToBuild, tTargetLocation, iOptionalPlateauGroupOrZero, iOptionalLandOrWaterZone, iEngiActionToIgnore, bClearActionsIfNotStartedBuilding, bCheckForQueuedBuildings, bCheckForOverlappingBuildings, bCheckBlacklistIfNoGameEnder, bConsideringResourceLocation)
-                        if CanBuildAtLocation(aiBrain, sBlueprintToBuild, { iCurX, 0, iCurZ}, iPlateauOrZero, iLandOrWaterZone,                     nil,                false,                              true,                   false,                          true,                           false) then
-                            if bDontCheckForNoRush or M28Conditions.IsLocationInNoRushArea({iCurX, GetSurfaceHeight(iCurX, iCurZ), iCurZ}) then
-                                if not(tOptionalGETemplateToAvoid) or iZFactor == -1 then --not(M28Conditions.IsBuildLocationInGETemplateArea(iCurX, iCurZ, iNewBuildingRadius, tLZOrWZTeamData[tOptionalGETemplateToAvoid[3]])) then --decided to leave out more complicated condition to check for this for now and just permit where building above
-                                    table.insert(tPotentialLocations, {iCurX, GetSurfaceHeight(iCurX, iCurZ), iCurZ})
-                                    if bStopWhenHaveValidLocation then bAbort = true break end
-                                    iValidLocationCount = iValidLocationCount + 1
-                                    bHaveValidLocation = true
+                for _, tCandidateLocation in tCandidateLocations do
+                    if CanBuildAtLocation(aiBrain, sBlueprintToBuild, tCandidateLocation, iPlateauOrZero, iLandOrWaterZone, nil, false, true, false, true, false) then
+                        if bDontCheckForNoRush or M28Conditions.IsLocationInNoRushArea(tCandidateLocation) then
+                            if not(tOptionalGETemplateToAvoid) or tCandidateLocation.bTemplateAllowed then
+                                table.insert(tPotentialLocations, {tCandidateLocation[1], tCandidateLocation[2], tCandidateLocation[3]})
+                                if bStopWhenHaveValidLocation then
+                                    bAbort = true
+                                    break
                                 end
+                                iValidLocationCount = iValidLocationCount + 1
                             end
                         end
-                    end
-                    if bAbort then break end
-                end
-
-                --Next go along the sides:
-                if not(bAbort) then
-                    for iXFactor = -1, 1, 2 do
-                        iCurX = tAdjacencyBuildingPosition[1] + (iAdjacencyBuildingRadius + iNewBuildingRadius) * iXFactor
-                        for iCurZ = tAdjacencyBuildingPosition[3] - iCycleSize, tAdjacencyBuildingPosition[3] + iCycleSize, 1 do
-                            if CanBuildAtLocation(aiBrain, sBlueprintToBuild, { iCurX, 0, iCurZ}, iPlateauOrZero, iLandOrWaterZone, nil, false, true, false, true, false) then
-                                if bDontCheckForNoRush or M28Conditions.IsLocationInNoRushArea({iCurX, GetSurfaceHeight(iCurX, iCurZ), iCurZ}) then
-                                    if not(tOptionalGETemplateToAvoid) then --or not(M28Conditions.IsBuildLocationInGETemplateArea(iCurX, iCurZ, iNewBuildingRadius, tLZOrWZTeamData[tOptionalGETemplateToAvoid[3]])) then
-                                        table.insert(tPotentialLocations, {iCurX, GetSurfaceHeight(iCurX, iCurZ), iCurZ})
-                                        if bStopWhenHaveValidLocation then bAbort = true break end
-                                        iValidLocationCount = iValidLocationCount + 1
-                                        bHaveValidLocation = true
-                                    end
-                                end
-                            end
-                        end
-                        if bAbort then break end
                     end
                 end
             end
         end
     end
 
-
-    if M28Utilities.IsTableEmpty(toPossibleBuildingsToBuildBy) == false then
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have possible buildings to build by, so will consider best location') end
-        local iAdjacencyBuildingRadius
-        for iBuilding, oBuilding in toPossibleBuildingsToBuildBy do
-            iAdjacencyBuildingRadius = M28UnitInfo.GetBuildingSize(oBuilding.UnitId) * 0.5
-            AddAdjacencyLocationsToPotentialLocations(oBuilding:GetPosition(), iAdjacencyBuildingRadius, iNewBuildingRadius, oBuilding[M28Building.reftArtiTemplateRefs])
-            if bHaveValidLocation then
-                iValidBuildingCount = iValidBuildingCount + 1
-                if iValidBuildingCount >= 3 and iValidLocationCount >= 3 then break end
-            end
-            if bAbort then break end
+    local function AddResourceAdjacencyLocations(tResourceLocations, iAdjacencyBuildingRadius)
+        if M28Utilities.IsTableEmpty(tResourceLocations) then
+            return false
         end
-    else
-        --No nearby buildings of the desired kind - if we want to build BY a mex or hydro then consider unbuilt resource locations, unless we are bulding in a water zone
-        if iLandOrWaterZone > 0 then
-            local tResourceLocations
-            local iAdjacencyBuildingRadius
-            if M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryMex, iCatToBuildBy, false) then
-                tResourceLocations = tLZOrWZData[M28Map.subrefMexUnbuiltLocations] --Dont want all locations incase non-M28 teammate has built there
-                iAdjacencyBuildingRadius = 1
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want to build by a mex so recording tResourceLocations based on iPlateauOrZero='..(iPlateauOrZero or 'nil')..' and iLandOrWaterZone='..(iLandOrWaterZone or 'nil')) end
-            elseif M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryHydro, iCatToBuildBy, false) then
-                tResourceLocations = tLZOrWZData[M28Map.subrefHydroUnbuiltLocations] --we use the same variable for land and water zones
-                iAdjacencyBuildingRadius = 3
-            end
-            if tResourceLocations then
-                local iResourceSearchDist = iMaxAreaToSearch + (M28UnitInfo.GetBuildingSize(sBlueprintToBuild) or 0) * 0.5
-                for iCurResource, tCurResource in tResourceLocations do
-                    if M28Utilities.GetDistanceBetweenPositions(tCurResource, tTargetLocation) <= iResourceSearchDist then
-                        AddAdjacencyLocationsToPotentialLocations(tCurResource, iAdjacencyBuildingRadius, iNewBuildingRadius)
-                    end
+        local iResourceSearchDist = iMaxAreaToSearch + (M28UnitInfo.GetBuildingSize(sBlueprintToBuild) or 0) * 0.5
+        local tSortedResourceLocations = {}
+        local bAddedAnyLocations = false
+        for _, tCurResource in tResourceLocations do
+            table.insert(tSortedResourceLocations, {M28Utilities.GetDistanceBetweenPositions(tCurResource, tTargetLocation), tCurResource})
+        end
+        table.sort(tSortedResourceLocations, function(tA, tB) return tA[1] < tB[1] end)
+        for _, tResourceData in tSortedResourceLocations do
+            local tCurResource = tResourceData[2]
+            local sLocKey = tostring(tCurResource[1])..','..tostring(tCurResource[3])
+            if not(tProcessedResourceLocations[sLocKey]) and M28Utilities.GetDistanceBetweenPositions(tCurResource, tTargetLocation) <= iResourceSearchDist then
+                tProcessedResourceLocations[sLocKey] = true
+                local iLocationCountBefore = iValidLocationCount
+                AddAdjacencyLocationsToPotentialLocations(tCurResource, iAdjacencyBuildingRadius)
+                if iValidLocationCount > iLocationCountBefore then
+                    bAddedAnyLocations = true
                 end
+                if bAbort then
+                    break
+                end
+            end
+        end
+        return bAddedAnyLocations
+    end
+
+    local function AddUnitAdjacencyLocations(iAdjacencyCategory)
+        if M28Utilities.IsTableEmpty(tLZOrWZTeamData[sAlliedUnitRef]) then
+            return
+        end
+        local tRelevantBuildingsInZone = EntityCategoryFilterDown(iAdjacencyCategory, tLZOrWZTeamData[sAlliedUnitRef])
+        if M28Utilities.IsTableEmpty(tRelevantBuildingsInZone) then
+            return
+        end
+        local tSortedBuildings = {}
+        for _, oUnit in tRelevantBuildingsInZone do
+            table.insert(tSortedBuildings, {M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tTargetLocation), oUnit})
+        end
+        table.sort(tSortedBuildings, function(tA, tB) return tA[1] < tB[1] end)
+        for _, tBuildingData in tSortedBuildings do
+            local oUnit = tBuildingData[2]
+            if oUnit:GetAIBrain() == aiBrain and not(tProcessedUnits[oUnit]) and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tTargetLocation) <= iMaxAreaToSearch then
+                tProcessedUnits[oUnit] = true
+                AddAdjacencyLocationsToPotentialLocations(oUnit:GetPosition(), M28UnitInfo.GetBuildingSize(oUnit.UnitId) * 0.5, oUnit[M28Building.reftArtiTemplateRefs])
+                if bAbort then
+                    break
+                end
+            end
+        end
+    end
+
+    if oUnitToBuildBy and not(oUnitToBuildBy.Dead) then
+        AddAdjacencyLocationsToPotentialLocations(oUnitToBuildBy:GetPosition(), M28UnitInfo.GetBuildingSize(oUnitToBuildBy.UnitId) * 0.5, oUnitToBuildBy[M28Building.reftArtiTemplateRefs])
+    elseif iCatToBuildBy then
+        for _, iAdjacencyCategory in tPriorityCategories do
+            local bHavePreferredResourceAdjacency = false
+            if iLandOrWaterZone > 0 and M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryMex, iAdjacencyCategory, false) then
+                bHavePreferredResourceAdjacency = AddResourceAdjacencyLocations(tLZOrWZData[M28Map.subrefMexUnbuiltLocations], 1)
+            elseif iLandOrWaterZone > 0 and M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryHydro, iAdjacencyCategory, false) then
+                bHavePreferredResourceAdjacency = AddResourceAdjacencyLocations(tLZOrWZData[M28Map.subrefHydroUnbuiltLocations], 3)
+            end
+
+            if not(bHavePreferredResourceAdjacency and M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryMex, iAdjacencyCategory, false)) then
+                AddUnitAdjacencyLocations(iAdjacencyCategory)
+            end
+            if bAbort or iValidLocationCount >= 3 then
+                break
             end
         end
     end
@@ -1919,6 +2063,7 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
             end
         end
         local tWaterToBuildAwayFrom
+        local bWantAdjacency = false
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': sBlueprintToBuild='..(sBlueprintToBuild or 'nil')..'; Location to look from='..repru(tTargetLocation)) end
         --Mex or hydro or mass storage - consider the resource/storage locations
         if EntityCategoryContains(M28UnitInfo.refCategoryMex + M28UnitInfo.refCategoryHydro + M28UnitInfo.refCategoryMassStorage, sBlueprintToBuild) then
@@ -2021,7 +2166,7 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
         else
             --Get adjacency location if we want adjacency
             local bRequireAdjacency = DoesEngineerActionRequireAdjacency(iOptionalEngineerAction)
-            local bWantAdjacency = false
+            bWantAdjacency = false
             if M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbNoAvailableTorpsForEnemies] and M28Utilities.IsTableEmpty(tLZData[M28Map.subrefAdjacentWaterZones]) == false then
                 --Does enemy have long ranged DF units in an adjacent water zone?
                 for iEntry, tSubtable in tLZData[M28Map.subrefAdjacentWaterZones] do
@@ -2041,12 +2186,15 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
             end
             if bWantAdjacency then
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to get potential adjacency locations, sBlueprintToBuild='..(sBlueprintToBuild or 'nil')..'; is iCatToBuildBy empty='..tostring(iCatToBuildBy == nil)..'; iMaxAreaToSearch='..(iMaxAreaToSearch or 'nil')) end
-                tPotentialBuildLocations = GetPotentialAdjacencyLocations(aiBrain, sBlueprintToBuild, tTargetLocation, iMaxAreaToSearch, iCatToBuildBy, oUnitToBuildBy)
+                tPotentialBuildLocations = GetPotentialAdjacencyLocations(aiBrain, sBlueprintToBuild, tTargetLocation, iMaxAreaToSearch, iCatToBuildBy, oUnitToBuildBy, nil, iOptionalEngineerAction)
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished getting potential adjacency locations, sBlueprintToBuild='..sBlueprintToBuild..'; tPotentialBuildLocations='..repru(tPotentialBuildLocations)) end
             end
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': is tPotentialBuildLocations empty='..tostring(M28Utilities.IsTableEmpty(tPotentialBuildLocations))..'; tTargetLocation='..repru(tTargetLocation)) end
             if M28Utilities.IsTableEmpty(tPotentialBuildLocations) then
                 if bRequireAdjacency then
+                    if TryReclaimBlockingPowerForRequiredLandFactoryAdjacency(aiBrain, oEngineer, sBlueprintToBuild, tTargetLocation, iMaxAreaToSearch, iCatToBuildBy) then
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Reclaiming blocking power so will delay required-adjacency build until the slot is clear') end
+                    end
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Aborting build location search because action '..(iOptionalEngineerAction or 'nil')..' requires adjacency and none were found') end
                     return sBlueprintToBuild, nil
                 end
@@ -2182,7 +2330,7 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
             local bTryToBuildAtTarget = false
             if iOptionalEngineerAction == refActionBuildEmergencyPD and M28Utilities.GetDistanceBetweenPositions(tTargetLocation, tLZData[M28Map.subrefMidpoint]) >= 2 then bTryToBuildAtTarget = true end
             --GetBestBuildLocationForTarget(oEngineer, sBlueprintToBuild, tTargetLocation, tPotentialBuildLocations, iOptionalMaxDistanceFromTargetLocation, bAlreadyTriedAlternatives, bTryToBuildAtTarget, bForceOverlappingBuildingCheck, tOptionalLocationToBuildAwayFrom)
-            local tBestLocation = GetBestBuildLocationForTarget(oEngineer, sBlueprintToBuild, tTargetLocation, tPotentialBuildLocations, iMaxAreaToSearch, bCalledFromGetBestLocation, bTryToBuildAtTarget, false, tWaterToBuildAwayFrom)
+            local tBestLocation = GetBestBuildLocationForTarget(oEngineer, sBlueprintToBuild, tTargetLocation, tPotentialBuildLocations, iMaxAreaToSearch, bCalledFromGetBestLocation, bTryToBuildAtTarget, false, tWaterToBuildAwayFrom, bWantAdjacency)
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just got best location to build at, tBestLocation='..repru(tBestLocation)) end
             if tBestLocation then
                 --TMD check - if too far away to proect the unit we are interested in, then flag that dont want to try building tmd for the unit anymore
@@ -2215,7 +2363,7 @@ function ResetFailedShieldBuildDistance(oUnit, iDelayInSeconds)
     end
 end
 
-function GetBestBuildLocationForTarget(oEngineer, sBlueprintToBuild, tTargetLocation, tPotentialBuildLocations, iOptionalMaxDistanceFromTargetLocation, bAlreadyTriedAlternatives, bTryToBuildAtTarget, bForceOverlappingBuildingCheck, tOptionalLocationToBuildAwayFrom)
+function GetBestBuildLocationForTarget(oEngineer, sBlueprintToBuild, tTargetLocation, tPotentialBuildLocations, iOptionalMaxDistanceFromTargetLocation, bAlreadyTriedAlternatives, bTryToBuildAtTarget, bForceOverlappingBuildingCheck, tOptionalLocationToBuildAwayFrom, bRestrictBestLocationToCandidateSet)
     --Assumes we have already checked for: Adjacency; In the same land zone; Valid location to build
     --WIll then consider: If engineer can build without moving; How far away it is from the engineer; if it will block mex adjacency, and (if we specify a maximum distance) if it is within the max distance
     --bAlreadyTriedAlternatives - set to true if we have already called this function via this function, or we dont want to try other locations
@@ -2318,7 +2466,7 @@ function GetBestBuildLocationForTarget(oEngineer, sBlueprintToBuild, tTargetLoca
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if we want to build away from enemy T2 arti, Is table of enemy T2 arti empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoAllNearbyEnemyT2ArtiUnits]))..'; tArtiAndOtherPositionsToBuildAwayFrom='..repru(tArtiAndOtherPositionsToBuildAwayFrom)..'; Does enemy have units in adj zone='..tostring(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false)) end
     if EntityCategoryContains(M28UnitInfo.refCategoryNavalFactory, sBlueprintToBuild) then bTryAndBuildAtlantis = true end
     --25s as we might go first pgen to get an air fac
-    if GetGameTimeSeconds() <= 25 and EntityCategoryContains(categories.COMMAND, oEngineer.UnitId) and EntityCategoryContains(M28UnitInfo.refCategoryFactory, sBlueprintToBuild) then
+    if not(bRestrictBestLocationToCandidateSet) and GetGameTimeSeconds() <= 25 and EntityCategoryContains(categories.COMMAND, oEngineer.UnitId) and EntityCategoryContains(M28UnitInfo.refCategoryFactory, sBlueprintToBuild) then
         if not(bAlreadyTriedAlternatives) then
             bTryOtherLocationsIfNoneBuildableImmediately = true
         end
@@ -2665,13 +2813,13 @@ function GetBestBuildLocationForTarget(oEngineer, sBlueprintToBuild, tTargetLoca
             if M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryFactory + M28UnitInfo.refCategoryQuantumGateway,tNearbyUnits)) == false then
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will rerun logic but with more detailed check of whether we can build at a location') end
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-                return GetBestBuildLocationForTarget(oEngineer, sBlueprintToBuild, tTargetLocation, tPotentialBuildLocations, iOptionalMaxDistanceFromTargetLocation, bAlreadyTriedAlternatives, bTryToBuildAtTarget, true)
+                return GetBestBuildLocationForTarget(oEngineer, sBlueprintToBuild, tTargetLocation, tPotentialBuildLocations, iOptionalMaxDistanceFromTargetLocation, bAlreadyTriedAlternatives, bTryToBuildAtTarget, true, tOptionalLocationToBuildAwayFrom, bRestrictBestLocationToCandidateSet)
             end
         end
     end
 
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bBestLocationBuildableImmediately='..tostring(bBestLocationBuildableImmediately)..'; bTryOtherLocationsIfNoneBuildableImmediately='..tostring(bTryOtherLocationsIfNoneBuildableImmediately or false)) end
-    if not(bBestLocationBuildableImmediately) and bTryOtherLocationsIfNoneBuildableImmediately then
+    if not(bRestrictBestLocationToCandidateSet) and not(bBestLocationBuildableImmediately) and bTryOtherLocationsIfNoneBuildableImmediately then
         --GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAction, iCategoryToBuild, iMaxAreaToSearch,                  iCatToBuildBy, tAlternativePositionToLookFrom, bNotYetUsedLookForQueuedBuildings, oUnitToBuildBy, iOptionalCategoryForStructureToBuild, bBuildCheapestStructure, tLZData, tLZTeamData, bCalledFromGetBestLocation, sBlueprintOverride)
         local sRedundantBlueprint, tAltBestLocation = GetBlueprintAndLocationToBuild(aiBrain, oEngineer, nil,                        nil,           iOptionalMaxDistanceFromTargetLocation, nil,        tTargetLocation,                true,                               nil,            nil,                                nil,                    tLZData, tLZTeamData,   true,                   sBlueprintToBuild)
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tAltBestLocation='..repru(tAltBestLocation)..'; oEngineer:GetPosition='..repru(oEngineer:GetPosition())) end
