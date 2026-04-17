@@ -8073,23 +8073,6 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     end
                                 end
                             end
-                        elseif bForcePushNonSkirmisher and (oUnit[M28UnitInfo.refiDFRange] or 0) > 0 and not(EntityCategoryContains(M28UnitInfo.refCategorySkirmisher + M28UnitInfo.refCategoryAbsolver, oUnit.UnitId)) and not(oUnit[M28UnitInfo.refbScoutCombatOverride]) then
-                            bUseNormalLogicLocal = false
-                            if not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                                local oPushTarget = oNearestEnemyToFriendlyBase
-                                if bConsiderAttackingACU and M28Utilities.IsTableEmpty(toEnemyACUsNearZone) == false then
-                                    local oClosestACUToUnit = M28Utilities.GetNearestUnit(toEnemyACUsNearZone, oUnit:GetPosition())
-                                    if M28UnitInfo.IsUnitValid(oClosestACUToUnit) and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oClosestACUToUnit:GetPosition()) <= M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oNearestEnemyToFriendlyBase:GetPosition()) + 50 then
-                                        oPushTarget = oClosestACUToUnit
-                                    end
-                                end
-                                local tPushTargetPosition = oPushTarget:GetPosition()
-                                if oPushTarget[M28UnitInfo.reftLastKnownPositionByTeam] and oPushTarget[M28UnitInfo.reftLastKnownPositionByTeam][iTeam] then
-                                    tPushTargetPosition = oPushTarget[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]
-                                end
-                                M28Orders.IssueSmartMove(oUnit, tPushTargetPosition, math.max(4, (oUnit[M28UnitInfo.refiDFRange] or 10) * 0.5), false, 'NSPush'..iLandZone, false)
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Push-first advance for non-skirmisher unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' to target='..oPushTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oPushTarget)) end
-                            end
                         end
                         return bUseNormalLogicLocal
                     end
@@ -9547,28 +9530,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                         DoManualAttack(oSRUnit, oTargetToManuallyAttack, 'ExpSRA')
                                                     end
                                                 else
-                                                    local bFrontlineSupportAdvancePreferred = bForcePushNonSkirmisher
-                                                        or (bDisableFrontlineRetreatLogic and not(bHaveACUInTroubleAndRecentlyInCombat))
-                                                        or (((tLZTeamData[M28Map.subrefbLZWantsDFSupport] or false) or (tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false))
-                                                            and iNonSkirmisherCombatThreat >= math.max(325, (iEnemyCombatThreat or 0) * 0.82))
-                                                    if bFrontlineSupportAdvancePreferred then
-                                                        local tSupportAdvancePoint = M28Utilities.MoveInDirection(
-                                                            oClosestUnit:GetPosition(),
-                                                            M28Utilities.GetAngleFromAToB(oClosestUnit:GetPosition(), oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]),
-                                                            math.max(8, math.min(18, iDistToRetreat + 4)),
-                                                            true,
-                                                            false,
-                                                            true
-                                                        )
-                                                        if M28Utilities.IsTableEmpty(tSupportAdvancePoint) then
-                                                            tSupportAdvancePoint = oNearestEnemyToFriendlyBase[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]
-                                                        end
-                                                        if EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oSRUnit.UnitId) then
-                                                            M28Orders.IssueSmartMove(oSRUnit, tSupportAdvancePoint, 5, false, 'ASRPush'..iLandZone, false, true)
-                                                        else
-                                                            M28Orders.IssueSmartMove(oSRUnit, tSupportAdvancePoint, 4, false, 'SRPush'..iLandZone, false, true)
-                                                        end
-                                                    elseif EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oSRUnit.UnitId) then
+                                                    if EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oSRUnit.UnitId) then
                                                         local tSupportRetreatPoint = M28Utilities.MoveInDirection(oClosestUnit:GetPosition(), M28Utilities.GetAngleFromAToB(oClosestUnit:GetPosition(), (tSRRallyOverride or tAmphibiousRallyPoint)), iDistToRetreat, true, false, true)
                                                         if bDebugMessages == true and oSRUnit[M28UnitInfo.refbCanKite] then
                                                             LOG(sFunctionRef..': Want unit to move towards tAmphibiousRallyPoint, position to move to towards this='..repru(tSupportRetreatPoint)..'; cur position='..repru(oSRUnit:GetPosition())..'; Last orders='..reprs(oSRUnit[M28Orders.reftiLastOrders])..'; Angle from cur position to new position='..M28Utilities.GetAngleFromAToB(oSRUnit:GetPosition(), tAmphibiousRallyPoint)..'; IgnoreOrderDueToStuckUnit(oSRUnit)='..tostring(IgnoreOrderDueToStuckUnit(oSRUnit) or false))
