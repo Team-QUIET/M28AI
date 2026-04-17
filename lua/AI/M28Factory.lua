@@ -6079,6 +6079,45 @@ local function GetFactoryQueueRefillFloor(aiBrain, oFactory, iTargetQueueDepth)
     return math.min(iTargetQueueDepth, math.max(2, math.ceil(iTargetQueueDepth * 0.75)))
 end
 
+local function GetFactoryMatchingHQUpgradeDesire(aiBrain, oFactory)
+    local iDesiredHQTech
+    local bPriorityDesiredHQ
+    if EntityCategoryContains(M28UnitInfo.refCategoryLandHQ, oFactory.UnitId) then
+        iDesiredHQTech, bPriorityDesiredHQ = M28Team.GetBrainHQUpgradeDesire(aiBrain, M28UnitInfo.refCategoryLandFactory)
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryAirHQ, oFactory.UnitId) then
+        iDesiredHQTech, bPriorityDesiredHQ = M28Team.GetBrainHQUpgradeDesire(aiBrain, M28UnitInfo.refCategoryAirFactory)
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryNavalHQ, oFactory.UnitId) then
+        iDesiredHQTech, bPriorityDesiredHQ = M28Team.GetBrainHQUpgradeDesire(aiBrain, M28UnitInfo.refCategoryNavalFactory)
+    end
+
+    if iDesiredHQTech == M28UnitInfo.GetUnitTechLevel(oFactory) + 1 then
+        return iDesiredHQTech, bPriorityDesiredHQ or false
+    end
+    return nil, false
+end
+
+local function DoesFactoryHaveHigherTechHQ(aiBrain, oFactory)
+    local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
+    if EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oFactory.UnitId) then
+        return (aiBrain[M28Economy.refiOurHighestLandFactoryTech] or 0) > iFactoryTechLevel
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryAirFactory, oFactory.UnitId) then
+        return (aiBrain[M28Economy.refiOurHighestAirFactoryTech] or 0) > iFactoryTechLevel
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryNavalFactory, oFactory.UnitId) then
+        return (aiBrain[M28Economy.refiOurHighestNavalFactoryTech] or 0) > iFactoryTechLevel
+    end
+    return false
+end
+
+local function ShouldSuppressFactoryProductionForHQDesire(aiBrain, oFactory, sBlueprint)
+    local iDesiredHQTech = GetFactoryMatchingHQUpgradeDesire(aiBrain, oFactory)
+    if not(iDesiredHQTech) and not(DoesFactoryHaveHigherTechHQ(aiBrain, oFactory)) then
+        return false
+    elseif sBlueprint and EntityCategoryContains(M28UnitInfo.refCategoryFactory, sBlueprint) then
+        return false
+    end
+    return true
+end
+
 local function GetFactoryQueuePreemptingUpgradeBlueprint(aiBrain, oFactory)
     if not(M28UnitInfo.IsUnitValid(oFactory)) or oFactory:IsPaused() or oFactory[M28UnitInfo.refbPaused]
             or oFactory:IsUnitState('Upgrading') or oFactory:IsUnitState('BeingUpgraded') then
@@ -6158,6 +6197,18 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
     end
     oFactory[reftFactoryBuildPlan] = tBuildPlan
     oFactory[refiFactoryBuildPlanIssuedCount] = iIssuedCount
+
+    if ShouldSuppressFactoryProductionForHQDesire(aiBrain, oFactory) then
+        while table.getn(tBuildPlan) > iIssuedCount do
+            table.remove(tBuildPlan)
+        end
+        oFactory[reftFactoryBuildPlan] = tBuildPlan
+        oFactory[refiFactoryBuildPlanIssuedCount] = iIssuedCount
+        if bDebugMessages == true then
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Suppressing normal queue refill because this HQ matches an active HQ-tech desire. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; DesiredTech='..(GetFactoryMatchingHQUpgradeDesire(aiBrain, oFactory) or 'nil')..'; CurrentBuildOrders='..iCurBuildOrders..'; IssuedCount='..iIssuedCount..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
+        end
+        return FinishFactoryBuildPlanCoverage(iCurBuildOrders)
+    end
 
     oFactory[reftFactoryBuildPlanCategoryBlacklist] = {}
 
@@ -6330,6 +6381,12 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait)
                 local sBPToBuild, bEnhancement = DetermineWhatToBuild(aiBrain, oFactory)
                 if not(bEnhancement) then
                     sBPToBuild = AdjustLandFactoryBlueprintForQueueComposition(aiBrain, oFactory, sBPToBuild, nil, sFunctionRef, bDebugMessages, tDebugContext)
+                end
+                if not(bEnhancement) and ShouldSuppressFactoryProductionForHQDesire(aiBrain, oFactory, sBPToBuild) then
+                    if bDebugMessages == true then
+                        M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Suppressing immediate factory production because this HQ matches an active HQ-tech desire. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; CandidateBlueprint='..(sBPToBuild or 'nil')..'; Time='..GetGameTimeSeconds())
+                    end
+                    sBPToBuild = nil
                 end
                 if bDebugMessages == true then
                     LOG(sFunctionRef .. ': oFactory=' .. oFactory.UnitId .. M28UnitInfo.GetUnitLifetimeCount(oFactory) .. '; sBPToBuild=' .. (sBPToBuild or 'nil') .. '; Does factory have an empty command queue=' .. tostring(M28Utilities.IsTableEmpty(oFactory:GetCommandQueue())) .. '; Factory work progress=' .. oFactory:GetWorkProgress() .. '; Factory unit state=' .. M28UnitInfo.GetUnitState(oFactory))
