@@ -281,6 +281,9 @@ local function GetFactoryLiveQueueCapForCategory(iCategoryWanted)
     elseif iCategoryWanted == M28UnitInfo.refCategoryLandScout or iCategoryWanted == M28UnitInfo.refCategoryAirScout or iCategoryWanted == (M28UnitInfo.refCategoryLandScout + M28UnitInfo.refCategoryAirScout) then
         return 5
     elseif iCategoryWanted == M28UnitInfo.refCategoryEngineer then
+        if GetGameTimeSeconds() <= 240 then
+            return 8
+        end
         return 3
     elseif iCategoryWanted == M28UnitInfo.refCategoryT3MobileArtillery then
         return 2
