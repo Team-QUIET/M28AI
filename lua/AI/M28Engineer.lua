@@ -460,12 +460,13 @@ tiActionOrder = {
 
 --Adjacent categories to search for for a particular action
 tiActionAdjacentCategory = {
-    [refActionBuildPower] = M28UnitInfo.refCategoryAirFactory * categories.TECH3 + M28UnitInfo.refCategoryAirFactory * categories.TECH2 + M28UnitInfo.refCategoryT3Radar + M28UnitInfo.refCategorySMD + M28UnitInfo.refCategorySML + M28UnitInfo.refCategoryFixedT3Arti + M28UnitInfo.refCategoryExperimentalArti * categories.UEF + M28UnitInfo.refCategoryMassFab * categories.TECH3,
-    [refActionBuildSecondPower] = M28UnitInfo.refCategoryAirFactory * categories.TECH3 + M28UnitInfo.refCategoryT3Radar + M28UnitInfo.refCategorySMD + M28UnitInfo.refCategorySML + M28UnitInfo.refCategoryFixedT3Arti + M28UnitInfo.refCategoryExperimentalArti * categories.UEF + M28UnitInfo.refCategoryMassFab * categories.TECH3,
-    [refActionBuildThirdPower] = M28UnitInfo.refCategorySML + M28UnitInfo.refCategoryFixedT3Arti + M28UnitInfo.refCategoryExperimentalArti * categories.UEF + M28UnitInfo.refCategoryMassFab * categories.TECH3 + M28UnitInfo.refCategoryQuantumOptics,
+    [refActionBuildPower] = M28UnitInfo.refCategoryMex + M28UnitInfo.refCategoryRadar + M28UnitInfo.refCategoryAirFactory + M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryT3Radar + M28UnitInfo.refCategorySMD + M28UnitInfo.refCategorySML + M28UnitInfo.refCategoryFixedT3Arti + M28UnitInfo.refCategoryExperimentalArti * categories.UEF + M28UnitInfo.refCategoryMassFab * categories.TECH3,
+    [refActionBuildSecondPower] = M28UnitInfo.refCategoryMex + M28UnitInfo.refCategoryRadar + M28UnitInfo.refCategoryAirFactory + M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryT3Radar + M28UnitInfo.refCategorySMD + M28UnitInfo.refCategorySML + M28UnitInfo.refCategoryFixedT3Arti + M28UnitInfo.refCategoryExperimentalArti * categories.UEF + M28UnitInfo.refCategoryMassFab * categories.TECH3,
+    [refActionBuildThirdPower] = M28UnitInfo.refCategoryMex + M28UnitInfo.refCategoryRadar + M28UnitInfo.refCategoryAirFactory + M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategorySML + M28UnitInfo.refCategoryFixedT3Arti + M28UnitInfo.refCategoryExperimentalArti * categories.UEF + M28UnitInfo.refCategoryMassFab * categories.TECH3 + M28UnitInfo.refCategoryQuantumOptics,
     [refActionBuildLandFactory] = M28UnitInfo.refCategoryMex,
-    [refActionBuildAirFactory] = M28UnitInfo.refCategoryT3Power + M28UnitInfo.refCategoryHydro,
-    [refActionBuildSecondAirFactory] = M28UnitInfo.refCategoryT3Power + M28UnitInfo.refCategoryHydro,
+    [refActionBuildSecondLandFactory] = M28UnitInfo.refCategoryMex,
+    [refActionBuildAirFactory] = M28UnitInfo.refCategoryMex + M28UnitInfo.refCategoryT3Power + M28UnitInfo.refCategoryHydro,
+    [refActionBuildSecondAirFactory] = M28UnitInfo.refCategoryMex + M28UnitInfo.refCategoryT3Power + M28UnitInfo.refCategoryHydro,
     [refActionBuildSMD] = M28UnitInfo.refCategoryT3Power,
     [refActionBuildT1Radar] = M28UnitInfo.refCategoryT1Power,
     [refActionBuildT2Radar] = M28UnitInfo.refCategoryT2Power,
@@ -473,6 +474,18 @@ tiActionAdjacentCategory = {
     [refActionBuildT3MassFab] = M28UnitInfo.refCategoryT3Power,
     [refActionBuildQuantumOptics] = M28UnitInfo.refCategoryT3Power,
 }
+
+tbEngineerActionRequireAdjacency = {
+    [refActionBuildPower] = true,
+    [refActionBuildSecondPower] = true,
+    [refActionBuildThirdPower] = true,
+    [refActionBuildLandFactory] = true,
+    [refActionBuildSecondLandFactory] = true,
+}
+
+function DoesEngineerActionRequireAdjacency(iEngineerAction)
+    return tbEngineerActionRequireAdjacency[iEngineerAction] == true
+end
 
 --Include any actions where we wont be building a category or searching for a category to assist
 --The difference between this and tiActionCategory is for buildings where we need special code to determine the category to build, such as emergency PD (T1 vs T2 vs T3)
@@ -2007,6 +2020,7 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
             end
         else
             --Get adjacency location if we want adjacency
+            local bRequireAdjacency = DoesEngineerActionRequireAdjacency(iOptionalEngineerAction)
             local bWantAdjacency = false
             if M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbNoAvailableTorpsForEnemies] and M28Utilities.IsTableEmpty(tLZData[M28Map.subrefAdjacentWaterZones]) == false then
                 --Does enemy have long ranged DF units in an adjacent water zone?
@@ -2020,8 +2034,9 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
                 end
             end
             if oUnitToBuildBy then bWantAdjacency = true
-            elseif iCatToBuildBy and not(tWaterToBuildAwayFrom) and
-                (M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoAllNearbyEnemyT2ArtiUnits]) or not(sBlueprintToBuild) or not(EntityCategoryContains(M28UnitInfo.refCategoryPower - categories.TECH1, sBlueprintToBuild)) or M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryPower * M28UnitInfo.ConvertTechLevelToCategory(M28UnitInfo.GetBlueprintTechLevel(sBlueprintToBuild))) >= 2) then
+            elseif iCatToBuildBy and (bRequireAdjacency or (not(tWaterToBuildAwayFrom) and
+                (M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoAllNearbyEnemyT2ArtiUnits]) or not(sBlueprintToBuild) or not(EntityCategoryContains(M28UnitInfo.refCategoryPower - categories.TECH1, sBlueprintToBuild)) or M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryPower * M28UnitInfo.ConvertTechLevelToCategory(M28UnitInfo.GetBlueprintTechLevel(sBlueprintToBuild))) >= 2)
+                )) then
                 bWantAdjacency = true
             end
             if bWantAdjacency then
@@ -2031,6 +2046,10 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
             end
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': is tPotentialBuildLocations empty='..tostring(M28Utilities.IsTableEmpty(tPotentialBuildLocations))..'; tTargetLocation='..repru(tTargetLocation)) end
             if M28Utilities.IsTableEmpty(tPotentialBuildLocations) then
+                if bRequireAdjacency then
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Aborting build location search because action '..(iOptionalEngineerAction or 'nil')..' requires adjacency and none were found') end
+                    return sBlueprintToBuild, nil
+                end
                 --Shield specific - dont want to try searching further away
                 if EntityCategoryContains(M28UnitInfo.refCategoryFixedShield, sBlueprintToBuild) and iMaxAreaToSearch and tAlternativePositionToLookFrom then
                     --Try a more precise search around the target
@@ -11904,10 +11923,6 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                                     sBlueprint, tBuildLocation = GetBlueprintAndLocationToBuild(aiBrain, oFirstEngineer, iActionToAssign, iCategoryWanted - categories.TECH3 - categories.EXPERIMENTAL, iMaxSearchRange, iAdjacencyCategory, nil,                           false,                          nil,                nil,                                bGetCheapest,           tLZOrWZData,  tLZOrWZTeamData)
                                 else
                                     iAdjacencyCategory = tiActionAdjacentCategory[iActionToAssign]
-                                    if (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and iActionToAssign == refActionBuildPower and iMinTechWanted <= 2 then
-                                        tiActionAdjacentCategory[iActionToAssign] = tiActionAdjacentCategory[iActionToAssign] + M28UnitInfo.refCategoryLandFactory
-                                        if iMinTechWanted == 1 and M28Building.iLowestMassStorageTechAvailable > 2 then tiActionAdjacentCategory[iActionToAssign] = tiActionAdjacentCategory[iActionToAssign] + M28UnitInfo.refCategoryMex end
-                                    end
                                     if not(iAdjacencyCategory) and (iActionToAssign == refActionBuildExperimental or iActionToAssign == refActionBuildSecondExperimental) then
                                         if M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryFixedT3Arti + M28UnitInfo.refCategoryExperimentalArti * categories.STRUCTURE + M28UnitInfo.refCategorySML, iCategoryWanted) then
                                             iAdjacencyCategory = M28UnitInfo.refCategoryT3Power
