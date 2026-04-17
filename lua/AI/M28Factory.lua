@@ -288,13 +288,14 @@ local function GetFactoryLiveQueueCapForCategory(iCategoryWanted)
     elseif iCategoryWanted == M28UnitInfo.refCategoryT3MobileArtillery then
         return 2
     elseif iCategoryWanted == M28UnitInfo.refCategoryMobileLandStealth then
-        return 2
+        return 3
+    elseif iCategoryWanted == M28UnitInfo.refCategoryMobileLandShield then
+        return 3
     elseif iCategoryWanted == M28UnitInfo.refCategorySkirmisher then
         return 2
     elseif iCategoryWanted == M28UnitInfo.refCategoryIndirect then
         return 2
     elseif iCategoryWanted == M28UnitInfo.refCategoryTransport
-            or iCategoryWanted == M28UnitInfo.refCategoryMobileLandShield
             or iCategoryWanted == M28UnitInfo.refCategoryCruiser
             or iCategoryWanted == M28UnitInfo.refCategoryShieldBoat
             or iCategoryWanted == M28UnitInfo.refCategoryStealthBoat
@@ -5903,6 +5904,13 @@ local function GetLandFactoryDirectFireFallbackBlueprint(aiBrain, oFactory, sBlu
     return sFallbackBlueprint
 end
 
+local function GetLandFactorySupportQueueCapForBlueprint(sBlueprint)
+    if EntityCategoryContains(M28UnitInfo.refCategoryMobileLandShield + M28UnitInfo.refCategoryMobileLandStealth, sBlueprint) then
+        return 3
+    end
+    return 2
+end
+
 local function AdjustLandFactoryBlueprintForQueueComposition(aiBrain, oFactory, sBlueprint, tBuildPlan, sFunctionRef, bDebugMessages, tDebugContext)
     if not(M28UnitInfo.IsUnitValid(oFactory)) or not(sBlueprint) then
         return sBlueprint
@@ -5949,7 +5957,7 @@ local function AdjustLandFactoryBlueprintForQueueComposition(aiBrain, oFactory, 
         end
     elseif sRole == 'support' then
         local iQueuedNonDirectCombat = tState.skirmisher + tState.indirect + tState.support
-        if tState.support >= 2 then
+        if tState.support >= GetLandFactorySupportQueueCapForBlueprint(sBlueprint) then
             bForceDirectFire = true
             sReason = 'SupportLiveCap'
         elseif iQueuedNonDirectCombat > 0 and tState.direct == 0 then
