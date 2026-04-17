@@ -167,6 +167,10 @@ local function CanRepeatFactoryQueueCombatBlueprint(sBlueprint)
             and not(IsFactoryBuildPlanSupportBlueprint(sBlueprint))
 end
 
+local function IsCombatQueueRefillSuppressed(sBlueprint)
+    return GetGameTimeSeconds() < 210 and CanRepeatFactoryQueueCombatBlueprint(sBlueprint)
+end
+
 local function GetFactoryBuildPlanRepeatFallbackBlueprint(oFactory, tBuildPlan)
     if M28Utilities.IsTableEmpty(tBuildPlan) == false then
         for iEntry = table.getn(tBuildPlan), 1, -1 do
@@ -6224,6 +6228,12 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
         end
         if not(bEnhancement) then
             sBPToBuild = AdjustLandFactoryBlueprintForQueueComposition(aiBrain, oFactory, sBPToBuild, tBuildPlan)
+        end
+        if IsCombatQueueRefillSuppressed(sBPToBuild) then
+            if bDebugMessages == true then
+                M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Suppressing queued combat refill before 210s. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; CandidateBlueprint='..(sBPToBuild or 'nil')..'; CurrentBuildOrders='..iCurBuildOrders..'; FactoryActivelyBuilding='..tostring(bFactoryActivelyBuilding)..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
+            end
+            break
         end
         if not(sBPToBuild) or bEnhancement or EntityCategoryContains(M28UnitInfo.refCategoryFactory, sBPToBuild) then
             break
