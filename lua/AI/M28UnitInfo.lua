@@ -1749,9 +1749,22 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
             end
 
             local iMassCost = (oBP.Economy.BuildCostMass or 0)
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iMassCost='..(iMassCost or 'nil')..'; iMassMod='..(iMassMod or 'nil')) end
+            local iBaseThreat = iMassCost * iMassMod
+            if iBaseThreat > 0 and sCurUnitPathing == M28Map.refPathingTypeAir then
+                local iCombatStatThreat = 0
+                if bIncludeAirToGround then
+                    iCombatStatThreat = GetApproxBlueprintCombatStatThreat(oBP, false, false, false, false, false)
+                elseif bIncludeAirTorpedo then
+                    iCombatStatThreat = GetApproxBlueprintCombatStatThreat(oBP, false, true, false, false, false)
+                end
+                if iCombatStatThreat > 0 then
+                    iBaseThreat = math.max(iBaseThreat * 0.6, iCombatStatThreat)
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Applying air combat stat threat adjustment, iCombatStatThreat='..iCombatStatThreat..'; iBaseThreat after adjustment='..iBaseThreat) end
+                end
+            end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iMassCost='..(iMassCost or 'nil')..'; iMassMod='..(iMassMod or 'nil')..'; iBaseThreat='..(iBaseThreat or 'nil')) end
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-            return iMassCost * iMassMod
+            return iBaseThreat
         else
             for iUnit, oUnit in tUnits do
                 iCurThreat = 0
