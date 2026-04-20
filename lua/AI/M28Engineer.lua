@@ -529,6 +529,62 @@ function DoesEngineerActionRequireAdjacency(iEngineerAction)
     return tbEngineerActionRequireAdjacency[iEngineerAction] == true
 end
 
+local function IsPowerBuildAction(iEngineerAction)
+    return iEngineerAction == refActionBuildPower or iEngineerAction == refActionBuildSecondPower or iEngineerAction == refActionBuildThirdPower
+end
+
+local function IsReclaimEngineerAction(iEngineerAction)
+    return iEngineerAction == refActionReclaimArea or iEngineerAction == refActionReclaimPath or iEngineerAction == refActionReclaimTrees or iEngineerAction == refActionReclaimFriendlyUnit or iEngineerAction == refActionReclaimEnemyUnit
+end
+
+local function ShouldSuppressReclaimForPower(iEngineerAction, iTeam)
+    if not(IsReclaimEngineerAction(iEngineerAction)) then return false end
+    if M28Conditions.HaveLowPower(iTeam) then return true end
+    return M28Conditions.WantMorePower(iTeam) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] <= 0 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.9
+end
+
+local function ClearEngineersAssistingEngineer(oEngineer, sReason, bDebugMessages, tDebugContext, sCallingFunctionRef)
+    if M28Utilities.IsTableEmpty(oEngineer[M28UnitInfo.reftoUnitsAssistingThis]) then return end
+
+    local tEngineersToClear = {}
+    for _, oAssistingEngineer in oEngineer[M28UnitInfo.reftoUnitsAssistingThis] do
+        if M28UnitInfo.IsUnitValid(oAssistingEngineer) and EntityCategoryContains(M28UnitInfo.refCategoryEngineer, oAssistingEngineer.UnitId) then
+            table.insert(tEngineersToClear, oAssistingEngineer)
+        end
+    end
+
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sCallingFunctionRef..': Clearing '..table.getn(tEngineersToClear)..' engineers assisting '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..'; reason='..sReason) end
+    for _, oAssistingEngineer in tEngineersToClear do
+        M28Orders.IssueTrackedClearCommands(oAssistingEngineer)
+        ClearEngineerTracking(oAssistingEngineer)
+    end
+    oEngineer[M28UnitInfo.reftoUnitsAssistingThis] = nil
+end
+
+local function GetEngineerLastBuildOrder(oEngineer)
+    local tLastOrders = oEngineer[M28Orders.reftiLastOrders]
+    local iOrderCount = oEngineer[M28Orders.refiOrderCount]
+    local tLastOrder = tLastOrders and iOrderCount and tLastOrders[iOrderCount]
+    if tLastOrder and tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueBuild and tLastOrder[M28Orders.subrefsOrderBlueprint] and tLastOrder[M28Orders.subreftOrderPosition] then
+        return tLastOrder
+    end
+end
+
+local function EngineerHasActiveStructureBuildIntent(oEngineer)
+    if not(GetEngineerLastBuildOrder(oEngineer)) then return false end
+    if oEngineer:IsUnitState('Building') then return true end
+    return oEngineer:IsUnitState('Moving') and M28Utilities.IsTableEmpty(oEngineer[reftQueuedBuildings]) == false
+end
+
+local function DoesEngineerFocusBlockConstructionAssist(oEngineer)
+    local oFocusUnit = oEngineer:GetFocusUnit()
+    return M28UnitInfo.IsUnitValid(oFocusUnit) and oFocusUnit[refbDontIncludeAsPartCompleteBuildingForConstruction]
+end
+
+local function ShouldSpreadPowerBuildsAcrossSeparateLocations(iEngineerAction, sBlueprintToBuild)
+    return IsPowerBuildAction(iEngineerAction) and sBlueprintToBuild and M28UnitInfo.GetBlueprintTechLevel(sBlueprintToBuild) <= 1
+end
+
 local function GetEngineerActionAdjacencyCategoryPriority(iEngineerAction, iCatToBuildBy)
     if iEngineerAction and ttiActionAdjacentCategoryPriority[iEngineerAction] then
         return ttiActionAdjacentCategoryPriority[iEngineerAction]
@@ -1783,6 +1839,49 @@ function GetPotentialAdjacencyLocations(aiBrain, sBlueprintToBuild, tTargetLocat
     return tPotentialLocations
 end
 
+local function GetRequiredAdjacencyLocationsAcrossReachableZones(aiBrain, oEngineer, sBlueprintToBuild, tTargetLocation, iMaxAreaToSearch, iCatToBuildBy, iOptionalEngineerAction)
+    local sFunctionRef = 'GetRequiredAdjacencyLocationsAcrossReachableZones'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEngineer, sFunctionRef)
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local tPotentialLocations = {}
+    local tZoneSearches = {}
+    local iEngineerLandLabel = NavUtils.GetLabel(M28Map.refPathingTypeLand, oEngineer:GetPosition())
+
+    for iPlateau, tPlateauData in M28Map.tAllPlateaus do
+        if tPlateauData[M28Map.subrefPlateauLandZones] then
+            for iLandZone, tLZData in tPlateauData[M28Map.subrefPlateauLandZones] do
+                local tZoneMidpoint = tLZData[M28Map.subrefMidpoint]
+                if tZoneMidpoint and iEngineerLandLabel and NavUtils.GetLabel(M28Map.refPathingTypeLand, tZoneMidpoint) == iEngineerLandLabel then
+                    table.insert(tZoneSearches, {M28Utilities.GetDistanceBetweenPositions(tTargetLocation, tZoneMidpoint), tZoneMidpoint, iPlateau, iLandZone})
+                end
+            end
+        end
+    end
+
+    table.sort(tZoneSearches, function(tA, tB) return tA[1] < tB[1] end)
+    local iZoneSearchRange = math.max(iMaxAreaToSearch, M28Map.iMapSize * 2)
+
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Searching '..table.getn(tZoneSearches)..' reachable zones for required adjacency; sBlueprintToBuild='..sBlueprintToBuild..'; iOptionalEngineerAction='..(iOptionalEngineerAction or 'nil')..'; iZoneSearchRange='..iZoneSearchRange..'; iEngineerLandLabel='..(iEngineerLandLabel or 'nil')) end
+
+    for _, tZoneSearch in tZoneSearches do
+        local tZoneLocations = GetPotentialAdjacencyLocations(aiBrain, sBlueprintToBuild, tZoneSearch[2], iZoneSearchRange, iCatToBuildBy, nil, false, iOptionalEngineerAction)
+        if M28Utilities.IsTableEmpty(tZoneLocations) == false then
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Found '..table.getn(tZoneLocations)..' required-adjacency candidates in P'..tZoneSearch[3]..' LZ'..tZoneSearch[4]..'; distFromOriginalTarget='..tZoneSearch[1]) end
+            for _, tLocation in tZoneLocations do
+                table.insert(tPotentialLocations, tLocation)
+            end
+            if table.getn(tPotentialLocations) >= 24 then
+                break
+            end
+        end
+    end
+
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished cross-zone required-adjacency search; candidateCount='..table.getn(tPotentialLocations)) end
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return tPotentialLocations
+end
+
 function DrawBlacklistedLocations(tLZData)
     if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefBuildLocationBlacklistByPosition]) == false then
         for iX, tZ in tLZData[M28Map.subrefBuildLocationBlacklistByPosition] do
@@ -2192,14 +2291,25 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': is tPotentialBuildLocations empty='..tostring(M28Utilities.IsTableEmpty(tPotentialBuildLocations))..'; tTargetLocation='..repru(tTargetLocation)) end
             if M28Utilities.IsTableEmpty(tPotentialBuildLocations) then
                 if bRequireAdjacency then
-                    if TryReclaimBlockingPowerForRequiredLandFactoryAdjacency(aiBrain, oEngineer, sBlueprintToBuild, tTargetLocation, iMaxAreaToSearch, iCatToBuildBy) then
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Reclaiming blocking power so will delay required-adjacency build until the slot is clear') end
+                    tPotentialBuildLocations = GetRequiredAdjacencyLocationsAcrossReachableZones(aiBrain, oEngineer, sBlueprintToBuild, tTargetLocation, iMaxAreaToSearch, iCatToBuildBy, iOptionalEngineerAction)
+                    if M28Utilities.IsTableEmpty(tPotentialBuildLocations) then
+                        if IsPowerBuildAction(iOptionalEngineerAction) then
+                            bWantAdjacency = false
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Required power adjacency was unavailable in reachable zones, falling back to normal build locations so power recovery can continue; sBlueprintToBuild='..sBlueprintToBuild..'; iMaxAreaToSearch='..(iMaxAreaToSearch or 'nil')) end
+                        else
+                            if TryReclaimBlockingPowerForRequiredLandFactoryAdjacency(aiBrain, oEngineer, sBlueprintToBuild, tTargetLocation, iMaxAreaToSearch, iCatToBuildBy) then
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Reclaiming blocking power so will delay required-adjacency build until the slot is clear') end
+                            end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Aborting build location search because action '..(iOptionalEngineerAction or 'nil')..' requires adjacency and none were found') end
+                            return sBlueprintToBuild, nil
+                        end
+                    elseif bDebugMessages == true then
+                        M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Found required-adjacency locations across reachable zones after local adjacency failed; tPotentialBuildLocations='..repru(tPotentialBuildLocations))
                     end
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Aborting build location search because action '..(iOptionalEngineerAction or 'nil')..' requires adjacency and none were found') end
-                    return sBlueprintToBuild, nil
                 end
-                --Shield specific - dont want to try searching further away
-                if EntityCategoryContains(M28UnitInfo.refCategoryFixedShield, sBlueprintToBuild) and iMaxAreaToSearch and tAlternativePositionToLookFrom then
+                if M28Utilities.IsTableEmpty(tPotentialBuildLocations) then
+                    --Shield specific - dont want to try searching further away
+                    if EntityCategoryContains(M28UnitInfo.refCategoryFixedShield, sBlueprintToBuild) and iMaxAreaToSearch and tAlternativePositionToLookFrom then
                     --Try a more precise search around the target
                     local iMaxSegmentAdjust = math.floor(iMaxAreaToSearch * 0.7 / M28Map.iLandZoneSegmentSize) --70% due to diagonals
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Trying to build shield, sBlueprintToBuild='..sBlueprintToBuild..'; iMaxSegmentAdjust='..iMaxSegmentAdjust..'; iMaxAreaToSearch='..iMaxAreaToSearch) end
@@ -2236,7 +2346,7 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
                             end
                         end
                     end
-                else
+                    else
                     --use the predefined build locations for the land zoneM28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone]M28Map.subrefBuildLocationSegmentCountBySize][iSize]
                     local iPlateauOrZero, iLandOrWaterZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(tTargetLocation)
                     local iPond
@@ -2319,6 +2429,7 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
                                 M28Utilities.DrawLocation(tEntry, 5)
                             end
                         end
+                    end
                     end
                 end
             end
@@ -6685,6 +6796,9 @@ function TrackEngineerAction(oEngineer, iActionToAssign, bIsPrimaryBuilder, iCur
         if not oEngineer[reftOriginalHomeZone] then
             ClearEngineerTracking(oEngineer)
         end
+    end
+    if IsReclaimEngineerAction(iActionToAssign) then
+        ClearEngineersAssistingEngineer(oEngineer, 'assigned reclaim action '..iActionToAssign, bDebugMessages, tDebugContext, sFunctionRef)
     end
 
     oEngineer[refiAssignedAction] = iActionToAssign
@@ -11455,6 +11569,10 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     if M28Utilities.bLoudModActive and not(bBPIsInAdditionToExisting) and tiActionOrder[iActionToAssign] == M28Orders.refiOrderIssueBuild then iTotalBuildPowerWanted = iTotalBuildPowerWanted * 0.8 end
+    if iTotalBuildPowerWanted > 0 and ShouldSuppressReclaimForPower(iActionToAssign, iTeam) then
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Suppressing reclaim action '..iActionToAssign..' because power has priority; BPWanted='..iTotalBuildPowerWanted..'; HaveLowPower='..tostring(M28Conditions.HaveLowPower(iTeam))..'; WantMorePower='..tostring(M28Conditions.WantMorePower(iTeam))..'; NetEnergy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy]..'; EnergyStoredPct='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored]..'; TeamHasLowMass='..tostring(M28Conditions.TeamHasLowMass(iTeam))) end
+        iTotalBuildPowerWanted = 0
+    end
 
     --Dont try getting any mroe BP for htis action if have run out of buildable locations
     local iExpectedBuildingSize = tiLastBuildingSizeFromActionForTeam[iTeam][iActionToAssign]
@@ -11826,21 +11944,20 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
 
                         for iEngi, oEngi in toAssignedEngineers do
                             if oEngi[refiAssignedAction] == iActionToAssign then
-                                --Only assist if engi last order was to build
-                                if bDebugMessages == true then
-                                    if oEngi[M28Orders.reftiLastOrders] then
-                                        LOG(sFunctionRef..': Considering if oEngi '..oEngi.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngi)..' can be assisted to build this; tablegetn of last orders='..oEngi[M28Orders.refiOrderCount]..'; reprs of last orders='..reprs(oEngi[M28Orders.reftiLastOrders])..'; refiOrderCount='..oEngi[M28Orders.refiOrderCount]..'; Is the last order to build something='..tostring(oEngi[M28Orders.reftiLastOrders][oEngi[M28Orders.refiOrderCount]][M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueBuild))
-                                    else
-                                        LOG(sFunctionRef..': Considering if oEngi '..oEngi.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngi)..' can be assisted to build this; Engi last orders is nil, reprs='..reprs(oEngi[M28Orders.reftiLastOrders]))
+                                if not(EngineerHasActiveStructureBuildIntent(oEngi)) then
+                                    ClearEngineersAssistingEngineer(oEngi, 'assist target has no active structure build intent', bDebugMessages, tDebugContext, sFunctionRef)
+                                    if bDebugMessages == true then
+                                        local tLastOrders = oEngi[M28Orders.reftiLastOrders]
+                                        local iLastOrderCount = oEngi[M28Orders.refiOrderCount]
+                                        local tLastOrder = tLastOrders and iLastOrderCount and tLastOrders[iLastOrderCount]
+                                        M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Skipping engineer '..oEngi.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngi)..' as an assist target because it does not have active structure build intent; unitState='..M28UnitInfo.GetUnitState(oEngi)..'; lastOrderType='..((tLastOrder and tLastOrder[M28Orders.subrefiOrderType]) or 'nil')..'; lastOrderBlueprint='..((tLastOrder and tLastOrder[M28Orders.subrefsOrderBlueprint]) or 'nil')..'; queuedBuildingsEmpty='..tostring(M28Utilities.IsTableEmpty(oEngi[reftQueuedBuildings])))
                                     end
-                                end
-                                if oEngi[M28Orders.reftiLastOrders] and oEngi[M28Orders.reftiLastOrders][oEngi[M28Orders.refiOrderCount]][M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueBuild then
-                                    --if Engineer cur target is flagged to not  be assisted, then dont assist this engineer
-                                    if not(oEngi:GetFocusUnit()[refbDontIncludeAsPartCompleteBuildingForConstruction]) then
-                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We can assist the engineer') end
-                                        oEngineerToAssist = oEngi
-                                        break
-                                    end
+                                elseif DoesEngineerFocusBlockConstructionAssist(oEngi) then
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Skipping engineer '..oEngi.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngi)..' as an assist target because its focus unit blocks normal construction assist') end
+                                else
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Engineer '..oEngi.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngi)..' has active structure build intent, so can be assisted') end
+                                    oEngineerToAssist = oEngi
+                                    break
                                 end
                             end
                         end
@@ -11849,17 +11966,27 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                         --Has a building been queued for this land zone even if we havent found an engineer to assist? (e.g. rare cases where engineer queues order then briefly drops out of the land zone list of engineers)
                         if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefQueuedBuildings]) == false and iConstructionCountToIgnore == 0 and not(tbIgnoreEngineerAssistance[iActionToAssign]) then
                             for iEntry, tQueuedDetails in tLZOrWZTeamData[M28Map.subrefQueuedBuildings] do
-                                if EntityCategoryContains(iCategoryWanted, tQueuedDetails[M28Map.subrefBuildingID]) and M28UnitInfo.IsUnitValid(tQueuedDetails[M28Map.subrefPrimaryBuilder]) and not(tQueuedDetails[M28Map.subrefPrimaryBuilder]:GetFocusUnit()[refbDontIncludeAsPartCompleteBuildingForConstruction]) and not(tQueuedDetails[M28Map.subrefPrimaryBuilder][refiAssignedAction] == refActionSpecialShieldDefence) then
-                                    oEngineerToAssist = tQueuedDetails[M28Map.subrefPrimaryBuilder]
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': An engineer has already queued to build unit '..tQueuedDetails[M28Map.subrefBuildingID]..' so will set this engineer as the primary builder, oEngineerToAssist='..(oEngineerToAssist.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oEngineerToAssist) or 'nil')) end
-                                    break
+                                if EntityCategoryContains(iCategoryWanted, tQueuedDetails[M28Map.subrefBuildingID]) then
+                                    local oQueuedPrimaryBuilder = tQueuedDetails[M28Map.subrefPrimaryBuilder]
+                                    if M28UnitInfo.IsUnitValid(oQueuedPrimaryBuilder) and EngineerHasActiveStructureBuildIntent(oQueuedPrimaryBuilder) and not(DoesEngineerFocusBlockConstructionAssist(oQueuedPrimaryBuilder)) and not(oQueuedPrimaryBuilder[refiAssignedAction] == refActionSpecialShieldDefence) then
+                                        oEngineerToAssist = oQueuedPrimaryBuilder
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': An engineer has already queued to build unit '..tQueuedDetails[M28Map.subrefBuildingID]..' and still has active structure build intent, so will set this engineer as the primary builder, oEngineerToAssist='..(oEngineerToAssist.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oEngineerToAssist) or 'nil')) end
+                                        break
+                                    elseif M28UnitInfo.IsUnitValid(oQueuedPrimaryBuilder) then
+                                        if not(EngineerHasActiveStructureBuildIntent(oQueuedPrimaryBuilder)) then
+                                            ClearEngineersAssistingEngineer(oQueuedPrimaryBuilder, 'queued primary builder has no active structure build intent', bDebugMessages, tDebugContext, sFunctionRef)
+                                        end
+                                        if bDebugMessages == true then
+                                            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Skipping queued primary builder '..oQueuedPrimaryBuilder.UnitId..M28UnitInfo.GetUnitLifetimeCount(oQueuedPrimaryBuilder)..' for unit '..tQueuedDetails[M28Map.subrefBuildingID]..' because it no longer has active structure build intent or is blocked from construction assist; unitState='..M28UnitInfo.GetUnitState(oQueuedPrimaryBuilder)..'; queuedBuildingsEmpty='..tostring(M28Utilities.IsTableEmpty(oQueuedPrimaryBuilder[reftQueuedBuildings])))
+                                        end
+                                    end
                                 end
                             end
                         end
                     end
                     if oEngineerToAssist then
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will assign engineers to build, we have oEngineerToAssist, iTotalBuildPowerWanted='..iTotalBuildPowerWanted..'; iEngiCount='..iEngiCount..'; tLastOrder[M28Orders.subrefsOrderBlueprint] of engineer to assist='..(oEngineerToAssist[M28Orders.reftiLastOrders][oEngineerToAssist[M28Orders.refiOrderCount]][M28Orders.subrefsOrderBlueprint] or 'nil')) end
-                        local tLastOrder = oEngineerToAssist[M28Orders.reftiLastOrders][oEngineerToAssist[M28Orders.refiOrderCount]]
+                        local tLastOrder = GetEngineerLastBuildOrder(oEngineerToAssist)
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will assign engineers to build, we have oEngineerToAssist, iTotalBuildPowerWanted='..iTotalBuildPowerWanted..'; iEngiCount='..iEngiCount..'; tLastOrder[M28Orders.subrefsOrderBlueprint] of engineer to assist='..(tLastOrder[M28Orders.subrefsOrderBlueprint] or 'nil')) end
                         local sBlueprintToBuild = tLastOrder[M28Orders.subrefsOrderBlueprint]
                         local tOrderPosition = tLastOrder[M28Orders.subreftOrderPosition]
                         local oBaseBrain = oEngineerToAssist:GetAIBrain()
@@ -12104,29 +12231,55 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                                     end
                                 elseif sBlueprint then
                                     local tMoveLocation
+                                    local oPowerBuildPrimary
                                     while iTotalBuildPowerWanted > 0 and iEngiCount > 0 do
-                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Assigning engineer for building action '..iActionToAssign..'; iEngiCount='..iEngiCount..'; iTotalBuildPowerWanted='..iTotalBuildPowerWanted..'; tiActionOrder[iActionToAssign]='..(tiActionOrder[iActionToAssign] or 'nil')..'; sBlueprint='..sBlueprint..'; tBuildLocation='..repru(tBuildLocation)..'; Eng cur state='..M28UnitInfo.GetUnitState(tEngineersOfTechWanted[iEngiCount])) end
-                                        --Is our order to build or assist?
-                                        if tiActionOrder[iActionToAssign] then
-                                            if tiActionOrder[iActionToAssign] == M28Orders.refiOrderIssueBuild then
-                                                tMoveLocation = GetLocationToMoveForConstruction(tEngineersOfTechWanted[iEngiCount], tBuildLocation, sBlueprint, 0, false)
-                                                if tMoveLocation and (M28Utilities.GetDistanceBetweenPositions(tEngineersOfTechWanted[iEngiCount]:GetPosition(), tBuildLocation) >= 5 + (tEngineersOfTechWanted[iEngiCount]:GetBlueprint().EconomyMaxBuildDistance or 5)) then
-                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Telling engineer '..tEngineersOfTechWanted[iEngiCount].UnitId..M28UnitInfo.GetUnitLifetimeCount(tEngineersOfTechWanted[iEngiCount])..' to move to '..repru(tMoveLocation)..' and then build '..sBlueprint..' at location '..repru(tBuildLocation)) end
-                                                    M28Orders.IssueTrackedMoveAndBuild(tEngineersOfTechWanted[iEngiCount], tBuildLocation, sBlueprint, tMoveLocation, 1, false, sOrderRef)
-                                                else
-                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Telling engineer '..tEngineersOfTechWanted[iEngiCount].UnitId..M28UnitInfo.GetUnitLifetimeCount(tEngineersOfTechWanted[iEngiCount])..' to build '..sBlueprint..' at build location '..repru(tBuildLocation)) end
-                                                    M28Orders.IssueTrackedBuild(tEngineersOfTechWanted[iEngiCount], tBuildLocation, sBlueprint, false, sOrderRef)
+                                        local oCurEngineer = tEngineersOfTechWanted[iEngiCount]
+                                        local bOrderIssued
+                                        if oPowerBuildPrimary and IsPowerBuildAction(iActionToAssign) then
+                                            if ShouldSpreadPowerBuildsAcrossSeparateLocations(iActionToAssign, sBlueprint) then
+                                                local sNextBlueprint, tNextBuildLocation = GetBlueprintAndLocationToBuild(aiBrain, oCurEngineer, iActionToAssign, iCategoryWanted, iMaxSearchRange, iAdjacencyCategory, nil, false, nil, nil, bGetCheapest, tLZOrWZData, tLZOrWZTeamData, nil, nil, nil, iMinExpMassCost, iMaxExpMassCost)
+                                                if M28Utilities.IsTableEmpty(tNextBuildLocation) == false and M28Utilities.GetDistanceBetweenPositions(tNextBuildLocation, tBuildLocation) > 0.5 then
+                                                    sBlueprint = sNextBlueprint
+                                                    tBuildLocation = tNextBuildLocation
+                                                    oPowerBuildPrimary = nil
+                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Rechecked T1 power build location after reserving the previous spot; next sBlueprint='..(sBlueprint or 'nil')..'; next tBuildLocation='..repru(tBuildLocation)) end
                                                 end
-                                                TrackEngineerAction(tEngineersOfTechWanted[iEngiCount], iActionToAssign, true, iCurPriority, nil, nil, bMarkAsSpare)
+                                            end
+                                            if oPowerBuildPrimary then
+                                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Power build already has primary builder '..oPowerBuildPrimary.UnitId..M28UnitInfo.GetUnitLifetimeCount(oPowerBuildPrimary)..'; assigning engineer '..oCurEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oCurEngineer)..' to guard instead of issuing another build order to tBuildLocation='..repru(tBuildLocation)) end
+                                                M28Orders.IssueTrackedGuard(oCurEngineer, oPowerBuildPrimary, false, sOrderRef..'A')
+                                                TrackEngineerAction(oCurEngineer, iActionToAssign, false, iCurPriority, nil, nil, bMarkAsSpare)
+                                                UpdateBPTracking()
+                                                bOrderIssued = true
+                                            end
+                                        end
+                                        if not(bOrderIssued) and bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Assigning engineer for building action '..iActionToAssign..'; iEngiCount='..iEngiCount..'; iTotalBuildPowerWanted='..iTotalBuildPowerWanted..'; tiActionOrder[iActionToAssign]='..(tiActionOrder[iActionToAssign] or 'nil')..'; sBlueprint='..sBlueprint..'; tBuildLocation='..repru(tBuildLocation)..'; Eng cur state='..M28UnitInfo.GetUnitState(oCurEngineer)) end
+                                        --Is our order to build or assist?
+                                        if bOrderIssued then
+                                            --Already assigned this engineer to assist the current power primary builder.
+                                        elseif tiActionOrder[iActionToAssign] then
+                                            if tiActionOrder[iActionToAssign] == M28Orders.refiOrderIssueBuild then
+                                                tMoveLocation = GetLocationToMoveForConstruction(oCurEngineer, tBuildLocation, sBlueprint, 0, false)
+                                                if tMoveLocation and (M28Utilities.GetDistanceBetweenPositions(oCurEngineer:GetPosition(), tBuildLocation) >= 5 + (oCurEngineer:GetBlueprint().EconomyMaxBuildDistance or 5)) then
+                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Telling engineer '..oCurEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oCurEngineer)..' to move to '..repru(tMoveLocation)..' and then build '..sBlueprint..' at location '..repru(tBuildLocation)) end
+                                                    M28Orders.IssueTrackedMoveAndBuild(oCurEngineer, tBuildLocation, sBlueprint, tMoveLocation, 1, false, sOrderRef)
+                                                else
+                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Telling engineer '..oCurEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oCurEngineer)..' to build '..sBlueprint..' at build location '..repru(tBuildLocation)) end
+                                                    M28Orders.IssueTrackedBuild(oCurEngineer, tBuildLocation, sBlueprint, false, sOrderRef)
+                                                end
+                                                TrackEngineerAction(oCurEngineer, iActionToAssign, true, iCurPriority, nil, nil, bMarkAsSpare)
+                                                if IsPowerBuildAction(iActionToAssign) then
+                                                    oPowerBuildPrimary = oCurEngineer
+                                                end
                                                 --Special logic for emergency PD where want to reassess periodically
                                                 if iActionToAssign == refActionBuildEmergencyPD then
-                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to start forked thread for emergency PD reassignment for engi '..(tEngineersOfTechWanted[iEngiCount].UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(tEngineersOfTechWanted[iEngiCount]) or 'nil')) end
-                                                    ForkThread(ConsiderEmergencyPDReassignment, tEngineersOfTechWanted[iEngiCount], tLZOrWZData, tLZOrWZData[M28Map.subrefMidpoint], iPlateauOrZero, iLandOrWaterZone, tLZOrWZTeamData)
+                                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to start forked thread for emergency PD reassignment for engi '..(oCurEngineer.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oCurEngineer) or 'nil')) end
+                                                    ForkThread(ConsiderEmergencyPDReassignment, oCurEngineer, tLZOrWZData, tLZOrWZData[M28Map.subrefMidpoint], iPlateauOrZero, iLandOrWaterZone, tLZOrWZTeamData)
                                                 end
                                                 UpdateBPTracking()
 
                                                 --Check for blocking selens if this is the primary engineer
-                                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': refiAssignedLurkerCount='..(tLZOrWZTeamData[M28Map.refiAssignedLurkerCount] or 'nil')..'; tEngineersOfTechWanted[iEngiCount][refbPrimaryBuilder]='..tostring(tEngineersOfTechWanted[iEngiCount][refbPrimaryBuilder] or false)) end
+                                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': refiAssignedLurkerCount='..(tLZOrWZTeamData[M28Map.refiAssignedLurkerCount] or 'nil')..'; oCurEngineer[refbPrimaryBuilder]='..tostring(oCurEngineer[refbPrimaryBuilder] or false)) end
                                                 if (tLZOrWZTeamData[M28Map.refiAssignedLurkerCount] or 0) > 0 then --Originally tried just for primarybuilder but was returning  false for all the engineers in question
                                                     --Check for blocking selens and move them out of the way
                                                     local iBuildingSize = M28UnitInfo.GetBuildingSize(sBlueprint)
