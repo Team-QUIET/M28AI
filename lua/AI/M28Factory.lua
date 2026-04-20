@@ -45,6 +45,8 @@ reftFactoryBuildPlan = 'M28FacPlan' --against oFactory, queued build plan owned 
 refiFactoryBuildPlanIssuedCount = 'M28FacPlanI' --against oFactory, number of entries at the start of reftFactoryBuildPlan that have been issued to the engine queue
 reftFactoryBuildPlanCategoryBlacklist = 'M28FacPlanBlk' --against oFactory during a queue planning pass, temporary category blacklist to stop support units dominating a single plan fill
 refbFactoryBuildPlanUpdateActive = 'M28FacPlanAct' --against oFactory, true while one thread owns queue-plan sync/fill for this factory
+refsPendingFactoryUpgradeBlueprint = 'M28FacPendUpgBP' --against oFactory, upgrade blueprint selected while clearing queued production for an HQ upgrade
+refiPendingFactoryUpgradeTime = 'M28FacPendUpgT' --against oFactory, game time the pending factory upgrade was selected
 refiFirstTimeOfLastOrder = 'M28FOrTim' --against oFactory, time that we gave an order for the factory to build a unit (cleared when a unit is built or a different blueprint order is given) - used to spot for factories with units blocking them
 refbWantMoreEngineersBeforeUpgrading = 'M28FWnE' --against oFactory, true if have run the factory condition and it concluded wen eeded more engineers before upgrading
 refbPausedToStopDefaultAI = 'M28FPsC' --true if we have paused factory to stop a campaign AI giving it orders
@@ -3767,8 +3769,12 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
 
     --T1 factory that has built loads of units or is in a location for fortifying (with access to T2 tech already) - consider upgrading
     iCurrentConditionToTry = iCurrentConditionToTry + 1
-    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if want to upgrade T1 factory to T2 due to having built lots of units, enemies in this zone empty='..tostring( M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTEnemyUnits]))..'; Tech level='..iFactoryTechLevel..'; M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoActiveUpgrades]) empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoActiveUpgrades]))..'; Lifetime count='..M28Conditions.GetFactoryLifetimeCount(oFactory, nil, true)) end
-    if iFactoryTechLevel == 1 and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoActiveUpgrades]) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTEnemyUnits]) and
+    local bActiveLandHQUpgradeInZone = false
+    if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoActiveUpgrades]) == false then
+        bActiveLandHQUpgradeInZone = M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryLandHQ, tLZTeamData[M28Map.subreftoActiveUpgrades])) == false
+    end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if want to upgrade T1 factory to T2 due to having built lots of units, enemies in this zone empty='..tostring( M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTEnemyUnits]))..'; Tech level='..iFactoryTechLevel..'; M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoActiveUpgrades]) empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoActiveUpgrades]))..'; bActiveLandHQUpgradeInZone='..tostring(bActiveLandHQUpgradeInZone)..'; Lifetime count='..M28Conditions.GetFactoryLifetimeCount(oFactory, nil, true)) end
+    if iFactoryTechLevel == 1 and not(bActiveLandHQUpgradeInZone) and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTEnemyUnits]) and
             --Either dont want low power, or want enough gross E that we shoud really be thinking of getting T2 for t2 pgen even if we have low power (to avoid being stuck at t1 for ages building t1 pgens)
             (not(M28Conditions.HaveLowPower(iTeam)) or
                     (aiBrain[M28Economy.refiGrossEnergyBaseIncome] > 100 * aiBrain[M28Economy.refiBrainResourceMultiplier] and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] == 1 and oFactory[refiTotalBuildCount] >= 15 and aiBrain[M28Economy.refiGrossMassBaseIncome] >= 6 and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs]))) then
@@ -6410,6 +6416,30 @@ local function GetFactoryMatchingHQUpgradeDesire(aiBrain, oFactory)
     return nil, false
 end
 
+local function ClearPendingFactoryUpgrade(oFactory)
+    oFactory[refsPendingFactoryUpgradeBlueprint] = nil
+    oFactory[refiPendingFactoryUpgradeTime] = nil
+end
+
+local function GetPendingFactoryUpgradeBlueprint(oFactory)
+    if oFactory:IsUnitState('Upgrading') or oFactory:IsUnitState('BeingUpgraded') then
+        ClearPendingFactoryUpgrade(oFactory)
+        return nil
+    end
+
+    local sPendingUpgradeBlueprint = oFactory[refsPendingFactoryUpgradeBlueprint]
+    if sPendingUpgradeBlueprint and oFactory:CanBuild(sPendingUpgradeBlueprint) then
+        return sPendingUpgradeBlueprint
+    end
+    return nil
+end
+
+local function SetPendingFactoryUpgrade(oFactory, sUpgradeBlueprint)
+    oFactory[refsPendingFactoryUpgradeBlueprint] = sUpgradeBlueprint
+    oFactory[refiPendingFactoryUpgradeTime] = GetGameTimeSeconds()
+    InvalidateFactoryBuildPlan(oFactory)
+end
+
 local function DoesFactoryHaveHigherTechHQ(aiBrain, oFactory)
     local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
     if EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oFactory.UnitId) then
@@ -6423,6 +6453,14 @@ local function DoesFactoryHaveHigherTechHQ(aiBrain, oFactory)
 end
 
 local function ShouldSuppressFactoryProductionForHQDesire(aiBrain, oFactory, sBlueprint)
+    local sPendingUpgradeBlueprint = GetPendingFactoryUpgradeBlueprint(oFactory)
+    if sPendingUpgradeBlueprint then
+        if sBlueprint and EntityCategoryContains(M28UnitInfo.refCategoryFactory, sBlueprint) then
+            return false
+        end
+        return true
+    end
+
     local iDesiredHQTech = GetFactoryMatchingHQUpgradeDesire(aiBrain, oFactory)
     if not(iDesiredHQTech) and not(DoesFactoryHaveHigherTechHQ(aiBrain, oFactory)) then
         return false
@@ -6436,6 +6474,11 @@ local function GetFactoryQueuePreemptingUpgradeBlueprint(aiBrain, oFactory)
     if not(M28UnitInfo.IsUnitValid(oFactory)) or oFactory:IsPaused() or oFactory[M28UnitInfo.refbPaused]
             or oFactory:IsUnitState('Upgrading') or oFactory:IsUnitState('BeingUpgraded') then
         return nil
+    end
+
+    local sPendingUpgradeBlueprint = GetPendingFactoryUpgradeBlueprint(oFactory)
+    if sPendingUpgradeBlueprint then
+        return sPendingUpgradeBlueprint
     end
 
     local sBlueprintToBuild, bEnhancement = DetermineWhatToBuild(aiBrain, oFactory)
@@ -6459,6 +6502,28 @@ local function ClearFactoryQueueForUpgradePreemption(oFactory)
         IssueClearFactoryCommands({oFactory})
         M28Orders.UpdateRecordedOrders(oFactory)
     end
+end
+
+local function TryStartPendingFactoryUpgrade(aiBrain, oFactory, sFunctionRef, bDebugMessages, tDebugContext)
+    local sPendingUpgradeBlueprint = GetPendingFactoryUpgradeBlueprint(oFactory)
+    if not(sPendingUpgradeBlueprint) then
+        return false
+    end
+
+    if (GetFactoryActualBuildOrderCount(oFactory) or 0) > 0 or IsFactoryActivelyBuilding(oFactory) then
+        ClearFactoryQueueForUpgradePreemption(oFactory)
+        if bDebugMessages == true then
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Pending HQ upgrade is suppressing normal factory production while existing work clears. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; UpgradeBlueprint='..sPendingUpgradeBlueprint..'; ActualBuildOrders='..(GetFactoryActualBuildOrderCount(oFactory) or 0)..'; WorkProgress='..(oFactory:GetWorkProgress() or 0)..'; State='..M28UnitInfo.GetUnitState(oFactory)..'; Time='..GetGameTimeSeconds())
+        end
+        return true
+    end
+
+    InvalidateFactoryBuildPlan(oFactory)
+    if bDebugMessages == true then
+        M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Starting pending HQ upgrade instead of recomputing normal production. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; UpgradeBlueprint='..sPendingUpgradeBlueprint..'; PendingTime='..(oFactory[refiPendingFactoryUpgradeTime] or 'nil')..'; Time='..GetGameTimeSeconds())
+    end
+    M28Economy.UpgradeUnit(oFactory, true, nil, 'FactoryQueuePendingUpgrade')
+    return true
 end
 
 local function GetFactoryBuildPlanRunLength(aiBrain, oFactory, sBlueprint, iRemainingPlanDepth)
@@ -6583,6 +6648,19 @@ function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
     local tBuildPlan, iBuildOrders = SyncFactoryBuildPlanWithQueue(oFactory)
     iBuildOrders = math.max(iBuildOrders, GetFactoryActualBuildOrderCount(oFactory) or 0)
     local bFactoryActivelyBuilding = IsFactoryActivelyBuilding(oFactory)
+    local sPendingUpgradeBlueprint = GetPendingFactoryUpgradeBlueprint(oFactory)
+    if sPendingUpgradeBlueprint then
+        if iBuildOrders > 0 then
+            ClearFactoryQueueForUpgradePreemption(oFactory)
+        end
+        if bDebugMessages == true then
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Pending HQ upgrade owns this factory queue. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; UpgradeBlueprint='..sPendingUpgradeBlueprint..'; ActualBuildOrders='..(GetFactoryActualBuildOrderCount(oFactory) or 0)..'; FactoryActivelyBuilding='..tostring(bFactoryActivelyBuilding)..'; WorkProgress='..(oFactory:GetWorkProgress() or 0)..'; State='..M28UnitInfo.GetUnitState(oFactory)..'; Time='..GetGameTimeSeconds())
+        end
+        if bFactoryActivelyBuilding then
+            return true
+        end
+        return false
+    end
     if iBuildOrders == 0 and not(bFactoryActivelyBuilding) then
         if M28Utilities.IsTableEmpty(tBuildPlan) == false then
             if bDebugMessages == true then
@@ -6597,6 +6675,7 @@ function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
         if bDebugMessages == true then
             M28Profiler.DebugLog(tDebugContext, 'M28FactoryQueueUpgradePreempt: Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; UpgradeBlueprint='..sUpgradeBlueprint..'; ActualBuildOrders='..(GetFactoryActualBuildOrderCount(oFactory) or 0)..'; PlanLength='..table.getn(tBuildPlan or {})..'; IssuedCount='..(oFactory[refiFactoryBuildPlanIssuedCount] or 0)..'; WorkProgress='..(oFactory:GetWorkProgress() or 0)..'; State='..M28UnitInfo.GetUnitState(oFactory)..'; Time='..GetGameTimeSeconds())
         end
+        SetPendingFactoryUpgrade(oFactory, sUpgradeBlueprint)
         ClearFactoryQueueForUpgradePreemption(oFactory)
         return false
     end
@@ -6692,6 +6771,11 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait)
                 end
             end
             if bProceed then
+                if TryStartPendingFactoryUpgrade(aiBrain, oFactory, sFunctionRef, bDebugMessages, tDebugContext) then
+                    oFactory['M28BuilderCheckActive'] = false
+                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                    return nil
+                end
                 if bClearFactoryWhenReadyToBuild and not(oFactory:IsUnitState('Upgrading')) and not(oFactory:IsUnitState('BeingUpgraded')) then M28Orders.IssueTrackedClearCommands(oFactory) end
                 bDontCheckCutsceneStatus = false
                 --Set factory rally point if havent already
