@@ -281,21 +281,95 @@ local function GetFactoryLiveQueueCapCategory(sBlueprint)
     return nil
 end
 
-local function GetTeamMAAQueueCap(iTeam)
+local function GetFactoryMAAQueueState(oFactory, iTeam)
     local iEnemyAirToGroundThreat = 0
-    if iTeam and M28Team.tTeamData[iTeam] then
-        iEnemyAirToGroundThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0
+    local iLocalAirToGroundThreat = 0
+    local iLocalMAAWanted = 0
+    local iLocalGroundAAThreat = 0
+    local iLowTechGunshipCount = 0
+    local iLowTechGunshipPressure = 0
+
+    if not(iTeam) and M28UnitInfo.IsUnitValid(oFactory) and oFactory:GetAIBrain() then
+        iTeam = oFactory:GetAIBrain().M28Team
+    end
+    if not(iTeam) then
+        return {
+            iCap = 1,
+            iThreatForCap = 0,
+            iEnemyAirToGroundThreat = 0,
+            iLocalAirToGroundThreat = 0,
+            iLocalMAAWanted = 0,
+            iLocalGroundAAThreat = 0,
+            iLocalMAAShortfall = 0,
+            iLowTechGunshipCount = 0,
+            iLowTechGunshipPressure = 0,
+            bLowTechGunshipPressure = false,
+        }
     end
 
-    if iEnemyAirToGroundThreat >= 5000 then
-        return 4
-    elseif iEnemyAirToGroundThreat >= 3000 then
-        return 3
-    elseif iEnemyAirToGroundThreat >= 1000 then
-        return 2
-    else
-        return 1
+    local tTeamData = M28Team.tTeamData[iTeam]
+    if tTeamData then
+        iEnemyAirToGroundThreat = tTeamData[M28Team.refiEnemyAirToGroundThreat] or 0
     end
+
+    if M28UnitInfo.IsUnitValid(oFactory)
+        and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryMobileLandFactory, oFactory.UnitId) then
+        local iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oFactory:GetPosition(), true, oFactory)
+        local tLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][iTeam]
+        iLocalAirToGroundThreat = tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0
+        iLocalMAAWanted = tLZTeamData[M28Map.subrefLZMAAThreatWanted] or 0
+        iLocalGroundAAThreat = tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0
+        iLowTechGunshipCount, iLowTechGunshipPressure = GetLowTechGunshipPressureAgainstLand(tLZTeamData)
+    end
+
+    local iLocalMAAShortfall = math.max(0, iLocalMAAWanted - iLocalGroundAAThreat)
+    local iThreatForCap = math.max(iEnemyAirToGroundThreat, iLocalAirToGroundThreat * 4, iLowTechGunshipPressure * 4, iLocalMAAShortfall * 2)
+    local iCap = 1
+    if iThreatForCap >= 7000 then
+        iCap = 12
+    elseif iThreatForCap >= 5000 then
+        iCap = 10
+    elseif iThreatForCap >= 3000 then
+        iCap = 8
+    elseif iThreatForCap >= 1000 then
+        iCap = 6
+    elseif iThreatForCap > 0 then
+        iCap = 4
+    end
+
+    if iLowTechGunshipCount > 0 then
+        iCap = math.max(iCap, math.min(12, 2 + iLowTechGunshipCount * 2))
+    end
+    if iLocalMAAShortfall > 0 then
+        iCap = math.max(iCap, math.min(12, 2 + math.ceil(iLocalMAAShortfall / 175)))
+    end
+
+    return {
+        iCap = iCap,
+        iThreatForCap = iThreatForCap,
+        iEnemyAirToGroundThreat = iEnemyAirToGroundThreat,
+        iLocalAirToGroundThreat = iLocalAirToGroundThreat,
+        iLocalMAAWanted = iLocalMAAWanted,
+        iLocalGroundAAThreat = iLocalGroundAAThreat,
+        iLocalMAAShortfall = iLocalMAAShortfall,
+        iLowTechGunshipCount = iLowTechGunshipCount,
+        iLowTechGunshipPressure = iLowTechGunshipPressure,
+        bLowTechGunshipPressure = iLowTechGunshipCount > 0,
+    }
+end
+
+local function GetFactoryMAAQueueCap(oFactory, iTeam)
+    return GetFactoryMAAQueueState(oFactory, iTeam).iCap
+end
+
+local function ShouldAllowRepeatedFactoryPlanMAA(oFactory, sBlueprint)
+    return sBlueprint and EntityCategoryContains(M28UnitInfo.refCategoryMAA, sBlueprint) and GetFactoryMAAQueueCap(oFactory) > 1
+end
+
+local function GetFactoryMAAQueueRunLength(oFactory, iRemainingPlanDepth)
+    local iCap = GetFactoryMAAQueueCap(oFactory)
+    local iPendingMAA = GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryMAA)
+    return math.min(iRemainingPlanDepth, math.max(0, iCap - iPendingMAA))
 end
 
 local function GetFactoryLiveQueueCapForCategory(iCategoryWanted, oFactory)
@@ -319,10 +393,7 @@ local function GetFactoryLiveQueueCapForCategory(iCategoryWanted, oFactory)
     elseif iCategoryWanted == M28UnitInfo.refCategoryIndirect then
         return 2
     elseif iCategoryWanted == M28UnitInfo.refCategoryMAA then
-        if M28UnitInfo.IsUnitValid(oFactory) and oFactory:GetAIBrain() and oFactory:GetAIBrain().M28Team then
-            return GetTeamMAAQueueCap(oFactory:GetAIBrain().M28Team)
-        end
-        return 1
+        return GetFactoryMAAQueueCap(oFactory)
     elseif iCategoryWanted == M28UnitInfo.refCategoryTransport
             or iCategoryWanted == M28UnitInfo.refCategoryCruiser
             or iCategoryWanted == M28UnitInfo.refCategoryShieldBoat
@@ -598,6 +669,8 @@ end
 local function IsFactoryBuildPlanTemporarilyBlacklisted(oFactory, sBlueprint)
     local tiCategoryBlacklist = oFactory and oFactory[reftFactoryBuildPlanCategoryBlacklist]
     if M28Utilities.IsTableEmpty(tiCategoryBlacklist) or not(sBlueprint) then
+        return false
+    elseif ShouldAllowRepeatedFactoryPlanMAA(oFactory, sBlueprint) then
         return false
     end
     for _, iBlacklistedCategory in tiCategoryBlacklist do
@@ -6142,7 +6215,7 @@ function CanIssueFactoryBlueprintToQueue(oFactory, sBlueprint, bAddToExistingQue
     end
 
     local iCapCategory = GetFactoryLiveQueueCapCategory(sBlueprint)
-    local iCap = GetFactoryLiveQueueCapForCategory(iCapCategory)
+    local iCap = GetFactoryLiveQueueCapForCategory(iCapCategory, oFactory)
     if not(iCapCategory) or not(iCap) then
         return true
     end
@@ -6223,10 +6296,7 @@ local function GetLandFactorySupportQueueCapForBlueprint(oFactory, sBlueprint)
     if EntityCategoryContains(M28UnitInfo.refCategoryMobileLandShield + M28UnitInfo.refCategoryMobileLandStealth, sBlueprint) then
         return 3
     elseif EntityCategoryContains(M28UnitInfo.refCategoryMAA, sBlueprint) then
-        if M28UnitInfo.IsUnitValid(oFactory) and oFactory:GetAIBrain() and oFactory:GetAIBrain().M28Team then
-            return GetTeamMAAQueueCap(oFactory:GetAIBrain().M28Team)
-        end
-        return 1
+        return GetFactoryMAAQueueCap(oFactory)
     end
     return 2
 end
@@ -6277,13 +6347,14 @@ local function AdjustLandFactoryBlueprintForQueueComposition(aiBrain, oFactory, 
         end
     elseif sRole == 'support' then
         local iQueuedNonDirectCombat = tState.skirmisher + tState.indirect + tState.support
+        local bHighThreatMAA = EntityCategoryContains(M28UnitInfo.refCategoryMAA, sBlueprint) and GetFactoryMAAQueueCap(oFactory) >= 4
         if tState.support >= GetLandFactorySupportQueueCapForBlueprint(oFactory, sBlueprint) then
             bForceDirectFire = true
             sReason = 'SupportLiveCap'
-        elseif iQueuedNonDirectCombat > 0 and tState.direct == 0 then
+        elseif not(bHighThreatMAA) and iQueuedNonDirectCombat > 0 and tState.direct == 0 then
             bForceDirectFire = true
             sReason = 'SupportNeedsDirectAnchor'
-        elseif tState.entries >= 2 and tState.recentDirect == 0 then
+        elseif not(bHighThreatMAA) and tState.entries >= 2 and tState.recentDirect == 0 then
             bForceDirectFire = true
             sReason = 'SupportNeedsRecentDirect'
         end
@@ -6491,6 +6562,45 @@ local function GetFactoryQueuePreemptingUpgradeBlueprint(aiBrain, oFactory)
     return nil
 end
 
+local function GetFactoryFirstQueuedCategoryIndex(oFactory, iCategoryWanted)
+    local tQueuedBlueprints = GetQueuedFactoryBlueprints(oFactory)
+    if M28Utilities.IsTableEmpty(tQueuedBlueprints) == false then
+        for iBlueprint, sBlueprint in tQueuedBlueprints do
+            if EntityCategoryContains(iCategoryWanted, sBlueprint) then
+                return iBlueprint
+            end
+        end
+    end
+    return nil
+end
+
+local function GetFactoryQueuePreemptingMAABlueprint(aiBrain, oFactory)
+    if not(M28UnitInfo.IsUnitValid(oFactory)) or oFactory:IsPaused() or oFactory[M28UnitInfo.refbPaused]
+            or oFactory:IsUnitState('Upgrading') or oFactory:IsUnitState('BeingUpgraded')
+            or not(EntityCategoryContains(M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryMobileLandFactory, oFactory.UnitId)) then
+        return nil
+    end
+
+    local tMAAQueueState = GetFactoryMAAQueueState(oFactory, aiBrain.M28Team)
+    if tMAAQueueState.iCap < 6 then
+        return nil
+    end
+
+    local iFirstMAAQueuedIndex = GetFactoryFirstQueuedCategoryIndex(oFactory, M28UnitInfo.refCategoryMAA)
+    if iFirstMAAQueuedIndex and iFirstMAAQueuedIndex <= 2 then
+        return nil
+    end
+
+    local sBlueprintToBuild, bEnhancement = DetermineWhatToBuild(aiBrain, oFactory)
+    if bEnhancement or not(sBlueprintToBuild) or not(EntityCategoryContains(M28UnitInfo.refCategoryMAA, sBlueprintToBuild)) then
+        return nil
+    elseif not(DoesFactoryQueueHaveRoomForBlueprint(oFactory, sBlueprintToBuild)) then
+        return nil
+    end
+
+    return sBlueprintToBuild, tMAAQueueState, iFirstMAAQueuedIndex
+end
+
 local function ClearFactoryQueueForUpgradePreemption(oFactory)
     if not(M28UnitInfo.IsUnitValid(oFactory)) then
         return
@@ -6531,6 +6641,8 @@ local function GetFactoryBuildPlanRunLength(aiBrain, oFactory, sBlueprint, iRema
         return 0
     elseif EntityCategoryContains(categories.SUBCOMMANDER + categories.EXPERIMENTAL + M28UnitInfo.refCategoryFactory, sBlueprint) then
         return 1
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryMAA, sBlueprint) then
+        return GetFactoryMAAQueueRunLength(oFactory, iRemainingPlanDepth)
     elseif GetFactoryBuildPlanBlacklistCategory(sBlueprint) then
         return math.min(iRemainingPlanDepth, 1)
     elseif EntityCategoryContains(M28UnitInfo.refCategorySniperBot * categories.TECH3, sBlueprint) then
@@ -6617,11 +6729,15 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
         if iRunLength <= 0 then
             break
         end
+        if bDebugMessages == true and EntityCategoryContains(M28UnitInfo.refCategoryMAA, sBPToBuild) then
+            local tMAAQueueState = GetFactoryMAAQueueState(oFactory, aiBrain.M28Team)
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning MAA queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..tMAAQueueState.iCap..'; PendingMAA='..GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryMAA)..'; ThreatForCap='..tMAAQueueState.iThreatForCap..'; TeamAirToGround='..tMAAQueueState.iEnemyAirToGroundThreat..'; LocalAirToGround='..tMAAQueueState.iLocalAirToGroundThreat..'; LocalMAAWanted='..tMAAQueueState.iLocalMAAWanted..'; LocalGroundAA='..tMAAQueueState.iLocalGroundAAThreat..'; LowTechGunshipCount='..tMAAQueueState.iLowTechGunshipCount..'; LowTechGunshipPressure='..tMAAQueueState.iLowTechGunshipPressure..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
+        end
         for iRun = 1, iRunLength do
             table.insert(tBuildPlan, sBPToBuild)
         end
         local iBlacklistCategory = GetFactoryBuildPlanBlacklistCategory(sBPToBuild)
-        if iBlacklistCategory then
+        if iBlacklistCategory and not(ShouldAllowRepeatedFactoryPlanMAA(oFactory, sBPToBuild)) then
             table.insert(oFactory[reftFactoryBuildPlanCategoryBlacklist], iBlacklistCategory)
         end
     end
@@ -6678,6 +6794,16 @@ function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
         SetPendingFactoryUpgrade(oFactory, sUpgradeBlueprint)
         ClearFactoryQueueForUpgradePreemption(oFactory)
         return false
+    end
+    local sMAAPreemptBlueprint, tMAAQueueState, iFirstMAAQueuedIndex = GetFactoryQueuePreemptingMAABlueprint(aiBrain, oFactory)
+    if sMAAPreemptBlueprint then
+        if bDebugMessages == true then
+            M28Profiler.DebugLog(tDebugContext, 'M28FactoryQueueMAAPreempt: Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sMAAPreemptBlueprint..'; ExistingMAAQueueIndex='..(iFirstMAAQueuedIndex or 'nil')..'; Cap='..tMAAQueueState.iCap..'; ThreatForCap='..tMAAQueueState.iThreatForCap..'; TeamAirToGround='..tMAAQueueState.iEnemyAirToGroundThreat..'; LocalAirToGround='..tMAAQueueState.iLocalAirToGroundThreat..'; LocalMAAWanted='..tMAAQueueState.iLocalMAAWanted..'; LocalGroundAA='..tMAAQueueState.iLocalGroundAAThreat..'; LocalMAAShortfall='..tMAAQueueState.iLocalMAAShortfall..'; LowTechGunshipCount='..tMAAQueueState.iLowTechGunshipCount..'; LowTechGunshipPressure='..tMAAQueueState.iLowTechGunshipPressure..'; ActualBuildOrders='..(GetFactoryActualBuildOrderCount(oFactory) or 0)..'; PlanLength='..table.getn(tBuildPlan or {})..'; IssuedCount='..(oFactory[refiFactoryBuildPlanIssuedCount] or 0)..'; Time='..GetGameTimeSeconds())
+        end
+        InvalidateFactoryBuildPlan(oFactory)
+        M28Orders.IssueTrackedFactoryBuild(oFactory, sMAAPreemptBlueprint, false, 'UrgentMAAQueuePreempt')
+        QueueAdditionalFactoryBuildOrders(aiBrain, oFactory, sMAAPreemptBlueprint)
+        return true
     end
     if iBuildOrders > 0 and oFactory[refiFirstTimeOfLastOrder] and GetGameTimeSeconds() - oFactory[refiFirstTimeOfLastOrder] >= 5 and oFactory:GetWorkProgress() == 0 and not(oFactory:IsUnitState('Building')) and not(oFactory:IsUnitState('Busy')) then
         return false
