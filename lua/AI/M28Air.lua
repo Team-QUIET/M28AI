@@ -1627,6 +1627,13 @@ function GetForwardAirAAScreenPoint(iTeam, iAirSubteam, tReferencePoint, bDontCh
     return tBestScreenPoint, tBestScreenData
 end
 
+function GetProactiveAirFallbackPoint(iAirSubteam)
+    if M28Utilities.IsTableEmpty(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint]) == false then
+        return M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint]
+    end
+    return M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+end
+
 function IsThereAAInZone(tLZOrWZTeamData, bIgnoreAirAA, iGroundAAThreatThreshold, iAirAAThreatThreshold, bAddEnemyGroundAAToAirAAThreat, tOptionalDetailedGroundAAPositionCheck, iIncludeForDetailedIfWithinThisDistOfBeingInRange, oOptionalBomberForGroundAAThreat)
     local sFunctionRef = 'IsThereAAInZone'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
@@ -6721,8 +6728,8 @@ function ManageBombers(iTeam, iAirSubteam)
         end
     end
 
-    --Consider nearby defence
-    local tRallyPoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+    --Consider nearby defence from the proactive air anchor, not the base rally.
+    local tRallyPoint = GetProactiveAirFallbackPoint(iAirSubteam)
     local iRallyPlateauOrZero, iRallyLZOrWZ = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tRallyPoint)
     local tRallyLZOrWZData
     local tRallyLZOrWZTeamData
@@ -6739,7 +6746,7 @@ function ManageBombers(iTeam, iAirSubteam)
     if M28Team.tTeamData[iTeam][M28Team.subrefiOurT1ToT3BomberThreat] >= 500 then
         local iCurDistToRally
         local iFurthestFromRally = 0
-        local tRally = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+        local tRally = tRallyPoint
         local bAlreadyRecorded
         function ConsiderFrontBomberFromTable(tBombers, bAlsoConsiderAddingToTargetTable)
             if M28Utilities.IsTableEmpty(tBombers) == false then
@@ -6820,11 +6827,11 @@ function ManageBombers(iTeam, iAirSubteam)
         iBomberMinWaveThreat = 0
     end
 
-    -- If we don't have enough bomber threat to attack safely, regroup at rally point
+    -- If we don't have enough bomber threat to attack safely, regroup at the proactive air anchor.
     if iAvailableBomberThreat < iBomberMinWaveThreat and not(M28Utilities.IsTableEmpty(tAvailableBombers)) then
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Insufficient Bomber Threat for Wave ('..iAvailableBomberThreat..' < '..iBomberMinWaveThreat..'). Regrouping at rally point. EnemyAirAA='..iEnemyAirAA..', PeakGroundAA='..iPeakEnemyGroundAA) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Insufficient Bomber Threat for Wave ('..iAvailableBomberThreat..' < '..iBomberMinWaveThreat..'). Regrouping at proactive air fallback. EnemyAirAA='..iEnemyAirAA..', PeakGroundAA='..iPeakEnemyGroundAA) end
 
-        local tRallyPoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+        local tRallyPoint = GetProactiveAirFallbackPoint(iAirSubteam)
         for _, oUnit in tAvailableBombers do
             M28Orders.IssueTrackedMove(oUnit, tRallyPoint, 20, false, 'BomberWaveRegroup', false)
         end
@@ -6837,7 +6844,7 @@ function ManageBombers(iTeam, iAirSubteam)
     if M28Utilities.IsTableEmpty(tAvailableBombers) == false then
         local iStartPlateauToUse, iStartZoneToUse
         if M28UnitInfo.IsUnitValid(oFrontBomber) then
-            local iDistFromBomberToRally = M28Utilities.GetDistanceBetweenPositions(oFrontBomber:GetPosition(), M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint])
+            local iDistFromBomberToRally = M28Utilities.GetDistanceBetweenPositions(oFrontBomber:GetPosition(), tRallyPoint)
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': FrontBomber iDistFromBomberToRally='..iDistFromBomberToRally) end
             if iDistFromBomberToRally > 60 and (M28UnitInfo.IsUnitValid(oFrontBomber[refoStrikeDamageAssigned]) or (oFrontBomber[M28UnitInfo.refiLastBombFired] and GetGameTimeSeconds() - oFrontBomber[M28UnitInfo.refiLastBombFired] <= 30)) then
                 if oFrontBomber[M28UnitInfo.reftAssignedWaterZoneByTeam][iTeam] then
@@ -6908,7 +6915,7 @@ function ManageBombers(iTeam, iAirSubteam)
             local oClosestSnipeTarget
             for iSnipeTarget, oSnipeTarget in tEnemySnipeTargets do
                 if (oSnipeTarget[M28UnitInfo.refiRecentBomberSnipeAttempts] or 0) == 0 then
-                    iCurDist = M28Utilities.GetDistanceBetweenPositions(oSnipeTarget:GetPosition(), M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint])
+                    iCurDist = M28Utilities.GetDistanceBetweenPositions(oSnipeTarget:GetPosition(), tRallyPoint)
                     if iCurDist < iClosestSnipeTarget then
                         oClosestSnipeTarget = oSnipeTarget
                         iClosestSnipeTarget = iCurDist
@@ -7166,7 +7173,7 @@ function ManageBombers(iTeam, iAirSubteam)
                                 if not(tFrontBomberPosition) then
                                     iBomberPlateauOrZero = iRallyPlateauOrZero
                                     iBomberLandOrWaterZone = iRallyLZOrWZ
-                                    tFrontBomberPosition = {M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint][1], M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint][2], M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint][3]}
+                                    tFrontBomberPosition = {tRallyPoint[1], tRallyPoint[2], tRallyPoint[3]}
                                 end
                                 local iMaxEnemyAirAA
                                 if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir] then
@@ -7345,7 +7352,7 @@ function ManageBombers(iTeam, iAirSubteam)
                     AssignTorpOrBomberTargets(tAvailableBombers, toObjectiveTargets, iAirSubteam, true, true)
                 end
 
-                --Send any remaining bombers to rally point (or for refueling if they are damaged)
+                --Send any remaining bombers to the proactive air anchor (or for refueling if they are damaged)
                 if M28Utilities.IsTableEmpty(tAvailableBombers) == false then
                     for iUnit, oUnit in tAvailableBombers do
                         if ((oUnit:GetFuelRatio() < 0.6 and oUnit:GetFuelRatio() >= 0) or (M28UnitInfo.GetUnitHealthPercent(oUnit) <= 0.85 and (M28UnitInfo.GetUnitHealthPercent(oUnit) <= 0.7 or EntityCategoryContains(categories.TECH1, oUnit.UnitId) or M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tRallyPoint) <= 200))) and not(EntityCategoryContains(categories.CANNOTUSEAIRSTAGING, oUnit.UnitId)) then
@@ -7409,7 +7416,7 @@ function ManageTorpedoBombers(iTeam, iAirSubteam)
     end
     --Check unavailableunits in case any of them has an attack order
     if M28Utilities.IsTableEmpty(tUnavailableUnits) == false then
-        local tRallyPoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+        local tRallyPoint = GetProactiveAirFallbackPoint(iAirSubteam)
         local iFurthestDistFromRally = 0
         local iCurDistFromRally
         if M28UnitInfo.IsUnitValid(oRecentlyAttackingTorpBomber) then iFurthestDistFromRally = M28Utilities.GetDistanceBetweenPositions(oRecentlyAttackingTorpBomber:GetPosition(), tRallyPoint) end
@@ -7442,7 +7449,7 @@ function ManageTorpedoBombers(iTeam, iAirSubteam)
     local tiAnglesFromRallyOfWZWithTooMuchAA = {}
     if M28Utilities.IsTableEmpty(tAvailableBombers) == false then
 
-        local tRallyPoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+        local tRallyPoint = GetProactiveAirFallbackPoint(iAirSubteam)
         local tEnemyTargets = {}
         local tbAdjacentWaterZonesConsidered = {}
         local tbWaterZonesConsidered = {}
@@ -7946,10 +7953,10 @@ function ManageTorpedoBombers(iTeam, iAirSubteam)
         else
             M28Utilities.ErrorHandler('Have torpedo bombers but no areas to defend with them')
         end
-        --Send remaining units to rally point (or refuel if could do with refuel)
+        --Send remaining units to the proactive air anchor (or refuel if could do with refuel)
         if M28Utilities.IsTableEmpty(tAvailableBombers) == false then
             for iUnit, oUnit in tAvailableBombers do
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering idle torp bomber order for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' Unit fuel='..oUnit:GetFuelRatio()..'; Unit health%='..M28UnitInfo.GetUnitHealthPercent(oUnit)..'; rally point='..repru(tRallyPoint)..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oUnit))) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering idle torp bomber order for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' Unit fuel='..oUnit:GetFuelRatio()..'; Unit health%='..M28UnitInfo.GetUnitHealthPercent(oUnit)..'; proactive fallback='..repru(tRallyPoint)..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oUnit))) end
                 if ((oUnit:GetFuelRatio() < 0.6 and oUnit:GetFuelRatio() >= 0) or M28UnitInfo.GetUnitHealthPercent(oUnit) <= 0.85) and not(EntityCategoryContains(categories.CANNOTUSEAIRSTAGING, oUnit.UnitId)) then
                     table.insert(tBombersForRefueling, oUnit)
                 else
@@ -7996,7 +8003,7 @@ function ManageTorpedoBombers(iTeam, iAirSubteam)
         if not(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber]) then
             M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber] = oRecentlyAttackingTorpBomber
         else
-            local tRallyPoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+            local tRallyPoint = GetProactiveAirFallbackPoint(iAirSubteam)
             local iFurthestDistFromRally = M28Utilities.GetDistanceBetweenPositions(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber]:GetPosition(), tRallyPoint)
             if M28Utilities.GetDistanceBetweenPositions(oRecentlyAttackingTorpBomber:GetPosition(), tRallyPoint) > iFurthestDistFromRally + 10 then
                 M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber] = oRecentlyAttackingTorpBomber
@@ -8074,7 +8081,7 @@ function AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to cycle through torp bomber targets, iEnemyTargetSize='..iEnemyTargetSize..'; Time='..GetGameTimeSeconds()) end
 
         --First order enemy units by composite target value score
-        local tRallyPoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+        local tRallyPoint = GetProactiveAirFallbackPoint(iAirSubteam)
         local toEnemyUnitsByScore = {}
         local aiBrain
         if tAvailableBombers[1] then
@@ -8658,9 +8665,9 @@ function ManageGunships(iTeam, iAirSubteam)
     end
 
     if iAvailableGunshipThreat < iMinWaveThreat then
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Insufficient Gunship Threat for Wave ('..iAvailableGunshipThreat..' < '..iMinWaveThreat..'). Regrouping at rally point.') end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Insufficient Gunship Threat for Wave ('..iAvailableGunshipThreat..' < '..iMinWaveThreat..'). Regrouping at proactive air fallback.') end
         
-        local tRallyPoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+        local tRallyPoint = GetProactiveAirFallbackPoint(iAirSubteam)
         if not(M28Utilities.IsTableEmpty(tAvailableGunships)) then
             for _, oUnit in tAvailableGunships do
                 M28Orders.IssueTrackedMove(oUnit, tRallyPoint, 20, false, 'WaveRegroup', false)
@@ -9593,7 +9600,7 @@ function ManageGunships(iTeam, iAirSubteam)
                     end
                 end
 
-                --Check if want gunships to run to rally point if nearby enemy airAA (if give no targets for gunships then they will go to rally point or air staging), or if we have very weak AirAA
+                --Check if want gunships to run to proactive fallback if nearby enemy airAA (if give no targets for gunships then they will go to proactive fallback or air staging), or if we have very weak AirAA
                 local iGunshipThreatFactorForSameZone = 1.725 --This is referenced by the later zones threat factor wanted to ensure always higher
                 if M28Map.bIsCampaignMap then
                     iGunshipThreatFactorForSameZone = 1.6
@@ -9919,7 +9926,7 @@ function ManageGunships(iTeam, iAirSubteam)
         --Further away gunships - consider whether we want to move closer to the front gunship, if it is in the playable area
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if we want further away gunships to move towards front, is table of gunships not near front empty='..tostring(M28Utilities.IsTableEmpty(tGunshipsNotNearFront))..'; Is front gunship in playable area='..tostring(M28Conditions.IsLocationInPlayableArea(oFrontGunship:GetPosition()))..'; tGunshipLandOrWaterZoneTeamData[M28Map.refiEnemyAirAAThreat]='..tGunshipLandOrWaterZoneTeamData[M28Map.refiEnemyAirAAThreat]..'; iOurGunshipAA='..iOurGunshipAA..'; Front gunship groundAA='..(tGunshipLandOrWaterZoneTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 'nil')..'; bHaveGunshipsVeryFarFromFront='..tostring(bHaveGunshipsVeryFarFromFront)) end
         local bGivenOrdersToFarFromFrontGunships = false
-        local tMovePoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+        local tMovePoint = GetProactiveAirFallbackPoint(iAirSubteam)
         if M28Utilities.IsTableEmpty(tGunshipsNotNearFront) == false and (bHaveGunshipsVeryFarFromFront or M28Utilities.IsTableEmpty(tEnemyGroundOrGunshipTargets)) and (not(M28Map.bIsCampaignMap) or M28Conditions.IsLocationInPlayableArea(oFrontGunship:GetPosition())) then
             bGivenOrdersToFarFromFrontGunships = true
             local tiPlateauAndZonesConsidered = {}
@@ -10080,7 +10087,7 @@ function ManageGunships(iTeam, iAirSubteam)
                                 elseif oUnit[refbRallyViaPointReached] then
                                     M28Orders.IssueTrackedMove(oUnit, tViaFromRallyPoint, 10, false, 'GSViaGRv', false)
                                 else
-                                    M28Orders.IssueTrackedMove(oUnit, M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint], 10, false, 'GSViaGRP', false)
+                                    M28Orders.IssueTrackedMove(oUnit, GetProactiveAirFallbackPoint(iAirSubteam), 10, false, 'GSViaGRP', false)
                                 end
                             end
                         end
@@ -10096,7 +10103,7 @@ function ManageGunships(iTeam, iAirSubteam)
                                 iCurAngleToRally = M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint])
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Sending gunship that is not near front, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Unit position='..repru(oUnit:GetPosition())..'; tViaFromRallyPoint='..repru(tViaFromRallyPoint)..'; Dist from gunship to via='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tViaFromRallyPoint)..'; Angle to via point='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), tViaFromRallyPoint)..'; Angle to rally point='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint])) end
                                 if M28Utilities.GetAngleDifference(iCurAngleToVia, iCurAngleToRally) >= 150 or M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tViaFromRallyPoint) > 1.2 * M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]) then
-                                    M28Orders.IssueTrackedMove(oUnit, M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint], 10, false, 'GSViaXR', false)
+                                    M28Orders.IssueTrackedMove(oUnit, GetProactiveAirFallbackPoint(iAirSubteam), 10, false, 'GSViaXR', false)
                                     if not(oUnit[refbRallyViaPointReached]) then
                                         oUnit[refbRallyViaPointReached] = true
                                         M28Utilities.DelayChangeVariable(oUnit, refbRallyViaPointReached, false, 30)
@@ -10109,8 +10116,7 @@ function ManageGunships(iTeam, iAirSubteam)
                     else
                         M28Team.tAirSubteamData[iAirSubteam][M28Team.reftLastViaFromFrontGunshipPoint] = nil
                         M28Team.tAirSubteamData[iAirSubteam][M28Team.reftLastViaRallyPoint] = nil
-                        local tMovePoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
-                        --DOnt wnat to move to support point, as support point is based in part on front gunship, so end up with a circular logic
+                        local tMovePoint = GetProactiveAirFallbackPoint(iAirSubteam)
                         if M28Utilities.IsTableEmpty(tGunshipsNearFront) == false then
                             for iUnit, oUnit in tGunshipsNearFront do
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering idle gunship order for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' Unit fuel='..oUnit:GetFuelRatio()..'; Unit health%='..M28UnitInfo.GetUnitHealthPercent(oUnit)..'; support point='..repru(tMovePoint)..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oUnit))) end
@@ -10206,12 +10212,12 @@ function ManageGunships(iTeam, iAirSubteam)
 
             --Check we arent near a nuke
             if M28Conditions.IsTargetNearActiveNukeTarget(oClosestEnemy:GetPosition(), iTeam, 60) then
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We are near an active nuke target so will change gunship position to go to rally point') end
-                --Return to rally instead
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We are near an active nuke target so will change gunship position to proactive fallback') end
+                --Return to the proactive fallback instead
                 if bGivenOrdersToFarFromFrontGunships then
-                    GetGunshipsToMoveToTarget(tGunshipsNearFront, M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint])
+                    GetGunshipsToMoveToTarget(tGunshipsNearFront, GetProactiveAirFallbackPoint(iAirSubteam))
                 else
-                    GetGunshipsToMoveToTarget(tAvailableGunships, M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint])
+                    GetGunshipsToMoveToTarget(tAvailableGunships, GetProactiveAirFallbackPoint(iAirSubteam))
                 end
 
             else
@@ -10604,7 +10610,7 @@ function ManageAirScouts(iTeam, iAirSubteam)
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time='..GetGameTimeSeconds()..'; Is table of available scouts empty='..tostring(M28Utilities.IsTableEmpty(tAvailableScouts))..'; iAirSubteam='..iAirSubteam..'; iTeam='..iTeam) end
     if M28Utilities.IsTableEmpty(tAvailableScouts) == false then
         local tScoutsWithNoDestination = {}
-        local tRallyPoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+        local tRallyPoint = GetProactiveAirFallbackPoint(iAirSubteam)
         --First assign any priority scouts
         if M28Utilities.IsTableEmpty(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftPriorityUnitsWantingAirScout]) == false then
             --Refresh the list
@@ -12277,7 +12283,7 @@ function ManageTransports(iTeam, iAirSubteam)
         if M28Utilities.IsTableEmpty(tAvailableTransports) == false or M28Utilities.IsTableEmpty(tUnavailableUnits) == false or (GetGameTimeSeconds() >= 420 and GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastTransportCombatShortlistUpdate] or 0) >= iCombatShortlistRefreshDelay) then bUpdateCombatDropShortlist = true end
         UpdateTransportPlateauDropLocationShortlist(iTeam, bUpdateCombatDropShortlist)
     end
-    local tRallyPoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+    local tRallyPoint = GetProactiveAirFallbackPoint(iAirSubteam)
 
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Near start, time='..GetGameTimeSeconds()..'; Is table of available transports empty='..tostring(M28Utilities.IsTableEmpty(tAvailableTransports))..'; tRallyPoint='..repru(tRallyPoint)..'; Is table of unavailable units empty='..tostring(M28Utilities.IsTableEmpty(tUnavailableUnits))) end
 
@@ -14068,7 +14074,7 @@ function ManageExperimentalBomber(iTeam, iAirSubteam)
                 end
 
                 if M28Utilities.IsTableEmpty(tEnemyGroundTargets) or not(bHaveTargetWhereShotIsntBlocked) then
-                    --Check if want exp bomber to run to rally point if nearby enemy airAA (if give no targets for exp bomber then they will go to rally point or air staging
+                    --Check if want exp bomber to run to proactive fallback if nearby enemy airAA (if give no targets for exp bomber then they will go to proactive fallback or air staging
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if too great an enemy threat in zone IsThereAANearLandOrWaterZone='..tostring(IsThereAANearLandOrWaterZone(iTeam, iBomberPlateauOrZero, iBomberLandOrWaterZone, (iBomberPlateauOrZero == 0), -1, iMaxEnemyAirAA) or false)..'; IsThereNearbyAirAA='..tostring(IsThereNearbyAirAA(iTeam, iBomberPlateauOrZero, iBomberLandOrWaterZone, (iBomberPlateauOrZero == 0), 200, iMaxEnemyAirAA, oBomber:GetPosition()) or false)..'; Have air control='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl])..'; iMaxEnemyAirAA='..iMaxEnemyAirAA..'; iBomberPlateauOrZero='..iBomberPlateauOrZero..'; iBomberLandOrWaterZone='..iBomberLandOrWaterZone) end
                     if ((M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] and not(IsThereAANearLandOrWaterZone(iTeam, iBomberPlateauOrZero, iBomberLandOrWaterZone, (iBomberPlateauOrZero == 0), -1, iMaxEnemyAirAA))) or (not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]) and not(IsThereNearbyAirAA(iTeam, iBomberPlateauOrZero, iBomberLandOrWaterZone, (iBomberPlateauOrZero == 0), 200, iMaxEnemyAirAA, oBomber:GetPosition()))))
                             --If there is enemy groundAA in the zone we are currently in and we are facing the rally point and are more than 20 from it, then keep moving to the rally point
@@ -14309,7 +14315,7 @@ function ManageExperimentalBomber(iTeam, iAirSubteam)
                                         LOG(sFunctionRef..': Will try dropping bomb at our range')
                                         M28Utilities.DrawLocation(tPotentialTarget)
                                     end
-                                    ForkThread(ReturnBomberToRallyIfBombNotDropped, oBomber, 9)
+                                    ForkThread(ReturnBomberToFallbackIfBombNotDropped, oBomber, 9)
                                 end
                             end
                         end
@@ -14317,9 +14323,9 @@ function ManageExperimentalBomber(iTeam, iAirSubteam)
                     if bReturnToRally then
                         --Check micro not active
                         if not(oBomber[M28UnitInfo.refbSpecialMicroActive]) then
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': will return to air sub rally point') end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': will return to proactive air fallback') end
                             --Consider microing to turn
-                            local tMovePoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+                            local tMovePoint = GetProactiveAirFallbackPoint(iAirSubteam)
                             local iAngleToRally = M28Utilities.GetAngleFromAToB(oBomber:GetPosition(), tMovePoint)
                             local iFacingAngle = M28UnitInfo.GetUnitFacingAngle(oBomber)
                             if M28Utilities.GetAngleDifference(iAngleToRally, iFacingAngle) > 45 then
@@ -14650,7 +14656,7 @@ function ManageExperimentalBomber(iTeam, iAirSubteam)
     if M28Utilities.IsTableEmpty(tBombersForRetreating) == false then
         for iBomber, oBomber in tBombersForRetreating do
             if M28UnitInfo.IsUnitValid(oBomber) then
-                local tMovePoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+                local tMovePoint = GetProactiveAirFallbackPoint(iAirSubteam)
                 M28Orders.IssueTrackedMove(oBomber, tMovePoint, 10, false, 'ExBRetr', false)
             end
         end
@@ -14759,9 +14765,9 @@ function GiveOrderToSpaceship(iTeam, oUnit)
         end
         if bConsiderBackupOrder then
             if bRunIfNoTarget then
-                --Retreat to rally point
+                --Retreat to the proactive fallback
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will retreat so can heal up') end
-                M28Orders.IssueTrackedMove(oUnit, M28Team.tAirSubteamData[oUnit:GetAIBrain().M28AirSubteam][M28Team.reftAirSubRallyPoint], 5, false, 'SpcshRt', false)
+                M28Orders.IssueTrackedMove(oUnit, GetProactiveAirFallbackPoint(oUnit:GetAIBrain().M28AirSubteam), 5, false, 'SpcshRt', false)
             else
                 local tLastOrderPosition = oUnit[M28Orders.reftiLastOrders][1][M28Orders.subreftOrderPosition]
                 if M28Utilities.IsTableEmpty(tLastOrderPosition) or M28Utilities.GetDistanceBetweenPositions(tLastOrderPosition, oUnit:GetPosition()) <= 10 then
@@ -14798,7 +14804,7 @@ function ManageOtherAir(iTeam, iAirSubteam)
             aiBrain = oBrain
             break
         end
-        local tRallyPoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+        local tRallyPoint = GetProactiveAirFallbackPoint(iAirSubteam)
         local tNearbyEnemyUnits = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryLandExperimental + M28UnitInfo.refCategoryStructure - categories.TECH1 + categories.COMMAND, tRallyPoint, 300, 'Enemy')
         if M28Utilities.IsTableEmpty(tNearbyEnemyUnits) == false then
             local iClosestUnitDist = 10000
@@ -15307,8 +15313,8 @@ function ConsiderIfBomberTargetingACUShouldReassign(oUnit, oCurTarget)
                     AddAssignedAttacker(oPrioritySwitchTarget, oUnit)
                     M28Orders.IssueTrackedAttack(oUnit, oPrioritySwitchTarget, false, 'PrioSwitch', false)
                 else
-                    --Just move back to base (so can be treated as available for new orders)
-                    M28Orders.IssueTrackedMove(oUnit, M28Team.tAirSubteamData[oUnit:GetAIBrain().M28AirSubteam][M28Team.reftAirSubRallyPoint], 3, false, 'PrioReassess', false)
+                    --Move to the proactive fallback so it can be treated as available for new orders.
+                    M28Orders.IssueTrackedMove(oUnit, GetProactiveAirFallbackPoint(oUnit:GetAIBrain().M28AirSubteam), 3, false, 'PrioReassess', false)
                 end
             end
         end
@@ -15355,12 +15361,6 @@ function PlanBomberSnipe(tAvailableBombers, oSnipeTarget, iTeam)
         local iBomberCountThreshold = 30 --Will launch a snipe attempt when bomber count reaches this value - used to also check for failed loop
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is table of bombers planning a snipe empty='..tostring(M28Utilities.IsTableEmpty(oSnipeTarget[M28UnitInfo.toBombersPlanningSnipe]))) end
         if M28Utilities.IsTableEmpty(oSnipeTarget[M28UnitInfo.toBombersPlanningSnipe]) then
-            local tRallyPointOverride
-            --50% chance to go to rally point, 50% to go to base
-            if math.random(1, 2) == 1 then
-                local tLZData, tLZTeamData = M28Map.GetLandOrWaterZoneData(oSnipeTarget:GetPosition(), true, iTeam)
-                tRallyPointOverride = {tLZTeamData[M28Map.reftClosestFriendlyBase][1], tLZTeamData[M28Map.reftClosestFriendlyBase][2], tLZTeamData[M28Map.reftClosestFriendlyBase][3]}
-            end
             oSnipeTarget[M28UnitInfo.toBombersPlanningSnipe] = {}
             for iBomber, oBomber in tAvailableBombers do
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': will add bomber '..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..' to table of bombers planning snipe if it is still valid, is it valid='..tostring(M28UnitInfo.IsUnitValid(oBomber))) end
@@ -15458,9 +15458,9 @@ function PlanBomberSnipe(tAvailableBombers, oSnipeTarget, iTeam)
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Exiting loop as have issued the attack and either lost all bombers or lost the snipe target, is snipe target valid='..tostring(M28UnitInfo.IsUnitValid(oSnipeTarget))..'; Time='..GetGameTimeSeconds()) end
                         break
                     else
-                        --Dont want to attack yet - make sure bombers are all at their air subteam's rally point
+                        --Dont want to attack yet - keep bombers staged at the proactive air anchor.
                         for iBomber, oBomber in oSnipeTarget[M28UnitInfo.toBombersPlanningSnipe] do
-                            M28Orders.IssueTrackedMove(oBomber, (tRallyPointOverride or M28Team.tAirSubteamData[oBomber:GetAIBrain().M28AirSubteam][M28Team.reftAirSubRallyPoint]), 5, false, 'BombPrepSnipeR', true)
+                            M28Orders.IssueTrackedMove(oBomber, GetProactiveAirFallbackPoint(oBomber:GetAIBrain().M28AirSubteam), 5, false, 'BombPrepSnipeR', true)
                         end
                         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                         WaitSeconds(1)
@@ -15584,16 +15584,16 @@ function AssessPotentialBomberSnipeTargetsNowReachedT2Air(iTeam)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function ReturnBomberToRallyIfBombNotDropped(oBomber, iTicksToWait)
-    --Called if we want bomber to drop bomb and immediately return to rally
+function ReturnBomberToFallbackIfBombNotDropped(oBomber, iTicksToWait)
+    --Called if we want bomber to drop bomb and immediately return to the proactive fallback.
     WaitTicks(iTicksToWait)
-    local sFunctionRef = 'ReturnBomberToRallyIfBombNotDropped'
+    local sFunctionRef = 'ReturnBomberToFallbackIfBombNotDropped'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, is Bomber valid='..tostring( M28UnitInfo.IsUnitValid(oBomber))..'; Is special micro active='..tostring(oBomber[M28UnitInfo.refbSpecialMicroActive])..'; Time since last fired bomb='..GetGameTimeSeconds() - (oBomber[M28UnitInfo.refiLastBombFired] or 0)..'; Time='..GetGameTimeSeconds()) end
     if M28UnitInfo.IsUnitValid(oBomber) and not(oBomber[M28UnitInfo.refbSpecialMicroActive]) and GetGameTimeSeconds() - (oBomber[M28UnitInfo.refiLastBombFired] or 0) >= math.max(1, iTicksToWait * 0.1 + 0.1) then
-        M28Orders.IssueTrackedMove(oBomber, M28Team.tAirSubteamData[oBomber:GetAIBrain().M28AirSubteam][M28Team.reftAirSubRallyPoint], 10, false, 'FailBmR', false)
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': will send bomber to rally') end
+        M28Orders.IssueTrackedMove(oBomber, GetProactiveAirFallbackPoint(oBomber:GetAIBrain().M28AirSubteam), 10, false, 'FailBmR', false)
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': will send bomber to proactive fallback') end
     end
 end
 
@@ -15652,12 +15652,11 @@ function ApplyMexHuntingLogicToBomber(oBomber)
                             bFoundTarget = AttackTargetForMexHuntingBomber(oBomber, false, nil, M28UnitInfo.GetUnitHealthPercent(oBomber) >= 0.6)
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Tried attacking target with bomber, bFoundTarget='..tostring(bFoundTarget)) end
                             if not(bFoundTarget) then
-                                --clear target and return to rally
+                                --clear target and return to the proactive air anchor
                                 if M28UnitInfo.IsUnitValid(oBomber[refoStrikeDamageAssigned]) then
                                     RemoveAssignedAttacker(oBomber[refoStrikeDamageAssigned], oBomber)
                                 end
-                                --Return to air rally point
-                                local tRallyPoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+                                local tRallyPoint = GetProactiveAirFallbackPoint(iAirSubteam)
                                 iDistToRally = M28Utilities.GetDistanceBetweenPositions(tRallyPoint, oBomber:GetPosition())
                                 iAngleDif = M28Utilities.GetAngleDifference(M28Utilities.GetAngleFromAToB(oBomber:GetPosition(), tRallyPoint), M28UnitInfo.GetUnitFacingAngle(oBomber))
                                 if iDistToRally >= 75 and iAngleDif >= 15 and (iDistToRally >= 150 or iAngleDif >= 30) then
