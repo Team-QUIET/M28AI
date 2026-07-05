@@ -1519,6 +1519,114 @@ function GetRallyPointValueOfWaterZone(iTeam, tWZData, tWZTeamData)
     return iCurAAValue
 end
 
+function GetForwardAirAAScreenPoint(iTeam, iAirSubteam, tReferencePoint, bDontCheckPlayableArea)
+    local sFunctionRef = 'GetForwardAirAAScreenPoint'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    local iEnemyAirToGroundThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0
+    local iOurAirAAThreat = math.max(M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] or 0, M28Team.tTeamData[iTeam][M28Team.subrefiOurAirAAThreat] or 0)
+    if iOurAirAAThreat <= 0 then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return nil
+    end
+
+    local bHaveAirControl = M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]
+    local bFarBehindOnAir = M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]
+    local iMinModDist = 0.28
+    local iMaxModDist = 0.65
+    local iEnemyAirAAThreshold = math.max(80, iOurAirAAThreat * 0.45)
+    local iEnemyGroundAAThreshold = math.max(350, iOurAirAAThreat * 0.18)
+
+    if bHaveAirControl then
+        iMaxModDist = 0.78
+        iEnemyAirAAThreshold = math.max(300, iOurAirAAThreat * 0.9)
+        iEnemyGroundAAThreshold = math.max(900, iOurAirAAThreat * 0.35)
+    elseif bFarBehindOnAir then
+        iMaxModDist = 0.55
+        iEnemyAirAAThreshold = math.max(60, iOurAirAAThreat * 0.3)
+        iEnemyGroundAAThreshold = math.max(250, iOurAirAAThreat * 0.12)
+    elseif iEnemyAirToGroundThreat > 0 then
+        iMaxModDist = 0.72
+    end
+
+    local tBestScreenPoint
+    local tBestScreenData
+    local iBestScreenScore = -1000000
+
+    local function ConsiderScreenZone(tZoneData, tZoneTeamData, iPlateauOrPond, iZoneRef, bIsWaterZone)
+        local iModDist = tZoneTeamData[M28Map.refiModDistancePercent] or 0
+        if iModDist < iMinModDist or iModDist > iMaxModDist then return end
+        if not(bDontCheckPlayableArea) and not(M28Conditions.IsLocationInPlayableArea(tZoneData[M28Map.subrefMidpoint])) then return end
+
+        local iEnemyAirAAThreat = tZoneTeamData[M28Map.refiEnemyAirAAThreat] or 0
+        local iEnemyGroundAAThreat = tZoneTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0
+        if iEnemyAirAAThreat > iEnemyAirAAThreshold or iEnemyGroundAAThreat > iEnemyGroundAAThreshold then return end
+
+        local iFriendlyCombat = tZoneTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+        if bIsWaterZone then
+            iFriendlyCombat = math.max(iFriendlyCombat, (tZoneTeamData[M28Map.subrefWZThreatAlliedSurface] or 0) + (tZoneTeamData[M28Map.subrefWZThreatAlliedSubmersible] or 0) + (tZoneTeamData[M28Map.subrefWZThreatAlliedAntiNavy] or 0))
+        end
+        local iFriendlyAssetValue = tZoneTeamData[M28Map.subrefLZSValue] or 0
+        local iLocalAirToGroundThreat = tZoneTeamData[M28Map.refiEnemyAirToGroundThreat] or 0
+        local bHasForwardScreenReason = iFriendlyCombat >= 200 or iFriendlyAssetValue >= 80 or iLocalAirToGroundThreat > 0 or (iEnemyAirToGroundThreat > 0 and not(bIsWaterZone))
+        if not(bHasForwardScreenReason) then return end
+
+        local iReferenceDistancePenalty = 0
+        if M28Utilities.IsTableEmpty(tReferencePoint) == false then
+            iReferenceDistancePenalty = M28Utilities.GetDistanceBetweenPositions(tReferencePoint, tZoneData[M28Map.subrefMidpoint]) * 0.04
+        end
+
+        local iScreenScore = iModDist * 1600 + math.min(iFriendlyCombat, 3000) * 0.2 + math.min(iFriendlyAssetValue, 3000) * 0.12 + math.min(iLocalAirToGroundThreat, 2500) * 0.75 - iEnemyAirAAThreat * 0.45 - iEnemyGroundAAThreat * 0.22 - iReferenceDistancePenalty
+        if not(bIsWaterZone) then iScreenScore = iScreenScore + 80 end
+        if iEnemyAirToGroundThreat > 0 then iScreenScore = iScreenScore + 120 end
+        if iScreenScore > iBestScreenScore then
+            iBestScreenScore = iScreenScore
+            tBestScreenPoint = {tZoneData[M28Map.subrefMidpoint][1], tZoneData[M28Map.subrefMidpoint][2], tZoneData[M28Map.subrefMidpoint][3]}
+            tBestScreenData = {
+                bIsWaterZone = bIsWaterZone,
+                iPlateauOrPond = iPlateauOrPond,
+                iZoneRef = iZoneRef,
+                iScore = iScreenScore,
+                iModDist = iModDist,
+                iEnemyAirAAThreat = iEnemyAirAAThreat,
+                iEnemyGroundAAThreat = iEnemyGroundAAThreat,
+                iFriendlyCombat = iFriendlyCombat,
+                iFriendlyAssetValue = iFriendlyAssetValue,
+                iLocalAirToGroundThreat = iLocalAirToGroundThreat,
+            }
+        end
+    end
+
+    for iPlateau, tPlateauSubtable in M28Map.tAllPlateaus do
+        if M28Utilities.IsTableEmpty(tPlateauSubtable[M28Map.subrefPlateauLandZones]) == false then
+            for iLandZone, tLZData in tPlateauSubtable[M28Map.subrefPlateauLandZones] do
+                ConsiderScreenZone(tLZData, tLZData[M28Map.subrefLZTeamData][iTeam], iPlateau, iLandZone, false)
+            end
+        end
+    end
+    for iPond, tPondSubtable in M28Map.tPondDetails do
+        if M28Utilities.IsTableEmpty(tPondSubtable[M28Map.subrefPondWaterZones]) == false then
+            for iWaterZone, tWZData in tPondSubtable[M28Map.subrefPondWaterZones] do
+                ConsiderScreenZone(tWZData, tWZData[M28Map.subrefWZTeamData][iTeam], iPond, iWaterZone, true)
+            end
+        end
+    end
+
+    if bDebugMessages == true then
+        if tBestScreenPoint then
+            local sZoneType = 'LZ'
+            if tBestScreenData.bIsWaterZone then sZoneType = 'WZ' end
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': AIR_AA_FORWARD_SCREEN selected '..sZoneType..' P'..tBestScreenData.iPlateauOrPond..'Z'..tBestScreenData.iZoneRef..' point='..repru(tBestScreenPoint)..'; score='..math.floor(tBestScreenData.iScore)..'; modDist='..tBestScreenData.iModDist..'; teamA2G='..iEnemyAirToGroundThreat..'; localA2G='..tBestScreenData.iLocalAirToGroundThreat..'; enemyAirAA='..tBestScreenData.iEnemyAirAAThreat..'; enemyGroundAA='..tBestScreenData.iEnemyGroundAAThreat..'; friendlyCombat='..tBestScreenData.iFriendlyCombat..'; friendlyAssets='..tBestScreenData.iFriendlyAssetValue..'; ourAirAA='..iOurAirAAThreat..'; haveAirControl='..tostring(bHaveAirControl)..'; farBehind='..tostring(bFarBehindOnAir))
+        else
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': AIR_AA_FORWARD_SCREEN no valid screen point; teamA2G='..iEnemyAirToGroundThreat..'; ourAirAA='..iOurAirAAThreat..'; haveAirControl='..tostring(bHaveAirControl)..'; farBehind='..tostring(bFarBehindOnAir)..'; maxModDist='..iMaxModDist..'; airAAThreshold='..iEnemyAirAAThreshold..'; groundAAThreshold='..iEnemyGroundAAThreshold)
+        end
+    end
+
+    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return tBestScreenPoint, tBestScreenData
+end
+
 function IsThereAAInZone(tLZOrWZTeamData, bIgnoreAirAA, iGroundAAThreatThreshold, iAirAAThreatThreshold, bAddEnemyGroundAAToAirAAThreat, tOptionalDetailedGroundAAPositionCheck, iIncludeForDetailedIfWithinThisDistOfBeingInRange, oOptionalBomberForGroundAAThreat)
     local sFunctionRef = 'IsThereAAInZone'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
@@ -2750,6 +2858,18 @@ function UpdateAirRallyAndSupportPoints(iTeam, iAirSubteam)
         --Check that we have a location with a valid zone (if we have a support rally point)
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tSupportRallyPoint='..repru(tSupportRallyPoint)..'; tPreferredRallyPoint='..repru(tPreferredRallyPoint)) end
         if not(tSupportRallyPoint) then
+            -- CGD cleanup: idle AirAA forward screening is owned here; removed the later unreachable strategic-zone fallback.
+            local tForwardAirAAScreenPoint, tForwardAirAAScreenData = GetForwardAirAAScreenPoint(iTeam, iAirSubteam, tPreferredRallyPoint, bDontCheckPlayableArea)
+            if M28Utilities.IsTableEmpty(tForwardAirAAScreenPoint) == false then
+                tSupportRallyPoint = tForwardAirAAScreenPoint
+                if bDebugMessages == true then
+                    local sZoneType = 'LZ'
+                    if tForwardAirAAScreenData.bIsWaterZone then sZoneType = 'WZ' end
+                    M28Profiler.DebugLog(tDebugContext, sFunctionRef..': AIR_AA_FORWARD_SCREEN using forward idle AirAA support point from '..sZoneType..' P'..tForwardAirAAScreenData.iPlateauOrPond..'Z'..tForwardAirAAScreenData.iZoneRef..' instead of base fallback; point='..repru(tSupportRallyPoint)..'; score='..math.floor(tForwardAirAAScreenData.iScore))
+                end
+            end
+        end
+        if not(tSupportRallyPoint) then
             if M28Utilities.IsTableEmpty(tPreferredRallyPoint) == false and (bDontCheckPlayableArea or M28Utilities.IsTableEmpty(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]) or M28Conditions.IsLocationInPlayableArea(tPreferredRallyPoint)) then
                 M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint] = tPreferredRallyPoint
             else
@@ -3010,63 +3130,6 @@ function UpdateAirRallyAndSupportPoints(iTeam, iAirSubteam)
             if iTorpDistToRally >= 50 and (not(bConsideredForT3Bomber) or M28Utilities.GetDistanceBetweenPositions(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontT3Bomber]:GetPosition(), M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]) + 40 < iTorpDistToRally) then
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will consider a support point for torpedo bombers') end
                 ConsiderChangingSupportPointToSupportBomber(M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontAttackingTorpBomber], true)
-            end
-        end
-
-        --If no priority units to protect, try to find strategic zones with friendly presence for air support
-        --This provides flexible air coverage in early game before we have high-value targets
-        if M28Utilities.IsTableEmpty(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint]) and M28Utilities.IsTableEmpty(tUnitsToProtect) then
-            local tBestStrategicZoneMidpoint = nil
-            local iBestModDist = 0
-            local iBestFriendlyThreat = 0
-            --Search land zones for friendly presence in forward positions
-            for iPlateau, tPlateauSubtable in M28Map.tAllPlateaus do
-                if M28Utilities.IsTableEmpty(tPlateauSubtable[M28Map.subrefPlateauLandZones]) == false then
-                    for iLandZone, tLZData in tPlateauSubtable[M28Map.subrefPlateauLandZones] do
-                        local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
-                        if tLZTeamData then
-                            local iFriendlyThreat = tLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
-                            local iModDist = tLZTeamData[M28Map.refiModDistancePercent] or 0
-                            --Look for zones with significant friendly presence (200+ threat) in forward positions (30-70% mod dist)
-                            if iFriendlyThreat >= 200 and iModDist >= 0.3 and iModDist <= 0.7 then
-                                --Prefer zones with more forward position and higher friendly threat
-                                local iZoneScore = iModDist * 2 + (iFriendlyThreat / 1000)
-                                if iZoneScore > iBestModDist * 2 + (iBestFriendlyThreat / 1000) then
-                                    iBestModDist = iModDist
-                                    iBestFriendlyThreat = iFriendlyThreat
-                                    tBestStrategicZoneMidpoint = {tLZData[M28Map.subrefMidpoint][1], tLZData[M28Map.subrefMidpoint][2], tLZData[M28Map.subrefMidpoint][3]}
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Found strategic land zone at plateau='..iPlateau..' LZ='..iLandZone..' with modDist='..iModDist..' threat='..iFriendlyThreat) end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-            --Also check water zones for naval presence
-            for iPond, tPondData in M28Map.tPondDetails do
-                if M28Utilities.IsTableEmpty(tPondData[M28Map.subrefPondWaterZones]) == false then
-                    for iWZ, tWZData in tPondData[M28Map.subrefPondWaterZones] do
-                        local tWZTeamData = tWZData[M28Map.subrefWZTeamData][iTeam]
-                        if tWZTeamData then
-                            local iFriendlyThreat = tWZTeamData[M28Map.subrefWZAllyNavalThreat] or 0
-                            local iModDist = tWZTeamData[M28Map.refiModDistancePercent] or 0
-                            --Similar criteria for water zones - use naval threat
-                            if iFriendlyThreat >= 200 and iModDist >= 0.3 and iModDist <= 0.7 then
-                                local iZoneScore = iModDist * 2 + (iFriendlyThreat / 1000)
-                                if iZoneScore > iBestModDist * 2 + (iBestFriendlyThreat / 1000) then
-                                    iBestModDist = iModDist
-                                    iBestFriendlyThreat = iFriendlyThreat
-                                    tBestStrategicZoneMidpoint = {tWZData[M28Map.subrefMidpoint][1], tWZData[M28Map.subrefMidpoint][2], tWZData[M28Map.subrefMidpoint][3]}
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Found strategic water zone at pond='..iPond..' WZ='..iWZ..' with modDist='..iModDist..' threat='..iFriendlyThreat) end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-            if tBestStrategicZoneMidpoint then
-                M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint] = tBestStrategicZoneMidpoint
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Set air support point to strategic zone at '..repru(tBestStrategicZoneMidpoint)..' with modDist='..iBestModDist..' threat='..iBestFriendlyThreat) end
             end
         end
 
