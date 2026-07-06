@@ -976,18 +976,18 @@ function TrackTemporaryUnitMicro(oUnit, iSecondsActiveFor, sOptionalAdditionalTr
     if iSecondsActiveFor == 0 then
         --Do nothing
     else
-        ForkThread(ForkedResetMicroFlag, oUnit, iSecondsActiveFor - 0.01, sOptionalAdditionalTrackingVar)
+        ForkThread(ForkedResetMicroFlag, oUnit, math.ceil((iSecondsActiveFor - 0.01) * 10), sOptionalAdditionalTrackingVar)
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function ForkedResetMicroFlag(oUnit, iTimeToWait, sOptionalAdditionalTrackingVar, bCalledFromResetChecker)
+function ForkedResetMicroFlag(oUnit, iTicksToWait, sOptionalAdditionalTrackingVar, bCalledFromResetChecker)
     local sFunctionRef = 'ForkedResetMicroFlag'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
 
     oUnit[M28UnitInfo.refbSpecialMicroActive] = true --As if we are calling an action for the micro that clears commands, then that will reset the micro flag
-    if iTimeToWait > 0 then
-        WaitSeconds(iTimeToWait)
+    if iTicksToWait > 0 then
+        WaitTicks(iTicksToWait)
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     if M28UnitInfo.IsUnitValid(oUnit) then
@@ -1006,7 +1006,7 @@ function ForkedResetMicroFlag(oUnit, iTimeToWait, sOptionalAdditionalTrackingVar
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will try waiting one more cycle to see if we need to reset the flag unless already got an active reset checker, MicroResetChecker='..tostring(oUnit[refbMicroResetChecker] or false)) end
             if not(oUnit[refbMicroResetChecker]) or bCalledFromResetChecker then
                 oUnit[refbMicroResetChecker] = true
-                ForkThread(ForkedResetMicroFlag,oUnit, math.max(oUnit[M28UnitInfo.refiGameTimeToResetMicroActive] - GetGameTimeSeconds() - 0.01, 0.2), sOptionalAdditionalTrackingVar, true)
+                ForkThread(ForkedResetMicroFlag,oUnit, math.ceil(math.max(oUnit[M28UnitInfo.refiGameTimeToResetMicroActive] - GetGameTimeSeconds() - 0.01, 0.2) * 10), sOptionalAdditionalTrackingVar, true)
             end
         end
     end
@@ -1832,7 +1832,7 @@ function MoveAwayFromFactory(oUnit, oFactory)
                     if EntityCategoryContains(M28UnitInfo.refCategoryQuantumGateway, oFactory.UnitId) then iMicroDelay = 4 --done as when was 1.5 would have RAS SACUs given new orders like GE template just after being built and getting stuck
                     elseif EntityCategoryContains(M28UnitInfo.refCategoryNavalFactory, oFactory.UnitId) and EntityCategoryContains(M28UnitInfo.categories.TECH3 * M28UnitInfo.refCategoryNavalSurface, oUnit.UnitId) then iMicroDelay = 4
                     end
-                    TrackTemporaryUnitMicro(oUnit, 1.5)
+                    TrackTemporaryUnitMicro(oUnit, iMicroDelay)
                 end
 
             end

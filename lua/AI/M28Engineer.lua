@@ -24763,7 +24763,7 @@ function TrackEngineerWithHighReclaimOrder(oEngineer, oWreck, iMassAbortThreshol
         if not(oEngineer:IsUnitState('Reclaiming')) then M28Orders.IssueTrackedClearCommands(oEngineer) end
         if oEngineer[M28UnitInfo.refbSpecialMicroActive] then
             oEngineer[M28UnitInfo.refbSpecialMicroActive] = false
-            ForkThread(M28Micro.ForkedResetMicroFlag, oEngineer, 0.01) --redundancy
+            ForkThread(M28Micro.ForkedResetMicroFlag, oEngineer, 1) --redundancy
         end
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished clearing commands and micro status from engineer, time='..GetGameTimeSeconds()) end
     end

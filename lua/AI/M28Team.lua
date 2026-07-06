@@ -230,6 +230,7 @@ tTeamData = {} --[x] is the aiBrain.M28Team number - stores certain team-wide in
         subrefiMusteringTotalThreat = 'MustTotThr' --Total threat of units mustering
         subrefiMusteringStartTime = 'MustStTm' --Gametimeseconds when mustering started
         subrefiMusteringLastUpdateTime = 'MustUpdTm' --Gametimeseconds when mustering was last updated
+        subrefiMusteringLastTargetChangeTime = 'MustTgtTm' --Gametimeseconds when the mustering target last changed
     refiLastTimeNoShieldTargetsByIsland = 'M28TeamLastTimeNoShieldTargets' --[x] is the island ref (i.e. navutils.getlabel(M28Map.refPathingTypeLand...), returns gametime seconds
     refiLastTimeNoShieldBoatTargetsByPond = 'M28TeamLastTimeNoShieldBoatTargets' --[x] is the pond ref, returns gametimeseconds
     refiLastTimeNoStealthTargetsByPlateau = 'M28TeamLastTimeNoStealthTargets' --[x] is the plateau ref, returns gametime seconds
@@ -347,6 +348,8 @@ tAirSubteamData = {}
     reftAirSubRallyPoint = 'M28ASTRally' --Contains the location of the air subteam's rally point
     refbOrigRallyOutsidePlayableArea = 'M28AROPa' --true if are outside playable area for air rally point
     reftAirSubSupportPoint = 'M28ASTSuppR' --Contains the location for airaa units to go to support a priority unit
+    reftAirAAIdleAnchor = 'M28AAIdleAnc' --Latched idle AirAA anchor, so idle fighters do not chase every support point recalculation
+    refiAirAAIdleAnchorTime = 'M28AAIdleTm' --Game time the idle AirAA anchor was last updated
     reftLastViaFromFrontGunshipPoint = 'M28ASTVfgp' --tViaFromFrontGunshipPoint from last cycle (nil if wasnt used)
     reftLastViaRallyPoint = 'M28ASTVrlp' --tViaFromRallyPoint from last cycle (nil if wasnt used)
     refbIgnoreGunshipViaPoints = 'M28ASTIgGvp' --true if we no longer think we should use a gunship via point, so will ignore the logic for a while
@@ -367,7 +370,6 @@ tAirSubteamData = {}
     toFrontT3Bomber = 'M28FrnT3' --furthest t3 bomber from our air rally point - so can consider as a priority target to defend
     toFrontAttackingTorpBomber = 'M28FrnTrp' --If we are attacking with torp bombers then this should record the front torp bomber
     reftoActiveBomberTargets = 'M28BmbTr' --table of enemy units currently being targeted by bombers (gets reset each air cycle and repopulated based on unavailable bombers and attack orders given to bombers)
-    refiLastAirAASupportPointAngleAdjust = 'M28SupAng' --will adjust the support point slightly to try and keep asfs moving in a similar direction
     refiTimeLastAirDebugLog = 'M28AirDbgTm' --gametimeseconds that we last logged air system debug info for this air subteam (cooldown tracking)
     refiTimeLastAirCycleSummaryLog = 'M28AirCycSumTm' --separate cooldown for AIR_CYCLE_SUMMARY log in AirSubteamOverseer
 
@@ -6610,7 +6612,8 @@ function InitializeMustering(iTeam, iPlateau, iTargetLZ, iEnemyThreat)
         [subreftMusteringUnits] = {},
         [subrefiMusteringTotalThreat] = 0,
         [subrefiMusteringStartTime] = GetGameTimeSeconds(),
-        [subrefiMusteringLastUpdateTime] = GetGameTimeSeconds()
+        [subrefiMusteringLastUpdateTime] = GetGameTimeSeconds(),
+        [subrefiMusteringLastTargetChangeTime] = GetGameTimeSeconds()
     }
 
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Initialized mustering for target LZ '..iTargetLZ..' at mustering zone '..iMusteringZone..' with enemy threat '..iEnemyThreat) end
@@ -6871,6 +6874,7 @@ function CommitMusteredArmy(iTeam, iPlateau)
 
     --Issue move orders to all units
     for _, oUnit in toUnitsToCommit do
+        M28Land.SetLandCombatIntent(oUnit, iPlateau, iTargetLZ, M28Land.iMusterCommitIntentSeconds, 'MusterCommit', true)
         M28Orders.IssueSmartMove(oUnit, tTargetMidpoint, 6, false, 'MustAtk'..iTargetLZ)
     end
 
@@ -6904,6 +6908,12 @@ function UpdateMusteringTarget(iTeam, iPlateau, iNewTargetLZ, iNewEnemyThreat)
     --Only update if this is a more urgent target (closer or higher threat)
     local iCurrentTargetLZ = tMusterData[subrefiMusteringTargetLZ]
     if iNewTargetLZ ~= iCurrentTargetLZ then
+        local iTimeSinceTargetChange = GetGameTimeSeconds() - (tMusterData[subrefiMusteringLastTargetChangeTime] or tMusterData[subrefiMusteringStartTime])
+        if iTimeSinceTargetChange < 8 then
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Keeping current mustering target '..iCurrentTargetLZ..' instead of switching to '..iNewTargetLZ..' due to recent target change, iTimeSinceTargetChange='..iTimeSinceTargetChange) end
+            return false
+        end
+
         --Check if new target is more urgent
         local iMusteringZone = tMusterData[subrefiMusteringZoneLZ]
         local iDistToCurrent = M28Map.GetTravelDistanceBetweenLandZones(iPlateau, iMusteringZone, iCurrentTargetLZ) or 10000
@@ -6912,6 +6922,7 @@ function UpdateMusteringTarget(iTeam, iPlateau, iNewTargetLZ, iNewEnemyThreat)
         if iDistToNew < iDistToCurrent * 0.7 or iNewEnemyThreat > tMusterData[subrefiMusteringEnemyThreat] * 1.5 then
             tMusterData[subrefiMusteringTargetLZ] = iNewTargetLZ
             tMusterData[subrefiMusteringEnemyThreat] = math.max(tMusterData[subrefiMusteringEnemyThreat], iNewEnemyThreat)
+            tMusterData[subrefiMusteringLastTargetChangeTime] = GetGameTimeSeconds()
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Updated mustering target from '..iCurrentTargetLZ..' to '..iNewTargetLZ) end
             return true
         end

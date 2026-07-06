@@ -88,6 +88,9 @@ iReclaimWantedForTransportDrop = 250 --i.e. amount of reclaim in amss to conside
 local iUrgentEscortLingerDuration = 15
 local iUrgentEscortFocusDistance = 135
 local iUrgentEscortExtendedFocusDistance = 180
+local iAirAAIdleAnchorLockSeconds = 8
+local iAirAAIdleReissueDistance = 35
+local iAirAAMoveTargetReissueDistance = 20
 
 local function IsUrgentEscortPriorityAirUnit(oUnit)
     return M28UnitInfo.IsUnitValid(oUnit) and EntityCategoryContains(M28UnitInfo.refCategoryBomber + M28UnitInfo.refCategoryTorpBomber + M28UnitInfo.refCategoryGunship + M28UnitInfo.refCategoryCzar + M28UnitInfo.refCategoryRestorer, oUnit.UnitId)
@@ -494,6 +497,8 @@ function AirSubteamInitialisation(iTeam, iAirSubteam)
     end
     M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint] = M28Map.GetPlayerStartPosition(oFirstBrain)
     M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint] = M28Map.GetPlayerStartPosition(oFirstBrain)
+    M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirAAIdleAnchor] = M28Map.GetPlayerStartPosition(oFirstBrain)
+    M28Team.tAirSubteamData[iAirSubteam][M28Team.refiAirAAIdleAnchorTime] = 0
     ForkThread(AirSubteamOverseer, iTeam, iAirSubteam)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
@@ -1632,6 +1637,20 @@ function GetProactiveAirFallbackPoint(iAirSubteam)
         return M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint]
     end
     return M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+end
+
+local function GetLatchedAirAAIdleAnchor(iAirSubteam, tAnchorCandidate)
+    local tAirSubteamData = M28Team.tAirSubteamData[iAirSubteam]
+    local tCurrentAnchor = tAirSubteamData[M28Team.reftAirAAIdleAnchor]
+    if M28Utilities.IsTableEmpty(tAnchorCandidate) then return tCurrentAnchor end
+
+    local iCurTime = GetGameTimeSeconds()
+    if M28Utilities.IsTableEmpty(tCurrentAnchor) or iCurTime - (tAirSubteamData[M28Team.refiAirAAIdleAnchorTime] or -100) >= iAirAAIdleAnchorLockSeconds then
+        tCurrentAnchor = {tAnchorCandidate[1], tAnchorCandidate[2], tAnchorCandidate[3]}
+        tAirSubteamData[M28Team.reftAirAAIdleAnchor] = tCurrentAnchor
+        tAirSubteamData[M28Team.refiAirAAIdleAnchorTime] = iCurTime
+    end
+    return tCurrentAnchor
 end
 
 function IsThereAAInZone(tLZOrWZTeamData, bIgnoreAirAA, iGroundAAThreatThreshold, iAirAAThreatThreshold, bAddEnemyGroundAAToAirAAThreat, tOptionalDetailedGroundAAPositionCheck, iIncludeForDetailedIfWithinThisDistOfBeingInRange, oOptionalBomberForGroundAAThreat)
@@ -3750,7 +3769,7 @@ function TargetUnitWithAirAA(oAirAA, oEnemyUnit, iOptionalClosestDist)
                     M28Orders.IssueTrackedAttack(oAirAA, oEnemyUnit, false, 'AAAA', false)
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': issued tracked attack') end
                 else
-                    M28Orders.IssueTrackedMove(oAirAA, oEnemyUnit:GetPosition(), 3, false, 'AAAM', false)
+                    M28Orders.IssueTrackedMove(oAirAA, oEnemyUnit:GetPosition(), iAirAAMoveTargetReissueDistance, false, 'AAAM', false)
                     if oAirAA[M28Orders.reftiLastOrders][oAirAA[M28Orders.refiOrderCount]] then --if human player with M28 not enabled on the unit this will cause an error otherwise
                         oAirAA[M28Orders.reftiLastOrders][oAirAA[M28Orders.refiOrderCount]][M28Orders.subrefoOrderUnitTarget] = oEnemyUnit
                     end
@@ -5921,8 +5940,7 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                                 end
 
                                 if M28Utilities.IsTableEmpty(tAvailableAirAA) == false then
-                                    --Alternate where on the move point we will gather at, to try and make it more likely asfs will be facing the same direction when idling
-                                    local tIdleAnchor = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint]
+                                    local tIdleAnchorCandidate = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint]
                                     local tEscortIdlePoint, oEscortIdleBomber = GetActiveBomberEscortPoint()
                                     if M28Utilities.IsTableEmpty(tEscortIdlePoint) == false then
                                         local bUseBomberEscortIdlePoint = not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir])
@@ -5930,15 +5948,10 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                                             bUseBomberEscortIdlePoint = M28Utilities.GetDistanceBetweenPositions(oEscortIdleBomber:GetPosition(), M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint]) <= 100
                                         end
                                         if bUseBomberEscortIdlePoint then
-                                            tIdleAnchor = tEscortIdlePoint
+                                            tIdleAnchorCandidate = tEscortIdlePoint
                                         end
                                     end
-                                    local iAngleAdjust = (M28Team.tAirSubteamData[iAirSubteam][M28Team.refiLastAirAASupportPointAngleAdjust] or 0) + 15
-                                    if iAngleAdjust >= 360 then iAngleAdjust = iAngleAdjust - 360 end
-                                    M28Team.tAirSubteamData[iAirSubteam][M28Team.refiLastAirAASupportPointAngleAdjust] = iAngleAdjust
-                                    local iDistToMove = 20 --asf max speed is 22
-                                    local tMovePoint = M28Utilities.MoveInDirection(tIdleAnchor, iAngleAdjust, iDistToMove, true, false, M28Map.bIsCampaignMap)
-                                    if bDebugMessages == true and tMovePoint[1] > 10000 then LOG(sFunctionRef..': tMovePoint='..repru(tMovePoint)..'; IdleAnchor='..repru(tIdleAnchor)..'; iAngleAdjust='..iAngleAdjust..'; iDistToMove='..iDistToMove..'; Time='..GetGameTimeSeconds()) end
+                                    local tMovePoint = GetLatchedAirAAIdleAnchor(iAirSubteam, tIdleAnchorCandidate)
                                     if M28Utilities.IsTableEmpty(tMovePoint) then
                                         if M28Utilities.IsTableEmpty(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint]) == false then tMovePoint = {M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint][1],M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint][2],M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint][3]} end
                                         if M28Utilities.IsTableEmpty(tMovePoint) then
@@ -5959,12 +5972,13 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                                     end
                                     local iIdleAirAACount = 0
                                     for iUnit, oUnit in tAvailableAirAA do
-                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering idle airAA order for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' Unit fuel='..oUnit:GetFuelRatio()..'; Unit health%='..M28UnitInfo.GetUnitHealthPercent(oUnit)..'; support point='..repru(tMovePoint)..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oUnit))..'; bConsiderCtrlK='..tostring(bConsiderCtrlK)..'; oUnit.Dead='..tostring(oUnit.Dead or false)) end
+                                        local tUnitMovePoint = M28Orders.GetSpreadPositionForUnit(oUnit, tMovePoint, 20)
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering idle airAA order for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' Unit fuel='..oUnit:GetFuelRatio()..'; Unit health%='..M28UnitInfo.GetUnitHealthPercent(oUnit)..'; support point='..repru(tUnitMovePoint)..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oUnit))..'; bConsiderCtrlK='..tostring(bConsiderCtrlK)..'; oUnit.Dead='..tostring(oUnit.Dead or false)) end
                                         if not(oUnit.Dead) then --redundancy
                                             if bConsiderCtrlK and EntityCategoryContains(categories.TECH1, oUnit.UnitId) then
                                                 bConsiderCtrlK = false
                                                 local bMoveUnitToRally = false
-                                                if M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tMovePoint) >= 10 then
+                                                if M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tUnitMovePoint) >= 10 then
                                                     local tUnitZoneData, tUnitTeamZoneData = M28Map.GetLandOrWaterZoneData(oUnit:GetPosition(), true, iTeam)
                                                     if not(tUnitTeamZoneData[M28Map.subrefLZbCoreBase]) then bMoveUnitToRally = true end
                                                 end
@@ -5984,7 +5998,7 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                                                 end
                                             else
                                                 if M28Utilities.IsTableEmpty(tMovePoint) == false then
-                                                    M28Orders.IssueTrackedMove(oUnit, tMovePoint, 10, false, 'AAIdle', false)
+                                                    M28Orders.IssueTrackedMove(oUnit, tUnitMovePoint, iAirAAIdleReissueDistance, false, 'AAIdle', false)
                                                     iIdleAirAACount = iIdleAirAACount + 1
                                                 end
                                             end
@@ -10541,6 +10555,13 @@ function UpdateScoutingShortlist(iTeam)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+local function GetAirScoutTargetMidpoint(iPlateauOrZero, iLZOrWZRef)
+    if iPlateauOrZero == 0 then
+        return M28Map.tPondDetails[M28Map.tiPondByWaterZone[iLZOrWZRef]][M28Map.subrefPondWaterZones][iLZOrWZRef][M28Map.subrefMidpoint]
+    end
+    return M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iLZOrWZRef][M28Map.subrefMidpoint]
+end
+
 function ManageAirScouts(iTeam, iAirSubteam)
     local sFunctionRef = 'ManageAirScouts'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
@@ -10672,31 +10693,42 @@ function ManageAirScouts(iTeam, iAirSubteam)
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..'; Considering air scout with iUnit ref='..iUnit..'; Air scout='..tAvailableScouts[iUnit].UnitId..M28UnitInfo.GetUnitLifetimeCount(tAvailableScouts[iUnit])..'; Dist to air rally point='..tiScoutRefByDistance[iUnit]) end
                     if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftLandAndWaterZoneScoutingShortlist]) == false then
 
-
-                        iClosestDist = 100000
-                        for iEntry, tPlateauAndZoneRef in M28Team.tTeamData[iTeam][M28Team.subreftLandAndWaterZoneScoutingShortlist] do
-                            local tMidpoint
-                            if tPlateauAndZoneRef[1] == 0 then
-                                --Waterzone
-                                tMidpoint = M28Map.tPondDetails[M28Map.tiPondByWaterZone[tPlateauAndZoneRef[2]]][M28Map.subrefPondWaterZones][tPlateauAndZoneRef[2]][M28Map.subrefMidpoint]
-                            else
-                                tMidpoint = M28Map.tAllPlateaus[tPlateauAndZoneRef[1]][M28Map.subrefPlateauLandZones][tPlateauAndZoneRef[2]][M28Map.subrefMidpoint]
+                        local bKeptExistingTarget = false
+                        local tAssignedTarget = tAvailableScouts[iUnit][reftScoutAssignedPlateauAndZoneRef]
+                        if tAssignedTarget then
+                            for iEntry, tPlateauAndZoneRef in M28Team.tTeamData[iTeam][M28Team.subreftLandAndWaterZoneScoutingShortlist] do
+                                if tPlateauAndZoneRef[1] == tAssignedTarget[1] and tPlateauAndZoneRef[2] == tAssignedTarget[2] then
+                                    local tAssignedMidpoint = GetAirScoutTargetMidpoint(tAssignedTarget[1], tAssignedTarget[2])
+                                    tClosestMidpoint = {tAssignedMidpoint[1], tAssignedMidpoint[2], tAssignedMidpoint[3]}
+                                    M28Orders.IssueTrackedMove(tAvailableScouts[iUnit], tClosestMidpoint, 10, false, 'ASP'..tAssignedTarget[1]..'Z'..tAssignedTarget[2], false)
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Keeping scout assigned to P'..tAssignedTarget[1]..'Z'..tAssignedTarget[2]) end
+                                    table.remove(M28Team.tTeamData[iTeam][M28Team.subreftLandAndWaterZoneScoutingShortlist], iEntry)
+                                    bKeptExistingTarget = true
+                                    break
+                                end
                             end
-                            iCurDist = M28Utilities.GetDistanceBetweenPositions(tMidpoint, tAvailableScouts[iUnit]:GetPosition())
-                            if iCurDist < iClosestDist then
-                                iClosestDist = iCurDist
-                                iClosestPlateauOrZero = tPlateauAndZoneRef[1]
-                                iClosestLZOrWZRef = tPlateauAndZoneRef[2]
-                                tClosestMidpoint = {tMidpoint[1], tMidpoint[2], tMidpoint[3]}
-                                iClosestShortlistRef = iEntry
-                            end
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if P'..tPlateauAndZoneRef[1]..'Z'..tPlateauAndZoneRef[2]..' is closest to the scout from the scouting shortlist, iCurDist='..iCurDist..'; iClosestDist='..iClosestDist) end
                         end
-                        M28Orders.IssueTrackedMove(tAvailableScouts[iUnit], tClosestMidpoint, 10, false, 'ASP'..iClosestPlateauOrZero..'Z'..iClosestLZOrWZRef, false)
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Telling scout to go to P'..iClosestPlateauOrZero..'Z'..iClosestLZOrWZRef..'; iClosestDist='..iClosestDist) end
-                        --Update tracking
-                        tAvailableScouts[iUnit][reftScoutAssignedPlateauAndZoneRef] = {[1] = iClosestPlateauOrZero, [2] = iClosestLZOrWZRef}
-                        table.remove(M28Team.tTeamData[iTeam][M28Team.subreftLandAndWaterZoneScoutingShortlist], iClosestShortlistRef)
+
+                        if not(bKeptExistingTarget) then
+                            iClosestDist = 100000
+                            for iEntry, tPlateauAndZoneRef in M28Team.tTeamData[iTeam][M28Team.subreftLandAndWaterZoneScoutingShortlist] do
+                                local tMidpoint = GetAirScoutTargetMidpoint(tPlateauAndZoneRef[1], tPlateauAndZoneRef[2])
+                                iCurDist = M28Utilities.GetDistanceBetweenPositions(tMidpoint, tAvailableScouts[iUnit]:GetPosition())
+                                if iCurDist < iClosestDist then
+                                    iClosestDist = iCurDist
+                                    iClosestPlateauOrZero = tPlateauAndZoneRef[1]
+                                    iClosestLZOrWZRef = tPlateauAndZoneRef[2]
+                                    tClosestMidpoint = {tMidpoint[1], tMidpoint[2], tMidpoint[3]}
+                                    iClosestShortlistRef = iEntry
+                                end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if P'..tPlateauAndZoneRef[1]..'Z'..tPlateauAndZoneRef[2]..' is closest to the scout from the scouting shortlist, iCurDist='..iCurDist..'; iClosestDist='..iClosestDist) end
+                            end
+                            M28Orders.IssueTrackedMove(tAvailableScouts[iUnit], tClosestMidpoint, 10, false, 'ASP'..iClosestPlateauOrZero..'Z'..iClosestLZOrWZRef, false)
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Telling scout to go to P'..iClosestPlateauOrZero..'Z'..iClosestLZOrWZRef..'; iClosestDist='..iClosestDist) end
+                            --Update tracking
+                            tAvailableScouts[iUnit][reftScoutAssignedPlateauAndZoneRef] = {[1] = iClosestPlateauOrZero, [2] = iClosestLZOrWZRef}
+                            table.remove(M28Team.tTeamData[iTeam][M28Team.subreftLandAndWaterZoneScoutingShortlist], iClosestShortlistRef)
+                        end
                     else
                         table.insert(tScoutsWithNoDestination, tAvailableScouts[iUnit])
                     end
