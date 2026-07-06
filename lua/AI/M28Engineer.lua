@@ -12730,14 +12730,14 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
             end
         end
 
-        if bReserveLandExperimental and not(bQueuedLandExperimentalReserve) and not(iActionToAssign == refActionBuildLandExperimental) and iOriginalTotalBuildPowerWanted > 0 then
+        if bReserveLandExperimental and not(bQueuedLandExperimentalReserve) and not(bIsWaterZone) and not(iActionToAssign == refActionBuildLandExperimental) and iOriginalTotalBuildPowerWanted > 0 then
             local iLandExperimentalReserveBP = math.max(35, math.min(90, math.floor(iOriginalTotalBuildPowerWanted * 0.35)))
-            if bHaveLowMass then iLandExperimentalReserveBP = math.min(iLandExperimentalReserveBP, 45) end
-            if bHaveLowPower then iLandExperimentalReserveBP = math.min(iLandExperimentalReserveBP, 35) end
+            if M28Conditions.TeamHasLowMass(iTeam) then iLandExperimentalReserveBP = math.min(iLandExperimentalReserveBP, 45) end
+            if M28Conditions.HaveLowPower(iTeam) then iLandExperimentalReserveBP = math.min(iLandExperimentalReserveBP, 35) end
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Queueing supplemental land experimental reserve, iActionToAssign='..iActionToAssign..'; iLandExperimentalReserveBP='..iLandExperimentalReserveBP..'; iPlateauOrPond='..iPlateauOrPond..'; iLandOrWaterZone='..iLandOrWaterZone) end
             if iLandExperimentalReserveBP > 0 then
                 bQueuedLandExperimentalReserve = true
-                HaveActionToAssign(refActionBuildLandExperimental, 3, iLandExperimentalReserveBP, nil, false, true)
+                ConsiderActionToAssign(refActionBuildLandExperimental, 3, iLandExperimentalReserveBP, nil, false, true, iCurPriority, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrPond, iLandOrWaterZone, toAvailableEngineersByTech, toAssignedEngineers, false, nil, nil, nil)
             end
         end
 
