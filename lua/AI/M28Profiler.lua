@@ -566,8 +566,8 @@ local iTimeAtSingleTickStart = 0
 
 
 function LogGamePerformanceData()
-    --Call via forkthread at start of game (duplicate of performance check condition to be extra sure we only run this when intended)
-    if M28Config.M28RunGamePerformanceCheck and not(GamePerformanceTrackerIsActive) then
+    --This thread only reads local wall time and game time, then writes local logs. It never changes sim state.
+    if (M28Config.M28RunGamePerformanceCheck or M28Config.M28RunMicroStutterCheck) and not(GamePerformanceTrackerIsActive) then
         GamePerformanceTrackerIsActive = true
         local iTimeAtMainTickStart = 0
         local iIntervalInTicks = 100 --Every 10s
@@ -578,25 +578,47 @@ function LogGamePerformanceData()
         local iFreeze1Count = 0
         local iFreeze1Threshold = 0.1
         local iTimeAtSingleTickStart = 0
-
-
+        local iMicroStutterSummaryTicks = M28Config.M28MicroStutterSummaryTicks
+        local iMicroStutterTickThreshold = M28Config.M28MicroStutterTickThreshold
+        local iMicroStutterTicksSinceSummary = 0
+        local iMicroStutterTimeAtSummaryStart = 0
 
         while ArmyBrains do
             iTimeAtSingleTickStart = GetSystemTimeSecondsOnlyForProfileUse()
             WaitTicks(1)
             iCurTickCycle = iCurTickCycle - 1
-            if GetSystemTimeSecondsOnlyForProfileUse() - iTimeAtSingleTickStart > iFreeze1Threshold then
+            local iTimeAfterTick = GetSystemTimeSecondsOnlyForProfileUse()
+            local iTickWallTime = iTimeAfterTick - iTimeAtSingleTickStart
+            if iTickWallTime > iFreeze1Threshold then
                 iFreeze1Count = iFreeze1Count + 1
             end
 
-            if iCurTickCycle <= 0 then
-                iCurUnitCount = 0
-                for iBrain, oBrain in ArmyBrains do
-                    iCurUnitCount = iCurUnitCount + oBrain:GetCurrentUnits(categories.ALLUNITS - categories.BENIGN)
+            if M28Config.M28RunMicroStutterCheck then
+                if iMicroStutterTimeAtSummaryStart == 0 then iMicroStutterTimeAtSummaryStart = iTimeAtSingleTickStart end
+                iMicroStutterTicksSinceSummary = iMicroStutterTicksSinceSummary + 1
+
+                if iTickWallTime > iMicroStutterTickThreshold then
+                    LOG('SimTickStall: GameTick='..math.floor(GetGameTimeSeconds() * 10)..'; WallTime='..iTickWallTime..'; ActualTicksPerSecond='..(1 / iTickWallTime)..'; Threshold='..iMicroStutterTickThreshold)
                 end
-                LOG('LogGamePerformanceData: GameTime='..math.floor(GetGameTimeSeconds())..' Time taken='..GetSystemTimeSecondsOnlyForProfileUse() - iTimeAtMainTickStart..'; Unit Count='..iCurUnitCount..'; iFreeze1Count='..iFreeze1Count)
+
+                if iMicroStutterTicksSinceSummary >= iMicroStutterSummaryTicks then
+                    local iSummaryWallTime = iTimeAfterTick - iMicroStutterTimeAtSummaryStart
+                    LOG('SimTickRate: GameTick='..math.floor(GetGameTimeSeconds() * 10)..'; SampleTicks='..iMicroStutterTicksSinceSummary..'; WallTime='..iSummaryWallTime..'; ActualTicksPerSecond='..(iMicroStutterTicksSinceSummary / iSummaryWallTime))
+                    iMicroStutterTicksSinceSummary = 0
+                    iMicroStutterTimeAtSummaryStart = iTimeAfterTick
+                end
+            end
+
+            if iCurTickCycle <= 0 then
+                if M28Config.M28RunGamePerformanceCheck then
+                    iCurUnitCount = 0
+                    for iBrain, oBrain in ArmyBrains do
+                        iCurUnitCount = iCurUnitCount + oBrain:GetCurrentUnits(categories.ALLUNITS - categories.BENIGN)
+                    end
+                    LOG('LogGamePerformanceData: GameTime='..math.floor(GetGameTimeSeconds())..' Time taken='..iTimeAfterTick - iTimeAtMainTickStart..'; Unit Count='..iCurUnitCount..'; iFreeze1Count='..iFreeze1Count)
+                end
                 iCurTickCycle = iIntervalInTicks
-                iTimeAtMainTickStart = GetSystemTimeSecondsOnlyForProfileUse()
+                iTimeAtMainTickStart = iTimeAfterTick
                 iFreeze1Count = 0
             end
         end

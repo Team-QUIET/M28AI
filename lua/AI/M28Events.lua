@@ -4814,7 +4814,7 @@ function OnGameStart()
         --[aiBrain.Name].AIPersonality
     end
 
-    if M28Config.M28RunGamePerformanceCheck then
+    if M28Config.M28RunGamePerformanceCheck or M28Config.M28RunMicroStutterCheck then
         ForkThread(M28Profiler.LogGamePerformanceData)
     end
     ForkThread(M28Overseer.DelayedArmyChangeForPings)
