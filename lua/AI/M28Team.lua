@@ -1226,25 +1226,6 @@ function AddUnitToLandZoneForBrain(aiBrain, oUnit, iPlateau, iLandZone, bIsEnemy
                         table.insert(tLZTeamData[M28Map.subrefLZTAlliedCombatUnits], oUnit)
                     end
                     if M28Config.M28ShowUnitNames then oUnit:SetCustomName(oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'New P'..iPlateauRef..'LZ'..iLandZoneRef) end
-                    --Reset assigned value (if it has one) if the zone it last had orders from is no longer adjacent
-                    if oUnit[M28Land.refiCurrentAssignmentValue] then
-                        local iLastOrderZone = oUnit[M28Land.refiCurrentAssignmentPlateauAndLZ][2]
-                        local bOrderZoneAdjacent = false
-                        if iLastOrderZone == iLandZoneRef then
-                            bOrderZoneAdjacent = true
-                        elseif M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
-                            for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
-                                if iAdjLZ == iLastOrderZone then
-                                    bOrderZoneAdjacent = true
-                                    break
-                                end
-                            end
-                        end
-                        if not(bOrderZoneAdjacent) then
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Units assigned zone isnt adjacent to its current zone, so will reset its assignment value, unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
-                            oUnit[M28Land.refiCurrentAssignmentValue] = 0 --reset so unit should get new orders from the current zone or an adjacent zone
-                        end
-                    end
                     --Update table of previous entries
                     UpdateUnitPreviousZones(oUnit, iPlateau, iLandZone)
                     if EntityCategoryContains(M28UnitInfo.refCategoryTMD, oUnit.UnitId) then
@@ -6753,7 +6734,7 @@ function GetMusteringThreat(iTeam, iPlateau)
 end
 
 function ShouldCommitMusteredArmy(iTeam, iPlateau)
-    --Check if we have enough units mustered to attack
+    --Check if the mustered threat is ready to attack
     local sFunctionRef = 'ShouldCommitMusteredArmy'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelTeam, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -6790,49 +6771,29 @@ function ShouldCommitMusteredArmy(iTeam, iPlateau)
 
     --Use max of recorded threat and current threat + adjacent threats
     iEnemyThreat = math.max(iEnemyThreat, iCurrentEnemyThreat + iAdjacentEnemyThreat)
-
-    --Calculate required threat ratio based on tech level
-    local iHighestTech = tTeamData[iTeam][subrefiHighestFriendlyLandFactoryTech] or 1
-    local iThreatRatioRequired = 0.98
+    local iThreatRatioRequired = 1.06
 
     --Use lower threshold when defending expansion zones with our mexes
     local tMexCountByTech = tTargetLZTeamData[M28Map.subrefMexCountByTech]
     if tMexCountByTech and (tMexCountByTech[1] + tMexCountByTech[2] + tMexCountByTech[3]) > 0 then
-        --We have mexes in this zone, lower the threshold to defend them more aggressively
-        iThreatRatioRequired = 0.92
+        iThreatRatioRequired = 1.0
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Target zone LZ'..iTargetLZ..' has our mexes ('..tMexCountByTech[1]..'/'..tMexCountByTech[2]..'/'..tMexCountByTech[3]..'), using lower threat ratio='..iThreatRatioRequired) end
     end
-
-    --Minimum unit count based on tech
-    local iMinUnitCount = 4
-    if iHighestTech >= 3 then iMinUnitCount = 2
-    elseif iHighestTech >= 2 then iMinUnitCount = 3 end
-
-    --Minimum mustering time to let more units gather
-    local iMinMusteringTime = 3
 
     local iUnitCount = table.getn(tMusterData[subreftMusteringUnits])
 
     local bShouldCommit = false
     local sReason = ''
 
-    --Breakout conditions for transitioning from mustering (Scenario 2) to attacking (Scenario 1)
-    --Commit conditions (in order of priority):
-
-    -- 1. Have enough threat ratio AND minimum units AND minimum mustering time
-    if iMusteredThreat >= iEnemyThreat * iThreatRatioRequired and iUnitCount >= iMinUnitCount and iTimeMusteringSeconds >= iMinMusteringTime then
+    -- Have enough threat ratio
+    if iMusteredThreat >= iEnemyThreat * iThreatRatioRequired then
         bShouldCommit = true
         sReason = 'threat threshold reached'
 
-    -- 2. Current enemy threat dropped to less than half of original, and we have decent force
-    elseif iCurrentEnemyThreat < iEnemyThreat * 0.5 and iMusteredThreat >= iCurrentEnemyThreat * 1.2 and iUnitCount >= 3 then
+    -- Current enemy threat dropped to less than half of original
+    elseif iCurrentEnemyThreat < iEnemyThreat * 0.5 and iMusteredThreat >= iCurrentEnemyThreat * 1.2 then
         bShouldCommit = true
         sReason = 'enemy weakened'
-
-    -- 3. We have massive threat advantage (2.5x+), can attack even with fewer units
-    elseif iMusteredThreat >= iEnemyThreat * 2.1 and iUnitCount >= 2 then
-        bShouldCommit = true
-        sReason = 'overwhelming force'
     end
 
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': MusteredThreat='..iMusteredThreat..', EnemyThreat='..iEnemyThreat..' (current='..iCurrentEnemyThreat..', adj='..iAdjacentEnemyThreat..')'..' Ratio='..iThreatRatioRequired..', Units='..iUnitCount..', Time='..iTimeMusteringSeconds..', ShouldCommit='..tostring(bShouldCommit)..' ('..sReason..')') end

@@ -325,12 +325,8 @@ iLandZoneSegmentSize = 5 --Gets updated by the SetupLandZones - the size of one 
             subreftiWaterZonesTargetingThisWithAmphibious = 'WZBTB' --table, [x] = water zone ref; returns 1 or 2 depending on if the water zone is attacking a unit in this zone, or is just moving to this zone
             subreftiWaterZoneTargetedByOurSurfaceCombat = 'WZTBDS' --returns water zone ref we are sending hover/amphibious or naval surface combat to from this land/water zone
             subreftiWaterZoneTargetedByOurSubmersibleCombat = 'WZTBDU' --returns water zone ref we are sending submersible combat to from this land/water zone
-            subrefiLandZoneLastLoggedTarget = 'LZLLT' --last target we logged about (to avoid log spam when target is cleared and re-set each cycle)
-            subrefiLandZoneLastLoggedAttackType = 'LZLLA' --last attack type we logged about
             --Two-phase coordination: Intent signaling (Phase 1) before commitment (Phase 2)
             subreftiLandZonesConsideringAttackingThis = 'LZCAT' --table, [iSourceZone] = {iThreat, iGameTime} - zones signaling intent to attack this zone (before finalizing)
-            subrefiLandZoneLastTargetZone = 'LZLTZ' --the zone we were targeting last cycle (for persistent target memory)
-            subrefiLandZoneLastTargetTime = 'LZLTT' --game time when we last set our target (for target stability)
 
             --Engineer related values
             subreftoPartBuiltMexes = 'PBMex' --If we are building a mex and the builder gets its orders cleared or dies, and it was building a mex, then the mex should be recorded in a table so it can be rebuilt
@@ -4384,7 +4380,7 @@ function RecordClosestAllyAndEnemyBaseForEachLandZone(iTeam, bOnlyCheckIfEnemyBa
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function CalculateZoneValue(iPlateau, iLandZone, iTeam, iAvailableMass)
+function CalculateZoneValue(iPlateau, iLandZone, iTeam, iAvailableMass, iZoneCombatMass)
     --Calculates dynamic zone value based on economic value, threat ratio, distance, and force concentration
     --Returns zone value score used for unit prioritization
     local sFunctionRef = 'CalculateZoneValue'
@@ -4400,8 +4396,7 @@ function CalculateZoneValue(iPlateau, iLandZone, iTeam, iAvailableMass)
 
     --Threat Modifier (inverse threat ratio) - squared to heavily penalize defended zones
     local iEnemyThreat = tLZTeamData[subrefTThreatEnemyCombatTotal] or 0
-    local iFriendlyThreat = tLZTeamData[subrefLZTAlliedCombatUnits] and M28UnitInfo.GetMassCostOfUnits(tLZTeamData[subrefLZTAlliedCombatUnits]) or 0
-    iFriendlyThreat = math.max(1, iFriendlyThreat)
+    local iFriendlyThreat = math.max(1, iZoneCombatMass)
     local iThreatRatio = iEnemyThreat / iFriendlyThreat
     local iThreatModifier = 1.0 / (1.0 + (iThreatRatio * iThreatRatio))  --Squared for aggressive penalty
 
@@ -4422,10 +4417,9 @@ function CalculateZoneValue(iPlateau, iLandZone, iTeam, iAvailableMass)
     local iDistanceDecay = math.max(0.2, 1.0 - (iDistance / 1100))  --Reduce localism so wider lanes can still win pressure assignments
 
     --Concentration Penalty: Penalize zones with many units already assigned
-    local iAssignedMass = tLZTeamData[subrefLZTAlliedCombatUnits] and M28UnitInfo.GetMassCostOfUnits(tLZTeamData[subrefLZTAlliedCombatUnits]) or 0
     local iConcentrationPenalty = 1.0
     if iAvailableMass and iAvailableMass > 0 then
-        local iAssignedRatio = iAssignedMass / iAvailableMass
+        local iAssignedRatio = iZoneCombatMass / iAvailableMass
         iConcentrationPenalty = 1.0 / (1.0 + (iAssignedRatio * 2.5) + (iAssignedRatio * iAssignedRatio * 3.0))
     end
 
@@ -4477,7 +4471,7 @@ function CalculateZoneValue(iPlateau, iLandZone, iTeam, iAvailableMass)
         LOG(sFunctionRef..': iPlateau='..iPlateau..'; iLZ='..iLandZone..'; iTeam='..iTeam..
             '; EcoValue='..iEconomicValue..'; ThreatMod='..string.format("%.2f", iThreatModifier)..
             '; FortPenalty='..string.format("%.2f", iFortificationPenalty)..'; DistDecay='..string.format("%.2f", iDistanceDecay)..
-            '; ConcPenalty='..string.format("%.2f", iConcentrationPenalty)..'; BaselineBonus='..math.floor(iBaselinePressureBonus)..'; OpeningFlankBias='..math.floor(iOpeningFlankBias)..'; FinalZoneValue='..math.floor(iZoneValue))
+            '; PlateauCombatMass='..iAvailableMass..'; ZoneCombatMass='..iZoneCombatMass..'; ConcPenalty='..string.format("%.2f", iConcentrationPenalty)..'; BaselineBonus='..math.floor(iBaselinePressureBonus)..'; OpeningFlankBias='..math.floor(iOpeningFlankBias)..'; FinalZoneValue='..math.floor(iZoneValue))
     end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)

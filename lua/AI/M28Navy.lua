@@ -1515,7 +1515,6 @@ function RecordUnitAsReceivingWaterZoneAssignment(oUnit, iWaterZone, iCurWZValue
     oUnit[refiCurrentAssignmentWaterZone] = iWaterZone
     oUnit[refiTimeOfLastWZAssignment] = GetGameTimeSeconds()
     if oUnit[M28Land.refiCurrentAssignmentPlateauAndLZ] then
-        oUnit[M28Land.refiCurrentAssignmentValue] = nil
         oUnit[M28Land.refiCurrentAssignmentPlateauAndLZ] = nil
     end
 end

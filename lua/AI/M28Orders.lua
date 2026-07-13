@@ -20,7 +20,6 @@ subreftOrderPosition = 2 --Location of the order
 subrefoOrderUnitTarget = 3 --Unit target if there is one
 subrefsOrderBlueprint = 4
 subrefsOrderDesc = 5 --Optional short owner/order description
-subrefiOrderGameTime = 6 --Game time when the tracked order was issued
 
 --Order type references
 refiOrderIssueMove = 1
@@ -55,7 +54,6 @@ refiTimeOfLastRemovalUpgrade = 'M28OrdUpgRem' --if ACU given an upgrade that rem
 refiLastUnloadAttemptTime = 'M28OrdUnlAtmp' --gametimeseconds we tried to unload (so can keep trying to unload)
 reftMoveDestinationIgnoredDueToMicro = 'M28OUnDIg' --{x,y,z} position that the unit was given a move order to go to, but ignored due to active micro
 refiMoveAndBuildStuckCount = 'M28OUMvB' --whenever give a move+build order, this increases by 1; it resets when unit starts building or reclaiming; used to identify stuck engineers; see also M28Conditions.refiEngineerStuckCheckCount
-refiLastOrderFlipLogTime = 'M28OrdFlipLogTm' --Last time rapid order replacement was logged for this unit
 
 local M28Utilities = import('/mods/M28AI/lua/AI/M28Utilities.lua')
 local M28UnitInfo = import('/mods/M28AI/lua/AI/M28UnitInfo.lua')
@@ -86,69 +84,6 @@ function UpdateUnitNameForOrder(oUnit, sOptionalOrderDesc)
             oUnit:SetCustomName((oUnit.UnitId or oUnit:GetBlueprint().BlueprintId)..M28UnitInfo.GetUnitLifetimeCount(oUnit)..sPlateauAndZoneDesc..sExtraOrder)
         end
     end
-end
-
-local function GetOrderTypeDebugName(iOrderType)
-    if iOrderType == refiOrderIssueMove then return 'Move' end
-    if iOrderType == refiOrderIssueAttack then return 'Attack' end
-    if iOrderType == refiOrderIssueAggressiveMove then return 'AggressiveMove' end
-    if iOrderType == refiOrderIssueGroundAttack then return 'GroundAttack' end
-    if iOrderType == refiOrderIssueGuard then return 'Guard' end
-    if iOrderType == refiOrderIssueReclaim then return 'Reclaim' end
-    if iOrderType == refiOrderIssueRepair then return 'Repair' end
-    if iOrderType == refiOrderIssueBuild then return 'Build' end
-    return tostring(iOrderType or 'nil')
-end
-
-local function GetOrderTargetDebugName(oTarget)
-    if oTarget and oTarget.UnitId then
-        return oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)
-    end
-    return 'nil'
-end
-
-local function GetOrderPositionDebugText(tPosition)
-    if tPosition then
-        return 'X'..math.floor(tPosition[1] or 0)..' Z'..math.floor(tPosition[3] or 0)
-    end
-    return 'nil'
-end
-
-local function LogRapidOrderReplacement(oUnit, sIssueFunctionRef, iNewOrderType, tNewPosition, oNewTarget, sNewOrderDesc, tLastOrder, iDistanceToReissueOrder, bAddToExistingQueue)
-    if not(M28Config.M28DebugOrderFlip) or bAddToExistingQueue or not(tLastOrder) then return end
-
-    local iPreviousOrderTime = tLastOrder[subrefiOrderGameTime]
-    if not(iPreviousOrderTime) then return end
-
-    local iCurTime = GetGameTimeSeconds()
-    local iOrderAge = iCurTime - iPreviousOrderTime
-    if iOrderAge > (M28Config.M28DebugOrderFlipWindow or 2) then return end
-    if iCurTime - (oUnit[refiLastOrderFlipLogTime] or -100) < (M28Config.M28DebugOrderFlipUnitInterval or 1) then return end
-    oUnit[refiLastOrderFlipLogTime] = iCurTime
-
-    local tPrevPosition = tLastOrder[subreftOrderPosition]
-    local iPositionDelta
-    if tPrevPosition and tNewPosition then
-        iPositionDelta = M28Utilities.GetDistanceBetweenPositions(tPrevPosition, tNewPosition)
-    end
-    local sPositionDelta = iPositionDelta and string.format('%.1f', iPositionDelta) or 'nil'
-
-    LOG('OrderFlip: time='..iCurTime..
-        '; unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..
-        '; owner='..sIssueFunctionRef..
-        '; prevType='..GetOrderTypeDebugName(tLastOrder[subrefiOrderType])..
-        '; prevDesc='..(tLastOrder[subrefsOrderDesc] or 'nil')..
-        '; prevPos='..GetOrderPositionDebugText(tPrevPosition)..
-        '; prevTarget='..GetOrderTargetDebugName(tLastOrder[subrefoOrderUnitTarget])..
-        '; newType='..GetOrderTypeDebugName(iNewOrderType)..
-        '; newDesc='..(sNewOrderDesc or 'nil')..
-        '; newPos='..GetOrderPositionDebugText(tNewPosition)..
-        '; newTarget='..GetOrderTargetDebugName(oNewTarget)..
-        '; age='..string.format('%.2f', iOrderAge)..
-        '; posDelta='..sPositionDelta..
-        '; reissueDist='..tostring(iDistanceToReissueOrder or 'nil')..
-        '; state='..M28UnitInfo.GetUnitState(oUnit)..
-        '; specialMicro='..tostring(oUnit[M28UnitInfo.refbSpecialMicroActive] or false))
 end
 
 function IssueTrackedClearCommands(oUnit)
@@ -355,11 +290,15 @@ function GetSpreadPositionForUnit(oUnit, tTargetPosition, iSpreadRadius)
     return {tTargetPosition[1] + iOffsetX, tTargetPosition[2], tTargetPosition[3] + iOffsetZ}
 end
 
-function IssueSmartMove(oUnit, tOrderPosition, iDistanceToReissueOrder, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder, bIsRetreat)
+function IssueSmartMove(oUnit, tOrderPosition, iDistanceToReissueOrder, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder, bIsRetreat, bKeepFormationSpread)
     --Uses attack-move for MML/Sniper/T3Arti, regular move for others
     --Spreads positions using unit ID for consistent unique offsets per unit
     --bIsRetreat: if true, always use regular move (no attack-move) since retreating units should flee, not stop to fight
-    local tFinalPosition = GetSpreadPositionForUnit(oUnit, tOrderPosition)
+    --bKeepFormationSpread: preserves spread for non-combat movement that deliberately uses the retreat flag to force a regular move
+    local tFinalPosition = tOrderPosition
+    if not(bIsRetreat) or bKeepFormationSpread then
+        tFinalPosition = GetSpreadPositionForUnit(oUnit, tOrderPosition)
+    end
     if not(bIsRetreat) and ShouldUseAttackMove(oUnit) then
         IssueTrackedAttackMove(oUnit, tFinalPosition, iDistanceToReissueOrder, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder)
     else
@@ -384,7 +323,6 @@ function IssueTrackedMove(oUnit, tOrderPosition, iDistanceToReissueOrder, bAddTo
             if (bOverrideMicroOrder or not(oUnit[M28UnitInfo.refbSpecialMicroActive]))  then
                 local bChangedViaNavigator
                 if not(bAddToExistingQueue) then
-                    LogRapidOrderReplacement(oUnit, 'IssueTrackedMove', refiOrderIssueMove, tOrderPosition, nil, sOptionalOrderDesc, tLastOrder, iDistanceToReissueOrder, bAddToExistingQueue)
                     if tLastOrder[subrefiOrderType] == refiOrderIssueMove and oUnit.GetNavigator and oUnit[refiOrderCount] <= 1 then
                         local oNavigator = oUnit:GetNavigator()
                         if oNavigator then
@@ -406,7 +344,7 @@ function IssueTrackedMove(oUnit, tOrderPosition, iDistanceToReissueOrder, bAddTo
                 end
                 if not(oUnit[reftiLastOrders]) then oUnit[reftiLastOrders] = {} oUnit[refiOrderCount] = 0 end
                 oUnit[refiOrderCount] = oUnit[refiOrderCount] + 1
-                table.insert(oUnit[reftiLastOrders], {[subrefiOrderType] = refiOrderIssueMove, [subreftOrderPosition] = {tOrderPosition[1], tOrderPosition[2], tOrderPosition[3]}, [subrefsOrderDesc] = sOptionalOrderDesc, [subrefiOrderGameTime] = GetGameTimeSeconds()})
+                table.insert(oUnit[reftiLastOrders], {[subrefiOrderType] = refiOrderIssueMove, [subreftOrderPosition] = {tOrderPosition[1], tOrderPosition[2], tOrderPosition[3]}, [subrefsOrderDesc] = sOptionalOrderDesc})
                 if not(bChangedViaNavigator) then
                     IssueMove({oUnit}, tOrderPosition)
                 end
@@ -439,7 +377,6 @@ function IssueTrackedAggressiveMove(oUnit, tOrderPosition, iDistanceToReissueOrd
         if not(tLastOrder and tLastOrder[subrefiOrderType] == refiOrderIssueAggressiveMove and iDistanceToReissueOrder and M28Utilities.GetDistanceBetweenPositions(tOrderPosition, tLastOrder[subreftOrderPosition]) < iDistanceToReissueOrder) and (bOverrideMicroOrder or not(oUnit[M28UnitInfo.refbSpecialMicroActive])) then
             local bChangedViaNavigator
             if not(bAddToExistingQueue) then
-                LogRapidOrderReplacement(oUnit, 'IssueTrackedAggressiveMove', refiOrderIssueAggressiveMove, tOrderPosition, nil, sOptionalOrderDesc, tLastOrder, iDistanceToReissueOrder, bAddToExistingQueue)
                 if tLastOrder[subrefiOrderType] == refiOrderIssueAggressiveMove and oUnit.GetNavigator and oUnit[refiOrderCount] <= 1 then
                     local oNavigator = oUnit:GetNavigator()
                     if oNavigator then
@@ -459,7 +396,7 @@ function IssueTrackedAggressiveMove(oUnit, tOrderPosition, iDistanceToReissueOrd
 
             if not(oUnit[reftiLastOrders]) then oUnit[reftiLastOrders] = {} oUnit[refiOrderCount] = 0 end
             oUnit[refiOrderCount] = oUnit[refiOrderCount] + 1
-            table.insert(oUnit[reftiLastOrders], {[subrefiOrderType] = refiOrderIssueAggressiveMove, [subreftOrderPosition] = {tOrderPosition[1], tOrderPosition[2], tOrderPosition[3]}, [subrefsOrderDesc] = sOptionalOrderDesc, [subrefiOrderGameTime] = GetGameTimeSeconds()})
+            table.insert(oUnit[reftiLastOrders], {[subrefiOrderType] = refiOrderIssueAggressiveMove, [subreftOrderPosition] = {tOrderPosition[1], tOrderPosition[2], tOrderPosition[3]}, [subrefsOrderDesc] = sOptionalOrderDesc})
             if not(bChangedViaNavigator) then
                 IssueAggressiveMove({oUnit}, tOrderPosition)
             end
@@ -576,12 +513,11 @@ function IssueTrackedAttackMove(oUnit, tOrderPosition, iDistanceToReissueOrder, 
         if oUnit[reftiLastOrders] then tLastOrder = oUnit[reftiLastOrders][oUnit[refiOrderCount]] end
         if not(tLastOrder[subrefiOrderType] == refiOrderIssueAggressiveMove and iDistanceToReissueOrder and M28Utilities.GetDistanceBetweenPositions(tOrderPosition, tLastOrder[subreftOrderPosition]) < iDistanceToReissueOrder) and (bOverrideMicroOrder or not(oUnit[M28UnitInfo.refbSpecialMicroActive])) then
             if not(bAddToExistingQueue) then
-                LogRapidOrderReplacement(oUnit, 'IssueTrackedAttackMove', refiOrderIssueAggressiveMove, tOrderPosition, nil, sOptionalOrderDesc, tLastOrder, iDistanceToReissueOrder, bAddToExistingQueue)
                 IssueTrackedClearCommands(oUnit)
             end
             if not(oUnit[reftiLastOrders]) then oUnit[reftiLastOrders] = {} oUnit[refiOrderCount] = 0 end
             oUnit[refiOrderCount] = oUnit[refiOrderCount] + 1
-            table.insert(oUnit[reftiLastOrders], {[subrefiOrderType] = refiOrderIssueAggressiveMove, [subreftOrderPosition] = {tOrderPosition[1], tOrderPosition[2], tOrderPosition[3]}, [subrefsOrderDesc] = sOptionalOrderDesc, [subrefiOrderGameTime] = GetGameTimeSeconds()})
+            table.insert(oUnit[reftiLastOrders], {[subrefiOrderType] = refiOrderIssueAggressiveMove, [subreftOrderPosition] = {tOrderPosition[1], tOrderPosition[2], tOrderPosition[3]}, [subrefsOrderDesc] = sOptionalOrderDesc})
             IssueAggressiveMove({oUnit}, tOrderPosition)
             --[[if oUnit.UnitId == 'xra0105' and GetGameTimeSeconds() >= 360 then
                 LOG('TEMPCODE Just sent AggressiveMove order for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' at time '..GetGameTimeSeconds()..' to move to '..repru(tOrderPosition)..'; rMapPlayableArea='..repru(M28Map.rMapPlayableArea))
@@ -608,12 +544,11 @@ function IssueTrackedAttack(oUnit, oOrderTarget, bAddToExistingQueue, sOptionalO
 
         if not(tLastOrder[subrefiOrderType] == refiOrderIssueAttack and oOrderTarget == tLastOrder[subrefoOrderUnitTarget]) and (bOverrideMicroOrder or not(oUnit[M28UnitInfo.refbSpecialMicroActive])) then
             if not(bAddToExistingQueue) then
-                LogRapidOrderReplacement(oUnit, 'IssueTrackedAttack', refiOrderIssueAttack, nil, oOrderTarget, sOptionalOrderDesc, tLastOrder, nil, bAddToExistingQueue)
                 IssueTrackedClearCommands(oUnit)
             end
             if not(oUnit[reftiLastOrders]) then oUnit[reftiLastOrders] = {} oUnit[refiOrderCount] = 0 end
             oUnit[refiOrderCount] = oUnit[refiOrderCount] + 1
-            table.insert(oUnit[reftiLastOrders], {[subrefiOrderType] = refiOrderIssueAttack, [subrefoOrderUnitTarget] = oOrderTarget, [subrefsOrderDesc] = sOptionalOrderDesc, [subrefiOrderGameTime] = GetGameTimeSeconds()})
+            table.insert(oUnit[reftiLastOrders], {[subrefiOrderType] = refiOrderIssueAttack, [subrefoOrderUnitTarget] = oOrderTarget, [subrefsOrderDesc] = sOptionalOrderDesc})
             IssueAttack({oUnit}, oOrderTarget)
             --if oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit) == 'xra01051' and GetGameTimeSeconds() >= 360 then LOG('TEMPCODE Just issued attack order on oOrderTarget='..oOrderTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oOrderTarget)) end
         end
