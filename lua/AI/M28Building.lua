@@ -570,7 +570,10 @@ function RecordUnitsInRangeOfTMLAndAnyTMDProtection(oTML, tOptionalUnitsToConsid
 end
 
 function GetUnitRef(oUnit)
-    return oUnit.UnitId..'L'..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'B'..oUnit:GetAIBrain():GetArmyIndex()
+    -- Compatibility units can expose their blueprint ID through the engine without populating UnitId.
+    local sUnitId = oUnit.UnitId or (oUnit.GetUnitId and oUnit:GetUnitId()) or oUnit:GetBlueprint().BlueprintId
+    oUnit.UnitId = sUnitId
+    return sUnitId..'L'..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'B'..oUnit:GetAIBrain():GetArmyIndex()
 end
 
 function TMDJustBuilt(oTMD)

@@ -24875,11 +24875,6 @@ function HighValueReclaimOrder(iTeam, oWreck, tPosition)
                                 end
                             end
                         end
-                        if oEngineerToTryAndReclaim then
-                            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-                            TrackEngineerWithHighReclaimOrder(oEngineerToTryAndReclaim, oWreck, 1000)
-                            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-                        end
                     end
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Final iEngineersAssigned='..iEngineersAssigned) end
                 end
