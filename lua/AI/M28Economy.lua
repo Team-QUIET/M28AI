@@ -602,9 +602,30 @@ function GetMinimumActiveMexUpgradeFloor(iTeam)
     return iMinimumActiveMexUpgrades
 end
 
+local function GetSafeUnclaimedMexCountInCandidateLandZone(oMex, iTeam)
+    if M28UnitInfo.GetUnitTechLevel(oMex) > 1 then return 0 end
+
+    local iPlateau, iLandZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oMex:GetPosition())
+    if iPlateau == 0 then return 0 end
+
+    local tLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone]
+    local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
+    if tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or (tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) > 0 then return 0 end
+    if M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tLZData, true) then return 0 end
+
+    return table.getn(tLZData[M28Map.subrefMexUnbuiltLocations])
+end
+
 function CanTeamStartMexUpgradeNow(iTeam, oCandidateMex, bConsumeSlot)
     local tCurTeamData = M28Team.tTeamData[iTeam]
     if not(tCurTeamData) then return true end
+
+    if M28UnitInfo.IsUnitValid(oCandidateMex) then
+        local iSafeUnclaimedMexCount = GetSafeUnclaimedMexCountInCandidateLandZone(oCandidateMex, iTeam)
+        if iSafeUnclaimedMexCount > 0 then
+            return false, 'unclaimed_local_mex', iSafeUnclaimedMexCount
+        end
+    end
 
     local iCurTime = GetGameTimeSeconds()
     if iCurTime - (tCurTeamData[refiTimeLastMexUpgradeStartBurst] or -100) >= refiMexUpgradeStartBurstWindow then
@@ -800,13 +821,17 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
                     local bCanStartMexUpgrade, sMexUpgradeGateRef, iMexUpgradeGateLimit = CanTeamStartMexUpgradeNow(aiBrain.M28Team, oUnitToUpgrade, true)
                     if not(bCanStartMexUpgrade) then
                         if bDebugMessages == true then
-                            if sMexUpgradeGateRef == 'concurrent_value' then
+                            if sMexUpgradeGateRef == 'unclaimed_local_mex' then
+                                M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Deferring T1 mex upgrade for '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' because its safe land zone still has '..iMexUpgradeGateLimit..' unclaimed mex spots')
+                            elseif sMexUpgradeGateRef == 'concurrent_value' then
                                 M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Deferring mex upgrade for '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' because team mex concurrent upgrade value cap of '..iMexUpgradeGateLimit..' is already full')
                             else
                                 M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Deferring mex upgrade for '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' because team mex burst cap of '..iMexUpgradeGateLimit..' starts per '..refiMexUpgradeStartBurstWindow..'s window is already full')
                             end
                         end
-                        ForkThread(ConsiderFutureMexUpgrade, oUnitToUpgrade, 5)
+                        local iRetryDelay = 5
+                        if sMexUpgradeGateRef == 'unclaimed_local_mex' then iRetryDelay = 15 end
+                        ForkThread(ConsiderFutureMexUpgrade, oUnitToUpgrade, iRetryDelay)
                         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                         return nil
                     end

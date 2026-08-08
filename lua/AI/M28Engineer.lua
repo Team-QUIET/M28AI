@@ -537,6 +537,24 @@ local function IsReclaimEngineerAction(iEngineerAction)
     return iEngineerAction == refActionReclaimArea or iEngineerAction == refActionReclaimPath or iEngineerAction == refActionReclaimTrees or iEngineerAction == refActionReclaimFriendlyUnit or iEngineerAction == refActionReclaimEnemyUnit
 end
 
+local function HasActiveMapReclaimer(tAssignedEngineers)
+    if M28Utilities.IsTableEmpty(tAssignedEngineers) == false then
+        for _, oEngineer in tAssignedEngineers do
+            if M28UnitInfo.IsUnitValid(oEngineer) and (oEngineer[refiAssignedAction] == refActionReclaimArea or oEngineer[refiAssignedAction] == refActionReclaimPath) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function ShouldAssignBackgroundReclaimer(tLZData, tLZTeamData, bEngineersRecentlyRunFromEnemy)
+    return not(bEngineersRecentlyRunFromEnemy)
+        and not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ])
+        and (tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) == 0
+        and (tLZData[M28Map.subrefTotalMassReclaim] or 0) >= 5
+end
+
 local function ShouldSuppressReclaimForPower(iEngineerAction, iTeam)
     if not(IsReclaimEngineerAction(iEngineerAction)) then return false end
     if M28Conditions.HaveLowPower(iTeam) then return true end
@@ -14698,6 +14716,13 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
         end
     end
 
+    --Keep one engineer collecting safe map reclaim while the rest follow normal priorities.
+    iCurPriority = iCurPriority + 1
+    if ShouldAssignBackgroundReclaimer(tLZData, tLZTeamData, bEngineersRecentlyRunFromEnemy) and not(HasActiveMapReclaimer(toAssignedEngineers)) then
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Assigning background reclaimer, total reclaim='..tLZData[M28Map.subrefTotalMassReclaim]) end
+        HaveActionToAssign(refActionReclaimArea, 1, 5, {false, nil})
+    end
+
     local iMinTechLevelForPower = 1
 
     if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] >= 2 then
@@ -18994,7 +19019,8 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
         end
     end
     if M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations]) == false and not(M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tLZData, true)) then
-        iBPWanted = math.max(5, table.getn(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations]) * 2.5)
+        local iUnbuiltMexCount = table.getn(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations])
+        iBPWanted = math.min(15, math.max(5, iUnbuiltMexCount * 5))
         if bHaveLowPower and (not(bHaveLowMass) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.1) and iBPWanted > 5 then
             if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 then
                 if tLZData[M28Map.subrefLZOrWZMexCount] >= 6 and tLZTeamData[M28Map.subrefMexCountByTech][1] >= 2 then
@@ -19039,6 +19065,13 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
                 HaveActionToAssign(refActionCompletePartBuiltMex, 1, 5)
             end
         end
+    end
+
+    --Keep one engineer collecting safe map reclaim while the rest follow normal priorities.
+    iCurPriority = iCurPriority + 1
+    if ShouldAssignBackgroundReclaimer(tLZData, tLZTeamData, bEngineersRecentlyRunFromEnemy) and not(HasActiveMapReclaimer(toAssignedEngineers)) then
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Assigning background reclaimer, total reclaim='..tLZData[M28Map.subrefTotalMassReclaim]) end
+        HaveActionToAssign(refActionReclaimArea, 1, 5, {false, nil})
     end
 
     --Active gameender template - want to always have 1 engi on duty as highest priority to avoid having orders cancelled

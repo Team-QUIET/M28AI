@@ -3786,6 +3786,20 @@ function GetSafeMexToUpgrade(iM28Team, bReturnIfSafeInsteadOfUpgrading, bDontUpg
             toSafeUnitsToUpgrade = toFilteredPriorityHigherTierCandidates
         end
     end
+
+    --A blocked local T1 mex must not prevent an allowed higher-tier or other-zone candidate from being selected.
+    if M28Utilities.IsTableEmpty(toSafeUnitsToUpgrade) == false then
+        for iCandidate = table.getn(toSafeUnitsToUpgrade), 1, -1 do
+            local oCandidateMex = toSafeUnitsToUpgrade[iCandidate]
+            if EntityCategoryContains(M28UnitInfo.refCategoryT1Mex, oCandidateMex.UnitId) then
+                local bCanStartMexUpgrade, sMexUpgradeGateRef = M28Economy.CanTeamStartMexUpgradeNow(iM28Team, oCandidateMex, false)
+                if not(bCanStartMexUpgrade) and sMexUpgradeGateRef == 'unclaimed_local_mex' then
+                    table.remove(toSafeUnitsToUpgrade, iCandidate)
+                end
+            end
+        end
+    end
+
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished searching for units to upgrade at time '..GetGameTimeSeconds()..', is table empty='..tostring(M28Utilities.IsTableEmpty(toSafeUnitsToUpgrade))) end
     if bReturnIfSafeInsteadOfUpgrading then
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -3795,9 +3809,9 @@ function GetSafeMexToUpgrade(iM28Team, bReturnIfSafeInsteadOfUpgrading, bDontUpg
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have a total of '..table.getn(toSafeUnitsToUpgrade)..' units to upgrade, will pick the best one') end
             local oUnitToUpgrade = M28Economy.GetBestUnitToUpgrade(toSafeUnitsToUpgrade)
             if oUnitToUpgrade then
-                local bCanStartMexUpgrade, iMexStartCap = M28Economy.CanTeamStartMexUpgradeNow(iM28Team, oUnitToUpgrade, false)
+                local bCanStartMexUpgrade, sMexUpgradeGateRef, iMexUpgradeGateLimit = M28Economy.CanTeamStartMexUpgradeNow(iM28Team, oUnitToUpgrade, false)
                 if not(bCanStartMexUpgrade) then
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Holding mex upgrade shortlist because team mex start cap of '..iMexStartCap..' is already reached') end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Holding mex upgrade shortlist because '..sMexUpgradeGateRef..' gate is at '..iMexUpgradeGateLimit) end
                     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                     return false, true
                 end
