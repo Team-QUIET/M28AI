@@ -259,7 +259,22 @@ function ShouldUseAttackMove(oUnit)
     return EntityCategoryContains(tCategoryAttackMoveUnits, oUnit.UnitId)
 end
 
-function GetSpreadPositionForUnit(oUnit, tTargetPosition, iSpreadRadius)
+local iDiagonalSpreadRotation = 0.70710678118655
+local tiSpreadRotationCos = {1, -1, 0, 0, iDiagonalSpreadRotation, iDiagonalSpreadRotation, -iDiagonalSpreadRotation, -iDiagonalSpreadRotation}
+local tiSpreadRotationSin = {0, 0, 1, -1, iDiagonalSpreadRotation, -iDiagonalSpreadRotation, iDiagonalSpreadRotation, -iDiagonalSpreadRotation}
+
+local function IsSpreadPositionOutsideAvoidanceAreas(iPositionX, iPositionZ, tSpreadAvoidanceAreaTables)
+    for _, tAvoidanceAreas in tSpreadAvoidanceAreaTables do
+        for _, tAvoidanceArea in tAvoidanceAreas do
+            local iXDistance = iPositionX - tAvoidanceArea[1]
+            local iZDistance = iPositionZ - tAvoidanceArea[2]
+            if iXDistance * iXDistance + iZDistance * iZDistance <= tAvoidanceArea[3] then return false end
+        end
+    end
+    return true
+end
+
+function GetSpreadPositionForUnit(oUnit, tTargetPosition, iSpreadRadius, tSpreadAvoidanceAreaTables)
     --Returns a position spread around tTargetPosition to prevent unit clumping
     --Uses unit's entity ID to generate a consistent unique offset per unit
     --iSpreadRadius: how far to spread units from center
@@ -275,6 +290,8 @@ function GetSpreadPositionForUnit(oUnit, tTargetPosition, iSpreadRadius)
     --Each unit gets a different angle based on its ID
     local iAngle = math.mod(iEntityId * 137.508 + math.mod(iEntityId, 7) * 51.4, 360)
     local iRadians = iAngle * math.pi / 180
+    local iAngleCos = math.cos(iRadians)
+    local iAngleSin = math.sin(iRadians)
 
     --Create wider spiral pattern with multiple rings
     --Ring selection based on entity ID creates concentric circles of units
@@ -285,20 +302,29 @@ function GetSpreadPositionForUnit(oUnit, tTargetPosition, iSpreadRadius)
     local iJitter = math.mod(iEntityId * 0.314159, 0.3)
     local iFinalRadius = iSpreadRadius * (iRadiusFactor + iJitter)
 
-    local iOffsetX = math.cos(iRadians) * iFinalRadius
-    local iOffsetZ = math.sin(iRadians) * iFinalRadius
-    return {tTargetPosition[1] + iOffsetX, tTargetPosition[2], tTargetPosition[3] + iOffsetZ}
+    if not(tSpreadAvoidanceAreaTables) then
+        return {tTargetPosition[1] + iAngleCos * iFinalRadius, tTargetPosition[2], tTargetPosition[3] + iAngleSin * iFinalRadius}
+    end
+
+    for iCandidate = 1, 8 do
+        local iRotationCos = tiSpreadRotationCos[iCandidate]
+        local iRotationSin = tiSpreadRotationSin[iCandidate]
+        local iCandidateX = tTargetPosition[1] + (iAngleCos * iRotationCos - iAngleSin * iRotationSin) * iFinalRadius
+        local iCandidateZ = tTargetPosition[3] + (iAngleSin * iRotationCos + iAngleCos * iRotationSin) * iFinalRadius
+        if IsSpreadPositionOutsideAvoidanceAreas(iCandidateX, iCandidateZ, tSpreadAvoidanceAreaTables) then
+            return {iCandidateX, tTargetPosition[2], iCandidateZ}
+        end
+    end
+
+    return tTargetPosition
 end
 
-function IssueSmartMove(oUnit, tOrderPosition, iDistanceToReissueOrder, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder, bIsRetreat, bKeepFormationSpread)
+function IssueSmartMove(oUnit, tOrderPosition, iDistanceToReissueOrder, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder, bIsRetreat, tSpreadAvoidanceAreaTables)
     --Uses attack-move for MML/Sniper/T3Arti, regular move for others
     --Spreads positions using unit ID for consistent unique offsets per unit
     --bIsRetreat: if true, always use regular move (no attack-move) since retreating units should flee, not stop to fight
-    --bKeepFormationSpread: preserves spread for non-combat movement that deliberately uses the retreat flag to force a regular move
-    local tFinalPosition = tOrderPosition
-    if not(bIsRetreat) or bKeepFormationSpread then
-        tFinalPosition = GetSpreadPositionForUnit(oUnit, tOrderPosition)
-    end
+    --Retreats use regular movement but keep the same spread, constrained by any known fixed-defense ranges supplied by the combat owner.
+    local tFinalPosition = GetSpreadPositionForUnit(oUnit, tOrderPosition, nil, tSpreadAvoidanceAreaTables)
     if not(bIsRetreat) and ShouldUseAttackMove(oUnit) then
         IssueTrackedAttackMove(oUnit, tFinalPosition, iDistanceToReissueOrder, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder)
     else

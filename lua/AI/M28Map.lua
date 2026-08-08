@@ -285,6 +285,7 @@ iLandZoneSegmentSize = 5 --Gets updated by the SetupLandZones - the size of one 
 
             subrefLZThreatEnemyStructureDFByRange = 'ESDFByRange'
             subrefThreatEnemyDFStructures = 'ESDFTo'
+            subreftEnemyFixedDFSpreadAvoidance = 'EFDSpAv' --Tables of {X, Z, safe range squared} used to keep radial move offsets outside known fixed DF range
             subrefLZIndirectThreatWanted = 'IFWanted'
             subrefLZThreatAllyStructureDFByRange = 'ASDFByRange'
             subrefLZThreatEnemyStructureIndirect = 'ESITotal'

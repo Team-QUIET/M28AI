@@ -728,6 +728,7 @@ function RecordGroundThreatForLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iL
 
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code at game time '..GetGameTimeSeconds()..' for iTeam='..iTeam..'; iPlateau='..iPlateau..'; iLandZone='..iLandZone..'; Is table of enemy units empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTEnemyUnits]))) end
     tLZTeamData[M28Map.subrefThreatEnemyShield] = 0 --will change later
+    tLZTeamData[M28Map.subreftEnemyFixedDFSpreadAvoidance] = nil
     --local tLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][iTeam]
     if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTEnemyUnits]) then
         tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] = 0
@@ -824,6 +825,10 @@ function RecordGroundThreatForLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iL
                     iCurThreat = M28UnitInfo.GetCombatThreatRating({ oUnit }, true)
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Structure iCurThreat='..iCurThreat) end
                     if iCurThreat > 0 then
+                        if not(tLZTeamData[M28Map.subreftEnemyFixedDFSpreadAvoidance]) then tLZTeamData[M28Map.subreftEnemyFixedDFSpreadAvoidance] = {} end
+                        local tFixedDFPosition = oUnit:GetPosition()
+                        local iFixedDFSafeRange = oUnit[M28UnitInfo.refiDFRange] + iEnemyFixedDFClearance
+                        table.insert(tLZTeamData[M28Map.subreftEnemyFixedDFSpreadAvoidance], {tFixedDFPosition[1], tFixedDFPosition[3], iFixedDFSafeRange * iFixedDFSafeRange})
                         if not(tLZTeamData[M28Map.subrefLZThreatEnemyStructureDFByRange]) then tLZTeamData[M28Map.subrefLZThreatEnemyStructureDFByRange] = {} end
                         tLZTeamData[M28Map.subrefLZThreatEnemyStructureDFByRange][oUnit[M28UnitInfo.refiDFRange]] = (tLZTeamData[M28Map.subrefLZThreatEnemyStructureDFByRange][oUnit[M28UnitInfo.refiDFRange]] or 0) + iCurThreat
                         if not(bHaveDangerousEnemies) and iCurThreat > 10 then bHaveDangerousEnemies = true end
@@ -5042,11 +5047,28 @@ local function IssueResolvedRetreatOrder(oUnit, tRetreatTarget, sRetreatOrderRef
     elseif tRetreatOptions.bUseAggressiveMove then
         M28Orders.IssueTrackedAggressiveMove(oUnit, tRetreatTarget, iOrderDistance, false, sRetreatOrderRef, bOverrideMicroOrder)
     elseif tRetreatOptions.bUseSmartMove then
-        M28Orders.IssueSmartMove(oUnit, tRetreatTarget, iOrderDistance, false, sRetreatOrderRef, bOverrideMicroOrder, true)
+        M28Orders.IssueSmartMove(oUnit, tRetreatTarget, iOrderDistance, false, sRetreatOrderRef, bOverrideMicroOrder, true, tRetreatOptions.tSpreadAvoidanceAreaTables)
     else
         M28Orders.IssueTrackedMove(oUnit, tRetreatTarget, iOrderDistance, false, sRetreatOrderRef, bOverrideMicroOrder)
     end
     return true
+end
+
+local function GetFixedDFSpreadAvoidanceAreaTables(tLZData, tLZTeamData, iTeam, iPlateau)
+    local tSpreadAvoidanceAreaTables
+    local tCurrentZoneAvoidanceAreas = tLZTeamData[M28Map.subreftEnemyFixedDFSpreadAvoidance]
+    if tCurrentZoneAvoidanceAreas then tSpreadAvoidanceAreaTables = {tCurrentZoneAvoidanceAreas} end
+
+    for _, iAdjacentLandZone in tLZData[M28Map.subrefLZAdjacentLandZones] do
+        local tAdjacentLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjacentLandZone][M28Map.subrefLZTeamData][iTeam]
+        local tAdjacentZoneAvoidanceAreas = tAdjacentLZTeamData[M28Map.subreftEnemyFixedDFSpreadAvoidance]
+        if tAdjacentZoneAvoidanceAreas then
+            if not(tSpreadAvoidanceAreaTables) then tSpreadAvoidanceAreaTables = {} end
+            table.insert(tSpreadAvoidanceAreaTables, tAdjacentZoneAvoidanceAreas)
+        end
+    end
+
+    return tSpreadAvoidanceAreaTables
 end
 
 function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, tAvailableCombatUnits, iFriendlyBestMobileDFRange, iFriendlyBestMobileIndirectRange, bWantIndirectReinforcements, tUnavailableUnitsInThisLZ, bDelayOrdersForHover)
@@ -5054,6 +5076,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
     local sFunctionRef = 'ManageCombatUnitsInLandZone'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLand, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+    local tFixedDFSpreadAvoidanceAreaTables = GetFixedDFSpreadAvoidanceAreaTables(tLZData, tLZTeamData, iTeam, iPlateau)
 
 
 
@@ -8738,11 +8761,11 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                                     bUseBackupThreadRetreat = not(bAttackMove)
                                                                 end
                                                                 oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
-                                                                IssueResolvedRetreatOrder(oUnit, tResolvedRetreatTarget, sResolvedRetreatOrderRef, 4, {bUseSmartMove = bUseSmartMoveRetreat, bUseBackupThread = bUseBackupThreadRetreat, iPathingRef = tLZData[M28Map.subrefLZIslandRef]})
+                                                                IssueResolvedRetreatOrder(oUnit, tResolvedRetreatTarget, sResolvedRetreatOrderRef, 4, {bUseSmartMove = bUseSmartMoveRetreat, bUseBackupThread = bUseBackupThreadRetreat, iPathingRef = tLZData[M28Map.subrefLZIslandRef], tSpreadAvoidanceAreaTables = tFixedDFSpreadAvoidanceAreaTables})
                                                             else
                                                                 oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
                                                                 if bAttackMove then
-                                                                    IssueResolvedRetreatOrder(oUnit, tRallyPoint, 'KARetr'..iLandZone, 4, {bUseSmartMove = true})
+                                                                    IssueResolvedRetreatOrder(oUnit, tRallyPoint, 'KARetr'..iLandZone, 4, {bUseSmartMove = true, tSpreadAvoidanceAreaTables = tFixedDFSpreadAvoidanceAreaTables})
                                                                 else
                                                                     IssueResolvedRetreatOrder(oUnit, tRallyPoint, 'KRetr'..iLandZone, 4, {bUseBackupThread = true, iPathingRef = tLZData[M28Map.subrefLZIslandRef]})
                                                                 end
@@ -9031,7 +9054,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                             if bUseAggressiveIndirectRetreat then
                                                                 M28Orders.IssueTrackedAggressiveMove(oUnit, tAmphibiousRallyPoint, 6, false, 'AIKRetr'..iLandZone)
                                                             else
-                                                                M28Orders.IssueSmartMove(oUnit, tAmphibiousRallyPoint, 6, false, 'AIKRetr'..iLandZone, false, true)
+                                                                M28Orders.IssueSmartMove(oUnit, tAmphibiousRallyPoint, 6, false, 'AIKRetr'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
                                                             end
                                                         else
                                                             if iCurDistToDFEnemy <= math.max((oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck][M28UnitInfo.refiCombatRange] or 0) + 8, (oUnit[M28UnitInfo.refiCombatRange] or 0) - 10) then
@@ -9039,7 +9062,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                                 if tTemporaryRetreatLocation and NavUtils.GetLabel(M28Map.refPathingTypeLand, tTemporaryRetreatLocation) == tLZData[M28Map.subrefLZIslandRef] then
                                                                     bTemporaryKiting = true
                                                                     oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
-                                                                    M28Orders.IssueSmartMove(oUnit, tTemporaryRetreatLocation, 6, false, 'IKEnRetr'..iLandZone, false, true)
+                                                                    M28Orders.IssueSmartMove(oUnit, tTemporaryRetreatLocation, 6, false, 'IKEnRetr'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
                                                                 end
                                                             end
                                                             if not(bTemporaryKiting) then
@@ -9048,7 +9071,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                                 if bUseAggressiveIndirectRetreat then
                                                                     M28Orders.IssueTrackedAggressiveMove(oUnit, tRallyPoint, 6, false, 'IKRetr'..iLandZone)
                                                                 else
-                                                                    M28Orders.IssueSmartMove(oUnit, tRallyPoint, 6, false, 'IKRetr'..iLandZone, false, true)
+                                                                    M28Orders.IssueSmartMove(oUnit, tRallyPoint, 6, false, 'IKRetr'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
                                                                 end
                                                             end
                                                         end
@@ -9136,7 +9159,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                             tUnknownRetreatTarget = tAmphibiousRallyPoint
                                             sUnknownRetreatOrderRef = 'AUnkRetr'..iLandZone
                                         end
-                                        M28Orders.IssueSmartMove(oUnit, tUnknownRetreatTarget, 6, false, sUnknownRetreatOrderRef, false, true)
+                                        M28Orders.IssueSmartMove(oUnit, tUnknownRetreatTarget, 6, false, sUnknownRetreatOrderRef, false, true, tFixedDFSpreadAvoidanceAreaTables)
                                     end
                                 elseif (oUnit[M28UnitInfo.refiIndirectRange] or 0) > iEnemyBestDFRange then
                                     table.insert(tUnitsToSupport, oUnit)
@@ -9404,7 +9427,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oSRUnit='..oSRUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oSRUnit)..'; oSRUnit[M28UnitInfo.refbCanKite]='..tostring(oSRUnit[M28UnitInfo.refbCanKite] or false)..'; iClosestDist='..iClosestDist..'; oClosestUnit='..(oClosestUnit.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oClosestUnit))..'; do we have an amphibious oSRUnit='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oSRUnit.UnitId))..'; iDistToRetreat='..iDistToRetreat..'; Is special micro active for SR unit='..tostring(oSRUnit[M28UnitInfo.refbSpecialMicroActive] or false)..'; Time since micro started='..GetGameTimeSeconds() - (oSRUnit[M28UnitInfo.refiGameTimeMicroStarted] or 0)) end
                                             if oSRUnit[M28UnitInfo.refbEasyBrain] then
                                                 oSRUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
-                                                M28Orders.IssueSmartMove(oSRUnit, M28Utilities.MoveInDirection(oClosestUnit:GetPosition(), M28Utilities.GetAngleFromAToB(oClosestUnit:GetPosition(), (tSRRallyOverride or tRallyPoint)), iDistToRetreat, true, false, true), 4, false, 'SReSup'..iLandZone, false, true)
+                                                M28Orders.IssueSmartMove(oSRUnit, M28Utilities.MoveInDirection(oClosestUnit:GetPosition(), M28Utilities.GetAngleFromAToB(oClosestUnit:GetPosition(), (tSRRallyOverride or tRallyPoint)), iDistToRetreat, true, false, true), 4, false, 'SReSup'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
                                             elseif oSRUnit[M28Air.refiTimeLastDropped] and oSRUnit[M28UnitInfo.refiIndirectRange] > 0 and GetGameTimeSeconds() - oSRUnit[M28Air.refiTimeLastDropped] <= 60 and oNearestEnemyStructureToMidpoint then
                                                 SuicideUnitIntoEnemyStructure(oSRUnit)
                                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will suicide into enemy structure') end
@@ -9428,11 +9451,11 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                         if bDebugMessages == true and oSRUnit[M28UnitInfo.refbCanKite] then
                                                             LOG(sFunctionRef..': Want unit to move towards tAmphibiousRallyPoint, position to move to towards this='..repru(tSupportRetreatPoint)..'; cur position='..repru(oSRUnit:GetPosition())..'; Last orders='..reprs(oSRUnit[M28Orders.reftiLastOrders])..'; Angle from cur position to new position='..M28Utilities.GetAngleFromAToB(oSRUnit:GetPosition(), tAmphibiousRallyPoint)..'; IgnoreOrderDueToStuckUnit(oSRUnit)='..tostring(IgnoreOrderDueToStuckUnit(oSRUnit) or false))
                                                         end
-                                                        M28Orders.IssueSmartMove(oSRUnit, tSupportRetreatPoint, 12, false, 'ASRSup'..iLandZone, false, true)
+                                                        M28Orders.IssueSmartMove(oSRUnit, tSupportRetreatPoint, 12, false, 'ASRSup'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
 
                                                     else
                                                         local tSupportRetreatPoint = M28Utilities.MoveInDirection(oClosestUnit:GetPosition(), M28Utilities.GetAngleFromAToB(oClosestUnit:GetPosition(), (tSRRallyOverride or tRallyPoint)), iDistToRetreat, true, false, true)
-                                                        M28Orders.IssueSmartMove(oSRUnit, tSupportRetreatPoint, 12, false, 'SRSup'..iLandZone, false, true)
+                                                        M28Orders.IssueSmartMove(oSRUnit, tSupportRetreatPoint, 12, false, 'SRSup'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
                                                     end
                                                 end
                                             end
@@ -10215,7 +10238,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                         tScenario2RetreatTarget = tAmphibiousRallyPoint
                                                         sScenario2RetreatOrderRef = 'AI2KRetr'..iLandZone
                                                     end
-                                                    M28Orders.IssueSmartMove(oUnit, tScenario2RetreatTarget, 6, false, sScenario2RetreatOrderRef, false, true)
+                                                    M28Orders.IssueSmartMove(oUnit, tScenario2RetreatTarget, 6, false, sScenario2RetreatOrderRef, false, true, tFixedDFSpreadAvoidanceAreaTables)
                                                 end
                                             end
                                         else
@@ -10239,7 +10262,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                 tScenario2SkirmisherRetreatTarget = tAmphibiousRallyPoint
                                                 sScenario2SkirmisherRetreatOrderRef = 'ASKRetr'..iLandZone
                                             end
-                                            M28Orders.IssueSmartMove(oUnit, tScenario2SkirmisherRetreatTarget, 6, false, sScenario2SkirmisherRetreatOrderRef, false, true)
+                                            M28Orders.IssueSmartMove(oUnit, tScenario2SkirmisherRetreatTarget, 6, false, sScenario2SkirmisherRetreatOrderRef, false, true, tFixedDFSpreadAvoidanceAreaTables)
 
                                         end
                                     else
@@ -10824,7 +10847,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                                     sResolvedRetreatOrderRef = (bAttackMove and 'RAXInt' or 'MXInt')..sRetreatMessage..iLandZone
                                                                 end
                                                             end
-                                                            IssueResolvedRetreatOrder(oUnit, tResolvedRetreatTarget, sResolvedRetreatOrderRef, 6, {bUseSmartMove = bAttackMove})
+                                                            IssueResolvedRetreatOrder(oUnit, tResolvedRetreatTarget, sResolvedRetreatOrderRef, 6, {bUseSmartMove = bAttackMove, tSpreadAvoidanceAreaTables = tFixedDFSpreadAvoidanceAreaTables})
                                                         end
 
                                                     end
@@ -10864,7 +10887,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                         if bUseAggressiveRetreatMove then
                                                             IssueResolvedRetreatOrder(oUnit, tResolvedRetreatTarget, sResolvedRetreatOrderRef, 6, {bUseAggressiveMove = true})
                                                         else
-                                                            IssueResolvedRetreatOrder(oUnit, tResolvedRetreatTarget, sResolvedRetreatOrderRef, 6, {bUseSmartMove = true})
+                                                            IssueResolvedRetreatOrder(oUnit, tResolvedRetreatTarget, sResolvedRetreatOrderRef, 6, {bUseSmartMove = true, tSpreadAvoidanceAreaTables = tFixedDFSpreadAvoidanceAreaTables})
                                                         end
                                                     end
                                                 end
@@ -11424,7 +11447,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             if tMusteringPoint then
                                 --Unit is joining mustering effort (bIsRetreat=true so snipers/artillery don't stop to attack)
                                 SetLandCombatIntent(oUnit, iPlateau, iLandZone, iMusterCommitIntentSeconds, 'MustRetr')
-                                IssueResolvedRetreatOrder(oUnit, tMusteringPoint, 'MustRetr'..iLandZone, 6, {bUseSmartMove = true})
+                                IssueResolvedRetreatOrder(oUnit, tMusteringPoint, 'MustRetr'..iLandZone, 6, {bUseSmartMove = true, tSpreadAvoidanceAreaTables = tFixedDFSpreadAvoidanceAreaTables})
                             else
                                 local tFallbackRetreatTarget = tRallyPoint
                                 local sFallbackRetreatOrderRef = 'FBRetr'..iLandZone
@@ -11439,7 +11462,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                         sFallbackRetreatOrderRef = 'FBARetr'..iLandZone
                                     end
                                 end
-                                IssueResolvedRetreatOrder(oUnit, tFallbackRetreatTarget, sFallbackRetreatOrderRef, 6, {bUseSmartMove = true})
+                                IssueResolvedRetreatOrder(oUnit, tFallbackRetreatTarget, sFallbackRetreatOrderRef, 6, {bUseSmartMove = true, tSpreadAvoidanceAreaTables = tFixedDFSpreadAvoidanceAreaTables})
                             end
                         end
                     end
@@ -12443,7 +12466,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             if tMusteringPoint and not(IgnoreOrderDueToStuckUnit(oUnit)) then
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Mustering DF unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' before support push to LZ '..iDFLZToSupport..'; point='..repru(tMusteringPoint)) end
                                 SetLandCombatIntent(oUnit, iPlateau, iDFLZToSupport, iMusterCommitIntentSeconds, 'DFMuster')
-                                M28Orders.IssueSmartMove(oUnit, tMusteringPoint, 6, false, 'DFMustLZ'..iDFLZToSupport..'From'..iLandZone, false, true, true)
+                                M28Orders.IssueSmartMove(oUnit, tMusteringPoint, 6, false, 'DFMustLZ'..iDFLZToSupport..'From'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
                             elseif not(IgnoreOrderDueToStuckUnit(oUnit)) then
                                 if bSupportDebugLog then
                                     local bSameLane = false
@@ -12544,7 +12567,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                 if tMusteringPoint then
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Mustering IF unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' before support push to LZ '..iIndirectLZToSupport..'; point='..repru(tMusteringPoint)) end
                                     SetLandCombatIntent(oUnit, iPlateau, iIndirectLZToSupport, iMusterCommitIntentSeconds, 'IFMuster')
-                                    M28Orders.IssueSmartMove(oUnit, tMusteringPoint, 6, false, 'IFMustLZ'..iIndirectLZToSupport..'From'..iLandZone, false, true, true)
+                                    M28Orders.IssueSmartMove(oUnit, tMusteringPoint, 6, false, 'IFMustLZ'..iIndirectLZToSupport..'From'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
                                 else
                                     if bConsiderAttackMoveForNearbyUnits then UpdateLongRangeUnitToAttackInstead(oUnit) end
                                     if oLRUnitToAttackInstead then
