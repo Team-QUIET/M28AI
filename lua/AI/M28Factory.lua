@@ -153,8 +153,10 @@ local function GetFactoryBuildPlanBlacklistCategory(sBlueprint)
         return M28UnitInfo.refCategorySkirmisher
     elseif categories.ual0204 and EntityCategoryContains(categories.ual0204, sBlueprint) then
         return categories.ual0204
-    elseif EntityCategoryContains(M28UnitInfo.refCategoryLandScout + M28UnitInfo.refCategoryAirScout, sBlueprint) then
-        return M28UnitInfo.refCategoryLandScout + M28UnitInfo.refCategoryAirScout
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryLandScout, sBlueprint) then
+        return M28UnitInfo.refCategoryLandScout
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryAirScout, sBlueprint) then
+        return M28UnitInfo.refCategoryAirScout
     end
     return nil
 end
@@ -375,8 +377,10 @@ end
 local function GetFactoryLiveQueueCapForCategory(iCategoryWanted, oFactory)
     if not(iCategoryWanted) then
         return nil
-    elseif iCategoryWanted == M28UnitInfo.refCategoryLandScout or iCategoryWanted == M28UnitInfo.refCategoryAirScout or iCategoryWanted == (M28UnitInfo.refCategoryLandScout + M28UnitInfo.refCategoryAirScout) then
+    elseif iCategoryWanted == M28UnitInfo.refCategoryLandScout then
         return 5
+    elseif iCategoryWanted == M28UnitInfo.refCategoryAirScout then
+        return 1
     elseif iCategoryWanted == M28UnitInfo.refCategoryEngineer then
         if GetGameTimeSeconds() <= 240 then
             return 8
@@ -579,6 +583,42 @@ local function GetTeamPendingLandScoutCount(aiBrain, iTeam)
         end
     end
     return iPendingScouts
+end
+
+local function GetTeamPendingAirScoutCount(aiBrain, iTeam)
+    iTeam = iTeam or aiBrain.M28Team
+    local iPendingScouts = 0
+    local tFriendlyBrains = M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]
+    if M28Utilities.IsTableEmpty(tFriendlyBrains) then
+        tFriendlyBrains = {aiBrain}
+    end
+
+    for iBrain, oBrain in tFriendlyBrains do
+        if oBrain and oBrain.M28AI then
+            local tAirFactories = oBrain:GetListOfUnits(M28UnitInfo.refCategoryAirFactory + M28UnitInfo.refCategoryMobileAircraftFactory, false, true)
+            for iFactory, oAirFactory in tAirFactories do
+                if M28UnitInfo.IsUnitValid(oAirFactory) and oAirFactory:GetFractionComplete() == 1 then
+                    iPendingScouts = iPendingScouts + GetFactoryPendingBuildCountByCategory(oAirFactory, M28UnitInfo.refCategoryAirScout)
+                end
+            end
+        end
+    end
+    return iPendingScouts
+end
+
+local function ShouldAllowAnotherAirScout(aiBrain, oFactory)
+    local iTeam = aiBrain.M28Team
+    local iCurrentScouts = M28Conditions.GetCurrentM28UnitsOfCategoryInTeam(M28UnitInfo.refCategoryAirScout, iTeam)
+    local iPendingScouts = GetTeamPendingAirScoutCount(aiBrain, iTeam)
+    local iDesiredScouts = M28Intel.GetDesiredAirScoutCount(iTeam, M28Team.tTeamData[iTeam][M28Team.refiFriendlyGameEnderCount] or 0)
+    local iFactoryPendingScouts = GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryAirScout)
+    local sReason = 'BelowDesired'
+    if iCurrentScouts + iPendingScouts >= iDesiredScouts then
+        sReason = 'TeamDesiredReached'
+    elseif iFactoryPendingScouts >= 1 then
+        sReason = 'FactoryPendingCap'
+    end
+    return sReason == 'BelowDesired', iCurrentScouts, iPendingScouts, iDesiredScouts, iFactoryPendingScouts, sReason
 end
 
 local function GetTeamTransportCount(aiBrain, iTeam)
@@ -1051,6 +1091,17 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Central land scout clamp rejected extra scout build for factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         return nil
+    end
+
+    if EntityCategoryContains(M28UnitInfo.refCategoryAirScout, sBPIDToBuild) then
+        local bAllowAirScout, iCurrentAirScouts, iPendingAirScouts, iDesiredAirScouts, iFactoryPendingAirScouts, sAirScoutDecisionReason = ShouldAllowAnotherAirScout(aiBrain, oFactory)
+        if bDebugMessages == true then
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': AirScoutProductionGate; Decision='..(bAllowAirScout and 'Allow' or 'Reject')..'; Reason='..sAirScoutDecisionReason..'; Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; CurrentTeam='..iCurrentAirScouts..'; PendingTeam='..iPendingAirScouts..'; DesiredTeam='..iDesiredAirScouts..'; PendingFactory='..iFactoryPendingAirScouts..'; Time='..GetGameTimeSeconds())
+        end
+        if not(bAllowAirScout) then
+            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+            return nil
+        end
     end
 
     if not(DoesFactoryQueueHaveRoomForBlueprint(oFactory, sBPIDToBuild)) then
