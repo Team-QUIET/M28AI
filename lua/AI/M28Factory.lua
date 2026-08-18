@@ -47,6 +47,8 @@ reftFactoryBuildPlanCategoryBlacklist = 'M28FacPlanBlk' --against oFactory durin
 refbFactoryBuildPlanUpdateActive = 'M28FacPlanAct' --against oFactory, true while one thread owns queue-plan sync/fill for this factory
 refsPendingFactoryUpgradeBlueprint = 'M28FacPendUpgBP' --against oFactory, upgrade blueprint selected while clearing queued production for an HQ upgrade
 refiPendingFactoryUpgradeTime = 'M28FacPendUpgT' --against oFactory, game time the pending factory upgrade was selected
+refsPendingAirQueuePriorityBlueprint = 'M28FacAirPrioBP' --against oFactory, AirAA blueprint waiting for the current aircraft to finish before rebuilding the queue
+refsPendingAirQueuePriorityReason = 'M28FacAirPrioR' --against oFactory, air deficit reason for the pending AirAA queue rebuild
 refiFirstTimeOfLastOrder = 'M28FOrTim' --against oFactory, time that we gave an order for the factory to build a unit (cleared when a unit is built or a different blueprint order is given) - used to spot for factories with units blocking them
 refbWantMoreEngineersBeforeUpgrading = 'M28FWnE' --against oFactory, true if have run the factory condition and it concluded wen eeded more engineers before upgrading
 refbPausedToStopDefaultAI = 'M28FPsC' --true if we have paused factory to stop a campaign AI giving it orders
@@ -62,6 +64,7 @@ refiTimeOfLastFacBlockOrder = 'M28FacBlkO' --Gametimeseconds that a unit was tol
 refiHighestFactoryBuildCount = 'M28FacBrTotBC' --against aiBrain, Highest build count of a factory
 refbJustBuiltFirstT1Bomber = 'M28AirBlt1B' --true if we have just built the first t1 bomber (Changes to false after 5s)
 local iMaxStandardFactoryQueueDepth = 12
+local iFactoryAttackAirQueueCategory = M28UnitInfo.refCategoryBomber + M28UnitInfo.refCategoryTorpBomber + M28UnitInfo.refCategoryGunship
 
 local DoesT1LandFactoryPassAttackAirGate
 local GetMaxT1MAACount
@@ -264,6 +267,47 @@ local function GetFactoryPendingBuildCountByCategory(oFactory, iCategoryWanted)
     return math.max(iRecordedPendingBuilds, iActualPendingBuilds)
 end
 
+local function GetAirQueuePriorityState(aiBrain)
+    local tAirSubteamData = M28Team.tAirSubteamData[aiBrain.M28AirSubteam]
+    local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
+    local iOurAirAAThreat = tAirSubteamData[M28Team.subrefiOurAirAAThreat] or 0
+    local iEnemyAirAAThreat = tTeamData[M28Team.refiEnemyAirAAThreat] or 0
+    local iEnemyAirToGroundThreat = tTeamData[M28Team.refiEnemyAirToGroundThreat] or 0
+    local bHaveAirControl = tAirSubteamData[M28Team.refbHaveAirControl] or false
+    local bFarBehindOnAir = tAirSubteamData[M28Team.refbFarBehindOnAir] or false
+    local sPriorityReason
+
+    if bFarBehindOnAir then
+        sPriorityReason = 'FarBehindOnAir'
+    elseif not(bHaveAirControl) and iEnemyAirAAThreat >= math.max(500, iOurAirAAThreat * 1.1) then
+        sPriorityReason = 'EnemyAirAAAdvantage'
+    elseif not(bHaveAirControl) and iEnemyAirToGroundThreat >= 500 then
+        sPriorityReason = 'EnemyAirToGroundThreat'
+    end
+
+    return sPriorityReason, iOurAirAAThreat, iEnemyAirAAThreat, iEnemyAirToGroundThreat, bHaveAirControl, bFarBehindOnAir
+end
+
+local function GetFactoryAttackAirQueueCap(oFactory)
+    local tAirSubteamData = M28Team.tAirSubteamData[oFactory:GetAIBrain().M28AirSubteam]
+    if tAirSubteamData[M28Team.refbFarBehindOnAir] then
+        return 1
+    elseif not(tAirSubteamData[M28Team.refbHaveAirControl]) then
+        return 2
+    end
+    return 4
+end
+
+local function GetFactoryAirAAQueueCap(oFactory)
+    local tAirSubteamData = M28Team.tAirSubteamData[oFactory:GetAIBrain().M28AirSubteam]
+    if tAirSubteamData[M28Team.refbFarBehindOnAir] then
+        return 8
+    elseif not(tAirSubteamData[M28Team.refbHaveAirControl]) then
+        return 6
+    end
+    return 4
+end
+
 local function GetFactoryLiveQueueCapCategory(sBlueprint)
     if not(sBlueprint) then
         return nil
@@ -273,6 +317,10 @@ local function GetFactoryLiveQueueCapCategory(sBlueprint)
         return categories.ual0204
     elseif EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, sBlueprint) then
         return M28UnitInfo.refCategoryT3MobileArtillery
+    elseif EntityCategoryContains(iFactoryAttackAirQueueCategory, sBlueprint) then
+        return iFactoryAttackAirQueueCategory
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryAirAA, sBlueprint) then
+        return M28UnitInfo.refCategoryAirAA
     end
 
     local iBlacklistCategory = GetFactoryBuildPlanBlacklistCategory(sBlueprint)
@@ -386,6 +434,10 @@ local function GetFactoryLiveQueueCapForCategory(iCategoryWanted, oFactory)
             return 8
         end
         return 3
+    elseif iCategoryWanted == iFactoryAttackAirQueueCategory then
+        return GetFactoryAttackAirQueueCap(oFactory)
+    elseif iCategoryWanted == M28UnitInfo.refCategoryAirAA then
+        return GetFactoryAirAAQueueCap(oFactory)
     elseif iCategoryWanted == M28UnitInfo.refCategoryT3MobileArtillery then
         return 2
     elseif iCategoryWanted == M28UnitInfo.refCategoryMobileLandStealth then
@@ -419,6 +471,18 @@ local function GetFactoryEngineerQueueRunLength(oFactory, iRemainingPlanDepth)
         iMaxRunLength = 2
     end
     return math.min(iRemainingPlanDepth, iMaxRunLength, math.max(0, iEngineerCap - iPendingEngineers))
+end
+
+local function GetFactoryAttackAirQueueRunLength(oFactory, iRemainingPlanDepth)
+    local iPendingAttackAir = GetFactoryPendingBuildCountByCategory(oFactory, iFactoryAttackAirQueueCategory)
+    local iAttackAirCap = GetFactoryAttackAirQueueCap(oFactory)
+    return math.min(iRemainingPlanDepth, 2, math.max(0, iAttackAirCap - iPendingAttackAir))
+end
+
+local function GetFactoryAirAAQueueRunLength(oFactory, iRemainingPlanDepth)
+    local iPendingAirAA = GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryAirAA)
+    local iAirAACap = GetFactoryAirAAQueueCap(oFactory)
+    return math.min(iRemainingPlanDepth, math.max(0, iAirAACap - iPendingAirAA))
 end
 
 local function GetFactoryLiveQueueCapForBlueprint(oFactory, sBlueprint)
@@ -6553,6 +6617,11 @@ local function ClearPendingFactoryUpgrade(oFactory)
     oFactory[refiPendingFactoryUpgradeTime] = nil
 end
 
+local function ClearPendingAirQueuePriority(oFactory)
+    oFactory[refsPendingAirQueuePriorityBlueprint] = nil
+    oFactory[refsPendingAirQueuePriorityReason] = nil
+end
+
 local function GetPendingFactoryUpgradeBlueprint(oFactory)
     if oFactory:IsUnitState('Upgrading') or oFactory:IsUnitState('BeingUpgraded') then
         ClearPendingFactoryUpgrade(oFactory)
@@ -6567,6 +6636,7 @@ local function GetPendingFactoryUpgradeBlueprint(oFactory)
 end
 
 local function SetPendingFactoryUpgrade(oFactory, sUpgradeBlueprint)
+    ClearPendingAirQueuePriority(oFactory)
     oFactory[refsPendingFactoryUpgradeBlueprint] = sUpgradeBlueprint
     oFactory[refiPendingFactoryUpgradeTime] = GetGameTimeSeconds()
     InvalidateFactoryBuildPlan(oFactory)
@@ -6615,12 +6685,12 @@ local function GetFactoryQueuePreemptingUpgradeBlueprint(aiBrain, oFactory)
 
     local sBlueprintToBuild, bEnhancement = DetermineWhatToBuild(aiBrain, oFactory)
     if bEnhancement or not(sBlueprintToBuild) then
-        return nil
+        return nil, nil
     elseif EntityCategoryContains(M28UnitInfo.refCategoryFactory, sBlueprintToBuild) then
-        return sBlueprintToBuild
+        return sBlueprintToBuild, nil
     end
 
-    return nil
+    return nil, sBlueprintToBuild
 end
 
 local function GetFactoryFirstQueuedCategoryIndex(oFactory, iCategoryWanted)
@@ -6633,6 +6703,94 @@ local function GetFactoryFirstQueuedCategoryIndex(oFactory, iCategoryWanted)
         end
     end
     return nil
+end
+
+local function GetFactoryIssuedAirQueueState(oFactory)
+    local iFirstAirAAIndex
+    local sFirstAirAABlueprint
+    local iAttackAirBeforeAirAA = 0
+    local iIssuedAttackAir = 0
+    local tQueuedBlueprints = GetQueuedFactoryBlueprints(oFactory)
+    if M28Utilities.IsTableEmpty(tQueuedBlueprints) == false then
+        for iBlueprint, sBlueprint in tQueuedBlueprints do
+            if not(iFirstAirAAIndex) and EntityCategoryContains(M28UnitInfo.refCategoryAirAA, sBlueprint) then
+                iFirstAirAAIndex = iBlueprint
+                sFirstAirAABlueprint = sBlueprint
+            elseif EntityCategoryContains(iFactoryAttackAirQueueCategory, sBlueprint) then
+                iIssuedAttackAir = iIssuedAttackAir + 1
+                if not(iFirstAirAAIndex) then
+                    iAttackAirBeforeAirAA = iAttackAirBeforeAirAA + 1
+                end
+            end
+        end
+    end
+    return iFirstAirAAIndex, iAttackAirBeforeAirAA, iIssuedAttackAir, sFirstAirAABlueprint
+end
+
+local function RemoveUnissuedAttackAirFromBuildPlan(oFactory)
+    local tBuildPlan = oFactory[reftFactoryBuildPlan]
+    if M28Utilities.IsTableEmpty(tBuildPlan) then
+        return 0
+    end
+
+    local iIssuedCount = math.min(table.getn(tBuildPlan), oFactory[refiFactoryBuildPlanIssuedCount] or 0)
+    local iRemovedCount = 0
+    for iEntry = table.getn(tBuildPlan), iIssuedCount + 1, -1 do
+        if EntityCategoryContains(iFactoryAttackAirQueueCategory, tBuildPlan[iEntry]) then
+            table.remove(tBuildPlan, iEntry)
+            iRemovedCount = iRemovedCount + 1
+        end
+    end
+    return iRemovedCount
+end
+
+local function TrimFactoryBuildPlanToIssuedOrders(oFactory)
+    local tBuildPlan = oFactory[reftFactoryBuildPlan]
+    if M28Utilities.IsTableEmpty(tBuildPlan) then
+        return
+    end
+
+    local iIssuedCount = math.min(table.getn(tBuildPlan), oFactory[refiFactoryBuildPlanIssuedCount] or 0)
+    while table.getn(tBuildPlan) > iIssuedCount do
+        table.remove(tBuildPlan)
+    end
+end
+
+local function GetFactoryAirAAQueuePriorityShift(aiBrain, oFactory, sPriorityBlueprint)
+    if not(M28UnitInfo.IsUnitValid(oFactory)) or oFactory:IsPaused() or oFactory[M28UnitInfo.refbPaused]
+            or oFactory:IsUnitState('Upgrading') or oFactory:IsUnitState('BeingUpgraded')
+            or not(EntityCategoryContains(M28UnitInfo.refCategoryAirFactory + M28UnitInfo.refCategoryMobileAircraftFactory, oFactory.UnitId)) then
+        return nil
+    end
+
+    local sPriorityReason, iOurAirAAThreat, iEnemyAirAAThreat, iEnemyAirToGroundThreat, bHaveAirControl, bFarBehindOnAir = GetAirQueuePriorityState(aiBrain)
+    if not(sPriorityReason) then
+        return nil
+    end
+
+    local iFirstAirAAIndex, iAttackAirBeforeAirAA, iIssuedAttackAir, sFirstAirAABlueprint = GetFactoryIssuedAirQueueState(oFactory)
+    local bUsingQueuedAirAA = false
+    if not(sPriorityBlueprint) or not(EntityCategoryContains(M28UnitInfo.refCategoryAirAA, sPriorityBlueprint)) then
+        if not(sFirstAirAABlueprint) or GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryAirAA) < GetFactoryAirAAQueueCap(oFactory) then
+            return nil
+        end
+        sPriorityBlueprint = sFirstAirAABlueprint
+        bUsingQueuedAirAA = true
+    end
+    return {
+        sBlueprint = sPriorityBlueprint,
+        sReason = sPriorityReason,
+        bUsingQueuedAirAA = bUsingQueuedAirAA,
+        iFirstAirAAIndex = iFirstAirAAIndex,
+        iAttackAirBeforeAirAA = iAttackAirBeforeAirAA,
+        iIssuedAttackAir = iIssuedAttackAir,
+        iRemovedUnissuedAttackAir = RemoveUnissuedAttackAirFromBuildPlan(oFactory),
+        iOurAirAAThreat = iOurAirAAThreat,
+        iEnemyAirAAThreat = iEnemyAirAAThreat,
+        iEnemyAirToGroundThreat = iEnemyAirToGroundThreat,
+        bHaveAirControl = bHaveAirControl,
+        bFarBehindOnAir = bFarBehindOnAir,
+    }
 end
 
 local function GetFactoryQueuePreemptingMAABlueprint(aiBrain, oFactory)
@@ -6662,7 +6820,7 @@ local function GetFactoryQueuePreemptingMAABlueprint(aiBrain, oFactory)
     return sBlueprintToBuild, tMAAQueueState, iFirstMAAQueuedIndex
 end
 
-local function ClearFactoryQueueForUpgradePreemption(oFactory)
+local function ClearFactoryProductionQueue(oFactory)
     if not(M28UnitInfo.IsUnitValid(oFactory)) then
         return
     end
@@ -6675,6 +6833,41 @@ local function ClearFactoryQueueForUpgradePreemption(oFactory)
     end
 end
 
+local function SetPendingAirQueuePriority(oFactory, sAirAABlueprint, sReason)
+    oFactory[refsPendingAirQueuePriorityBlueprint] = sAirAABlueprint
+    oFactory[refsPendingAirQueuePriorityReason] = sReason
+    TrimFactoryBuildPlanToIssuedOrders(oFactory)
+end
+
+local function ApplyPendingAirQueuePriority(oFactory)
+    local sFunctionRef = 'ApplyPendingAirQueuePriority'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelFactory, sFunctionRef)
+    local sAirAABlueprint = oFactory[refsPendingAirQueuePriorityBlueprint]
+    if not(sAirAABlueprint) then
+        return false
+    end
+
+    local aiBrain = oFactory:GetAIBrain()
+    local sPriorityReason, iOurAirAAThreat, iEnemyAirAAThreat, iEnemyAirToGroundThreat = GetAirQueuePriorityState(aiBrain)
+    local iFirstAirAAIndex = GetFactoryFirstQueuedCategoryIndex(oFactory, M28UnitInfo.refCategoryAirAA)
+    if not(sPriorityReason) or not(oFactory:CanBuild(sAirAABlueprint)) or iFirstAirAAIndex == 1 then
+        if bDebugMessages == true then
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Cancelling pending AirAA queue shift. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; PendingBlueprint='..sAirAABlueprint..'; OriginalReason='..(oFactory[refsPendingAirQueuePriorityReason] or 'nil')..'; CurrentReason='..(sPriorityReason or 'nil')..'; FirstAirAAIndex='..(iFirstAirAAIndex or 'nil')..'; OurAirAA='..iOurAirAAThreat..'; EnemyAirAA='..iEnemyAirAAThreat..'; EnemyAirToGround='..iEnemyAirToGroundThreat..'; Time='..GetGameTimeSeconds())
+        end
+        ClearPendingAirQueuePriority(oFactory)
+        return false
+    end
+
+    if bDebugMessages == true then
+        M28Profiler.DebugLog(tDebugContext, 'M28FactoryQueueAirAAPreempt: Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sAirAABlueprint..'; Reason='..sPriorityReason..'; OriginalReason='..(oFactory[refsPendingAirQueuePriorityReason] or 'nil')..'; FirstAirAAIndex='..(iFirstAirAAIndex or 'nil')..'; OurAirAA='..iOurAirAAThreat..'; EnemyAirAA='..iEnemyAirAAThreat..'; EnemyAirToGround='..iEnemyAirToGroundThreat..'; WorkProgress='..(oFactory:GetWorkProgress() or 0)..'; Time='..GetGameTimeSeconds())
+    end
+    ClearPendingAirQueuePriority(oFactory)
+    InvalidateFactoryBuildPlan(oFactory)
+    M28Orders.IssueTrackedFactoryBuild(oFactory, sAirAABlueprint, false, 'UrgentAirAAQueuePreempt')
+    QueueAdditionalFactoryBuildOrders(aiBrain, oFactory, sAirAABlueprint)
+    return true
+end
+
 local function TryStartPendingFactoryUpgrade(aiBrain, oFactory, sFunctionRef, bDebugMessages, tDebugContext)
     local sPendingUpgradeBlueprint = GetPendingFactoryUpgradeBlueprint(oFactory)
     if not(sPendingUpgradeBlueprint) then
@@ -6682,7 +6875,7 @@ local function TryStartPendingFactoryUpgrade(aiBrain, oFactory, sFunctionRef, bD
     end
 
     if (GetFactoryActualBuildOrderCount(oFactory) or 0) > 0 or IsFactoryActivelyBuilding(oFactory) then
-        ClearFactoryQueueForUpgradePreemption(oFactory)
+        ClearFactoryProductionQueue(oFactory)
         if bDebugMessages == true then
             M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Pending HQ upgrade is suppressing normal factory production while existing work clears. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; UpgradeBlueprint='..sPendingUpgradeBlueprint..'; ActualBuildOrders='..(GetFactoryActualBuildOrderCount(oFactory) or 0)..'; WorkProgress='..(oFactory:GetWorkProgress() or 0)..'; State='..M28UnitInfo.GetUnitState(oFactory)..'; Time='..GetGameTimeSeconds())
         end
@@ -6704,6 +6897,10 @@ local function GetFactoryBuildPlanRunLength(aiBrain, oFactory, sBlueprint, iRema
         return 1
     elseif EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBlueprint) then
         return GetFactoryEngineerQueueRunLength(oFactory, iRemainingPlanDepth)
+    elseif EntityCategoryContains(iFactoryAttackAirQueueCategory, sBlueprint) then
+        return GetFactoryAttackAirQueueRunLength(oFactory, iRemainingPlanDepth)
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryAirAA, sBlueprint) then
+        return GetFactoryAirAAQueueRunLength(oFactory, iRemainingPlanDepth)
     elseif EntityCategoryContains(M28UnitInfo.refCategoryMAA, sBlueprint) then
         return GetFactoryMAAQueueRunLength(oFactory, iRemainingPlanDepth)
     elseif GetFactoryBuildPlanBlacklistCategory(sBlueprint) then
@@ -6764,6 +6961,14 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
         return FinishFactoryBuildPlanCoverage(iCurBuildOrders)
     end
 
+    if oFactory[refsPendingAirQueuePriorityBlueprint] then
+        TrimFactoryBuildPlanToIssuedOrders(oFactory)
+        if bDebugMessages == true then
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Suppressing queue refill until the current aircraft finishes for an AirAA priority shift. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..oFactory[refsPendingAirQueuePriorityBlueprint]..'; Reason='..(oFactory[refsPendingAirQueuePriorityReason] or 'nil')..'; CurrentBuildOrders='..iCurBuildOrders..'; IssuedCount='..iIssuedCount..'; Time='..GetGameTimeSeconds())
+        end
+        return FinishFactoryBuildPlanCoverage(iCurBuildOrders)
+    end
+
     oFactory[reftFactoryBuildPlanCategoryBlacklist] = {}
 
     while table.getn(tBuildPlan) < iDesiredPlanLength do
@@ -6797,6 +7002,10 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
             M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning MAA queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..tMAAQueueState.iCap..'; PendingMAA='..GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryMAA)..'; ThreatForCap='..tMAAQueueState.iThreatForCap..'; TeamAirToGround='..tMAAQueueState.iEnemyAirToGroundThreat..'; LocalAirToGround='..tMAAQueueState.iLocalAirToGroundThreat..'; LocalMAAWanted='..tMAAQueueState.iLocalMAAWanted..'; LocalGroundAA='..tMAAQueueState.iLocalGroundAAThreat..'; LowTechGunshipCount='..tMAAQueueState.iLowTechGunshipCount..'; LowTechGunshipPressure='..tMAAQueueState.iLowTechGunshipPressure..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
         elseif bDebugMessages == true and EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBPToBuild) then
             M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning engineer queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..GetFactoryLiveQueueCapForCategory(M28UnitInfo.refCategoryEngineer, oFactory)..'; PendingEngineers='..GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryEngineer)..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
+        elseif bDebugMessages == true and EntityCategoryContains(iFactoryAttackAirQueueCategory, sBPToBuild) then
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning attack-air queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..GetFactoryAttackAirQueueCap(oFactory)..'; PendingAttackAir='..GetFactoryPendingBuildCountByCategory(oFactory, iFactoryAttackAirQueueCategory)..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
+        elseif bDebugMessages == true and EntityCategoryContains(M28UnitInfo.refCategoryAirAA, sBPToBuild) then
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning AirAA queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..GetFactoryAirAAQueueCap(oFactory)..'; PendingAirAA='..GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryAirAA)..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
         end
         for iRun = 1, iRunLength do
             table.insert(tBuildPlan, sBPToBuild)
@@ -6832,7 +7041,7 @@ function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
     local sPendingUpgradeBlueprint = GetPendingFactoryUpgradeBlueprint(oFactory)
     if sPendingUpgradeBlueprint then
         if iBuildOrders > 0 then
-            ClearFactoryQueueForUpgradePreemption(oFactory)
+            ClearFactoryProductionQueue(oFactory)
         end
         if bDebugMessages == true then
             M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Pending HQ upgrade owns this factory queue. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; UpgradeBlueprint='..sPendingUpgradeBlueprint..'; ActualBuildOrders='..(GetFactoryActualBuildOrderCount(oFactory) or 0)..'; FactoryActivelyBuilding='..tostring(bFactoryActivelyBuilding)..'; WorkProgress='..(oFactory:GetWorkProgress() or 0)..'; State='..M28UnitInfo.GetUnitState(oFactory)..'; Time='..GetGameTimeSeconds())
@@ -6841,6 +7050,23 @@ function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
             return true
         end
         return false
+    end
+
+    local sPendingAirAABlueprint = oFactory[refsPendingAirQueuePriorityBlueprint]
+    if sPendingAirAABlueprint then
+        local sCurrentPriorityReason, iOurAirAAThreat, iEnemyAirAAThreat, iEnemyAirToGroundThreat = GetAirQueuePriorityState(aiBrain)
+        local iFirstAirAAIndex = GetFactoryFirstQueuedCategoryIndex(oFactory, M28UnitInfo.refCategoryAirAA)
+        if not(sCurrentPriorityReason) or not(oFactory:CanBuild(sPendingAirAABlueprint)) or iFirstAirAAIndex == 1 then
+            if bDebugMessages == true then
+                M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Cancelling deferred AirAA queue shift before completion. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; PendingBlueprint='..sPendingAirAABlueprint..'; OriginalReason='..(oFactory[refsPendingAirQueuePriorityReason] or 'nil')..'; CurrentReason='..(sCurrentPriorityReason or 'nil')..'; FirstAirAAIndex='..(iFirstAirAAIndex or 'nil')..'; OurAirAA='..iOurAirAAThreat..'; EnemyAirAA='..iEnemyAirAAThreat..'; EnemyAirToGround='..iEnemyAirToGroundThreat..'; Time='..GetGameTimeSeconds())
+            end
+            ClearPendingAirQueuePriority(oFactory)
+        elseif not(bFactoryActivelyBuilding) then
+            ApplyPendingAirQueuePriority(oFactory)
+            return true
+        else
+            return true
+        end
     end
     if iBuildOrders == 0 and not(bFactoryActivelyBuilding) then
         if M28Utilities.IsTableEmpty(tBuildPlan) == false then
@@ -6851,14 +7077,27 @@ function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
         end
         return false
     end
-    local sUpgradeBlueprint = GetFactoryQueuePreemptingUpgradeBlueprint(aiBrain, oFactory)
+    local sUpgradeBlueprint, sActiveQueuePriorityBlueprint = GetFactoryQueuePreemptingUpgradeBlueprint(aiBrain, oFactory)
     if sUpgradeBlueprint then
         if bDebugMessages == true then
             M28Profiler.DebugLog(tDebugContext, 'M28FactoryQueueUpgradePreempt: Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; UpgradeBlueprint='..sUpgradeBlueprint..'; ActualBuildOrders='..(GetFactoryActualBuildOrderCount(oFactory) or 0)..'; PlanLength='..table.getn(tBuildPlan or {})..'; IssuedCount='..(oFactory[refiFactoryBuildPlanIssuedCount] or 0)..'; WorkProgress='..(oFactory:GetWorkProgress() or 0)..'; State='..M28UnitInfo.GetUnitState(oFactory)..'; Time='..GetGameTimeSeconds())
         end
         SetPendingFactoryUpgrade(oFactory, sUpgradeBlueprint)
-        ClearFactoryQueueForUpgradePreemption(oFactory)
+        ClearFactoryProductionQueue(oFactory)
         return false
+    end
+    local tAirAAQueuePriorityShift = GetFactoryAirAAQueuePriorityShift(aiBrain, oFactory, sActiveQueuePriorityBlueprint)
+    if tAirAAQueuePriorityShift then
+        if bDebugMessages == true then
+            M28Profiler.DebugLog(tDebugContext, 'M28FactoryQueueAirAAPriority: Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..tAirAAQueuePriorityShift.sBlueprint..'; Reason='..tAirAAQueuePriorityShift.sReason..'; FighterSource='..(tAirAAQueuePriorityShift.bUsingQueuedAirAA and 'Queued' or 'CurrentDecision')..'; FirstAirAAIndex='..(tAirAAQueuePriorityShift.iFirstAirAAIndex or 'nil')..'; AttackAirBeforeAirAA='..tAirAAQueuePriorityShift.iAttackAirBeforeAirAA..'; IssuedAttackAir='..tAirAAQueuePriorityShift.iIssuedAttackAir..'; RemovedUnissuedAttackAir='..tAirAAQueuePriorityShift.iRemovedUnissuedAttackAir..'; OurAirAA='..tAirAAQueuePriorityShift.iOurAirAAThreat..'; EnemyAirAA='..tAirAAQueuePriorityShift.iEnemyAirAAThreat..'; EnemyAirToGround='..tAirAAQueuePriorityShift.iEnemyAirToGroundThreat..'; HaveAirControl='..tostring(tAirAAQueuePriorityShift.bHaveAirControl)..'; FarBehindOnAir='..tostring(tAirAAQueuePriorityShift.bFarBehindOnAir)..'; WorkProgress='..(oFactory:GetWorkProgress() or 0)..'; Time='..GetGameTimeSeconds())
+        end
+        if (not(tAirAAQueuePriorityShift.iFirstAirAAIndex) or tAirAAQueuePriorityShift.iFirstAirAAIndex > 2) and tAirAAQueuePriorityShift.iAttackAirBeforeAirAA > 0 then
+            SetPendingAirQueuePriority(oFactory, tAirAAQueuePriorityShift.sBlueprint, tAirAAQueuePriorityShift.sReason)
+            if not(bFactoryActivelyBuilding) then
+                ApplyPendingAirQueuePriority(oFactory)
+            end
+            return true
+        end
     end
     local sMAAPreemptBlueprint, tMAAQueueState, iFirstMAAQueuedIndex = GetFactoryQueuePreemptingMAABlueprint(aiBrain, oFactory)
     if sMAAPreemptBlueprint then
@@ -10126,6 +10365,7 @@ function RegisterCompletedFactoryBuild(oFactory, sBlueprint)
     oFactory[refiBuildCountByBlueprint][sBlueprint] = (oFactory[refiBuildCountByBlueprint][sBlueprint] or 0) + 1
     oFactory[refsLastBlueprintBuilt] = sBlueprint
     ConsumeFactoryBuildPlanEntry(oFactory, sBlueprint)
+    ApplyPendingAirQueuePriority(oFactory)
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Registered completed build '..(sBlueprint or 'nil')..' for factory '..(oFactory.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oFactory) or 'nil')) end
     if oFactory[refiFirstTimeOfLastOrder] and GetGameTimeSeconds() - oFactory[refiFirstTimeOfLastOrder] > 0.1 then
         oFactory[refiFirstTimeOfLastOrder] = nil
