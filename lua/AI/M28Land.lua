@@ -33,11 +33,10 @@ iTicksPerLandCycle = 11 --Set by ConsiderSlowdownForHighUnitCount; WaitTicks(11)
 --Varaibles against specific units
 reftiPlateauAndLZToMoveTo = 'M28LandPlatAndLZToMoveTo' --If tell a unit to mvoe to a LZ then will update this with the plateau and land zone wanted
 refiCurrentAssignmentPlateauAndLZ = 'M28LandAssignedPlatLZ' --returns {iPlateau, iLandZone} that the units orders have been coordinated by
-refiLandCombatIntentUntil = 'M28LandIntentUntil' --gametime seconds until a committed land intent can be replaced by normal zone assignment
-refiLandCombatIntentPlateau = 'M28LandIntentPlateau' --plateau for a temporary committed land intent
-refiLandCombatIntentTargetLZ = 'M28LandIntentTargetLZ' --target LZ for a temporary committed land intent
-refsLandCombatIntentOwner = 'M28LandIntentOwner' --short owner name for temporary committed land intent
-refbLandCombatIntentHoldAtTarget = 'M28LandIntentHoldAtTarget' --true if the intent should stay locked briefly even after reaching the target LZ
+refiLandCombatIntentUntil = 'M28LandIntentUntil' --gametime seconds until a timed land intent can be replaced by normal zone assignment
+refiLandCombatIntentPlateau = 'M28LandIntentPlateau' --plateau for a land combat intent
+refiLandCombatIntentTargetLZ = 'M28LandIntentTargetLZ' --target LZ for a land combat intent
+refsLandCombatIntentOwner = 'M28LandIntentOwner' --short owner name for a land combat intent
 refiLastDFSupportTargetLZ = 'M28LandDFSupTgt' --Against LZ team data, recent DF support target selected by this source LZ
 refiLastDFSupportTargetTime = 'M28LandDFSupTm' --Against LZ team data, time the recent DF support target was selected
 refiLastBaselinePressureTargetLZ = 'M28LandBPrTgt' --Against LZ team data, recent baseline-pressure target selected by this source LZ
@@ -55,7 +54,6 @@ reftMAAAirTargetAnchor = 'M28LMAAAirAnc' --Against LZ team data, latched MAA mov
 refiMAAAirTargetAnchorTime = 'M28LMAAAirTm' --Against LZ team data, time the MAA air target anchor was last updated
 iFatboyBaseMAACount = 6 --Number of MAA wanted as guards normally
 iFatboySafeMAACount = 12 --Number of MAA wanted as guards if worried about restorer deathball/equivalent
-iMusterCommitIntentSeconds = 6 --Short owner latch after mustering commits, so normal support logic does not instantly reclaim units
 iLandSupportOrderIntentSeconds = 6 --Short owner latch after support movement orders, so baseline pressure and support pushes do not reclaim the same units every cycle
 refbFlaggedForPriorityScout = 'M28LndPrScFg' --true if we have flagged this unit wants a priority land scout
 refiTimeLastBuiltLandScoutForUnit = 'M28LndTmLstBultLS' --Gametimeseconds that we last built a high priority land scout because of this unit
@@ -11440,30 +11438,18 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             end
                             M28Orders.IssueSmartMove(oUnit, tSRHistoryTargetPosition, 6, false, sSRHistoryOrderRef)
                         else
-                            --Consider mustering instead of simple retreat for significant threats
-                            local iEnemyThreatForMustering = (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)
-                            local tMusteringPoint = ConsiderMusteringForLandCombat(oUnit, iTeam, iPlateau, iLandZone, iEnemyThreatForMustering)
-                            --Throttled debug logging for muster evaluation (every 30 seconds per zone)
-                            if tMusteringPoint then
-                                --Unit is joining mustering effort (bIsRetreat=true so snipers/artillery don't stop to attack)
-                                SetLandCombatIntent(oUnit, iPlateau, iLandZone, iMusterCommitIntentSeconds, 'MustRetr')
-                                IssueResolvedRetreatOrder(oUnit, tMusteringPoint, 'MustRetr'..iLandZone, 6, {bUseSmartMove = true, tSpreadAvoidanceAreaTables = tFixedDFSpreadAvoidanceAreaTables})
-                            else
-                                local tFallbackRetreatTarget = tRallyPoint
-                                local sFallbackRetreatOrderRef = 'FBRetr'..iLandZone
-                                if EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oUnit.UnitId) then
-                                    tFallbackRetreatTarget = tAmphibiousRallyPoint
-                                    sFallbackRetreatOrderRef = 'AFBMRetr'..iLandZone
-                                    if bConsiderAttackMoveIfClose and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tAmphibiousRallyPoint) <= 30 then
-                                        sFallbackRetreatOrderRef = 'AFBARetr'..iLandZone
-                                    end
-                                else
-                                    if bConsiderAttackMoveIfClose and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tRallyPoint) <= 30 then
-                                        sFallbackRetreatOrderRef = 'FBARetr'..iLandZone
-                                    end
+                            local tFallbackRetreatTarget = tRallyPoint
+                            local sFallbackRetreatOrderRef = 'FBRetr'..iLandZone
+                            if EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oUnit.UnitId) then
+                                tFallbackRetreatTarget = tAmphibiousRallyPoint
+                                sFallbackRetreatOrderRef = 'AFBMRetr'..iLandZone
+                                if bConsiderAttackMoveIfClose and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tAmphibiousRallyPoint) <= 30 then
+                                    sFallbackRetreatOrderRef = 'AFBARetr'..iLandZone
                                 end
-                                IssueResolvedRetreatOrder(oUnit, tFallbackRetreatTarget, sFallbackRetreatOrderRef, 6, {bUseSmartMove = true, tSpreadAvoidanceAreaTables = tFixedDFSpreadAvoidanceAreaTables})
+                            elseif bConsiderAttackMoveIfClose and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tRallyPoint) <= 30 then
+                                sFallbackRetreatOrderRef = 'FBARetr'..iLandZone
                             end
+                            IssueResolvedRetreatOrder(oUnit, tFallbackRetreatTarget, sFallbackRetreatOrderRef, 6, {bUseSmartMove = true, tSpreadAvoidanceAreaTables = tFixedDFSpreadAvoidanceAreaTables})
                         end
                     end
             end
@@ -11479,6 +11465,42 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 else
                     M28Utilities.ErrorHandler('Combat unit with no DF or indirect range')
                 end
+            end
+
+            local function GetSupportWaveCenter(tUnits)
+                local iTotalX = 0
+                local iTotalZ = 0
+                for iUnit, oUnit in tUnits do
+                    local tUnitPosition = oUnit:GetPosition()
+                    iTotalX = iTotalX + tUnitPosition[1]
+                    iTotalZ = iTotalZ + tUnitPosition[3]
+                end
+                local iUnitCount = table.getn(tUnits)
+                local tWaveCenter = {iTotalX / iUnitCount, 0, iTotalZ / iUnitCount}
+                tWaveCenter[2] = GetSurfaceHeight(tWaveCenter[1], tWaveCenter[3])
+                return tWaveCenter
+            end
+
+            local function GetSupportWaveReadiness(tUnits, iTargetLZ)
+                local tTargetLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iTargetLZ]
+                local tTargetLZTeamData = tTargetLZData[M28Map.subrefLZTeamData][iTeam]
+                local iEnemyPressure = tTargetLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
+                for iAdjacentEntry, iAdjacentLZ in tTargetLZData[M28Map.subrefLZAdjacentLandZones] do
+                    local tAdjacentLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjacentLZ][M28Map.subrefLZTeamData][iTeam]
+                    iEnemyPressure = iEnemyPressure + (tAdjacentLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) * 0.25
+                end
+
+                local iWaveThreat = M28UnitInfo.GetCombatThreatRating(tUnits, false, false)
+                local iTargetAllyThreat = tTargetLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
+                local iCombinedAllyThreat = iTargetAllyThreat
+                if iTargetLZ ~= iLandZone then iCombinedAllyThreat = iCombinedAllyThreat + iWaveThreat end
+
+                local iRequiredRatio = 1.06
+                local tTargetMexCountByTech = tTargetLZTeamData[M28Map.subrefMexCountByTech]
+                if tTargetMexCountByTech[1] + tTargetMexCountByTech[2] + tTargetMexCountByTech[3] > 0 then
+                    iRequiredRatio = 1
+                end
+                return iCombinedAllyThreat >= iEnemyPressure * iRequiredRatio, iWaveThreat, iTargetAllyThreat, iEnemyPressure, iRequiredRatio
             end
 
             --DF units - suicide into fatboy if was one
@@ -12425,7 +12447,6 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     LogSupportDebug('[P'..iPlateau..'-LZ'..iLandZone..'] DFRevise '..(iOriginalDFLZ or 'nil')..'->'..(iDFLZToSupport or 'nil')..'; SameLane='..tostring(bSameLane))
                 end
                 RecordLatchedDFSupportTarget(iDFLZToSupport)
-                RecordDFLandZoneTarget(iDFLZToSupport, M28Map.subrefiLZTMovingToOtherZone)
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iDFLZToSupport after revising target for far away LZ='..iDFLZToSupport..'; Midpoint of this zone='..repru(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport][M28Map.subrefMidpoint])) end
 
                 --Check intel confidence for target zone
@@ -12440,43 +12461,26 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Intel confidence LOW ('..iTargetIntelConfidence..') for target LZ '..iDFLZToSupport..', requested priority scouting') end
                 end
 
-                --Use the mustering owner for contested support pushes so units gather before entering the target zone.
                 local tTargetLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport]
-                local tTargetLZTeamData = tTargetLZData[M28Map.subrefLZTeamData][iTeam]
-                local iTargetZoneEnemyThreat = tTargetLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
-                local iTargetModDist = tTargetLZTeamData[M28Map.refiModDistancePercent] or 0.5
-                local iTargetAllyCombatThreat = tTargetLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
-                local iDFMusterReleaseThreat = math.max(200, iTargetZoneEnemyThreat * 0.65)
-                local bDFTargetReadyForFrontlineRelease = iTargetZoneEnemyThreat <= 200 or iTargetAllyCombatThreat >= iDFMusterReleaseThreat
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': DF support target '..iDFLZToSupport..' enemy threat='..iTargetZoneEnemyThreat..'; target ally threat='..iTargetAllyCombatThreat..'; muster release threat='..iDFMusterReleaseThreat..'; ready='..tostring(bDFTargetReadyForFrontlineRelease)) end
+                local bDFWaveReady, iDFWaveThreat, iTargetAllyCombatThreat, iDFEnemyPressure, iDFReleaseRatio = GetSupportWaveReadiness(tDFUnits, iDFLZToSupport)
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': DF support wave for LZ '..iDFLZToSupport..'; wave threat='..iDFWaveThreat..'; target ally threat='..iTargetAllyCombatThreat..'; enemy pressure='..iDFEnemyPressure..'; required ratio='..iDFReleaseRatio..'; ready='..tostring(bDFWaveReady)) end
 
-                for iUnit, oUnit in tDFUnits do
-                        local iUnitModDist = tLZTeamData[M28Map.refiModDistancePercent] or 0
-                        local bUnitNearTargetFront = iUnitModDist >= iTargetModDist - 0.1
-                        local bSendDirectlyToTarget = bDFTargetReadyForFrontlineRelease or bUnitNearTargetFront
-
-                        if bSendDirectlyToTarget then
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' direct to LZ '..iDFLZToSupport..'; nearTargetFront='..tostring(bUnitNearTargetFront)..'; targetReady='..tostring(bDFTargetReadyForFrontlineRelease)..'; modDist='..iUnitModDist..'; target ally threat='..iTargetAllyCombatThreat..'; muster release threat='..iDFMusterReleaseThreat) end
-                            if not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                                SetLandCombatIntent(oUnit, iPlateau, iDFLZToSupport, iLandSupportOrderIntentSeconds, 'DFFwd')
-                                M28Orders.IssueSmartMove(oUnit, tTargetLZData[M28Map.subrefMidpoint], 6, false, 'DFFwdLZ'..iDFLZToSupport..'From'..iLandZone)
-                            end
-                        else
-                            local tMusteringPoint = ConsiderMusteringForLandCombat(oUnit, iTeam, iPlateau, iDFLZToSupport, iTargetZoneEnemyThreat)
-                            if tMusteringPoint and not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Mustering DF unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' before support push to LZ '..iDFLZToSupport..'; point='..repru(tMusteringPoint)) end
-                                SetLandCombatIntent(oUnit, iPlateau, iDFLZToSupport, iMusterCommitIntentSeconds, 'DFMuster')
-                                M28Orders.IssueSmartMove(oUnit, tMusteringPoint, 6, false, 'DFMustLZ'..iDFLZToSupport..'From'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
-                            elseif not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                                if bSupportDebugLog then
-                                    local bSameLane = false
-                                    if tTargetLZData then bSameLane = IsSameLane(tTargetLZData) end
-                                    LogSupportDebug('[P'..iPlateau..'-LZ'..iLandZone..'] DFMovLZ order unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; targetLZ='..iDFLZToSupport..'; sameLane='..tostring(bSameLane)..'; musterPoint=nil')
-                                end
-                                SetLandCombatIntent(oUnit, iPlateau, iDFLZToSupport, iLandSupportOrderIntentSeconds, 'DFMove')
-                                M28Orders.IssueSmartMove(oUnit, tTargetLZData[M28Map.subrefMidpoint], 6, false, 'DFMovLZ'..iDFLZToSupport..'From'..iLandZone)
-                            end
+                if bDFWaveReady then
+                    RecordDFLandZoneTarget(iDFLZToSupport, M28Map.subrefiLZTMovingToOtherZone)
+                    for iUnit, oUnit in tDFUnits do
+                        if not(IgnoreOrderDueToStuckUnit(oUnit)) then
+                            SetLandCombatIntent(oUnit, iPlateau, iDFLZToSupport, iLandSupportOrderIntentSeconds, 'DFFwd')
+                            M28Orders.IssueSmartMove(oUnit, tTargetLZData[M28Map.subrefMidpoint], 6, false, 'DFFwdLZ'..iDFLZToSupport..'From'..iLandZone)
                         end
+                    end
+                else
+                    RecordDFLandZoneTarget(nil)
+                    local tDFWaveCenter = GetSupportWaveCenter(tDFUnits)
+                    for iUnit, oUnit in tDFUnits do
+                        if not(IgnoreOrderDueToStuckUnit(oUnit)) then
+                            M28Orders.IssueSmartMove(oUnit, tDFWaveCenter, 6, false, 'DFWaitLZ'..iDFLZToSupport..'From'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
+                        end
+                    end
                 end
                 tDFUnits = nil
             end
@@ -12536,49 +12540,29 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oLRUnitToAttackInstead after check='..sLRUnitToAttack)
                     end
                 end
-                --Use the mustering owner for contested support pushes so indirect units gather before entering the target zone.
                 local tIndirectTargetLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iIndirectLZToSupport]
-                local tIndirectTargetLZTeamData = tIndirectTargetLZData[M28Map.subrefLZTeamData][iTeam]
-                local iTargetZoneEnemyThreat = tIndirectTargetLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
-                local iIndirectTargetModDist = tIndirectTargetLZTeamData[M28Map.refiModDistancePercent] or 0.5
-                local iIndirectTargetAllyCombatThreat = tIndirectTargetLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
-                local iIFMusterReleaseThreat = math.max(200, iTargetZoneEnemyThreat * 0.65)
-                local bIFTargetReadyForFrontlineRelease = iTargetZoneEnemyThreat <= 200 or iIndirectTargetAllyCombatThreat >= iIFMusterReleaseThreat
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': IF support target '..iIndirectLZToSupport..' enemy threat='..iTargetZoneEnemyThreat..'; target ally threat='..iIndirectTargetAllyCombatThreat..'; muster release threat='..iIFMusterReleaseThreat..'; ready='..tostring(bIFTargetReadyForFrontlineRelease)) end
+                local bIFWaveReady, iIFWaveThreat, iIndirectTargetAllyCombatThreat, iIFEnemyPressure, iIFReleaseRatio = GetSupportWaveReadiness(tIndirectUnits, iIndirectLZToSupport)
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': IF support wave for LZ '..iIndirectLZToSupport..'; wave threat='..iIFWaveThreat..'; target ally threat='..iIndirectTargetAllyCombatThreat..'; enemy pressure='..iIFEnemyPressure..'; required ratio='..iIFReleaseRatio..'; ready='..tostring(bIFWaveReady)) end
 
-                for iUnit, oUnit in tIndirectUnits do
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Do we want to ignore orders due to having a stuck unit? oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Ignore due to stuck unit='..tostring(IgnoreOrderDueToStuckUnit(oUnit) or false)) end
+                if bIFWaveReady then
+                    for iUnit, oUnit in tIndirectUnits do
                         if not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                            local iIFUnitModDist = tLZTeamData[M28Map.refiModDistancePercent] or 0
-                            local bIFUnitNearTargetFront = iIFUnitModDist >= iIndirectTargetModDist - 0.1
-                            local bIFSendDirectlyToTarget = bIFTargetReadyForFrontlineRelease or bIFUnitNearTargetFront
-
-                            if bIFSendDirectlyToTarget then
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Indirect unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' direct to LZ '..iIndirectLZToSupport..'; nearTargetFront='..tostring(bIFUnitNearTargetFront)..'; targetReady='..tostring(bIFTargetReadyForFrontlineRelease)..'; modDist='..iIFUnitModDist..'; target ally threat='..iIndirectTargetAllyCombatThreat..'; muster release threat='..iIFMusterReleaseThreat) end
-                                if bConsiderAttackMoveForNearbyUnits then UpdateLongRangeUnitToAttackInstead(oUnit) end
-                                if oLRUnitToAttackInstead then
-                                    M28Orders.IssueSmartMove(oUnit, oLRUnitToAttackInstead:GetPosition(), 6, false, 'IFMvAtLR'..iLandZone)
-                                else
-                                    SetLandCombatIntent(oUnit, iPlateau, iIndirectLZToSupport, iLandSupportOrderIntentSeconds, 'IFFwd')
-                                    M28Orders.IssueTrackedMove(oUnit, tIndirectTargetLZData[M28Map.subrefMidpoint], 6, false, 'IFFwdLZ'..iIndirectLZToSupport..'From'..iLandZone)
-                                end
+                            if bConsiderAttackMoveForNearbyUnits then UpdateLongRangeUnitToAttackInstead(oUnit) end
+                            if oLRUnitToAttackInstead then
+                                M28Orders.IssueSmartMove(oUnit, oLRUnitToAttackInstead:GetPosition(), 6, false, 'IFMvAtLR'..iLandZone)
                             else
-                                local tMusteringPoint = ConsiderMusteringForLandCombat(oUnit, iTeam, iPlateau, iIndirectLZToSupport, iTargetZoneEnemyThreat)
-                                if tMusteringPoint then
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Mustering IF unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' before support push to LZ '..iIndirectLZToSupport..'; point='..repru(tMusteringPoint)) end
-                                    SetLandCombatIntent(oUnit, iPlateau, iIndirectLZToSupport, iMusterCommitIntentSeconds, 'IFMuster')
-                                    M28Orders.IssueSmartMove(oUnit, tMusteringPoint, 6, false, 'IFMustLZ'..iIndirectLZToSupport..'From'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
-                                else
-                                    if bConsiderAttackMoveForNearbyUnits then UpdateLongRangeUnitToAttackInstead(oUnit) end
-                                    if oLRUnitToAttackInstead then
-                                        M28Orders.IssueSmartMove(oUnit, oLRUnitToAttackInstead:GetPosition(), 6, false, 'IFMvAtLR'..iLandZone)
-                                    else
-                                        SetLandCombatIntent(oUnit, iPlateau, iIndirectLZToSupport, iLandSupportOrderIntentSeconds, 'IFMove')
-                                        M28Orders.IssueTrackedMove(oUnit, tIndirectTargetLZData[M28Map.subrefMidpoint], 6, false, 'IFMovLZ'..iIndirectLZToSupport..'From'..iLandZone)
-                                    end
-                                end
+                                SetLandCombatIntent(oUnit, iPlateau, iIndirectLZToSupport, iLandSupportOrderIntentSeconds, 'IFFwd')
+                                M28Orders.IssueTrackedMove(oUnit, tIndirectTargetLZData[M28Map.subrefMidpoint], 6, false, 'IFFwdLZ'..iIndirectLZToSupport..'From'..iLandZone)
                             end
                         end
+                    end
+                else
+                    local tIFWaveCenter = GetSupportWaveCenter(tIndirectUnits)
+                    for iUnit, oUnit in tIndirectUnits do
+                        if not(IgnoreOrderDueToStuckUnit(oUnit)) then
+                            M28Orders.IssueSmartMove(oUnit, tIFWaveCenter, 6, false, 'IFWaitLZ'..iIndirectLZToSupport..'From'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
+                        end
+                    end
                 end
                 tIndirectUnits = nil
             end
@@ -12879,13 +12863,12 @@ function RecordUnitAsReceivingLandZoneAssignment(oUnit, iPlateau, iLandZone)
     end
 end
 
-function SetLandCombatIntent(oUnit, iPlateau, iTargetLZ, iDurationSeconds, sOwner, bHoldAtTarget)
+function SetLandCombatIntent(oUnit, iPlateau, iTargetLZ, iDurationSeconds, sOwner)
     local iCurTime = GetGameTimeSeconds()
     oUnit[refiLandCombatIntentUntil] = iCurTime + iDurationSeconds
     oUnit[refiLandCombatIntentPlateau] = iPlateau
     oUnit[refiLandCombatIntentTargetLZ] = iTargetLZ
     oUnit[refsLandCombatIntentOwner] = sOwner
-    oUnit[refbLandCombatIntentHoldAtTarget] = bHoldAtTarget or nil
 end
 
 function ClearLandCombatIntent(oUnit)
@@ -12893,14 +12876,20 @@ function ClearLandCombatIntent(oUnit)
     oUnit[refiLandCombatIntentPlateau] = nil
     oUnit[refiLandCombatIntentTargetLZ] = nil
     oUnit[refsLandCombatIntentOwner] = nil
-    oUnit[refbLandCombatIntentHoldAtTarget] = nil
 end
 
 function IsLandCombatIntentLocked(oUnit, iPlateau, iLandZone)
     local iIntentUntil = oUnit[refiLandCombatIntentUntil]
     if not(iIntentUntil) then return false end
 
-    if oUnit[refiLandCombatIntentPlateau] == iPlateau and oUnit[refiLandCombatIntentTargetLZ] == iLandZone and not(oUnit[refbLandCombatIntentHoldAtTarget]) then
+    if oUnit[refiLandCombatIntentPlateau] == iPlateau and oUnit[refiLandCombatIntentTargetLZ] == iLandZone then
+        ClearLandCombatIntent(oUnit)
+        return false
+    end
+
+    local iTeam = oUnit:GetAIBrain().M28Team
+    local tCurrentLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][iTeam]
+    if tCurrentLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] then
         ClearLandCombatIntent(oUnit)
         return false
     end
@@ -13910,8 +13899,6 @@ function ManageAllLandZones(aiBrain, iTeam, bIgnoreMinorPlateaus, iCurMinorPlate
                         end
                     end
                 end
-                --Check if mustered army is ready to commit for this plateau
-                CheckAndCommitMusteredArmy(iTeam, iPlateau)
             else
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Warning - no land zones found for plateau '..iPlateau) end
             end
@@ -15693,77 +15680,4 @@ function HaveAttackingExperimentalToSupport(tLZTeamData)
             end
         end
     end
-end
-
-function ConsiderMusteringForLandCombat(oUnit, iTeam, iPlateau, iLandZone, iEnemyThreat)
-    --When a unit should consolidate before retreating or pushing, check if it should join a mustering effort.
-    --Returns a spread position within the mustering zone to prevent clumping
-    --Also supports cascading mustering from adjacent zones
-    local sFunctionRef = 'ConsiderMusteringForLandCombat'
-    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLand, sFunctionRef)
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-
-    --Check if there's already active mustering for this plateau
-    if M28Team.IsMusteringActive(iTeam, iPlateau) then
-        local iMusteringTargetLZ = M28Team.GetMusteringTargetZone(iTeam, iPlateau)
-        --If mustering for a different zone, check if this zone is more urgent
-        if iMusteringTargetLZ ~= iLandZone then
-            M28Team.UpdateMusteringTarget(iTeam, iPlateau, iLandZone, iEnemyThreat)
-        end
-        --Add unit to mustering
-        M28Team.AddUnitToMustering(iTeam, iPlateau, oUnit)
-        local tMusteringPosition = M28Team.GetMusteringSpreadPosition(iTeam, iPlateau, oUnit)
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' joining existing mustering at '..repru(tMusteringPosition)) end
-        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-        return tMusteringPosition
-    else
-        --No active mustering from this zone, but check if cascading muster is flagged
-        local tLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone]
-        local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
-
-        if tLZTeamData[M28Map.subrefbShouldJoinMustering] then
-            --This zone was flagged by cascading propagation - use propagated threat if higher
-            local iPropagatedThreat = tLZTeamData[M28Map.subrefiPropagatedMusterThreat] or 0
-            iEnemyThreat = math.max(iEnemyThreat, iPropagatedThreat)
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Zone '..iLandZone..' joining cascading muster with propagated threat='..iPropagatedThreat) end
-            --Clear the flag after processing
-            tLZTeamData[M28Map.subrefbShouldJoinMustering] = nil
-            tLZTeamData[M28Map.subrefiPropagatedMusterThreat] = nil
-        end
-
-        --Consider starting new mustering
-        if M28Team.InitializeMustering(iTeam, iPlateau, iLandZone, iEnemyThreat) then
-            M28Team.AddUnitToMustering(iTeam, iPlateau, oUnit)
-            local tMusteringPosition = M28Team.GetMusteringSpreadPosition(iTeam, iPlateau, oUnit)
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' started new mustering at '..repru(tMusteringPosition)) end
-            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-            return tMusteringPosition
-        end
-    end
-
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-    return nil
-end
-
-function CheckAndCommitMusteredArmy(iTeam, iPlateau)
-    --Check if mustered army is ready to commit and execute the attack
-    --Returns true if army was committed
-    local sFunctionRef = 'CheckAndCommitMusteredArmy'
-    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLand, sFunctionRef)
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-
-    if not(M28Team.IsMusteringActive(iTeam, iPlateau)) then
-        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-        return false
-    end
-
-    if M28Team.ShouldCommitMusteredArmy(iTeam, iPlateau) then
-        local toCommittedUnits = M28Team.CommitMusteredArmy(iTeam, iPlateau)
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Committed '..table.getn(toCommittedUnits)..' units from mustering') end
-        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-        return true
-    end
-
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-    return false
 end
