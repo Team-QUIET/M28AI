@@ -411,6 +411,16 @@ local function GetFactoryLiveQueueCapForCategory(iCategoryWanted, oFactory)
     return nil
 end
 
+local function GetFactoryEngineerQueueRunLength(oFactory, iRemainingPlanDepth)
+    local iPendingEngineers = GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryEngineer)
+    local iEngineerCap = GetFactoryLiveQueueCapForCategory(M28UnitInfo.refCategoryEngineer, oFactory)
+    local iMaxRunLength = 1
+    if iPendingEngineers == 0 then
+        iMaxRunLength = 2
+    end
+    return math.min(iRemainingPlanDepth, iMaxRunLength, math.max(0, iEngineerCap - iPendingEngineers))
+end
+
 local function GetFactoryLiveQueueCapForBlueprint(oFactory, sBlueprint)
     return GetFactoryLiveQueueCapForCategory(GetFactoryLiveQueueCapCategory(sBlueprint), oFactory)
 end
@@ -6692,6 +6702,8 @@ local function GetFactoryBuildPlanRunLength(aiBrain, oFactory, sBlueprint, iRema
         return 0
     elseif EntityCategoryContains(categories.SUBCOMMANDER + categories.EXPERIMENTAL + M28UnitInfo.refCategoryFactory, sBlueprint) then
         return 1
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBlueprint) then
+        return GetFactoryEngineerQueueRunLength(oFactory, iRemainingPlanDepth)
     elseif EntityCategoryContains(M28UnitInfo.refCategoryMAA, sBlueprint) then
         return GetFactoryMAAQueueRunLength(oFactory, iRemainingPlanDepth)
     elseif GetFactoryBuildPlanBlacklistCategory(sBlueprint) then
@@ -6783,6 +6795,8 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
         if bDebugMessages == true and EntityCategoryContains(M28UnitInfo.refCategoryMAA, sBPToBuild) then
             local tMAAQueueState = GetFactoryMAAQueueState(oFactory, aiBrain.M28Team)
             M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning MAA queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..tMAAQueueState.iCap..'; PendingMAA='..GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryMAA)..'; ThreatForCap='..tMAAQueueState.iThreatForCap..'; TeamAirToGround='..tMAAQueueState.iEnemyAirToGroundThreat..'; LocalAirToGround='..tMAAQueueState.iLocalAirToGroundThreat..'; LocalMAAWanted='..tMAAQueueState.iLocalMAAWanted..'; LocalGroundAA='..tMAAQueueState.iLocalGroundAAThreat..'; LowTechGunshipCount='..tMAAQueueState.iLowTechGunshipCount..'; LowTechGunshipPressure='..tMAAQueueState.iLowTechGunshipPressure..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
+        elseif bDebugMessages == true and EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBPToBuild) then
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning engineer queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..GetFactoryLiveQueueCapForCategory(M28UnitInfo.refCategoryEngineer, oFactory)..'; PendingEngineers='..GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryEngineer)..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
         end
         for iRun = 1, iRunLength do
             table.insert(tBuildPlan, sBPToBuild)
