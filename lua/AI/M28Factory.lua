@@ -6665,7 +6665,7 @@ local function DoesFactoryHaveHigherTechHQ(aiBrain, oFactory)
     return false
 end
 
-local function ShouldSuppressFactoryProductionForHQDesire(aiBrain, oFactory, sBlueprint)
+local function ShouldSuppressFactoryProductionForHQTransition(aiBrain, oFactory, sBlueprint)
     local sPendingUpgradeBlueprint = GetPendingFactoryUpgradeBlueprint(oFactory)
     if sPendingUpgradeBlueprint then
         if sBlueprint and EntityCategoryContains(M28UnitInfo.refCategoryFactory, sBlueprint) then
@@ -6674,8 +6674,7 @@ local function ShouldSuppressFactoryProductionForHQDesire(aiBrain, oFactory, sBl
         return true
     end
 
-    local iDesiredHQTech = GetFactoryMatchingHQUpgradeDesire(aiBrain, oFactory)
-    if not(iDesiredHQTech) and not(DoesFactoryHaveHigherTechHQ(aiBrain, oFactory)) then
+    if not(DoesFactoryHaveHigherTechHQ(aiBrain, oFactory)) then
         return false
     elseif sBlueprint and EntityCategoryContains(M28UnitInfo.refCategoryFactory, sBlueprint) then
         return false
@@ -6977,14 +6976,14 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
     oFactory[reftFactoryBuildPlan] = tBuildPlan
     oFactory[refiFactoryBuildPlanIssuedCount] = iIssuedCount
 
-    if ShouldSuppressFactoryProductionForHQDesire(aiBrain, oFactory) then
+    if ShouldSuppressFactoryProductionForHQTransition(aiBrain, oFactory) then
         while table.getn(tBuildPlan) > iIssuedCount do
             table.remove(tBuildPlan)
         end
         oFactory[reftFactoryBuildPlan] = tBuildPlan
         oFactory[refiFactoryBuildPlanIssuedCount] = iIssuedCount
         if bDebugMessages == true then
-            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Suppressing normal queue refill because this HQ matches an active HQ-tech desire. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; DesiredTech='..(GetFactoryMatchingHQUpgradeDesire(aiBrain, oFactory) or 'nil')..'; CurrentBuildOrders='..iCurBuildOrders..'; IssuedCount='..iIssuedCount..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Suppressing normal queue refill because this factory has a pending HQ upgrade or a completed higher-tech HQ. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; DesiredTech='..(GetFactoryMatchingHQUpgradeDesire(aiBrain, oFactory) or 'nil')..'; CurrentBuildOrders='..iCurBuildOrders..'; IssuedCount='..iIssuedCount..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
         end
         return FinishFactoryBuildPlanCoverage(iCurBuildOrders)
     end
@@ -7247,9 +7246,9 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait)
                 if not(bEnhancement) then
                     sBPToBuild = AdjustLandFactoryBlueprintForQueueComposition(aiBrain, oFactory, sBPToBuild, nil, sFunctionRef, bDebugMessages, tDebugContext)
                 end
-                if not(bEnhancement) and ShouldSuppressFactoryProductionForHQDesire(aiBrain, oFactory, sBPToBuild) then
+                if not(bEnhancement) and ShouldSuppressFactoryProductionForHQTransition(aiBrain, oFactory, sBPToBuild) then
                     if bDebugMessages == true then
-                        M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Suppressing immediate factory production because this HQ matches an active HQ-tech desire. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; CandidateBlueprint='..(sBPToBuild or 'nil')..'; Time='..GetGameTimeSeconds())
+                        M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Suppressing immediate factory production because this factory has a pending HQ upgrade or a completed higher-tech HQ. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; CandidateBlueprint='..(sBPToBuild or 'nil')..'; Time='..GetGameTimeSeconds())
                     end
                     sBPToBuild = nil
                 end
@@ -10219,7 +10218,7 @@ function GetBlueprintToBuildForNavalFactory(aiBrain, oFactory)
             if iCurT2BombardmentUnits <= 20 and (iCurT2BombardmentUnits <= 10 or not(bHaveLowMass)) then
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': will get bombardment ship') end
                 return sBPIDToBuild
-            elseif not(bHaveLowMass) and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryBattleship) <= 5and ConsiderBuildingCategory(M28UnitInfo.refCategoryBattleship) then
+            elseif not(bHaveLowMass) and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryBattleship) <= 5 and ConsiderBuildingCategory(M28UnitInfo.refCategoryBattleship) then
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will get battleship instead') end
                 return sBPIDToBuild
             end
