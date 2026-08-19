@@ -782,6 +782,7 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
     local sFunctionRef = 'UpgradeUnit'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+    local bIssuedUpgrade
 
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, oUnitToUpgrade='..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' owned by '..oUnitToUpgrade:GetAIBrain().Nickname..'; GetUnitUpgradeBlueprint='..reprs((M28UnitInfo.GetUnitUpgradeBlueprint(oUnitToUpgrade, true) or 'nil'))..'; bUpdateUpgradeTracker='..tostring((bUpdateUpgradeTracker or false))..'; unit brain='..oUnitToUpgrade:GetAIBrain().Nickname..'; Are we in T1 spam mode='..tostring(M28Team.tTeamData[oUnitToUpgrade:GetAIBrain().M28Team][M28Team.refbFocusOnT1Spam])..'; Unit enhancement upgrade count='..(oUnitToUpgrade[M28ACU.refiUpgradeCount] or 'nil')..'; refbTriedUpgrading='..tostring(oUnitToUpgrade[M28UnitInfo.refbTriedUpgrading] or false)..'; refbObjectiveUnit='..tostring(oUnitToUpgrade[M28UnitInfo.refbObjectiveUnit] or false)..'; Is oUnitToUpgrade.EventCallbacks.OnKilled nil='..tostring(oUnitToUpgrade.EventCallbacks.OnKilled == nil)..'; iOptionalWait='..(iOptionalWait or 'nil')..'; reason='..(sReasonRef or 'nil')) end
 
@@ -817,6 +818,17 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
 
         if not(oUnitToUpgrade:IsUnitState('Upgrading')) then
             if not(oUnitToUpgrade:IsUnitState('BeingUpgraded')) then
+                if EntityCategoryContains(M28UnitInfo.refCategoryFactory, oUnitToUpgrade.UnitId) then
+                    if M28Team.IsFactoryHQUpgradeBlueprint(sUpgradeID) then
+                        if not(M28Team.TryClaimFactoryHQUpgrade(aiBrain, oUnitToUpgrade, sUpgradeID, sReasonRef or sFunctionRef)) then
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Rejecting factory HQ upgrade because another factory owns this layer or the target HQ already exists; Factory='..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..'; UpgradeBlueprint='..sUpgradeID..'; Reason='..(sReasonRef or 'nil')) end
+                            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                            return false
+                        end
+                    else
+                        M28Team.ReleaseFactoryHQUpgrade(aiBrain, oUnitToUpgrade, 'ResolvedNonHQFactoryUpgrade')
+                    end
+                end
                 if EntityCategoryContains(M28UnitInfo.refCategoryMex, oUnitToUpgrade.UnitId) then
                     local bCanStartMexUpgrade, sMexUpgradeGateRef, iMexUpgradeGateLimit = CanTeamStartMexUpgradeNow(aiBrain.M28Team, oUnitToUpgrade, true)
                     if not(bCanStartMexUpgrade) then
@@ -885,6 +897,7 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
                 --Issue upgrade
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Issuing tracked upgrade for land factory '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..'; upgradeID='..(sUpgradeID or 'nil')..'; bAddToExistingQueue='..tostring(bAddToExistingQueue)..'; currentState='..M28UnitInfo.GetUnitState(oUnitToUpgrade)..'; queueEmpty='..tostring(M28Utilities.IsTableEmpty(oUnitToUpgrade:GetCommandQueue()))..'; reason='..(sReasonRef or 'nil')) end
                 M28Orders.IssueTrackedUpgrade(oUnitToUpgrade, sUpgradeID, bAddToExistingQueue, sReasonRef)
+                bIssuedUpgrade = true
                 --Issue where if we give the upgrade presumably just as the unit has finihsed its own upgrade, then it shows as beingupgrade while also being complete; so we wait 1 second and try again
             elseif oUnitToUpgrade:GetFractionComplete() == 1 then
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit still flagged as being upgraded at full completion, will retry in 1s for unit '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)) end
@@ -914,6 +927,7 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
         end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return bIssuedUpgrade
 end
 
 function GetBestUnitToUpgrade(toPotentialUnits, bPrioritiseFactoryHQ)

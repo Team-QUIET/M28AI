@@ -114,6 +114,9 @@ tTeamData = {} --[x] is the aiBrain.M28Team number - stores certain team-wide in
     refbWantPriorityLandHQ = 'M28WantPriorityLandHQ'
     refbWantPriorityAirHQ = 'M28WantPriorityAirHQ'
     refbWantPriorityNavalHQ = 'M28WantPriorityNavalHQ'
+    refoLandHQUpgradeOwner = 'M28LandHQUpgOwner'
+    refoAirHQUpgradeOwner = 'M28AirHQUpgOwner'
+    refoNavalHQUpgradeOwner = 'M28NavalHQUpgOwner'
     subreftTeamUpgradingMexes = 'M28TeamUpgradingMexes'
     subreftTeamUpgradingACUs = 'M28TeamUpgradingACUs'
     subreftTeamUpgradingOther = 'M28TeamUpgradingOther'
@@ -491,6 +494,99 @@ function CreateNewAirSubteam(aiBrain)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+function IsFactoryHQUpgradeBlueprint(sUpgradeBlueprint)
+    return sUpgradeBlueprint and EntityCategoryContains(M28UnitInfo.refCategoryAllHQFactories - categories.TECH1, sUpgradeBlueprint)
+end
+
+local function GetHQUpgradeOwnerRefAndCategory(sUpgradeBlueprint)
+    if EntityCategoryContains(M28UnitInfo.refCategoryLandHQ - categories.TECH1, sUpgradeBlueprint) then
+        return refoLandHQUpgradeOwner, M28UnitInfo.refCategoryLandHQ
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryAirHQ - categories.TECH1, sUpgradeBlueprint) then
+        return refoAirHQUpgradeOwner, M28UnitInfo.refCategoryAirHQ
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryNavalHQ - categories.TECH1, sUpgradeBlueprint) then
+        return refoNavalHQUpgradeOwner, M28UnitInfo.refCategoryNavalHQ
+    end
+    return nil, nil
+end
+
+local function IsFactoryHQUpgradeOwnerActive(aiBrain, oFactory)
+    if not(M28UnitInfo.IsUnitValid(oFactory)) or oFactory:GetAIBrain() ~= aiBrain then
+        return false
+    elseif IsFactoryHQUpgradeBlueprint(oFactory[M28Factory.refsPendingFactoryUpgradeBlueprint]) then
+        return true
+    end
+
+    if M28Utilities.IsTableEmpty(oFactory[M28Orders.reftiLastOrders]) == false then
+        for iOrder, tOrder in oFactory[M28Orders.reftiLastOrders] do
+            if tOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderUpgrade and IsFactoryHQUpgradeBlueprint(tOrder[M28Orders.subrefsOrderBlueprint]) then
+                return true
+            end
+        end
+    end
+    return oFactory:IsUnitState('Upgrading') or oFactory:IsUnitState('BeingUpgraded')
+end
+
+local function DoesBrainAlreadyHaveHQForTarget(aiBrain, iHQCategory, sUpgradeBlueprint)
+    local iTargetTech = M28UnitInfo.GetBlueprintTechLevel(sUpgradeBlueprint)
+    local iCompletedHQCategory = iHQCategory * categories.TECH3
+    if iTargetTech == 2 then
+        iCompletedHQCategory = iHQCategory - categories.TECH1
+    end
+    return aiBrain:GetCurrentUnits(iCompletedHQCategory) > 0
+end
+
+function TryClaimFactoryHQUpgrade(aiBrain, oFactory, sUpgradeBlueprint, sReasonRef)
+    if not(IsFactoryHQUpgradeBlueprint(sUpgradeBlueprint)) then
+        return true
+    end
+
+    local sFunctionRef = 'TryClaimFactoryHQUpgrade'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelTeam, sFunctionRef)
+    local sOwnerRef, iHQCategory = GetHQUpgradeOwnerRefAndCategory(sUpgradeBlueprint)
+    if not(sOwnerRef) then
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Rejecting unresolved HQ layer; Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; UpgradeBlueprint='..sUpgradeBlueprint..'; Reason='..(sReasonRef or 'nil')) end
+        return false
+    end
+
+    local oExistingOwner = aiBrain[sOwnerRef]
+    if DoesBrainAlreadyHaveHQForTarget(aiBrain, iHQCategory, sUpgradeBlueprint) then
+        if oExistingOwner == oFactory then
+            aiBrain[sOwnerRef] = nil
+        end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Rejecting duplicate completed HQ; Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; UpgradeBlueprint='..sUpgradeBlueprint..'; Reason='..(sReasonRef or 'nil')) end
+        return false
+    elseif oExistingOwner and oExistingOwner ~= oFactory and IsFactoryHQUpgradeOwnerActive(aiBrain, oExistingOwner) then
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': HQ layer already owned; Owner='..oExistingOwner.UnitId..M28UnitInfo.GetUnitLifetimeCount(oExistingOwner)..'; RejectedFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; UpgradeBlueprint='..sUpgradeBlueprint..'; Reason='..(sReasonRef or 'nil')) end
+        return false
+    elseif oExistingOwner and oExistingOwner ~= oFactory and bDebugMessages == true then
+        M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Replacing stale HQ layer owner; OldOwner='..(oExistingOwner.UnitId or 'nil')..M28UnitInfo.GetUnitLifetimeCount(oExistingOwner)..'; NewOwner='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; UpgradeBlueprint='..sUpgradeBlueprint..'; Reason='..(sReasonRef or 'nil'))
+    end
+
+    aiBrain[sOwnerRef] = oFactory
+    if bDebugMessages == true and oExistingOwner ~= oFactory then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Claimed HQ layer; Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; UpgradeBlueprint='..sUpgradeBlueprint..'; Reason='..(sReasonRef or 'nil')) end
+    return true
+end
+
+function ReleaseFactoryHQUpgrade(aiBrain, oFactory, sReasonRef)
+    local sOwnerRef
+    if aiBrain[refoLandHQUpgradeOwner] == oFactory then
+        sOwnerRef = refoLandHQUpgradeOwner
+    elseif aiBrain[refoAirHQUpgradeOwner] == oFactory then
+        sOwnerRef = refoAirHQUpgradeOwner
+    elseif aiBrain[refoNavalHQUpgradeOwner] == oFactory then
+        sOwnerRef = refoNavalHQUpgradeOwner
+    end
+    if not(sOwnerRef) then
+        return false
+    end
+
+    aiBrain[sOwnerRef] = nil
+    local sFunctionRef = 'ReleaseFactoryHQUpgrade'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelTeam, sFunctionRef)
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Released HQ layer; Factory='..(oFactory.UnitId or 'nil')..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Reason='..(sReasonRef or 'nil')) end
+    return true
+end
+
 function UpdateUpgradeTrackingOfUnit(oUnitDoingUpgrade, bUnitDeadOrCompletedUpgrade, sUnitUpgradingRef)
     --bUnitDeadOrCompletedUpgrade is true if  a structure has just died or completed building a structure, in which case the unit might not have been upgrading but want to check
     local sFunctionRef = 'UpdateUpgradeTrackingOfUnit'
@@ -508,6 +604,9 @@ function UpdateUpgradeTrackingOfUnit(oUnitDoingUpgrade, bUnitDeadOrCompletedUpgr
         sUpgradeTableRef = subreftTeamUpgradingACUs
     else
         sUpgradeTableRef = subreftTeamUpgradingOther
+    end
+    if bUnitDeadOrCompletedUpgrade and sUpgradeTableRef == subreftTeamUpgradingHQs then
+        ReleaseFactoryHQUpgrade(oUnitDoingUpgrade:GetAIBrain(), oUnitDoingUpgrade, 'UpgradeCompletedOrOwnerDied')
     end
     local iTableRefOfUnit
 
