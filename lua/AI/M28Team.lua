@@ -3047,7 +3047,9 @@ function SetBrainHQUpgradeDesire(aiBrain, iFactoryCategory, iTargetTech, bPriori
     if iOldTargetTech ~= aiBrain[sWantedTechRef] or (bPriority and not(bWasPriority)) then
         local sFunctionRef = 'SetBrainHQUpgradeDesire'
         local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelTeam, sFunctionRef)
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, 'M28HQIntentSet: Brain='..aiBrain.Nickname..'; Layer='..sLayer..'; TargetTech='..aiBrain[sWantedTechRef]..'; Priority='..tostring(aiBrain[sPriorityRef] or false)..'; QueueTarget='..(aiBrain[sPriorityRef] and 1 or 3)..'; Reason='..(sReasonRef or 'nil')..'; Time='..GetGameTimeSeconds()) end
+        if bDebugMessages == true then
+            M28Profiler.DebugLog(tDebugContext, 'M28HQIntentSet: Brain='..aiBrain.Nickname..'; Layer='..sLayer..'; TargetTech='..aiBrain[sWantedTechRef]..'; Priority='..tostring(aiBrain[sPriorityRef] or false)..'; QueueTarget=Unchanged; Reason='..(sReasonRef or 'nil')..'; Time='..GetGameTimeSeconds())
+        end
     end
     return true
 end

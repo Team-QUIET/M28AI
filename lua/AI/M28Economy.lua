@@ -777,14 +777,14 @@ function ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam, tOptionalClusterCon
     return iCurrentMexUpgradeCount < GetMinimumActiveMexUpgradeFloor(iTeam)
 end
 
-function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReasonRef)
+function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReasonRef, bStartPendingFactoryUpgrade)
     --Work out the upgrade ID wanted; if bUpdateUpgradeTracker is true then records upgrade against unit's aiBrain
     local sFunctionRef = 'UpgradeUnit'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     local bIssuedUpgrade
 
-    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, oUnitToUpgrade='..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' owned by '..oUnitToUpgrade:GetAIBrain().Nickname..'; GetUnitUpgradeBlueprint='..reprs((M28UnitInfo.GetUnitUpgradeBlueprint(oUnitToUpgrade, true) or 'nil'))..'; bUpdateUpgradeTracker='..tostring((bUpdateUpgradeTracker or false))..'; unit brain='..oUnitToUpgrade:GetAIBrain().Nickname..'; Are we in T1 spam mode='..tostring(M28Team.tTeamData[oUnitToUpgrade:GetAIBrain().M28Team][M28Team.refbFocusOnT1Spam])..'; Unit enhancement upgrade count='..(oUnitToUpgrade[M28ACU.refiUpgradeCount] or 'nil')..'; refbTriedUpgrading='..tostring(oUnitToUpgrade[M28UnitInfo.refbTriedUpgrading] or false)..'; refbObjectiveUnit='..tostring(oUnitToUpgrade[M28UnitInfo.refbObjectiveUnit] or false)..'; Is oUnitToUpgrade.EventCallbacks.OnKilled nil='..tostring(oUnitToUpgrade.EventCallbacks.OnKilled == nil)..'; iOptionalWait='..(iOptionalWait or 'nil')..'; reason='..(sReasonRef or 'nil')) end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, oUnitToUpgrade='..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' owned by '..oUnitToUpgrade:GetAIBrain().Nickname..'; GetUnitUpgradeBlueprint='..reprs((M28UnitInfo.GetUnitUpgradeBlueprint(oUnitToUpgrade, true) or 'nil'))..'; bUpdateUpgradeTracker='..tostring((bUpdateUpgradeTracker or false))..'; unit brain='..oUnitToUpgrade:GetAIBrain().Nickname..'; Are we in T1 spam mode='..tostring(M28Team.tTeamData[oUnitToUpgrade:GetAIBrain().M28Team][M28Team.refbFocusOnT1Spam])..'; Unit enhancement upgrade count='..(oUnitToUpgrade[M28ACU.refiUpgradeCount] or 'nil')..'; refbTriedUpgrading='..tostring(oUnitToUpgrade[M28UnitInfo.refbTriedUpgrading] or false)..'; refbObjectiveUnit='..tostring(oUnitToUpgrade[M28UnitInfo.refbObjectiveUnit] or false)..'; Is oUnitToUpgrade.EventCallbacks.OnKilled nil='..tostring(oUnitToUpgrade.EventCallbacks.OnKilled == nil)..'; iOptionalWait='..(iOptionalWait or 'nil')..'; bStartPendingFactoryUpgrade='..tostring(bStartPendingFactoryUpgrade or false)..'; reason='..(sReasonRef or 'nil')) end
 
     if iOptionalWait and iOptionalWait > 0 then
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
@@ -827,6 +827,12 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
                         end
                     else
                         M28Team.ReleaseFactoryHQUpgrade(aiBrain, oUnitToUpgrade, 'ResolvedNonHQFactoryUpgrade')
+                    end
+                    if not(bStartPendingFactoryUpgrade) and M28Factory.DeferAdmittedFactoryUpgrade(oUnitToUpgrade, sUpgradeID, sReasonRef or sFunctionRef) then
+                        M28UnitInfo.PauseOrUnpauseUnitWithoutTracking(oUnitToUpgrade, false)
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Deferred admitted factory upgrade until current production clears. Factory='..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..'; UpgradeBlueprint='..sUpgradeID..'; Reason='..(sReasonRef or 'nil')) end
+                        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                        return true
                     end
                 end
                 if EntityCategoryContains(M28UnitInfo.refCategoryMex, oUnitToUpgrade.UnitId) then
@@ -901,7 +907,7 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
                 --Issue where if we give the upgrade presumably just as the unit has finihsed its own upgrade, then it shows as beingupgrade while also being complete; so we wait 1 second and try again
             elseif oUnitToUpgrade:GetFractionComplete() == 1 then
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit still flagged as being upgraded at full completion, will retry in 1s for unit '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)) end
-                ForkThread(UpgradeUnit, oUnitToUpgrade, false, 1, sReasonRef)
+                ForkThread(UpgradeUnit, oUnitToUpgrade, false, 1, sReasonRef, bStartPendingFactoryUpgrade)
             end
         end
 
