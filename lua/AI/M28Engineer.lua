@@ -9765,7 +9765,7 @@ function GETemplateStartBuildingShield(tAvailableEngineers, tAvailableT3Engineer
                         tUnitsToConsiderReclaiming = {}
                         for iUnit, oUnit in tBlockingUnits do
                             if M28UnitInfo.IsUnitValid(oUnit) then
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Location '..repru(tBuildLocation)..' has a blocking unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' at position '..repru(oUnit:GetPosition())..' with radius='..M28UnitInfo.GetBuildingSize(oUnit.UnitId)*0.5..'; Is unit oUnit[M28Building.reftArtiTemplateRefs] nil='..tostring(oUnit[M28Building.reftArtiTemplateRefs]==nil)) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Location '..repru(tBuildLocation)..' has a blocking unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' at position '..repru(oUnit:GetPosition())..' with radius='..M28UnitInfo.GetBuildingSize(oUnit.UnitId) * 0.5 ..'; Is unit oUnit[M28Building.reftArtiTemplateRefs] nil='..tostring(oUnit[M28Building.reftArtiTemplateRefs] == nil)) end
                                 if EntityCategoryContains(M28UnitInfo.refCategoryExperimentalLevel, oUnit.UnitId) then
                                     --Do nothing
                                     tUnitsToConsiderReclaiming = nil
@@ -10075,7 +10075,7 @@ function GETemplateConsiderDefences(tAvailableEngineers, tAvailableT3EngineersBy
                                 tUnitsToConsiderReclaiming = {}
                                 for iUnit, oUnit in tBlockingUnits do
                                     if M28UnitInfo.IsUnitValid(oUnit) then
-                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Location '..repru(tSearchLocation)..' has a blocking unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' at position '..repru(oUnit:GetPosition())..' with radius='..M28UnitInfo.GetBuildingSize(oUnit.UnitId)*0.5..'; Is unit oUnit[M28Building.reftArtiTemplateRefs] nil='..tostring(oUnit[M28Building.reftArtiTemplateRefs]==nil)) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Location '..repru(tSearchLocation)..' has a blocking unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' at position '..repru(oUnit:GetPosition())..' with radius='..M28UnitInfo.GetBuildingSize(oUnit.UnitId) * 0.5 ..'; Is unit oUnit[M28Building.reftArtiTemplateRefs] nil='..tostring(oUnit[M28Building.reftArtiTemplateRefs] == nil)) end
                                         if EntityCategoryContains(M28UnitInfo.refCategoryExperimentalLevel, oUnit.UnitId) then
                                             --Do nothing
                                             tUnitsToConsiderReclaiming = nil
@@ -16517,45 +16517,14 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                     end
                 end
             end
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oActiveHQUpgradeToAssist='..(oActiveHQUpgradeToAssist.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oActiveHQUpgradeToAssist) or 'nil')..'; Is subreftoActiveUpgrades empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoActiveUpgrades]))) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oActiveHQUpgradeToAssist='..(oActiveHQUpgradeToAssist and oActiveHQUpgradeToAssist.UnitId..M28UnitInfo.GetUnitLifetimeCount(oActiveHQUpgradeToAssist) or 'nil')..'; Is subreftoActiveUpgrades empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoActiveUpgrades]))) end
             if oActiveHQUpgradeToAssist then
                 iBPWanted = 20
                 if not(bHaveLowPower) and not(bHaveLowMass) then iBPWanted = 40 end
                 HaveActionToAssign(refActionAssistUpgrade, 1, iBPWanted, oActiveHQUpgradeToAssist)
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We have an active HQ upgrade so will assist this') end
-            else
-                --We need a priority upgrade, unless it is early game and the ACU is unupgraded and isnt trying to upgrade
-                if GetGameTimeSeconds() >= 330/M28Team.tTeamData[iTeam][M28Team.refiHighestBrainBuildMultiplier] or M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategoryEngineer) >= 20 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or (oNearestEnemyACU and (oNearestEnemyACU:IsUnitState('Upgrading') or (oNearestEnemyACU[M28ACU.refiUpgradeCount] or 0) > 0)) then
-                    local tExistingT1LandFactories = EntityCategoryFilterDown(M28UnitInfo.refCategoryFactory * categories.TECH1, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
-                    if M28Utilities.IsTableEmpty(tExistingT1LandFactories) == false then
-                        --Get factory with lowest fraction complete
-                        local oFactoryToUpgrade
-                        local iLowestWorkProgress = 1
-                        local iLowestLandWorkProgress = 1
-                        local oBackupFactory
-                        for iFactory, oFactory in tExistingT1LandFactories do
-                            if M28UnitInfo.IsUnitValid(oFactory) and oFactory:GetFractionComplete() then
-                                if (oFactory:GetWorkProgress() or 0) < iLowestLandWorkProgress then
-                                    if oFactory:GetFractionComplete() == 1 and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oFactory.UnitId) then
-                                        oFactoryToUpgrade = oFactory
-                                        iLowestLandWorkProgress = (oFactory:GetWorkProgress() or 0)
-                                    elseif oFactory:GetWorkProgress() < iLowestWorkProgress then
-                                        oBackupFactory = oFactory
-                                        iLowestWorkProgress = (oFactory:GetWorkProgress() or 0)
-                                    end
-                                end
-                            end
-                        end
-                        if not(oFactoryToUpgrade) then oFactoryToUpgrade = oBackupFactory end
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have searched for t1 land factories to upgrade, is oFactoryToUpgrade valid='..tostring(M28UnitInfo.IsUnitValid(oFactoryToUpgrade))) end
-                        if oFactoryToUpgrade then
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Doign priority upgrade for oFactoryToUpgrade='..oFactoryToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactoryToUpgrade)..' due to appraoching enemy ACU') end
-                            M28Economy.UpgradeUnit(oFactoryToUpgrade, true, nil, 'EngineerPriorityLandFactoryUpgradeApproachingEnemyACU')
-                        end
-                    end
-                else
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Wont do priority land fac upgrade just yet as havent built lots of engineers and enemy ACU isnt upgraded') end
-                end
+            elseif bDebugMessages == true then
+                M28Profiler.DebugLog(tDebugContext, sFunctionRef..': No active HQ upgrade to assist; the team land-HQ selector owns new land-tech upgrades')
             end
         else
             --We have T2 tech (or only need T1 due to enemy not having gun), so want to build PD

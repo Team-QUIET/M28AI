@@ -1124,10 +1124,10 @@ function UpdateZoneM28MexByTechCount(oMexJustBuiltOrDied, bJustDied, iOptionalWa
 end
 
 function FindAndUpgradeUnitOfCategory(aiBrain, iCategoryWanted, iOptionalMinUnitsToHaveBuilt, sReasonRef)
-    --e.g. intended for upgrading factory HQs, subject to CheckIfNeedMoreEngineersOrSnipeUnitsBeforeUpgrading
     local sFunctionRef = 'FindAndUpgradeUnitOfCategory'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+    local bUpgradeStarted = false
 
     local tUnitsOfCategory = aiBrain:GetListOfUnits(iCategoryWanted, false, true)
     local iMinUnitsToHaveBuilt = iOptionalMinUnitsToHaveBuilt or 2
@@ -1138,18 +1138,15 @@ function FindAndUpgradeUnitOfCategory(aiBrain, iCategoryWanted, iOptionalMinUnit
         local iCurPlateau, iCurLZ
         for iUnit, oUnit in tUnitsOfCategory do
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by brain '..oUnit:GetAIBrain().Nickname..'; Unit build count='.. oUnit[M28Factory.refiTotalBuildCount]) end
-            --Removed CheckIfNeedMoreEngineersOrSnipeUnitsBeforeUpgrading check to speed up upgrades
-            if true then
-                if oUnit:GetFractionComplete() == 1 and not(oUnit:IsUnitState('Upgrading')) and not(oUnit.Dead) and not(oUnit:IsUnitState('BeingUpgraded')) then
-                    if oUnit[M28Factory.refiTotalBuildCount] >= iMinUnitsToHaveBuilt then
-                        --Are we in a safe land zone?
-                        iCurPlateau, iCurLZ = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oUnit:GetPosition(), true, oUnit)
-                        local tLZTeamData = M28Map.tAllPlateaus[iCurPlateau][M28Map.subrefPlateauLandZones][iCurLZ][M28Map.subrefLZTeamData][aiBrain.M28Team]
-                        if tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ] then
-                            table.insert(tUnsafeUnitsOfCategory, oUnit)
-                        else
-                            table.insert(tUnitsToSearch, oUnit)
-                        end
+            if oUnit:GetFractionComplete() == 1 and not(oUnit:IsUnitState('Upgrading')) and not(oUnit.Dead) and not(oUnit:IsUnitState('BeingUpgraded')) then
+                if oUnit[M28Factory.refiTotalBuildCount] >= iMinUnitsToHaveBuilt then
+                    --Are we in a safe land zone?
+                    iCurPlateau, iCurLZ = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oUnit:GetPosition(), true, oUnit)
+                    local tLZTeamData = M28Map.tAllPlateaus[iCurPlateau][M28Map.subrefPlateauLandZones][iCurLZ][M28Map.subrefLZTeamData][aiBrain.M28Team]
+                    if tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or tLZTeamData[M28Map.subrefbDangerousEnemiesInAdjacentWZ] then
+                        table.insert(tUnsafeUnitsOfCategory, oUnit)
+                    else
+                        table.insert(tUnitsToSearch, oUnit)
                     end
                 end
             end
@@ -1169,12 +1166,13 @@ function FindAndUpgradeUnitOfCategory(aiBrain, iCategoryWanted, iOptionalMinUnit
                 end
             end
             if oClosestUnit then
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': WIll try and upgrade oClosestUnit '..oClosestUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oClosestUnit)..'; Fraction complete='..oClosestUnit:GetFractionComplete()..'; Unit state='..M28UnitInfo.GetUnitState(oClosestUnit)) end
-                UpgradeUnit(oClosestUnit, true, nil, sReasonRef or sFunctionRef) --Will queue up transport or engineer for factories as well as figuring out whether to upgrade a support factory or an HQ
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will try and upgrade oClosestUnit '..oClosestUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oClosestUnit)..'; Fraction complete='..oClosestUnit:GetFractionComplete()..'; Unit state='..M28UnitInfo.GetUnitState(oClosestUnit)) end
+                bUpgradeStarted = UpgradeUnit(oClosestUnit, true, nil, sReasonRef or sFunctionRef) == true
             end
         end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return bUpgradeStarted
 end
 
 function UpdateFactoryCountForFactoryKilledOrBuilt(oFactory, bIsDead)
@@ -4620,26 +4618,23 @@ function ConsiderImmediateUpgradeOfFactory(oFactory)
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    if not(M28Utilities.bFAFActive) then
-        local iTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
-        local aiBrain = oFactory:GetAIBrain()
-        if iTechLevel < math.min(3, aiBrain[refiOurHighestFactoryTechLevel]) then
-
-            if EntityCategoryContains(M28UnitInfo.refCategoryAirHQ, oFactory.UnitId) then
-                if aiBrain[refiOurHighestAirFactoryTech] > math.min(3, iTechLevel) then
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will upgrade air factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
-                    UpgradeUnit(oFactory, true, nil, sFunctionRef..':AirHQ')
-                end
-            elseif EntityCategoryContains(M28UnitInfo.refCategoryLandHQ, oFactory.UnitId) then
-                if aiBrain[refiOurHighestLandFactoryTech] > math.min(3, iTechLevel) then
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will upgrade land factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
-                    UpgradeUnit(oFactory, true, nil, sFunctionRef..':LandHQ')
-                end
-            elseif EntityCategoryContains(M28UnitInfo.refCategoryNavalHQ, oFactory.UnitId) then
-                if aiBrain[refiOurHighestNavalFactoryTech] > math.min(3, iTechLevel) then
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will upgrade naval factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
-                    UpgradeUnit(oFactory, true, nil, sFunctionRef..':NavalHQ')
-                end
+    local iTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
+    local aiBrain = oFactory:GetAIBrain()
+    if iTechLevel < 3 and iTechLevel < aiBrain[refiOurHighestFactoryTechLevel] then
+        if EntityCategoryContains(M28UnitInfo.refCategoryAirHQ, oFactory.UnitId) then
+            if aiBrain[refiOurHighestAirFactoryTech] > iTechLevel then
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will upgrade air factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
+                UpgradeUnit(oFactory, true, nil, sFunctionRef..':AirHQ')
+            end
+        elseif EntityCategoryContains(M28UnitInfo.refCategoryLandHQ, oFactory.UnitId) then
+            if aiBrain[refiOurHighestLandFactoryTech] > iTechLevel then
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will upgrade land factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
+                UpgradeUnit(oFactory, true, nil, sFunctionRef..':LandHQ')
+            end
+        elseif EntityCategoryContains(M28UnitInfo.refCategoryNavalHQ, oFactory.UnitId) then
+            if aiBrain[refiOurHighestNavalFactoryTech] > iTechLevel then
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will upgrade naval factory immediately, oFactory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)) end
+                UpgradeUnit(oFactory, true, nil, sFunctionRef..':NavalHQ')
             end
         end
     end
