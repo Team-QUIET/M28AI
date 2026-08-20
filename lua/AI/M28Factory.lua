@@ -64,6 +64,10 @@ refiTimeOfLastFacBlockOrder = 'M28FacBlkO' --Gametimeseconds that a unit was tol
 refiHighestFactoryBuildCount = 'M28FacBrTotBC' --against aiBrain, Highest build count of a factory
 refbJustBuiltFirstT1Bomber = 'M28AirBlt1B' --true if we have just built the first t1 bomber (Changes to false after 5s)
 local iMaxStandardFactoryQueueDepth = 12
+local iFactoryEngineerOpeningQueueCap = 8
+local iFactoryEngineerStandardQueueCap = 3
+local iFactoryEngineerHighMassQueueCap = 6
+local iFactoryEngineerHighMassStoredRatio = 0.3
 local iFactoryAttackAirQueueCategory = M28UnitInfo.refCategoryBomber + M28UnitInfo.refCategoryTorpBomber + M28UnitInfo.refCategoryGunship
 
 local DoesT1LandFactoryPassAttackAirGate
@@ -422,6 +426,23 @@ local function GetFactoryMAAQueueRunLength(oFactory, iRemainingPlanDepth)
     return math.min(iRemainingPlanDepth, math.max(0, iCap - iPendingMAA))
 end
 
+local function GetFactoryEngineerQueueCap(oFactory)
+    local iMassStoredRatio = 0
+    if M28UnitInfo.IsUnitValid(oFactory) then
+        local aiBrain = oFactory:GetAIBrain()
+        if aiBrain and aiBrain.GetEconomyStoredRatio then
+            iMassStoredRatio = aiBrain:GetEconomyStoredRatio('MASS') or 0
+        end
+    end
+    if GetGameTimeSeconds() <= 240 then
+        return iFactoryEngineerOpeningQueueCap, iMassStoredRatio
+    end
+    if iMassStoredRatio >= iFactoryEngineerHighMassStoredRatio then
+        return iFactoryEngineerHighMassQueueCap, iMassStoredRatio
+    end
+    return iFactoryEngineerStandardQueueCap, iMassStoredRatio
+end
+
 local function GetFactoryLiveQueueCapForCategory(iCategoryWanted, oFactory)
     if not(iCategoryWanted) then
         return nil
@@ -430,10 +451,8 @@ local function GetFactoryLiveQueueCapForCategory(iCategoryWanted, oFactory)
     elseif iCategoryWanted == M28UnitInfo.refCategoryAirScout then
         return 1
     elseif iCategoryWanted == M28UnitInfo.refCategoryEngineer then
-        if GetGameTimeSeconds() <= 240 then
-            return 8
-        end
-        return 3
+        local iEngineerQueueCap = GetFactoryEngineerQueueCap(oFactory)
+        return iEngineerQueueCap
     elseif iCategoryWanted == iFactoryAttackAirQueueCategory then
         return GetFactoryAttackAirQueueCap(oFactory)
     elseif iCategoryWanted == M28UnitInfo.refCategoryAirAA then
@@ -7040,7 +7059,8 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
             local tMAAQueueState = GetFactoryMAAQueueState(oFactory, aiBrain.M28Team)
             M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning MAA queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..tMAAQueueState.iCap..'; PendingMAA='..GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryMAA)..'; ThreatForCap='..tMAAQueueState.iThreatForCap..'; TeamAirToGround='..tMAAQueueState.iEnemyAirToGroundThreat..'; LocalAirToGround='..tMAAQueueState.iLocalAirToGroundThreat..'; LocalMAAWanted='..tMAAQueueState.iLocalMAAWanted..'; LocalGroundAA='..tMAAQueueState.iLocalGroundAAThreat..'; LowTechGunshipCount='..tMAAQueueState.iLowTechGunshipCount..'; LowTechGunshipPressure='..tMAAQueueState.iLowTechGunshipPressure..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
         elseif bDebugMessages == true and EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBPToBuild) then
-            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning engineer queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..GetFactoryLiveQueueCapForCategory(M28UnitInfo.refCategoryEngineer, oFactory)..'; PendingEngineers='..GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryEngineer)..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
+            local iEngineerQueueCap, iMassStoredRatio = GetFactoryEngineerQueueCap(oFactory)
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning engineer queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..iEngineerQueueCap..'; PendingEngineers='..GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryEngineer)..'; MassStoredRatio='..iMassStoredRatio..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
         elseif bDebugMessages == true and EntityCategoryContains(iFactoryAttackAirQueueCategory, sBPToBuild) then
             M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning attack-air queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..GetFactoryAttackAirQueueCap(oFactory)..'; PendingAttackAir='..GetFactoryPendingBuildCountByCategory(oFactory, iFactoryAttackAirQueueCategory)..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
         elseif bDebugMessages == true and EntityCategoryContains(M28UnitInfo.refCategoryAirAA, sBPToBuild) then
