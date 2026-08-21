@@ -426,21 +426,99 @@ local function GetFactoryMAAQueueRunLength(oFactory, iRemainingPlanDepth)
     return math.min(iRemainingPlanDepth, math.max(0, iCap - iPendingMAA))
 end
 
-local function GetFactoryEngineerQueueCap(oFactory)
-    local iMassStoredRatio = 0
-    if M28UnitInfo.IsUnitValid(oFactory) then
-        local aiBrain = oFactory:GetAIBrain()
-        if aiBrain and aiBrain.GetEconomyStoredRatio then
-            iMassStoredRatio = aiBrain:GetEconomyStoredRatio('MASS') or 0
+local function GetFactorySafeNearbySignificantReclaim(oFactory, iTeam)
+    if not(M28UnitInfo.IsUnitValid(oFactory))
+            or not(EntityCategoryContains(M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryMobileLandFactory, oFactory.UnitId)) then
+        return 0
+    end
+
+    local iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oFactory:GetPosition(), true, oFactory)
+    local tPlateauData = M28Map.tAllPlateaus and M28Map.tAllPlateaus[iPlateau]
+    local tLandZones = tPlateauData and tPlateauData[M28Map.subrefPlateauLandZones]
+    local tLocalLZData = tLandZones and tLandZones[iLandZone]
+    if not(tLocalLZData) then
+        return 0
+    end
+
+    local function GetSafeZoneReclaim(tLZData)
+        local tLZTeamData = tLZData and tLZData[M28Map.subrefLZTeamData] and tLZData[M28Map.subrefLZTeamData][iTeam]
+        if not(tLZTeamData) or tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] then
+            return 0
+        end
+        return tLZData[M28Map.subrefTotalSignificantMassReclaim] or 0
+    end
+
+    local iNearbySignificantReclaim = GetSafeZoneReclaim(tLocalLZData)
+    if M28Utilities.IsTableEmpty(tLocalLZData[M28Map.subrefLZAdjacentLandZones]) == false then
+        for _, iAdjLZ in tLocalLZData[M28Map.subrefLZAdjacentLandZones] do
+            iNearbySignificantReclaim = iNearbySignificantReclaim + GetSafeZoneReclaim(tLandZones[iAdjLZ])
         end
     end
+
+    return iNearbySignificantReclaim
+end
+
+
+local function GetFactoryEngineerQueueState(oFactory)
+    local tQueueState = {
+        iCap = iFactoryEngineerStandardQueueCap,
+        iMassStoredRatio = 0,
+        iTotalMapReclaim = 0,
+        iNearbySignificantReclaim = 0,
+        iReclaimRunLimit = 1,
+    }
+
+    if not(M28UnitInfo.IsUnitValid(oFactory)) then
+        return tQueueState
+    end
+
+    local aiBrain = oFactory:GetAIBrain()
+    if aiBrain and aiBrain.GetEconomyStoredRatio then
+        tQueueState.iMassStoredRatio = aiBrain:GetEconomyStoredRatio('MASS') or 0
+    end
     if GetGameTimeSeconds() <= 240 then
-        return iFactoryEngineerOpeningQueueCap, iMassStoredRatio
+        tQueueState.iCap = iFactoryEngineerOpeningQueueCap
+    elseif tQueueState.iMassStoredRatio >= iFactoryEngineerHighMassStoredRatio then
+        tQueueState.iCap = iFactoryEngineerHighMassQueueCap
     end
-    if iMassStoredRatio >= iFactoryEngineerHighMassStoredRatio then
-        return iFactoryEngineerHighMassQueueCap, iMassStoredRatio
+
+    if aiBrain and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryMobileLandFactory, oFactory.UnitId) then
+        tQueueState.iTotalMapReclaim = M28Engineer.GetTotalMapReclaim() or 0
+        tQueueState.iNearbySignificantReclaim = GetFactorySafeNearbySignificantReclaim(oFactory, aiBrain.M28Team)
+
+        if tQueueState.iTotalMapReclaim >= 50000 then
+            tQueueState.iCap = math.max(tQueueState.iCap, 8)
+            tQueueState.iReclaimRunLimit = 3
+        elseif tQueueState.iTotalMapReclaim >= 30000 then
+            tQueueState.iCap = math.max(tQueueState.iCap, 6)
+            tQueueState.iReclaimRunLimit = 3
+        elseif tQueueState.iTotalMapReclaim >= 15000 then
+            tQueueState.iCap = math.max(tQueueState.iCap, 5)
+            tQueueState.iReclaimRunLimit = 2
+        elseif tQueueState.iTotalMapReclaim >= 5000 then
+            tQueueState.iCap = math.max(tQueueState.iCap, 4)
+            tQueueState.iReclaimRunLimit = 2
+        end
+
+        if tQueueState.iNearbySignificantReclaim >= 7500 then
+            tQueueState.iCap = math.max(tQueueState.iCap, 10)
+            tQueueState.iReclaimRunLimit = math.max(tQueueState.iReclaimRunLimit, 4)
+        elseif tQueueState.iNearbySignificantReclaim >= 3000 then
+            tQueueState.iCap = math.max(tQueueState.iCap, 7)
+            tQueueState.iReclaimRunLimit = math.max(tQueueState.iReclaimRunLimit, 3)
+        elseif tQueueState.iNearbySignificantReclaim >= 1000 then
+            tQueueState.iCap = math.max(tQueueState.iCap, 5)
+            tQueueState.iReclaimRunLimit = math.max(tQueueState.iReclaimRunLimit, 2)
+        end
     end
-    return iFactoryEngineerStandardQueueCap, iMassStoredRatio
+
+    return tQueueState
+end
+
+
+local function GetFactoryEngineerQueueCap(oFactory)
+    local tQueueState = GetFactoryEngineerQueueState(oFactory)
+    return tQueueState.iCap, tQueueState.iMassStoredRatio
 end
 
 local function GetFactoryLiveQueueCapForCategory(iCategoryWanted, oFactory)
@@ -484,12 +562,12 @@ end
 
 local function GetFactoryEngineerQueueRunLength(oFactory, iRemainingPlanDepth)
     local iPendingEngineers = GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryEngineer)
-    local iEngineerCap = GetFactoryLiveQueueCapForCategory(M28UnitInfo.refCategoryEngineer, oFactory)
-    local iMaxRunLength = 1
+    local tQueueState = GetFactoryEngineerQueueState(oFactory)
+    local iMaxRunLength = tQueueState.iReclaimRunLimit
     if iPendingEngineers == 0 then
-        iMaxRunLength = 2
+        iMaxRunLength = math.max(iMaxRunLength, 2)
     end
-    return math.min(iRemainingPlanDepth, iMaxRunLength, math.max(0, iEngineerCap - iPendingEngineers))
+    return math.min(iRemainingPlanDepth, iMaxRunLength, math.max(0, tQueueState.iCap - iPendingEngineers))
 end
 
 local function GetFactoryAttackAirQueueRunLength(oFactory, iRemainingPlanDepth)
@@ -7059,8 +7137,8 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
             local tMAAQueueState = GetFactoryMAAQueueState(oFactory, aiBrain.M28Team)
             M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning MAA queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..tMAAQueueState.iCap..'; PendingMAA='..GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryMAA)..'; ThreatForCap='..tMAAQueueState.iThreatForCap..'; TeamAirToGround='..tMAAQueueState.iEnemyAirToGroundThreat..'; LocalAirToGround='..tMAAQueueState.iLocalAirToGroundThreat..'; LocalMAAWanted='..tMAAQueueState.iLocalMAAWanted..'; LocalGroundAA='..tMAAQueueState.iLocalGroundAAThreat..'; LowTechGunshipCount='..tMAAQueueState.iLowTechGunshipCount..'; LowTechGunshipPressure='..tMAAQueueState.iLowTechGunshipPressure..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
         elseif bDebugMessages == true and EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBPToBuild) then
-            local iEngineerQueueCap, iMassStoredRatio = GetFactoryEngineerQueueCap(oFactory)
-            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning engineer queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..iEngineerQueueCap..'; PendingEngineers='..GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryEngineer)..'; MassStoredRatio='..iMassStoredRatio..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
+            local tEngineerQueueState = GetFactoryEngineerQueueState(oFactory)
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning engineer queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..tEngineerQueueState.iCap..'; PendingEngineers='..GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryEngineer)..'; MassStoredRatio='..tEngineerQueueState.iMassStoredRatio..'; TotalMapReclaim='..tEngineerQueueState.iTotalMapReclaim..'; NearbySignificantReclaim='..tEngineerQueueState.iNearbySignificantReclaim..'; ReclaimRunLimit='..tEngineerQueueState.iReclaimRunLimit..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
         elseif bDebugMessages == true and EntityCategoryContains(iFactoryAttackAirQueueCategory, sBPToBuild) then
             M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning attack-air queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..GetFactoryAttackAirQueueCap(oFactory)..'; PendingAttackAir='..GetFactoryPendingBuildCountByCategory(oFactory, iFactoryAttackAirQueueCategory)..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
         elseif bDebugMessages == true and EntityCategoryContains(M28UnitInfo.refCategoryAirAA, sBPToBuild) then
