@@ -3096,9 +3096,35 @@ local function MaintainTeamHQUpgradeDesires(iM28Team)
     end
 end
 
-local function GetLandHQEconomyAdmission(iM28Team, iSourceTech)
+local function GetLandHQMassBufferBypass(iM28Team, iSourceTech)
     local tCurTeamData = tTeamData[iM28Team]
-    local iActiveBrainCount = tCurTeamData[subrefiActiveM28BrainCount]
+    local iActiveBrainCount = math.max(1, tCurTeamData[subrefiActiveM28BrainCount] or 1)
+    local iT2LandProductionThreshold = 20 * iActiveBrainCount
+    local iT3MobileProductionThreshold = 10 * math.min(2.5, iActiveBrainCount)
+    local iT2LandProductionCount = 0
+    local iT3MobileProductionCount = 0
+    local sBypassReason = 'None'
+
+    if iSourceTech == 2 then
+        iT2LandProductionCount = M28Conditions.GetTeamLifetimeBuildCount(iM28Team, M28UnitInfo.refCategoryLandCombat * categories.TECH2 + M28UnitInfo.refCategoryIndirect * categories.TECH2)
+        iT3MobileProductionCount = M28Conditions.GetTeamLifetimeBuildCount(iM28Team, categories.TECH3 * categories.MOBILE - M28UnitInfo.refCategoryEngineer)
+        if (tCurTeamData[subrefiHighestEnemyGroundTech] or 0) >= 3 then
+            sBypassReason = 'EnemyT3Ground'
+        elseif iT2LandProductionCount >= iT2LandProductionThreshold then
+            sBypassReason = 'MatureT2LandProduction'
+        elseif iT3MobileProductionCount >= iT3MobileProductionThreshold then
+            sBypassReason = 'MatureT3Production'
+        elseif (tCurTeamData[refiConstructedExperimentalCount] or 0) > 0 then
+            sBypassReason = 'ConstructedExperimental'
+        end
+    end
+
+    return sBypassReason, iT2LandProductionCount, iT2LandProductionThreshold, iT3MobileProductionCount, iT3MobileProductionThreshold
+end
+
+local function GetLandHQEconomyAdmission(iM28Team, iSourceTech, sMassBufferBypassReason)
+    local tCurTeamData = tTeamData[iM28Team]
+    local iActiveBrainCount = math.max(1, tCurTeamData[subrefiActiveM28BrainCount] or 1)
     local iGrossMassPerBrain
     local iNetMassPerBrain
     if iSourceTech == 1 then
@@ -3120,7 +3146,7 @@ local function GetLandHQEconomyAdmission(iM28Team, iSourceTech)
 
     if tCurTeamData[subrefiTeamGrossMass] < iGrossMassRequired then
         sBlocker = 'GrossMass'
-    elseif tCurTeamData[subrefiTeamMassStored] < iStoredMassRequired and tCurTeamData[subrefiTeamNetMass] < iNetMassRequired then
+    elseif tCurTeamData[subrefiTeamMassStored] < iStoredMassRequired and tCurTeamData[subrefiTeamNetMass] < iNetMassRequired and not(iSourceTech == 2 and sMassBufferBypassReason and sMassBufferBypassReason ~= 'None') then
         sBlocker = 'MassBuffer'
     elseif tCurTeamData[subrefiTeamGrossEnergy] < iGrossEnergyRequired then
         sBlocker = 'GrossEnergy'
@@ -3230,12 +3256,8 @@ function ConsiderPriorityLandFactoryUpgrades(iM28Team, bIntentOnly)
     end
     if tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] > 0 and tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] < 3 and (tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] < 2 or not(tTeamData[iM28Team][refbFocusOnT1Spam])) then
         local iTeamLandTech = tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech]
-        local bLandHQEconomyReady, sLandHQEconomyBlocker, iGrossMassRequired, iNetMassRequired, iStoredMassRequired, iGrossEnergyRequired, iStoredEnergyRequired = GetLandHQEconomyAdmission(iM28Team, iTeamLandTech)
         local bWantLandHQUpgrade = false
         local bNearbyUpgradedEnemyACU = false
-        if bDebugMessages == true then
-            LOG('LandHQEconomyGate: SourceTech='..iTeamLandTech..'; TargetTech='..(iTeamLandTech + 1)..'; Ready='..tostring(bLandHQEconomyReady)..'; Blocker='..sLandHQEconomyBlocker..'; GrossMass='..tTeamData[iM28Team][subrefiTeamGrossMass]..'/'..iGrossMassRequired..'; NetMass='..tTeamData[iM28Team][subrefiTeamNetMass]..'/'..iNetMassRequired..'; StoredMass='..tTeamData[iM28Team][subrefiTeamMassStored]..'/'..iStoredMassRequired..'; GrossEnergy='..tTeamData[iM28Team][subrefiTeamGrossEnergy]..'/'..iGrossEnergyRequired..'; NetEnergy='..tTeamData[iM28Team][subrefiTeamNetEnergy]..'; StoredEnergy='..tTeamData[iM28Team][subrefiTeamEnergyStored]..'/'..iStoredEnergyRequired..'; EnergyRatio='..tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored])
-        end
         local iTotalFriendlyMexCount = 0
         for iTech = 1, 4 do
             iTotalFriendlyMexCount = iTotalFriendlyMexCount + (tTeamData[iM28Team][refiMexCountByTech][iTech] or 0)
@@ -3259,6 +3281,11 @@ function ConsiderPriorityLandFactoryUpgrades(iM28Team, bIntentOnly)
         local bEnemyTechLeadIsBroad = iEnemyBrainCount <= 1
                 or iEnemyBrainsAtHigherGroundTech >= iEnemyBrainsNeededForBroadTechResponse
                 or tTeamData[iM28Team][subrefiHighestEnemyGroundTech] >= tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] + 2
+        local sLandHQMassBufferBypassReason, iT2LandProductionCount, iT2LandProductionThreshold, iT3MobileProductionCount, iT3MobileProductionThreshold = GetLandHQMassBufferBypass(iM28Team, iTeamLandTech)
+        local bLandHQEconomyReady, sLandHQEconomyBlocker, iGrossMassRequired, iNetMassRequired, iStoredMassRequired, iGrossEnergyRequired, iStoredEnergyRequired = GetLandHQEconomyAdmission(iM28Team, iTeamLandTech, sLandHQMassBufferBypassReason)
+        if bDebugMessages == true then
+            LOG('LandHQEconomyGate: SourceTech='..iTeamLandTech..'; TargetTech='..(iTeamLandTech + 1)..'; Ready='..tostring(bLandHQEconomyReady)..'; Blocker='..sLandHQEconomyBlocker..'; MassBufferBypass='..sLandHQMassBufferBypassReason..'; T2LandProduction='..iT2LandProductionCount..'/'..iT2LandProductionThreshold..'; T3MobileProduction='..iT3MobileProductionCount..'/'..iT3MobileProductionThreshold..'; GrossMass='..tTeamData[iM28Team][subrefiTeamGrossMass]..'/'..iGrossMassRequired..'; NetMass='..tTeamData[iM28Team][subrefiTeamNetMass]..'/'..iNetMassRequired..'; StoredMass='..tTeamData[iM28Team][subrefiTeamMassStored]..'/'..iStoredMassRequired..'; GrossEnergy='..tTeamData[iM28Team][subrefiTeamGrossEnergy]..'/'..iGrossEnergyRequired..'; NetEnergy='..tTeamData[iM28Team][subrefiTeamNetEnergy]..'; StoredEnergy='..tTeamData[iM28Team][subrefiTeamEnergyStored]..'/'..iStoredEnergyRequired..'; EnergyRatio='..tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored])
+        end
         local iTotalMapMexCount = table.getn(M28Map.tMassPoints or {})
         local iExpectedMexShare = 0
         local iMinMexCountForBroadLandHQResponse = 0
@@ -3287,7 +3314,7 @@ function ConsiderPriorityLandFactoryUpgrades(iM28Team, bIntentOnly)
         if (tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] < tTeamData[iM28Team][subrefiHighestEnemyGroundTech] and bEnemyTechLeadIsBroad)
                 or bLandHQEconomyReady then
             bWantLandHQUpgrade = true
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want land HQ because economy is ready or the enemy has a broad land-tech lead. EconomyReady='..tostring(bLandHQEconomyReady)..'; EnemyBrainCount='..iEnemyBrainCount..'; EnemyBrainsAtHigherGroundTech='..iEnemyBrainsAtHigherGroundTech..'; EnemyBrainsNeededForBroadTechResponse='..iEnemyBrainsNeededForBroadTechResponse..'; EnemyTechLeadIsBroad='..tostring(bEnemyTechLeadIsBroad)) end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want land HQ because economy is ready or the enemy has a broad land-tech lead. EconomyReady='..tostring(bLandHQEconomyReady)..'; MassBufferBypass='..sLandHQMassBufferBypassReason..'; EnemyBrainCount='..iEnemyBrainCount..'; EnemyBrainsAtHigherGroundTech='..iEnemyBrainsAtHigherGroundTech..'; EnemyBrainsNeededForBroadTechResponse='..iEnemyBrainsNeededForBroadTechResponse..'; EnemyTechLeadIsBroad='..tostring(bEnemyTechLeadIsBroad)) end
         elseif bDebugMessages == true and tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] < tTeamData[iM28Team][subrefiHighestEnemyGroundTech] then
             LOG(sFunctionRef..': Will not start broad land HQ response yet as only a minority of enemy brains are ahead on land tech. iEnemyBrainCount='..iEnemyBrainCount..'; iEnemyBrainsAtHigherGroundTech='..iEnemyBrainsAtHigherGroundTech..'; iEnemyBrainsNeededForBroadTechResponse='..iEnemyBrainsNeededForBroadTechResponse..'; Highest friendly land tech='..tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech]..'; Highest enemy ground tech='..tTeamData[iM28Team][subrefiHighestEnemyGroundTech])
         end
@@ -3339,7 +3366,7 @@ function ConsiderPriorityLandFactoryUpgrades(iM28Team, bIntentOnly)
                 LOG(sFunctionRef..': Will limit broad land HQ response as we are only slightly behind on land tech, lack map control, and still have base pressure or low mass. Total friendly mexes='..iTotalFriendlyMexCount..'; map mexes='..iTotalMapMexCount..'; minimum mexes wanted='..iMinMexCountForBroadLandHQResponse..'; brains with base pressure='..iBrainsWithBasePressure..'; TeamHasLowMass='..tostring(M28Conditions.TeamHasLowMass(iM28Team)))
             end
         end
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': WantLandHQUpgrade='..tostring(bWantLandHQUpgrade)..'; LandHQEconomyReady='..tostring(bLandHQEconomyReady)..'; LandHQEconomyBlocker='..sLandHQEconomyBlocker) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': WantLandHQUpgrade='..tostring(bWantLandHQUpgrade)..'; LandHQEconomyReady='..tostring(bLandHQEconomyReady)..'; LandHQEconomyBlocker='..sLandHQEconomyBlocker..'; MassBufferBypass='..sLandHQMassBufferBypassReason) end
         if bWantLandHQUpgrade then
             local iExistingBrainsWithHQUpgrades = 0
             local tbBrainsWithActiveUpgradeByIndex = {}
@@ -3378,10 +3405,10 @@ function ConsiderPriorityLandFactoryUpgrades(iM28Team, bIntentOnly)
                         end
 
                         if bWantUpgrade then
-                            local bBrainEconomyReady, sBrainEconomyBlocker, iBrainGrossMassRequired, iBrainNetMassRequired, iBrainStoredMassRequired, iBrainGrossEnergyRequired, iBrainStoredEnergyRequired = GetLandHQEconomyAdmission(iM28Team, iBrainLandTech)
+                            local bBrainEconomyReady, sBrainEconomyBlocker, iBrainGrossMassRequired, iBrainNetMassRequired, iBrainStoredMassRequired, iBrainGrossEnergyRequired, iBrainStoredEnergyRequired = GetLandHQEconomyAdmission(iM28Team, iBrainLandTech, sLandHQMassBufferBypassReason)
                             if not(bBrainEconomyReady) then
                                 bWantUpgrade = false
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Holding land HQ for brain '..oBrain.Nickname..'; SourceTech='..iBrainLandTech..'; Blocker='..sBrainEconomyBlocker..'; GrossMass='..tTeamData[iM28Team][subrefiTeamGrossMass]..'/'..iBrainGrossMassRequired..'; NetMass='..tTeamData[iM28Team][subrefiTeamNetMass]..'/'..iBrainNetMassRequired..'; StoredMass='..tTeamData[iM28Team][subrefiTeamMassStored]..'/'..iBrainStoredMassRequired..'; GrossEnergy='..tTeamData[iM28Team][subrefiTeamGrossEnergy]..'/'..iBrainGrossEnergyRequired..'; StoredEnergy='..tTeamData[iM28Team][subrefiTeamEnergyStored]..'/'..iBrainStoredEnergyRequired) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Holding land HQ for brain '..oBrain.Nickname..'; SourceTech='..iBrainLandTech..'; Blocker='..sBrainEconomyBlocker..'; MassBufferBypass='..sLandHQMassBufferBypassReason..'; GrossMass='..tTeamData[iM28Team][subrefiTeamGrossMass]..'/'..iBrainGrossMassRequired..'; NetMass='..tTeamData[iM28Team][subrefiTeamNetMass]..'/'..iBrainNetMassRequired..'; StoredMass='..tTeamData[iM28Team][subrefiTeamMassStored]..'/'..iBrainStoredMassRequired..'; GrossEnergy='..tTeamData[iM28Team][subrefiTeamGrossEnergy]..'/'..iBrainGrossEnergyRequired..'; StoredEnergy='..tTeamData[iM28Team][subrefiTeamEnergyStored]..'/'..iBrainStoredEnergyRequired) end
                             end
                         end
 
@@ -3390,7 +3417,7 @@ function ConsiderPriorityLandFactoryUpgrades(iM28Team, bIntentOnly)
                             if iBrainLandTech == 2 then
                                 iMinimumFactoryBuildCount = 4
                             end
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Trying land HQ through shared economy, mex, build-count, and ownership admission; Brain='..oBrain.Nickname..'; SourceTech='..iBrainLandTech..'; TargetTech='..(iBrainLandTech + 1)..'; MinimumFactoryBuildCount='..iMinimumFactoryBuildCount..'; ExistingLandHQUpgrades='..iExistingBrainsWithHQUpgrades..'; MaxConcurrentLandHQUpgrades='..iMaxConcurrentPriorityLandHQUpgrades) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Trying land HQ through shared economy, mex, build-count, and ownership admission; Brain='..oBrain.Nickname..'; SourceTech='..iBrainLandTech..'; TargetTech='..(iBrainLandTech + 1)..'; MassBufferBypass='..sLandHQMassBufferBypassReason..'; MinimumFactoryBuildCount='..iMinimumFactoryBuildCount..'; ExistingLandHQUpgrades='..iExistingBrainsWithHQUpgrades..'; MaxConcurrentLandHQUpgrades='..iMaxConcurrentPriorityLandHQUpgrades) end
                             if TryStartPriorityHQUpgradeWithMexGate(oBrain, iM28Team, false, M28UnitInfo.refCategoryLandHQ * M28UnitInfo.ConvertTechLevelToCategory(iBrainLandTech), iMinimumFactoryBuildCount, sFunctionRef..':LandHQ', sFunctionRef, bDebugMessages, bIntentOnly) then
                                 iExistingBrainsWithHQUpgrades = iExistingBrainsWithHQUpgrades + 1
                             end
