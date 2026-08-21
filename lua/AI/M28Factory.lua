@@ -6698,7 +6698,11 @@ local function ClearPendingFactoryUpgradeFields(oFactory)
 end
 
 local function CancelPendingFactoryUpgrade(oFactory, sReasonRef)
+    local sPendingUpgradeBlueprint = oFactory[refsPendingFactoryUpgradeBlueprint]
     ClearPendingFactoryUpgradeFields(oFactory)
+    if sPendingUpgradeBlueprint then
+        M28Team.UpdateUpgradeTrackingOfUnit(oFactory, true, sPendingUpgradeBlueprint, true)
+    end
     M28Team.ReleaseFactoryHQUpgrade(oFactory:GetAIBrain(), oFactory, sReasonRef)
 end
 
@@ -6739,6 +6743,7 @@ local function RecordPendingFactoryUpgrade(oFactory, sUpgradeBlueprint)
     oFactory[refsPendingFactoryUpgradeBlueprint] = sUpgradeBlueprint
     oFactory[refiPendingFactoryUpgradeTime] = GetGameTimeSeconds()
     InvalidateFactoryBuildPlan(oFactory)
+    M28Team.UpdateUpgradeTrackingOfUnit(oFactory, false, sUpgradeBlueprint)
 end
 
 local function SetPendingFactoryUpgrade(aiBrain, oFactory, sUpgradeBlueprint, sReasonRef)
@@ -6920,9 +6925,8 @@ local function ClearFactoryProductionQueue(oFactory)
 
     InvalidateFactoryBuildPlan(oFactory)
 
-    if (GetFactoryActualBuildOrderCount(oFactory) or 0) > 0 then
-        IssueClearFactoryCommands({oFactory})
-        M28Orders.UpdateRecordedOrders(oFactory)
+    if (GetFactoryActualBuildOrderCount(oFactory) or 0) > 0 or IsFactoryActivelyBuilding(oFactory) then
+        M28Orders.IssueTrackedClearCommands(oFactory)
     end
 end
 

@@ -26,6 +26,18 @@ M28DebugGlobal = false --Enable all channels, still subject to interval and dupl
 M28DebugDefaultInterval = 5 --Seconds between debug-enabled passes of the same function
 M28DebugRepeatInterval = 20 --Seconds before repeating the same exact debug line for the same function
 M28DebugMaxLinesPerFunctionCall = 6 --Stops one debug-enabled pass from dumping every line in the function
+M28DebugFunctions = { --Exact function names to debug without enabling their whole channel
+    ConsiderPriorityLandFactoryUpgrades = false,
+    ConsiderPriorityAirFactoryUpgrades = false,
+    GetSafeAirOrNavalHQUpgrade = false,
+    UpgradeUnit = false,
+    DeferAdmittedFactoryUpgrade = false,
+    DecideAndBuildUnitForFactory = false,
+    TryManageActiveFactoryBuildQueue = false,
+    TryClaimFactoryHQUpgrade = false,
+    ReleaseFactoryHQUpgrade = false,
+    UpdateUpgradeTrackingOfUnit = false,
+}
 
 M28DebugACU = false
 M28DebugAir = false

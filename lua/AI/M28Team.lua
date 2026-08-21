@@ -594,8 +594,9 @@ function ReleaseFactoryHQUpgrade(aiBrain, oFactory, sReasonRef)
     return true
 end
 
-function UpdateUpgradeTrackingOfUnit(oUnitDoingUpgrade, bUnitDeadOrCompletedUpgrade, sUnitUpgradingRef)
+function UpdateUpgradeTrackingOfUnit(oUnitDoingUpgrade, bUnitDeadOrCompletedUpgrade, sUnitUpgradingRef, bUpgradeCancelled)
     --bUnitDeadOrCompletedUpgrade is true if  a structure has just died or completed building a structure, in which case the unit might not have been upgrading but want to check
+    --bUpgradeCancelled uses the same removal path without recording HQ completion or firing campaign completion callbacks
     local sFunctionRef = 'UpdateUpgradeTrackingOfUnit'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelTeam, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -612,7 +613,7 @@ function UpdateUpgradeTrackingOfUnit(oUnitDoingUpgrade, bUnitDeadOrCompletedUpgr
     else
         sUpgradeTableRef = subreftTeamUpgradingOther
     end
-    if bUnitDeadOrCompletedUpgrade and sUpgradeTableRef == subreftTeamUpgradingHQs then
+    if bUnitDeadOrCompletedUpgrade and not(bUpgradeCancelled) and sUpgradeTableRef == subreftTeamUpgradingHQs then
         ReleaseFactoryHQUpgrade(oUnitDoingUpgrade:GetAIBrain(), oUnitDoingUpgrade, 'UpgradeCompletedOrOwnerDied')
     end
     local iTableRefOfUnit
@@ -630,7 +631,7 @@ function UpdateUpgradeTrackingOfUnit(oUnitDoingUpgrade, bUnitDeadOrCompletedUpgr
         if bUnitDeadOrCompletedUpgrade then
             local iTeam = oUnitDoingUpgrade:GetAIBrain().M28Team
             table.remove(tTeamData[iTeam][sUpgradeTableRef], iTableRefOfUnit)
-            if sUpgradeTableRef == subreftTeamUpgradingHQs then
+            if sUpgradeTableRef == subreftTeamUpgradingHQs and not(bUpgradeCancelled) then
                 tTeamData[iTeam][refiTimeLastHQUpgradeCompleted] = GetGameTimeSeconds()
             end
             local iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oUnitDoingUpgrade:GetPosition(), true, oUnitDoingUpgrade)
@@ -684,7 +685,7 @@ function UpdateUpgradeTrackingOfUnit(oUnitDoingUpgrade, bUnitDeadOrCompletedUpgr
             else
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Failed ot have valid team data so wont update number of active mex upgrades') end
             end
-            if M28Map.bIsCampaignMap then
+            if M28Map.bIsCampaignMap and not(bUpgradeCancelled) then
                 --Trigger on death callback if relevant
 
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished upgrading oUnitDoingUpgrade='..oUnitDoingUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitDoingUpgrade)..'; Have we run unit killed event='..tostring(oUnitDoingUpgrade[M28Events.refbAlreadyRunUnitKilled] or false)..'; Brain='..oUnitDoingUpgrade:GetAIBrain().Nickname..'; Objective unit='..tostring(oUnitDoingUpgrade[M28UnitInfo.refbObjectiveUnit] or false)) end
@@ -763,7 +764,7 @@ function UpdateUpgradeTrackingOfUnit(oUnitDoingUpgrade, bUnitDeadOrCompletedUpgr
     --Clear trackers from the unit that was doing the upgrade
 
     if bUnitDeadOrCompletedUpgrade and oUnitDoingUpgrade.UnitId then
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just finished upgrading '..(oUnitDoingUpgrade.UnitId or 'nil')..M28UnitInfo.GetUnitLifetimeCount(oUnitDoingUpgrade)..'; is table of units assisting this empty='..tostring(M28Utilities.IsTableEmpty(oUnitDoingUpgrade[M28UnitInfo.reftoUnitsAssistingThis]))) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Clearing upgrade tracking after '..(bUpgradeCancelled and 'cancellation' or 'completion/death')..' for '..(oUnitDoingUpgrade.UnitId or 'nil')..M28UnitInfo.GetUnitLifetimeCount(oUnitDoingUpgrade)..'; is table of units assisting this empty='..tostring(M28Utilities.IsTableEmpty(oUnitDoingUpgrade[M28UnitInfo.reftoUnitsAssistingThis]))) end
         if M28Utilities.IsTableEmpty(oUnitDoingUpgrade[M28UnitInfo.reftoUnitsAssistingThis]) == false then
             local tUnitsToClear = {}
             for iUnit, oUnit in oUnitDoingUpgrade[M28UnitInfo.reftoUnitsAssistingThis] do

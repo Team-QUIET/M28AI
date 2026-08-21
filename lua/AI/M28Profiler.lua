@@ -110,13 +110,17 @@ function IsDebugChannelEnabled(sDebugChannel)
     return M28Config['M28Debug'..sChannelSuffix] or false
 end
 
+function IsDebugFunctionEnabled(sFunctionRef)
+    return M28Config.M28DebugFunctions and M28Config.M28DebugFunctions[sFunctionRef] == true
+end
+
 function GetDebugChannelInterval(sDebugChannel)
     local sChannelSuffix = GetDebugChannelSuffix(sDebugChannel)
     return M28Config['M28Debug'..sChannelSuffix..'Interval'] or M28Config.M28DebugDefaultInterval or 5
 end
 
 function GetDebugControl(sDebugChannel, sFunctionRef, iOptionalMinInterval, bForceDebug)
-    if not(bForceDebug) and not(IsDebugChannelEnabled(sDebugChannel)) then return false, nil end
+    if not(bForceDebug) and not(IsDebugChannelEnabled(sDebugChannel)) and not(IsDebugFunctionEnabled(sFunctionRef)) then return false, nil end
 
     local iCurTime = GetGameTimeSeconds()
     local iInterval = iOptionalMinInterval or GetDebugChannelInterval(sDebugChannel)
