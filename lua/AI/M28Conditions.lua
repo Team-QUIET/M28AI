@@ -625,7 +625,6 @@ function CanBuildOnHydroLocation(tHydroLocation)
     end
 end
 
-function IsUnitVisibleSEEUNITINFOCanSeeUnit()  end --To help with finding canseeunit
 
 function IsLandHQUpgradeUnderPressure(tLZTeamData)
     if not((tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false)) then

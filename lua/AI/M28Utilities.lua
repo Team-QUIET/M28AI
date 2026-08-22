@@ -657,7 +657,6 @@ function IsLineFromAToBInRangeOfCircleAtC(iDistFromAToB, iDistFromAToC, iDistFro
     end
 end
 
-function GetRectangleAtPosition()  end --Used to help locate the below
 function GetRectAroundLocation(tLocation, iRadius)
     --Looks iRadius left/right and up/down (e.g. if want 1x1 square centred on tLocation, iRadius should be 0.5)
     return Rect(tLocation[1] - iRadius, tLocation[3] - iRadius, tLocation[1] + iRadius, tLocation[3] + iRadius)
@@ -724,12 +723,6 @@ end
 function ConvertLocationToReference(tLocation)
     --Rounds tLocation down for X and Z, and uses these to provide a unique string reference (for use for table keys)
     return ('X'..math.floor(tLocation[1])..'Z'..math.floor(tLocation[3]))
-end
-
-function RemoveEntriesFromTableForSearch(tArray, fnKeepCurEntry)
-    --Only included to help locate RemoveEntriesFromArrayBasedOnCondition - below is redundancy in case we actually used this by mistake
-    --NOTE: Doesnt work on all tables, must be an array, i.e. the key is 1, 2, 3.....x
-    RemoveEntriesFromArrayBasedOnCondition(tArray, fnKeepCurEntry)
 end
 
 function RemoveEntriesFromArrayBasedOnCondition(tArray, fnKeepCurEntry)

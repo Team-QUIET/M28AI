@@ -2864,8 +2864,6 @@ function GetUnitUpgradeBlueprint(oUnitToUpgrade, bGetSupportFactory)
     return sUpgradeBP
 end
 
-function DoesCategoryContainCategoryUSEM28UTILITIESVERSION()
-end
 
 function GetUpgradeBuildTime(oUnit, sUpgradeRef)
     --Returns nil if unit cant get enhancements
@@ -3610,7 +3608,6 @@ function FixUnitResourceCheatModifiers(oUnit)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function IsUnitVisibleSEEBELOW()  end --To help with finding canseeunit
 function CanSeeUnit(aiBrain, oUnit, bRequireVisualNotJustBlipToReturnTrue)
     --returns true if aiBrain can see oUnit
     --bRequireVisualNotJustBlipToReturnTrue - returns true if can see a blip

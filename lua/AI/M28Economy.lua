@@ -3666,7 +3666,6 @@ function GiveResourcesToPlayer(oBrainGiver, oBrainReceiver, iMass, iEnergy)
 
 end
 
-function ShareResourcesMassAndEnergyBetweenTeam() M28Utilities.ErrorHandler('Using superceded code')  end --Done to make the below easier to find
 function AllocateTeamEnergyAndMassResources(iTeam)
     --Smoothes out energy storage for M28 brains on the same team, where % storage is <95%
 

@@ -863,9 +863,6 @@ function GetPlateauAndLandZoneReferenceFromPosition(tPosition, bOptionalShouldBe
     return iPlateau, iLandZone
 end
 
-function GetNearestPlateauOrLandOrWaterZoneToLocationFORLOOKUP(tLocation)  --Only to help with lookup - use below function
-    return GetClosestPlateauOrZeroAndZoneToPosition(tPosition)
-end --Only to help with lookup - use below function
 function GetClosestPlateauOrZeroAndZoneToPosition(tPosition)
 
     --e.g.:
@@ -5002,10 +4999,6 @@ function RecordWaterZonePatrolPaths()
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function RecordMinorPlateau()
-
-end
-
 local function RecordMinorPlateaus()
     local sFunctionRef = 'RecordMinorPlateaus'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMap, sFunctionRef)
@@ -6184,7 +6177,6 @@ function RecordPondToExpandTo(aiBrain)
         local tStartPos = GetPlayerStartPosition(aiBrain)
         if GetTerrainHeight(tStartPos[1], tStartPos[3]) < GetSurfaceHeight(tStartPos[1], tStartPos[3]) then bStartLocationIsUnderwater = true end
         if bDebugMessages == true then
-            local M28Overseer = import('/mods/M28AI/lua/AI/M28Overseer.lua')
             LOG(sFunctionRef..': Considering aiBrain '..aiBrain.Nickname..' location for naval fac, bStartLocationIsUnderwater='..tostring(bStartLocationIsUnderwater)..'; tStartPos='..repru(tStartPos)..'; Terrain height='..GetTerrainHeight(tStartPos[1], tStartPos[3])..'; Surface height='..GetSurfaceHeight(tStartPos[1], tStartPos[3])..'; aiBrain[M28Overseer.refiDistanceToNearestEnemyBase]='..(aiBrain[M28Overseer.refiDistanceToNearestEnemyBase] or 'nil')..'; Brain index='..aiBrain:GetArmyIndex()..'; reprs of start poitns='..reprs(PlayerStartPoints)..'; refbInitialised='..tostring(aiBrain[M28Overseer.refbInitialised] or false)..'; iMapSize='..(iMapSize or 'nil')..'; GameTime='..GetGameTimeSeconds())
         end
         local M28Navy = import('/mods/M28AI/lua/AI/M28Navy.lua')

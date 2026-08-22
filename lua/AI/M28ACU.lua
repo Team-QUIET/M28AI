@@ -167,7 +167,7 @@ local function ResolveACURetreatPoint(oACU, iTeam, iPlateauOrZero, iLandOrWaterZ
     local iHealthPercent = M28UnitInfo.GetUnitHealthPercent(oACU)
     local bDefaultUnsafe = false
 
-    local tDefaultZoneData, tDefaultZoneTeamData = M28Map.GetLandOrWaterZoneData(tResolvedPoint, true, iTeam)
+    local _, tDefaultZoneTeamData = M28Map.GetLandOrWaterZoneData(tResolvedPoint, true, iTeam)
     if tDefaultZoneTeamData then
         local iDefaultEnemyThreat = tDefaultZoneTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
         local iDefaultAllyCombat = tDefaultZoneTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0

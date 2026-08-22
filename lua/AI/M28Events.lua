@@ -4195,7 +4195,6 @@ function OnMissileImpact(self, targetType, targetEntity)
     end
 end
 
-function OnMapResizeFORSEARCHONLY()  end --So can find onplayableareachange easier
 function OnPlayableAreaChange(rect, voFlag)
     if M28Utilities.bM28AIInGame then
         local sFunctionRef = 'OnPlayableAreaChange'

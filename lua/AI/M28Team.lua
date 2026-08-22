@@ -783,7 +783,6 @@ function UpdateUpgradeTrackingOfUnit(oUnitDoingUpgrade, bUnitDeadOrCompletedUpgr
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function InitialTeamInitialisationForReference() end --To help find the below more easily
 function CreateNewTeam(aiBrain)
     --See also TeamInitialisation which sets up team variables for zones
     local sFunctionRef = 'CreateNewTeam'
@@ -1218,7 +1217,6 @@ function UpdateUnitPreviousZones(oUnit, iPlateau, iLandZone)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function RecordUnitInLandZone()  end --DONE TO HELP LOCATE
 function AddUnitToLandZoneForBrain(aiBrain, oUnit, iPlateau, iLandZone, bIsEnemyAirUnit)
     --If unit already has a land zone assigned then remove this
     local sFunctionRef = 'AddUnitToLandZoneForBrain'
@@ -2064,8 +2062,6 @@ function RecordNearbyEnemyLandFactory(oUnit, iTeam)
 end
 
 
---TO HELP WITH LOCATING - use AssignUnitToLandZoneOrPond instead
-function RecordUnitInPlateauLandZoneOrPond()  end
 ---@param aiBrain userdata
 ---@param oUnit userdata
 function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAlreadyTriedReassignment, bIgnoreIfAssignedAlready)

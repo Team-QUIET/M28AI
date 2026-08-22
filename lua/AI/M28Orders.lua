@@ -185,7 +185,6 @@ function IssueTrackedClearCommands(oUnit)
     end
 end
 
-function RefreshUnitOrderTracking()  end --Just used to easily find UpdateRecordedOrders
 function UpdateRecordedOrders(oUnit)
     --Checks a unit's command queue and removes items if we have fewer items than we recorded
     --Also acts as a bcakup for special micro not resetting

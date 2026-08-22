@@ -421,7 +421,6 @@ function ShowFileMemoryUsage()
 
     if not(bActiveMemoryProfiler) then
         bActiveMemoryProfiler = true
-        local M28Utilities = import('/mods/M28AI/lua/AI/M28Utilities.lua')
         local M28Map = import('/mods/M28AI/lua/AI/M28Map.lua')
         local M28Profiler = import('/mods/M28AI/lua/AI/M28Profiler.lua')
         local M28UnitInfo = import('/mods/M28AI/lua/AI/M28UnitInfo.lua')
