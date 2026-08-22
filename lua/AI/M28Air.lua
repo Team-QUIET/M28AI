@@ -1183,7 +1183,7 @@ function GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, iCategory, bRec
         iLowFuelThreshold = math.min(iLowFuelThreshold, 0.05)
         iLowHealthThreshold = math.min(iLowHealthThreshold, 0.1)
     end
-    local bIncludeBombersInSpecialLogic
+    local iRequestedEngiHunterBombers
 
     for iBrain, oBrain in M28Team.tAirSubteamData[iAirSubteam][M28Team.subreftoFriendlyM28Brains] do
         if oBrain.M28AI then
@@ -1195,11 +1195,13 @@ function GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, iCategory, bRec
             local bProceed
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is tCurUnits empty='..tostring(M28Utilities.IsTableEmpty(tCurUnits))..'; oBrain='..oBrain.Nickname..'; iTeam='..iTeam..'; iAirSubteam='..iAirSubteam) end
             if M28Utilities.IsTableEmpty(tCurUnits) == false then
-                if bIncludeBombersInSpecialLogic == nil then
-                    bIncludeBombersInSpecialLogic = false
+                if iRequestedEngiHunterBombers == nil then
+                    iRequestedEngiHunterBombers = 0
                     if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftiWaterZonesForBomberToKillEngis]) == false then
                         for iWZ, iBombersWanted in M28Team.tTeamData[iTeam][M28Team.reftiWaterZonesForBomberToKillEngis] do
-                            if iBombersWanted > 0 then bIncludeBombersInSpecialLogic = true break end
+                            if iBombersWanted > 0 then
+                                iRequestedEngiHunterBombers = iRequestedEngiHunterBombers + iBombersWanted
+                            end
                         end
                     end
                 end
@@ -1447,14 +1449,22 @@ function GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, iCategory, bRec
                                             end
                                         end
 
-                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bSendUnitForRefueling='..tostring(bSendUnitForRefueling or false)..'; bIncludeBombersInSpecialLogic='..tostring(bIncludeBombersInSpecialLogic or false)) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bSendUnitForRefueling='..tostring(bSendUnitForRefueling or false)..'; iRequestedEngiHunterBombers='..(iRequestedEngiHunterBombers or 0)) end
                                         if bSendUnitForRefueling then
                                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit will be sent for refueling') end
                                             table.insert(tUnitsForRefueling, oUnit)
                                         else
                                             --Unit is available
-                                            if (bIncludeBombersInSpecialLogic or M28UnitInfo.GetUnitLifetimeCount(oUnit) == 1) and EntityCategoryContains(M28UnitInfo.refCategoryBomber * categories.TECH1, oUnit.UnitId) then
+                                            local bT1Bomber = EntityCategoryContains(M28UnitInfo.refCategoryBomber * categories.TECH1, oUnit.UnitId)
+                                            local bOpeningEngiHunter = bT1Bomber and GetGameTimeSeconds() <= 300 and M28UnitInfo.GetUnitLifetimeCount(oUnit) == 1
+                                            local bRequestedEngiHunter = bT1Bomber and (iRequestedEngiHunterBombers or 0) > 0
+                                            if bOpeningEngiHunter or bRequestedEngiHunter then
                                                 table.insert(tSpecialLogicUnits, oUnit)
+                                                --The time-bounded opening hunter is independent of explicit
+                                                --water-zone demand; reserve that demand for another bomber.
+                                                if bRequestedEngiHunter and not(bOpeningEngiHunter) then
+                                                    iRequestedEngiHunterBombers = iRequestedEngiHunterBombers - 1
+                                                end
                                             else
                                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..' Unit will be made available') end
                                                 table.insert(tAvailableUnits, oUnit)
@@ -6661,20 +6671,117 @@ function ApplyEngiHuntingBomberLogic(oBomber, iAirSubteam, iTeam)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+local function GetConservativeBomberAOEAndDamage(tBombers)
+    local iEvaluationAOE
+    local iEvaluationDamage
+    if M28Utilities.IsTableEmpty(tBombers) == false then
+        for _, oBomber in tBombers do
+            if M28UnitInfo.IsUnitValid(oBomber) then
+                local iCurAOE, iCurDamage = M28UnitInfo.GetBomberAOEAndStrikeDamage(oBomber)
+                if iCurAOE and iCurAOE > 0 then
+                    iEvaluationAOE = math.min((iEvaluationAOE or iCurAOE), iCurAOE)
+                end
+                if iCurDamage and iCurDamage > 0 then
+                    iEvaluationDamage = math.min((iEvaluationDamage or iCurDamage), iCurDamage)
+                end
+            end
+        end
+    end
+    return (iEvaluationAOE or 0), (iEvaluationDamage or 0)
+end
+
+local function GetBomberAOEMassValues(tEnemyTargets, iAOE, iDamage)
+    local tiAOEMassValueByTarget = {}
+    if M28Utilities.IsTableEmpty(tEnemyTargets) or not(iAOE) or iAOE <= 0 then
+        return tiAOEMassValueByTarget
+    end
+
+    -- Use the candidates already collected by the zone search. Spatial buckets avoid
+    -- a GetUnitsAroundPoint call for every target and keep the work local to the zone.
+    local iCellSize = math.max(2, iAOE)
+    local iAOESquared = iAOE * iAOE
+    local iInnerAOESquared = iAOESquared * 0.5625 --75% of the AOE radius
+    local tTargetDetails = {}
+    local tTargetsByCellX = {}
+    local iAOEValueCategory = M28UnitInfo.refCategoryMobileLand + M28UnitInfo.refCategoryStructure + M28UnitInfo.refCategoryNavalSurface
+    for _, oUnit in tEnemyTargets do
+        if M28UnitInfo.IsUnitValid(oUnit) and not(M28UnitInfo.IsUnitUnderwater(oUnit)) and EntityCategoryContains(iAOEValueCategory, oUnit.UnitId) then
+            local tPosition = oUnit:GetPosition()
+            if tPosition then
+                local iCellX = math.floor(tPosition[1] / iCellSize)
+                local iCellZ = math.floor(tPosition[3] / iCellSize)
+                local tDetails = {
+                    oUnit = oUnit,
+                    tPosition = tPosition,
+                    iMass = math.max(1, M28UnitInfo.GetUnitMassCost(oUnit) or 100),
+                    iHealth = oUnit:GetHealth(),
+                    iCellX = iCellX,
+                    iCellZ = iCellZ,
+                }
+                table.insert(tTargetDetails, tDetails)
+                if not(tTargetsByCellX[iCellX]) then tTargetsByCellX[iCellX] = {} end
+                if not(tTargetsByCellX[iCellX][iCellZ]) then tTargetsByCellX[iCellX][iCellZ] = {} end
+                table.insert(tTargetsByCellX[iCellX][iCellZ], tDetails)
+            end
+        end
+    end
+
+    for _, tTarget in tTargetDetails do
+        local iTotalAOEMassValue = 0
+        for iCellX = tTarget.iCellX - 1, tTarget.iCellX + 1 do
+            local tCellsByZ = tTargetsByCellX[iCellX]
+            if tCellsByZ then
+                for iCellZ = tTarget.iCellZ - 1, tTarget.iCellZ + 1 do
+                    local tNearbyTargets = tCellsByZ[iCellZ]
+                    if tNearbyTargets then
+                        for _, tNearbyTarget in tNearbyTargets do
+                            local iXDistance = tTarget.tPosition[1] - tNearbyTarget.tPosition[1]
+                            local iZDistance = tTarget.tPosition[3] - tNearbyTarget.tPosition[3]
+                            local iDistanceSquared = iXDistance * iXDistance + iZDistance * iZDistance
+                            if iDistanceSquared <= iAOESquared then
+                                local iPositionFactor = 1
+                                if tNearbyTarget.oUnit ~= tTarget.oUnit then
+                                    if iDistanceSquared <= iInnerAOESquared then iPositionFactor = 0.65
+                                    else iPositionFactor = 0.3
+                                    end
+                                end
+                                local iDamageFactor = 1
+                                if iDamage and iDamage > 0 and tNearbyTarget.iHealth > iDamage then
+                                    iDamageFactor = math.max(0.15, iDamage / tNearbyTarget.iHealth)
+                                end
+                                iTotalAOEMassValue = iTotalAOEMassValue + tNearbyTarget.iMass * iPositionFactor * iDamageFactor
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        tiAOEMassValueByTarget[tTarget.oUnit] = math.max(1, iTotalAOEMassValue)
+    end
+    return tiAOEMassValueByTarget
+end
+
 function ManageBombers(iTeam, iAirSubteam)
     local sFunctionRef = 'ManageBombers'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local tAvailableBombers, tBombersForRefueling, tUnavailableUnits, tSpecialLogicAvailableBombers = GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, M28UnitInfo.refCategoryBomber - categories.EXPERIMENTAL)
+    --Record the wave mass before committed bombers are removed from the available table.
+    local iOurBomberMass = M28UnitInfo.GetMassCostOfUnits(tAvailableBombers or {}, true)
     
-    -- Prevent target switching
+    --Only preserve a target lock during the final, fire-ready commitment. Otherwise
+    --allow the bomber to reconsider materially better targets found this cycle.
     if not M28Utilities.IsTableEmpty(tAvailableBombers) then
         for i = table.getn(tAvailableBombers), 1, -1 do
             local oBomber = tAvailableBombers[i]
             local oTarget = oBomber.oLockedTarget
-            if M28UnitInfo.IsUnitValid(oTarget) and not oTarget.Dead then
-                -- Target is still valid, force commit
+            local bContinueLockedTarget = false
+            if M28UnitInfo.IsUnitValid(oTarget) and not(oTarget.Dead) then
+                local iDistanceToTarget = M28Utilities.GetDistanceBetweenPositions(oBomber:GetPosition(), oTarget:GetPosition())
+                bContinueLockedTarget = iDistanceToTarget <= 150 and M28UnitInfo.GetTimeUntilReadyToFireBomb(oBomber) <= 3
+            end
+            if bContinueLockedTarget then
                 AssignTorpOrBomberTargets({oBomber}, {oTarget}, iAirSubteam, false, false, true)
                 table.remove(tAvailableBombers, i)
             else
@@ -6690,7 +6797,6 @@ function ManageBombers(iTeam, iAirSubteam)
     -- This prevents bombers from wasting time on low-value targets like T1 units
     -- when they should be targeting high-value targets like factories, experimentals, etc.
     local iMassThreshold = 0
-    local iOurBomberMass = M28UnitInfo.GetMassCostOfUnits(tAvailableBombers or {}, true)
     if iOurBomberMass >= 10000 then
         iMassThreshold = 750
     elseif iOurBomberMass >= 5000 then
@@ -6705,6 +6811,7 @@ function ManageBombers(iTeam, iAirSubteam)
 
     local iAAMassThreshold = 0
     local iAACategory = M28UnitInfo.refCategoryGroundAA + M28UnitInfo.refCategoryFixedShield + M28UnitInfo.refCategoryMobileLandShield + M28UnitInfo.refCategoryShieldBoat + categories.COMMAND
+    local iBomberAOEValueCategory = M28UnitInfo.refCategoryMobileLand + M28UnitInfo.refCategoryStructure + M28UnitInfo.refCategoryNavalSurface
     M28Team.tAirSubteamData[iAirSubteam][M28Team.reftoActiveBomberTargets] = {} --Reset
 
     --Comprehensive bomber debug logging with cooldown (every 30 seconds per air subteam)
@@ -6730,7 +6837,7 @@ function ManageBombers(iTeam, iAirSubteam)
                 end
             end
             local bAlreadyRecorded
-            iAAMassThreshold = iMassThreshold * 3
+            iAAMassThreshold = iMassThreshold / 3
 
             for iUnit, oUnit in tPotentialTargets do
                 if bDebugMessages == true then
@@ -6741,8 +6848,9 @@ function ManageBombers(iTeam, iAirSubteam)
                     end
                 end
                 if M28UnitInfo.IsUnitValid(oUnit) and not(oUnit:IsUnitState('Attached')) and not(M28UnitInfo.IsUnitUnderwater(oUnit)) and (bDontConsiderPlayableArea or M28Conditions.IsLocationInPlayableArea(oUnit:GetPosition())) then
-                    local iUnitMassCost = oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit)
-                    if (iUnitMassCost >= iMassThreshold or (iUnitMassCost >= iAAMassThreshold and EntityCategoryContains(iAACategory, oUnit.UnitId))) and (not(iOptionalCategory) or (iOptionalCategory and EntityCategoryContains(iOptionalCategory, oUnit.UnitId))) then
+                    local iUnitMassCost = math.max(1, oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit) or 100)
+                    local bCanQualifyThroughAOE = EntityCategoryContains(iBomberAOEValueCategory, oUnit.UnitId)
+                    if (iUnitMassCost >= iMassThreshold or (iUnitMassCost >= iAAMassThreshold and EntityCategoryContains(iAACategory, oUnit.UnitId)) or bCanQualifyThroughAOE) and (not(iOptionalCategory) or (iOptionalCategory and EntityCategoryContains(iOptionalCategory, oUnit.UnitId))) then
                         if not(bOptionalCheckNotAlreadyInEnemyTargets) then
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adding unit to enemy targets') end
                             table.insert(tEnemyTargets, oUnit)
@@ -6977,10 +7085,11 @@ function ManageBombers(iTeam, iAirSubteam)
                 end
             end
             if iHighestTechLevel >= 3 then
-                iMassThreshold = 160
+                iMassThreshold = math.max(iMassThreshold, 160)
             elseif iHighestTechLevel == 2 then
-                iMassThreshold = 43 --i.e. ignore LABs and scouts
+                iMassThreshold = math.max(iMassThreshold, 43) --i.e. ignore isolated LABs and scouts
             end
+            local iBaseMassThreshold = iMassThreshold
             --Consider nearby defence
             local iAAPriorityThresholdFactor = 1.5 --e.g. for rally zones - decrease this if mod dist is high
 
@@ -7005,7 +7114,7 @@ function ManageBombers(iTeam, iAirSubteam)
             FilterToAvailableTargets(tRallyLZOrWZTeamData[M28Map.subrefTEnemyUnits])
             if M28Utilities.IsTableEmpty( tEnemyTargets) == false then
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Attacking enemy units in the rally zone') end
-                AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, false, true)
+                AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, false, true, nil, nil, nil, iMassThreshold)
                 tEnemyTargets = {}
             end
             if M28Utilities.IsTableEmpty(tAvailableBombers) == false then
@@ -7110,14 +7219,14 @@ function ManageBombers(iTeam, iAirSubteam)
                                         if tAltPosition then
                                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': [AirSub'..iAirSubteam..'] BOMBER_LZ_ALT_ROUTE - P='..iCurPlateauOrZero..', LZ='..iCurZone..', SafeAngle='..math.floor(iSafeAngle)..', Unit='..oUnit.UnitId) end
                                             --Found alternative route - assign target with waypoint
-                                            AssignTorpOrBomberTargets(tAvailableBombers, { oUnit }, iAirSubteam, false, true, nil, nil, tAltPosition)
+                                            AssignTorpOrBomberTargets(tAvailableBombers, { oUnit }, iAirSubteam, false, true, nil, nil, tAltPosition, iMassThreshold)
                                         end
                                     end
                                 end
                             end
                         end
                         if M28Utilities.IsTableEmpty(toPriorityEnemiesToTarget) == false then
-                            AssignTorpOrBomberTargets(tAvailableBombers, toPriorityEnemiesToTarget, iAirSubteam, false, true)
+                            AssignTorpOrBomberTargets(tAvailableBombers, toPriorityEnemiesToTarget, iAirSubteam, false, true, nil, nil, nil, iMassThreshold)
                         end
                     end
                     tEnemyTargets = {} --reset targets
@@ -7138,7 +7247,7 @@ function ManageBombers(iTeam, iAirSubteam)
                                                 tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero][iAdjLZ] = DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauToUse, iStartZoneToUse, iRallyPlateauOrZero, iAdjLZ, false, iMaxEnemyGroundAAThreat * iAAPriorityThresholdFactor, iBomberPathAirAAThreshold, false, iAirSubteam, true, false, nil, false, nil, nil, nil, nil, oGroundAAEvaluationBomber)
                                             end
                                             if not(tbZoneByPlateauHasTooMuchAA[iRallyPlateauOrZero][iAdjLZ]) then
-                                                AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, false, true)
+                                                AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, false, true, nil, nil, nil, iMassThreshold)
                                             else
                                                 --Direct path blocked - try alternative approach for adjacent land zone
                                                 local tAdjLZData = M28Map.tAllPlateaus[iRallyPlateauOrZero][M28Map.subrefPlateauLandZones][iAdjLZ]
@@ -7146,7 +7255,7 @@ function ManageBombers(iTeam, iAirSubteam)
                                                     local tAltPosition, iSafeAngle = FindAlternativeApproachToLandZone(iTeam, iRallyPlateauOrZero, iAdjLZ, iStartPlateauToUse, iStartZoneToUse, iMaxEnemyGroundAAThreat * iAAPriorityThresholdFactor, iBomberPathAirAAThreshold, iAirSubteam, oGroundAAEvaluationBomber)
                                                     if tAltPosition then
                                                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': [AirSub'..iAirSubteam..'] BOMBER_LZ_ALT_ROUTE - AdjP='..iRallyPlateauOrZero..', AdjLZ='..iAdjLZ..', SafeAngle='..math.floor(iSafeAngle)) end
-                                                        AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, false, true, nil, nil, tAltPosition)
+                                                        AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, false, true, nil, nil, tAltPosition, iMassThreshold)
                                                     end
                                                 end
                                             end
@@ -7179,7 +7288,7 @@ function ManageBombers(iTeam, iAirSubteam)
                                                 end
 
                                                 if not(tbZoneByPlateauHasTooMuchAA[0][iAdjWZ]) then
-                                                    AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, false, true)
+                                                    AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, false, true, nil, nil, nil, iMassThreshold)
                                                 end
                                                 tEnemyTargets = {}
                                                 if M28Utilities.IsTableEmpty(tAvailableBombers) then break end
@@ -7274,7 +7383,7 @@ function ManageBombers(iTeam, iAirSubteam)
                                         end
 
                                         -- Calculate front line priority score (lower mod dist = higher priority)
-                                        -- Score = distance - (modDist * distance * frontLineBiasFactor)
+                                        -- Score = distance + (modDist * distance * frontLineBiasFactor)
                                         -- This makes closer-to-friendly zones more attractive even if slightly farther in absolute distance
                                         local iFrontLineBiasFactor = 0.5 -- Adjust this to control how much we prefer front line zones
                                         local iModDist = tOtherLZOrWZTeamData[M28Map.refiModDistancePercent] or 0.5
@@ -7283,7 +7392,7 @@ function ManageBombers(iTeam, iAirSubteam)
                                         if iBomberPathAirAAThreshold and iBomberPathAirAAThreshold > 0 then
                                             iEnemyAirPenalty = math.min(iDistance * 0.35, ((tOtherLZOrWZTeamData[M28Map.refiEnemyAirAAThreat] or 0) / iBomberPathAirAAThreshold) * 40)
                                         end
-                                        local iPriorityScore = iDistance - (iModDist * iDistance * iFrontLineBiasFactor) + iEnemyAirPenalty
+                                        local iPriorityScore = iDistance + (iModDist * iDistance * iFrontLineBiasFactor) + iEnemyAirPenalty
 
                                         -- Use entry index as key to maintain unique entries
                                         toZonePriorityScores[iEntry] = iPriorityScore
@@ -7329,10 +7438,12 @@ function ManageBombers(iTeam, iAirSubteam)
                                             elseif tOtherLZOrWZTeamData[M28Map.refiModDistancePercent] <= iMaxModDist and (tOtherLZOrWZTeamData[M28Map.refiModDistancePercent] < 0.45 or tOtherLZOrWZTeamData[M28Map.refiRadarCoverage] >= 50 or GetGameTimeSeconds() - (tOtherLZOrWZTeamData[M28Map.refiTimeLastHadVisual] or 0) <= 120) then
                                                 --Update mass thresholds based on mod dist if we have T3 bombers (default earlier is 160 mass for t3)
                                                 if iHighestTechLevel >= 3 then
-                                                    if tOtherLZOrWZTeamData[M28Map.refiModDistancePercent] <= 0.25 then iMassThreshold = 160
-                                                    elseif tOtherLZOrWZTeamData[M28Map.refiModDistancePercent] <= 0.5 then iMassThreshold = math.min(800, 160 * math.max(1, tPathingDetails[M28Map.subrefiDistance] / 100))
-                                                    else iMassThreshold = 800 --e.g. T3 MAA is 600, stationery flak is 400 - dont want to ignore; we will treat MAA as being worth 4 times the normal value though to reduce risk we ignore
+                                                    local iZoneMassThreshold
+                                                    if tOtherLZOrWZTeamData[M28Map.refiModDistancePercent] <= 0.25 then iZoneMassThreshold = 160
+                                                    elseif tOtherLZOrWZTeamData[M28Map.refiModDistancePercent] <= 0.5 then iZoneMassThreshold = math.min(800, 160 * math.max(1, tPathingDetails[M28Map.subrefiDistance] / 100))
+                                                    else iZoneMassThreshold = 800 --e.g. T3 MAA is 600, stationery flak is 400 - dont want to ignore; priority AA can qualify at one third of the normal threshold
                                                     end
+                                                    iMassThreshold = math.max(iBaseMassThreshold, iZoneMassThreshold)
                                                 end
                                                 FilterToAvailableTargets(tOtherLZOrWZTeamData[M28Map.subrefTEnemyUnits])
                                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering iOtherPlateauOrZero='..(iOtherPlateauOrZero or 'nil')..'; iOtherLZOrWZ='..(iOtherLZOrWZ or 'nil')..', based on iRallyPlateauOrZero='..iRallyPlateauOrZero..'Z'..iRallyLZOrWZ..'; dist='..(tPathingDetails[M28Map.subrefiDistance] or 'nil')..'; iSearchSize='..(iSearchSize or 'nil')..'; Does it have enemy units='..tostring(M28Utilities.IsTableEmpty(tOtherLZOrWZTeamData[M28Map.subrefTEnemyUnits]))..'; Is table of targets empty='..tostring(M28Utilities.IsTableEmpty( tEnemyTargets))) end
@@ -7363,7 +7474,7 @@ function ManageBombers(iTeam, iAirSubteam)
                                                             end
                                                             --Further redundancy for nearby AA - get the closest potential enemy target, and search for nearby groundAA units using getunitsaroundpoint
 
-                                                            AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, false, true)
+                                                            AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, false, true, nil, nil, nil, iMassThreshold)
                                                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have added all enemy units and AA units along the path, are available bombers table empty now='..tostring(M28Utilities.IsTableEmpty(tAvailableBombers))) end
                                                             if M28Utilities.IsTableEmpty(tAvailableBombers) then break end
                                                         end
@@ -8059,10 +8170,11 @@ function ManageTorpedoBombers(iTeam, iAirSubteam)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, bForceGroundFire, bTargetAAAndShieldsFirst, bIgnoreMicro, iOptionalOverkillFactor, tOptionalWaypointPosition)
+function AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, bForceGroundFire, bTargetAAAndShieldsFirst, bIgnoreMicro, iOptionalOverkillFactor, tOptionalWaypointPosition, iOptionalMassThreshold)
     --NOTE: If want to prioritise by category then do by changing tEnemyTargets and calling this function multiple times
     --iOptionalOverkillFactor - e.g. if 2 then will send twice as many units as normal (intended where we still have available torp bombers after considering targets)
     --tOptionalWaypointPosition - if provided, units will first move to this position before attacking (for flanking around AA)
+    --iOptionalMassThreshold - ordinary bombers must meet this through individual, priority-category, or estimated AOE mass value
 
     local sFunctionRef = 'AssignTorpOrBomberTargets'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
@@ -8077,7 +8189,7 @@ function AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': is table of enemy ACU empty='..tostring(M28Utilities.IsTableEmpty(tEnemyACU))) end
             if M28Utilities.IsTableEmpty(tEnemyACU) == false then
                 if M28UnitInfo.GetMassCostOfUnits(tAvailableBombers) >= 15000 then
-                    AssignTorpOrBomberTargets(tAvailableBombers, tEnemyACU, iAirSubteam, bForceGroundFire, false, bIgnoreMicro, nil, tOptionalWaypointPosition)
+                    AssignTorpOrBomberTargets(tAvailableBombers, tEnemyACU, iAirSubteam, bForceGroundFire, false, bIgnoreMicro, nil, tOptionalWaypointPosition, iOptionalMassThreshold)
                 end
             end
         end
@@ -8086,16 +8198,16 @@ function AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam
             local tEnemyAAAndShields = EntityCategoryFilterDown(iSearchCategory, tEnemyTargets)
             if M28Utilities.IsTableEmpty(tEnemyAAAndShields) then
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have no enemy AA so will call this again and assign targets to all enemy units, without order to target AA first') end
-                AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, bForceGroundFire, false, bIgnoreMicro, nil, tOptionalWaypointPosition)
+                AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam, bForceGroundFire, false, bIgnoreMicro, nil, tOptionalWaypointPosition, iOptionalMassThreshold)
             else
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will call this function again targeting just the enemy AA units') end
-                AssignTorpOrBomberTargets(tAvailableBombers, tEnemyAAAndShields, iAirSubteam, bForceGroundFire, false, bIgnoreMicro, nil, tOptionalWaypointPosition)
+                AssignTorpOrBomberTargets(tAvailableBombers, tEnemyAAAndShields, iAirSubteam, bForceGroundFire, false, bIgnoreMicro, nil, tOptionalWaypointPosition, iOptionalMassThreshold)
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have finished targeting the enemy AA units, is available bombers empty='..tostring(M28Utilities.IsTableEmpty(tAvailableBombers))) end
                 if M28Utilities.IsTableEmpty(tAvailableBombers) == false then
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Still have available bombers so will target all units') end
                     local tOtherTargets = EntityCategoryFilterDown(categories.ALLUNITS - iSearchCategory, tEnemyTargets)
                     if M28Utilities.IsTableEmpty(tOtherTargets) == false then
-                        AssignTorpOrBomberTargets(tAvailableBombers, tOtherTargets, iAirSubteam, bForceGroundFire, false, bIgnoreMicro, nil, tOptionalWaypointPosition)
+                        AssignTorpOrBomberTargets(tAvailableBombers, tOtherTargets, iAirSubteam, bForceGroundFire, false, bIgnoreMicro, nil, tOptionalWaypointPosition, iOptionalMassThreshold)
                     end
                 end
             end
@@ -8125,6 +8237,14 @@ function AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam
         if tAvailableBombers[1] then
             aiBrain = tAvailableBombers[1]:GetAIBrain()
         end
+        local bUseOrdinaryBomberAOEScoring = tAvailableBombers[1]
+                and EntityCategoryContains(M28UnitInfo.refCategoryBomber - categories.EXPERIMENTAL, tAvailableBombers[1].UnitId)
+                and not(EntityCategoryContains(M28UnitInfo.refCategoryTorpBomber, tAvailableBombers[1].UnitId))
+        local tiAOEMassValueByTarget = {}
+        if bUseOrdinaryBomberAOEScoring then
+            local iEvaluationAOE, iEvaluationDamage = GetConservativeBomberAOEAndDamage(tAvailableBombers)
+            tiAOEMassValueByTarget = GetBomberAOEMassValues(tEnemyTargets, iEvaluationAOE, iEvaluationDamage)
+        end
 
         local iEscortAirAAThreat = M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] or 0
         local iEnemyAirThreshold = math.max(150, math.min(math.max(iEscortAirAAThreat * 0.75, 250), iEscortAirAAThreat + 250))
@@ -8134,9 +8254,34 @@ function AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam
             iEnemyAirThreshold = math.max(140, iEnemyAirThreshold * 0.75)
         end
 
+        local tiEligibleEnemyTargetRefs = {}
+        local tiMassCostByTarget = {}
+        local tiAOEMassValueForEligibleTarget = {}
         for iUnit, oUnit in tEnemyTargets do
+            local iMassCost = math.max(1, M28UnitInfo.GetUnitMassCost(oUnit) or 100)
+            local iAOEMassValue = tiAOEMassValueByTarget[oUnit] or iMassCost
+            local bMeetsMassThreshold = true
+            if bUseOrdinaryBomberAOEScoring and iOptionalMassThreshold and iOptionalMassThreshold > 0 then
+                local bPriorityMassTarget = EntityCategoryContains(M28UnitInfo.refCategoryGroundAA + M28UnitInfo.refCategoryFixedShield + M28UnitInfo.refCategoryMobileLandShield + M28UnitInfo.refCategoryShieldBoat + categories.COMMAND, oUnit.UnitId)
+                bMeetsMassThreshold = iMassCost >= iOptionalMassThreshold
+                        or (bPriorityMassTarget and iMassCost >= iOptionalMassThreshold / 3)
+                        or iAOEMassValue >= iOptionalMassThreshold
+            end
+            if bMeetsMassThreshold then
+                table.insert(tiEligibleEnemyTargetRefs, iUnit)
+                tiMassCostByTarget[oUnit] = iMassCost
+                tiAOEMassValueForEligibleTarget[oUnit] = iAOEMassValue
+            elseif bDebugMessages == true then
+                LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] BOMBER_TARGET_REJECT - Unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..', MassCost='..iMassCost..', AOEMass='..math.floor(iAOEMassValue)..', MassThreshold='..iOptionalMassThreshold)
+            end
+        end
+
+        for _, iUnit in tiEligibleEnemyTargetRefs do
+            local oUnit = tEnemyTargets[iUnit]
             -- Calculate composite target score (lower score = higher priority)
             local iDistanceToRally = GetRoughDistanceBetweenPositions(oUnit:GetPosition(), tRallyPoint)
+            local iMassCost = tiMassCostByTarget[oUnit]
+            local iAOEMassValue = tiAOEMassValueForEligibleTarget[oUnit]
 
             -- Get strategic value multiplier based on unit category (lower = higher priority)
             local iStrategicValue = 1.0
@@ -8193,10 +8338,9 @@ function AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam
                 end
             end
 
-            -- Get mass cost factor (higher mass = higher priority, so lower score)
-            local iMassCost = M28UnitInfo.GetUnitMassCost(oUnit) or 100
             -- Normalize to 0-1 range where 0 = high priority (high mass), 1 = low priority (low mass)
             local iMassFactor = math.max(0.1, math.min(1.0, 100 / iMassCost))
+            local iAOEMassFactor = math.max(0.05, math.min(1.0, 100 / math.max(1, iAOEMassValue)))
             -- Normalize distance to 0-1 range based on map size
             local iNormalizedDist = math.min(1.0, iDistanceToRally / M28Map.iMapSize)
             local iEnemyAirFactor = math.min(1.0, iEnemyAirThreat / math.max(1, iEnemyAirThreshold))
@@ -8207,12 +8351,18 @@ function AssignTorpOrBomberTargets(tAvailableBombers, tEnemyTargets, iAirSubteam
             -- Composite score calculation (lower = higher priority):
             -- Strategic value is the PRIMARY factor
             -- Enemy air risk and front-line bias reduce deep unsafe strikes
-            local iCompositeScore = (iStrategicValue * 0.45) + (iModDist * 0.20) + (iNormalizedDist * 0.10) + (iMassFactor * 0.10) + (iEnemyAirFactor * 0.15)
+            local iCompositeScore
+            if bUseOrdinaryBomberAOEScoring then
+                iCompositeScore = (iStrategicValue * 0.30) + (iModDist * 0.15) + (iNormalizedDist * 0.10) + (iMassFactor * 0.05) + (iAOEMassFactor * 0.25) + (iEnemyAirFactor * 0.15)
+            else
+                --Preserve torpedo-bomber and other callers' existing score model.
+                iCompositeScore = (iStrategicValue * 0.45) + (iModDist * 0.20) + (iNormalizedDist * 0.10) + (iMassFactor * 0.10) + (iEnemyAirFactor * 0.15)
+            end
 
             toEnemyUnitsByScore[iUnit] = iCompositeScore
 
             if bDebugMessages == true then
-                LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] BOMBER_TARGET_EVAL - Unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..', Score='..string.format('%.3f', iCompositeScore)..', Dist='..math.floor(iDistanceToRally)..', NormDist='..string.format('%.2f', iNormalizedDist)..', ModDist='..string.format('%.2f', iModDist)..', StratValue='..string.format('%.2f', iStrategicValue)..', MassFactor='..string.format('%.2f', iMassFactor)..', EnemyAir='..math.floor(iEnemyAirThreat)..', EnemyAirFactor='..string.format('%.2f', iEnemyAirFactor)..', MassCost='..iMassCost..', TechLevel='..iTechLevel)
+                LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] BOMBER_TARGET_EVAL - Unit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..', Eligible=true, Score='..string.format('%.3f', iCompositeScore)..', Dist='..math.floor(iDistanceToRally)..', NormDist='..string.format('%.2f', iNormalizedDist)..', ModDist='..string.format('%.2f', iModDist)..', StratValue='..string.format('%.2f', iStrategicValue)..', MassFactor='..string.format('%.2f', iMassFactor)..', AOEMass='..math.floor(iAOEMassValue)..', AOEMassFactor='..string.format('%.2f', iAOEMassFactor)..', EnemyAir='..math.floor(iEnemyAirThreat)..', EnemyAirFactor='..string.format('%.2f', iEnemyAirFactor)..', MassCost='..iMassCost..', MassThreshold='..(iOptionalMassThreshold or 0)..', TechLevel='..iTechLevel)
             end
         end
 
