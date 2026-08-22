@@ -271,7 +271,7 @@ do --Per Balthazaar - encasing the code in do .... end means that you dont have 
         end,--]]
         OnDamage = function(self, instigator, amount, vector, damageType)
             if M28OldUnit.OnDamage then M28OldUnit.OnDamage(self, instigator, amount, vector, damageType) end
-            M28Events.OnDamaged(self, instigator) --Want this after just incase our code messes things up
+            M28Events.DispatchOnDamaged(self, instigator) --Want this after just incase our code messes things up
         end,
         OnSiloBuildEnd = function(self, weapon)
             --LOG('OnSiloBuildEnd triggered')
@@ -317,12 +317,12 @@ do --Per Balthazaar - encasing the code in do .... end means that you dont have 
 
         OnDetectedBy = function(self, index)
 
-            ForkThread(M28Events.OnDetectedBy, self, index)
+            M28Events.DispatchOnDetectedBy(self, index)
             if M28OldUnit.OnDetectedBy then return M28OldUnit.OnDetectedBy(self, index) end
         end,
         OnCreate = function(self)
             M28OldUnit.OnCreate(self)
-            if M28OldUnit.OnCreate then ForkThread(M28Events.OnCreate, self) end
+            if M28OldUnit.OnCreate then M28Events.DispatchOnCreate(self) end
         end,
         CreateEnhancement = function(self, enh)
             ForkThread(M28Events.OnEnhancementComplete, self, enh)

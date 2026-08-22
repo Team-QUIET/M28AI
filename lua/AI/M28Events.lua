@@ -29,6 +29,160 @@ local M28Chat = import('/mods/M28AI/lua/AI/M28Chat.lua')
 
 refiLastWeaponEvent = 'M28LastWep' --Gametimeseconds that last updated onweapon
 refbAlreadyRunUnitKilled = 'M28EventsOnKilledRun'
+local refiLastWeaponDispatchTick = 'M28WepDispatchTick'
+local refbCreateDispatchQueued = 'M28CreateDispatchQueued'
+local toPendingCreateDispatch = {}
+local iPendingCreateDispatchHead = 1
+local bCreateDispatchWorkerActive = false
+local iMaximumCreateDispatchesPerTick = 32
+
+local function GetEntityBrain(oEntity)
+    if not(oEntity) then return nil end
+    if oEntity.GetAIBrain then return oEntity:GetAIBrain() end
+    if oEntity.Brain then return oEntity.Brain end
+
+    local iArmy = oEntity.Army
+    if not(iArmy) and oEntity.GetArmy then iArmy = oEntity:GetArmy() end
+    if iArmy and ArmyBrains then return ArmyBrains[iArmy] end
+    return nil
+end
+
+local function GetInstigatorOwner(oInstigator)
+    if not(oInstigator) then return nil end
+    if oInstigator.unit then return oInstigator.unit end
+    if oInstigator.Launcher then return oInstigator.Launcher end
+    if oInstigator.GetLauncher then
+        local oLauncher = oInstigator:GetLauncher()
+        if oLauncher then return oLauncher end
+    end
+    return oInstigator
+end
+
+local function IsEntityOwnedByActiveM28(oEntity)
+    local aiBrain = GetEntityBrain(oEntity)
+    return aiBrain and aiBrain.M28AI and not(aiBrain.M28IsDefeated)
+end
+
+local function ProcessPendingCreateDispatches()
+    --The base Unit.OnCreate hook can return before faction-specific scripts initialize position/state.
+    WaitTicks(1)
+    while (not(M28Map.bMapLandSetupComplete) or not(M28Map.bWaterZoneInitialCreation)) do
+        WaitTicks(1)
+        if GetGameTimeSeconds() >= 5 and M28Map.bMapLandSetupComplete and (GetGameTimeSeconds() >= 6 or M28Utilities.bFAFActive) then
+            M28Utilities.ErrorHandler('Water zone initial creation still not done; central creation dispatch will proceed')
+            break
+        end
+    end
+
+    while true do
+        local iLastCreateDispatch = math.min(table.getn(toPendingCreateDispatch), iPendingCreateDispatchHead + iMaximumCreateDispatchesPerTick - 1)
+        for iCreateDispatch = iPendingCreateDispatchHead, iLastCreateDispatch do
+            local oUnit = toPendingCreateDispatch[iCreateDispatch]
+            if oUnit then
+                oUnit[refbCreateDispatchQueued] = nil
+                local bNonFAFCompatibilityUnit = not(M28Utilities.bFAFActive) and not(oUnit.Dead) and oUnit.GetAIBrain and oUnit.GetBlueprint
+                if M28UnitInfo.IsUnitValid(oUnit) or bNonFAFCompatibilityUnit then
+                    local bSuccess, sError = pcall(OnCreate, oUnit, true)
+                    if not(bSuccess) then
+                        M28Profiler.IncrementPerformanceCounter('CreationRejected')
+                        M28Utilities.ErrorHandler('Central creation dispatch failed for '..(oUnit.UnitId or 'unknown unit')..': '..tostring(sError or 'unknown error'))
+                    end
+                else
+                    --Short-lived compatibility objects can disappear during the required one-tick delay.
+                    M28Profiler.IncrementPerformanceCounter('CreationExpired')
+                end
+            end
+        end
+        iPendingCreateDispatchHead = iLastCreateDispatch + 1
+
+        if iPendingCreateDispatchHead > table.getn(toPendingCreateDispatch) then
+            toPendingCreateDispatch = {}
+            iPendingCreateDispatchHead = 1
+            bCreateDispatchWorkerActive = false
+            return
+        end
+        WaitTicks(1)
+    end
+end
+
+function DispatchOnDamaged(oDamaged, oInstigator)
+    M28Profiler.IncrementPerformanceCounter('DamageRaw')
+    if not(M28Utilities.bM28AIInGame) or not(oDamaged) or oDamaged.IsWreckage then
+        M28Profiler.IncrementPerformanceCounter('DamageRejected')
+        return
+    end
+
+    if not(IsEntityOwnedByActiveM28(oDamaged)) and not(IsEntityOwnedByActiveM28(GetInstigatorOwner(oInstigator))) then
+        M28Profiler.IncrementPerformanceCounter('DamageRejected')
+        return
+    end
+
+    M28Profiler.IncrementPerformanceCounter('DamageAdmitted')
+    OnDamaged(oDamaged, oInstigator)
+end
+
+function DispatchOnWeaponFired(oWeapon)
+    M28Profiler.IncrementPerformanceCounter('WeaponRaw')
+    if not(M28Utilities.bM28AIInGame) or not(oWeapon) or not(oWeapon.unit) or not(M28UnitInfo.IsUnitValid(oWeapon.unit)) then
+        M28Profiler.IncrementPerformanceCounter('WeaponRejected')
+        return
+    end
+
+    local iCurTick = math.floor(GetGameTimeSeconds() * 10)
+    if oWeapon[refiLastWeaponDispatchTick] == iCurTick then
+        M28Profiler.IncrementPerformanceCounter('WeaponDuplicate')
+        return
+    end
+    oWeapon[refiLastWeaponDispatchTick] = iCurTick
+
+    M28Profiler.IncrementPerformanceCounter('WeaponAdmitted')
+    ForkThread(OnWeaponFired, oWeapon)
+end
+
+function DispatchOnShieldBubbleDamaged(oShield, oInstigator)
+    M28Profiler.IncrementPerformanceCounter('ShieldRaw')
+    local oOwner = oShield and oShield.Owner
+    if not(M28Utilities.bM28AIInGame) or not(M28UnitInfo.IsUnitValid(oOwner)) or (not(IsEntityOwnedByActiveM28(oOwner)) and not(IsEntityOwnedByActiveM28(GetInstigatorOwner(oInstigator)))) then
+        M28Profiler.IncrementPerformanceCounter('ShieldRejected')
+        return
+    end
+
+    M28Profiler.IncrementPerformanceCounter('ShieldAdmitted')
+    OnShieldBubbleDamaged(oShield, oInstigator)
+end
+
+function DispatchOnDetectedBy(oUnitDetected, iBrainIndex)
+    M28Profiler.IncrementPerformanceCounter('DetectionRaw')
+    local aiBrain = ArmyBrains and ArmyBrains[iBrainIndex]
+    if not(M28Utilities.bM28AIInGame) or not(aiBrain) or not(aiBrain.M28AI) or aiBrain.M28IsDefeated or not(M28UnitInfo.IsUnitValid(oUnitDetected)) or EntityCategoryContains(categories.INSIGNIFICANTUNIT, oUnitDetected.UnitId) then
+        M28Profiler.IncrementPerformanceCounter('DetectionRejected')
+        return
+    end
+
+    M28Profiler.IncrementPerformanceCounter('DetectionAdmitted')
+    OnDetectedBy(oUnitDetected, iBrainIndex)
+end
+
+function DispatchOnCreate(oUnit)
+    M28Profiler.IncrementPerformanceCounter('CreationRaw')
+    if not(M28Utilities.bM28AIInGame) or not(oUnit) then
+        M28Profiler.IncrementPerformanceCounter('CreationRejected')
+        return
+    end
+
+    if oUnit[refbCreateDispatchQueued] or oUnit['M28OnCrRn'] then
+        M28Profiler.IncrementPerformanceCounter('CreationDuplicate')
+        return
+    end
+    oUnit[refbCreateDispatchQueued] = true
+    table.insert(toPendingCreateDispatch, oUnit)
+    M28Profiler.IncrementPerformanceCounter('CreationDeferred')
+
+    if not(bCreateDispatchWorkerActive) then
+        bCreateDispatchWorkerActive = true
+        ForkThread(ProcessPendingCreateDispatches)
+    end
+end
 
 
 function OnPlayerDefeated(aiBrain)
@@ -119,6 +273,9 @@ function OnACUKilled(oUnit)
         end
         local oKilledBrain = oUnit:GetAIBrain()
         local bDefeated = false
+
+        --Remove stale zone membership before land-zone protection logic runs again.
+        M28ACU.RemoveACUFromLandOrWaterZoneAssignment(oUnit)
 
         if ScenarioInfo.Options.Victory == "demoralization" then
             bDefeated = true
@@ -1149,7 +1306,7 @@ function OnShieldBubbleDamaged(self, instigator)
             if oShield:GetAIBrain().M28AI then
                 oShield[M28UnitInfo.refiTimeLastDamaged] = GetGameTimeSeconds()
                 --If damaged by Aeon T3 arti set a temporary flag
-                if instigator.UnitId == 'uab2302' then oShield[M28Building.refiTimeOfLastAeonT3ArtiDamageToShield] = GetGameTimeSeconds() end
+                if instigator and instigator.UnitId == 'uab2302' then oShield[M28Building.refiTimeOfLastAeonT3ArtiDamageToShield] = GetGameTimeSeconds() end
             end
             --LOG('instigator='..reprs(instigator))
             if M28UnitInfo.IsUnitValid(instigator) and instigator:GetAIBrain().M28AI and IsEnemy(oShield:GetAIBrain():GetArmyIndex(), instigator:GetAIBrain():GetArmyIndex()) then
@@ -3359,8 +3516,8 @@ function OnDetectedBy(oUnitDetected, iBrainIndex)
             M28Team.ConsiderAssigningUnitToZoneForBrain(aiBrain, oUnitDetected) --This function includes check of whether this is an M28 brain, and updates last known position
 
             if aiBrain.M28AI then
+                if not(oUnitDetected[M28UnitInfo.refbHaveSeenUnitByTeam]) then oUnitDetected[M28UnitInfo.refbHaveSeenUnitByTeam] = {} end
                 if aiBrain.M28Team and not(oUnitDetected[M28UnitInfo.refbHaveSeenUnitByTeam][aiBrain.M28Team]) then
-                    if not(oUnitDetected[M28UnitInfo.refbHaveSeenUnitByTeam]) then oUnitDetected[M28UnitInfo.refbHaveSeenUnitByTeam] = {} end
                     oUnitDetected[M28UnitInfo.refbHaveSeenUnitByTeam][aiBrain.M28Team] = true
                     if oUnitDetected[M28Air.refiTimeLastWantedPriorityAirScout] and EntityCategoryContains(M28UnitInfo.refCategoryTMD + M28UnitInfo.refCategorySML, oUnitDetected.UnitId) then
                         if M28Utilities.IsTableEmpty(M28Team.tTeamData[aiBrain.M28Team][M28Team.subreftoFriendlyActiveM28Brains]) == false then
@@ -3420,6 +3577,7 @@ function OnCreate(oUnit, bIgnoreMapSetup)
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
                 if M28UnitInfo.IsUnitValid(oUnit) then OnCreate(oUnit, true) end
             else
+                M28Profiler.IncrementPerformanceCounter('CreationAdmitted')
                 if not(oUnit['M28OnCrRn']) then
                     oUnit['M28OnCrRn'] = true
                     oUnit[M28UnitInfo.refiTimeCreated] = math.floor(GetGameTimeSeconds())
@@ -3872,6 +4030,8 @@ function OnCreate(oUnit, bIgnoreMapSetup)
                     end
                 end
             end
+        else
+            M28Profiler.IncrementPerformanceCounter('CreationRejected')
         end
     end
 end
@@ -4540,10 +4700,12 @@ function DelayedUnpauseOfTransferredUnits(toCapturedUnits, iArmyIndex)
                 local tCompletedUnits = {}
                 local tUpgradingUnit = {}
                 for iUnit, oUnit in tFactoriesAndMexes do
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; IsUpgrade='..tostring(oUnit.IsUpgrade or false)..'; Fraction complete='..oUnit:GetFractionComplete()..'; Unit tech level='..M28UnitInfo.GetUnitTechLevel(oUnit)) end
-                    --if oUnit.IsUpgrade then table.insert(tUpgradingUnit, oUnit)
-                    if oUnit:GetFractionComplete() == 1 and  M28UnitInfo.GetUnitTechLevel(oUnit) <= 2 then
-                        table.insert(tCompletedUnits, oUnit)
+                    if M28UnitInfo.IsUnitValid(oUnit) then
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; IsUpgrade='..tostring(oUnit.IsUpgrade or false)..'; Fraction complete='..oUnit:GetFractionComplete()..'; Unit tech level='..M28UnitInfo.GetUnitTechLevel(oUnit)) end
+                        --if oUnit.IsUpgrade then table.insert(tUpgradingUnit, oUnit)
+                        if oUnit:GetFractionComplete() == 1 and  M28UnitInfo.GetUnitTechLevel(oUnit) <= 2 then
+                            table.insert(tCompletedUnits, oUnit)
+                        end
                     end
                 end
                 if M28Utilities.IsTableEmpty(tCompletedUnits) == false then

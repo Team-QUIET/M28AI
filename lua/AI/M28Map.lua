@@ -8867,8 +8867,44 @@ function UpdateReclaimDataNearSegments(iBaseSegmentX, iBaseSegmentZ, iSegmentRan
         LOG(sFunctionRef..': Time='..GetGameTimeSeconds()..'; About to update for iBaseSegmentX='..(iBaseSegmentX or 'nil')..'; iSegmentRange='..(iSegmentRange or 'nil')..'; iBaseSegmentZ='..(iBaseSegmentZ or 'nil'))
     end
 
-    local iPlateau, iLandZone
     local bWasVeryHighValue
+    local function RefreshParentZoneForReclaimSegment(iSegmentX, iSegmentZ)
+        local tReclaimArea = tReclaimAreas[iSegmentX] and tReclaimAreas[iSegmentX][iSegmentZ]
+        local tSegmentMidpoint = tReclaimArea and tReclaimArea[refReclaimSegmentMidpoint]
+        if not(tSegmentMidpoint) then return end
+
+        local iPlateau, iLandZone = GetPlateauAndLandZoneReferenceFromPosition(tSegmentMidpoint)
+        if (iLandZone or 0) > 0 then
+            local tPlateauData = iPlateau and tAllPlateaus[iPlateau]
+            local tLandZones = tPlateauData and tPlateauData[subrefPlateauLandZones]
+            local tLZData = tLandZones and tLandZones[iLandZone]
+            if not(tLZData) then return end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time of last refresh for land zone '..iLandZone..'='.. (tLZData[subrefLastReclaimRefresh] or 0)) end
+            if GetGameTimeSeconds() - (tLZData[subrefLastReclaimRefresh] or 0) >= 1 then
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will refresh the reclaim value for land zone '..iLandZone) end
+                RefreshLandOrWaterZoneReclaimValue(iPlateau, iLandZone)
+            else
+                AddZoneForDelayedRefresh(iPlateau, iLandZone)
+            end
+            return
+        end
+
+        local iWaterZone = GetWaterZoneFromPosition(tSegmentMidpoint)
+        if (iWaterZone or 0) > 0 then
+            local iPond = tiPondByWaterZone and tiPondByWaterZone[iWaterZone]
+            local tPondData = iPond and tPondDetails[iPond]
+            local tWaterZones = tPondData and tPondData[subrefPondWaterZones]
+            local tWZData = tWaterZones and tWaterZones[iWaterZone]
+            if not(tWZData) then return end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time of last refresh for water zone '..iWaterZone..'='.. (tWZData[subrefLastReclaimRefresh] or 0)) end
+            if GetGameTimeSeconds() - (tWZData[subrefLastReclaimRefresh] or 0) >= 1 then
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will refresh the reclaim value for water zone '..iWaterZone) end
+                RefreshLandOrWaterZoneReclaimValue(iPond, iWaterZone, true)
+            else
+                AddZoneForDelayedRefresh(0, iWaterZone)
+            end
+        end
+    end
 
     for iCurX = iBaseSegmentX - iSegmentRange, iBaseSegmentX + iSegmentRange do
         for iCurZ = iBaseSegmentZ - iSegmentRange, iBaseSegmentZ + iSegmentRange do
@@ -8906,33 +8942,13 @@ function UpdateReclaimDataNearSegments(iBaseSegmentX, iBaseSegmentZ, iSegmentRan
                 --tReclaimAreas[iCurX][iCurZ][refReclaimHighestIndividualMassReclaim] = iLargestCurReclaim
                 --iHighestReclaimInASegment = math.max(iHighestReclaimInASegment, iTotalMassValue)
                 tReclaimAreas[iCurX][iCurZ][refSegmentReclaimTotalEnergy] = iTotalEnergyValue
-                iPlateau, iLandZone = GetPlateauAndLandZoneReferenceFromPosition(tReclaimAreas[iCurX][iCurZ][refReclaimSegmentMidpoint])
+                local iPlateau, iLandZone = GetPlateauAndLandZoneReferenceFromPosition(tReclaimAreas[iCurX][iCurZ][refReclaimSegmentMidpoint])
 
                 if bDebugMessages == true then
                     LOG(sFunctionRef..': Reclaim segment midpoint='..repru(tReclaimAreas[iCurX][iCurZ][refReclaimSegmentMidpoint])..'; Segment X'..iCurX..'Z'..iCurZ..' with iTotalMassValue='..iTotalMassValue..' and iTotalMassAboveThreshold='..iTotalMassAboveThreshold..' for plateau '..(iPlateau or 'nil')..'; iLandZone='..(iLandZone or 'nil')..'; Drawing reclai mrectangle')
                     M28Utilities.DrawRectangle(GetReclaimSegmentRectangle(iCurX, iCurZ))
                 end
-                if iLandZone > 0 then
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time of last refresh for land zone '..iLandZone..'='.. (tAllPlateaus[iPlateau][subrefPlateauLandZones][iLandZone][subrefLastReclaimRefresh] or 0)) end
-                    if GetGameTimeSeconds() - (tAllPlateaus[iPlateau][subrefPlateauLandZones][iLandZone][subrefLastReclaimRefresh] or 0) >= 1 then
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will refresh the reclaim value for land zone '..iLandZone) end
-                        RefreshLandOrWaterZoneReclaimValue(iPlateau, iLandZone)
-                    else
-                        AddZoneForDelayedRefresh(iPlateau, iLandZone)
-                    end
-                else
-                    local iWaterZone = GetWaterZoneFromPosition(tReclaimAreas[iCurX][iCurZ][refReclaimSegmentMidpoint])
-                    if (iWaterZone or 0) > 0 then
-                        local iPond = tiPondByWaterZone[iWaterZone]
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time of last refresh for water zone '..iWaterZone..'='.. (tPondDetails[iPond][subrefPondWaterZones][iWaterZone][subrefLastReclaimRefresh] or 0)) end
-                        if GetGameTimeSeconds() - (tPondDetails[iPond][subrefPondWaterZones][iWaterZone][subrefLastReclaimRefresh] or 0) >= 1 then
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will refresh the reclaim value for land zone '..iLandZone) end
-                            RefreshLandOrWaterZoneReclaimValue(iPond, iWaterZone, true)
-                        else
-                            AddZoneForDelayedRefresh(0, iWaterZone)
-                        end
-                    end
-                end
+                RefreshParentZoneForReclaimSegment(iCurX, iCurZ)
                 if bWasVeryHighValue then
                     if tReclaimAreas[iCurX][iCurZ][refReclaimTotalSignificantMass] < iVeryHighReclaimThreshold then
                         RemoveFromVeryHighValueSegmentTable(iCurX, iCurZ)
@@ -8942,6 +8958,10 @@ function UpdateReclaimDataNearSegments(iBaseSegmentX, iBaseSegmentZ, iSegmentRan
                     AddToVeryHighValueSegmentTable(iCurX, iCurZ)
                 end
             else
+                local bHadRecordedReclaim = tReclaimAreas[iCurX] and tReclaimAreas[iCurX][iCurZ]
+                        and ((tReclaimAreas[iCurX][iCurZ][refReclaimTotalMass] or 0) > 0
+                        or (tReclaimAreas[iCurX][iCurZ][refReclaimTotalSignificantMass] or 0) > 0
+                        or (tReclaimAreas[iCurX][iCurZ][refSegmentReclaimTotalEnergy] or 0) > 0)
                 if tReclaimAreas[iCurX][iCurZ] == nil then
                     CreateReclaimSegment(iCurX, iCurZ)
                 elseif tReclaimAreas[iCurX][iCurZ][refReclaimTotalSignificantMass] >= iVeryHighReclaimThreshold then
@@ -8951,6 +8971,7 @@ function UpdateReclaimDataNearSegments(iBaseSegmentX, iBaseSegmentZ, iSegmentRan
                 tReclaimAreas[iCurX][iCurZ][refReclaimHighestIndividualMassReclaim] = 0
                 tReclaimAreas[iCurX][iCurZ][refReclaimTotalSignificantMass] = 0
                 tReclaimAreas[iCurX][iCurZ][refSegmentReclaimTotalEnergy] = 0
+                if bHadRecordedReclaim then RefreshParentZoneForReclaimSegment(iCurX, iCurZ) end
             end
                 iCumulativeMassValue = iCumulativeMassValue + iTotalMassValue
             end

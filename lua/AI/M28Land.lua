@@ -27,6 +27,9 @@ local M28Intel = import('/mods/M28AI/lua/AI/M28Intel.lua')
 
 --Global
 tLZRefreshCountByTeam = {}
+local tiLandZonePassByTeam = {}
+local iIdleLandZoneRefreshPasses = 5
+local refiLastIdleLandZoneRefreshPass = 'M28LZIdlePass'
 iTicksPerLandCycle = 11 --Set by ConsiderSlowdownForHighUnitCount; WaitTicks(11) is equivalent to WaitSeconds(1) i.e. will try and run logic for every unit over this amount of time; with high unit numbers will consider adjusting
 --Land zone subteam data - see M28Map for main variables; threat specific values are included here
 
@@ -7308,6 +7311,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     tbZonesConsidered[iAdjLZ] = true
                                     --If dealing with a core base or an ACU that is in combat then include friendly ACUs
                                     local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
+                                    M28ACU.CleanInvalidACUsFromZone(tAdjLZTeamData)
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is table of allied ACUs empty='..tostring(M28Utilities.IsTableEmpty(tAdjLZTeamData[M28Map.subrefAlliedACU]))..'; tAdjLZTeamData[M28Map.refbACUInTrouble]='..tostring(tAdjLZTeamData[M28Map.refbACUInTrouble] or false)..'; Enemy mobile DF in AdjLZ='..(tAdjLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0)..'; Is table of enemy DF units for AdjLZ empty='..tostring(M28Utilities.IsTableEmpty(tAdjLZTeamData[M28Map.reftoNearestDFEnemies]))) end
                                     if M28Utilities.IsTableEmpty(tAdjLZTeamData[M28Map.subrefAlliedACU]) == false then
                                         if not(bHaveACUInTroubleAndRecentlyInCombat) and tAdjLZTeamData[M28Map.refbACUInTrouble] and M28Utilities.IsTableEmpty(tAdjLZTeamData[M28Map.reftoNearestDFEnemies]) == false then
@@ -7741,47 +7745,62 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 function ProtectFriendlyACUInTroubleIfRelevant(tUnitsToConsiderAndUpdate)
                     --If have an ACU in trouble then sends non-skrimisher DF units in tUnitsToConsiderAndUpdate to protect the ACU
                     local toFriendlyACUsNearby = {}
+                    local tbFriendlyACUsNearby = {}
+                    local function RecordLivingACUsFromZone(tZoneTeamData, bRequireTrouble)
+                        M28ACU.CleanInvalidACUsFromZone(tZoneTeamData)
+                        if bRequireTrouble and not(tZoneTeamData[M28Map.refbACUInTrouble]) then return false end
+                        local bRecordedACU = false
+                        if M28Utilities.IsTableEmpty(tZoneTeamData[M28Map.subrefAlliedACU]) == false then
+                            for _, oACU in tZoneTeamData[M28Map.subrefAlliedACU] do
+                                if M28UnitInfo.IsUnitValid(oACU) and not(tbFriendlyACUsNearby[oACU]) then
+                                    tbFriendlyACUsNearby[oACU] = true
+                                    table.insert(toFriendlyACUsNearby, oACU)
+                                    bRecordedACU = true
+                                end
+                            end
+                        end
+                        return bRecordedACU
+                    end
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': ProtectFriendlyACUInTroubleIfRelevant: bHaveACUInTroubleAndRecentlyInCombat==nil='..tostring(bHaveACUInTroubleAndRecentlyInCombat==nil)..'; bHaveACUInTroubleAndRecentlyInCombat == true='..tostring(bHaveACUInTroubleAndRecentlyInCombat or false)..'; oNearestEnemyToFriendlyBase='..(oNearestEnemyToFriendlyBase.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oNearestEnemyToFriendlyBase) or 'nil')) end
                     if oNearestEnemyToFriendlyBase and (bHaveACUInTroubleAndRecentlyInCombat == nil or bHaveACUInTroubleAndRecentlyInCombat) then --we havent considered properly if there are ACUs in danger if this is nil
                         --Check this and adjacent zones for if ACU in trouble, and if so then populate
-                        if tLZTeamData[M28Map.refbACUInTrouble] and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefAlliedACU]) == false then
-                            bHaveACUInTroubleAndRecentlyInCombat = true
-                            for iACU, oACU in tLZTeamData[M28Map.subrefAlliedACU] do
-                                if not(oACU.Dead) then table.insert(toFriendlyACUsNearby, oACU) end
-                            end
-                        end
+                        local bHaveLivingTroubledACU = RecordLivingACUsFromZone(tLZTeamData, true)
                         --Consider adjacent zones
                         if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then --and M28Utilities.IsTableEmpty(toFriendlyACUsNearby) then
                             for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
                                 local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
-                                if tAdjLZTeamData[M28Map.refbACUInTrouble] and M28Utilities.IsTableEmpty(tAdjLZTeamData[M28Map.subrefAlliedACU]) == false then
-                                    bHaveACUInTroubleAndRecentlyInCombat = true
-                                    for iACU, oACU in tAdjLZTeamData[M28Map.subrefAlliedACU] do
-                                        if not(oACU.Dead) then table.insert(toFriendlyACUsNearby, oACU) end
-                                    end
-                                end
+                                if RecordLivingACUsFromZone(tAdjLZTeamData, true) then bHaveLivingTroubledACU = true end
                             end
                         end
+                        bHaveACUInTroubleAndRecentlyInCombat = bHaveLivingTroubledACU
                     else
+                        M28ACU.CleanInvalidACUsFromZone(tLZTeamData)
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': ProtectFriendlyACUInTroubleIfRelevant: Is table of ACUs in this LZ empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefAlliedACU]))..'; Is bACUInCombatButProbablySafe nil='..tostring(bACUInCombatButProbablySafe == nil)..'; bACUInCombatButProbablySafe='..tostring(bACUInCombatButProbablySafe or false)) end
                         if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefAlliedACU]) == false then
                             for iACU, oACU in tLZTeamData[M28Map.subrefAlliedACU] do
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time since ACU owned by '..oACU:GetAIBrain().Nickname..' time since fired weapon='..GetGameTimeSeconds() - (oACU[M28UnitInfo.refiLastWeaponEvent] or 0)..'; Health%='..M28UnitInfo.GetUnitHealthPercent(oACU)) end
                                 if GetGameTimeSeconds() - (oACU[M28UnitInfo.refiLastWeaponEvent] or 0) <= 2 and M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.95 then
                                     bACUInCombatButProbablySafe = true
-                                    table.insert(toFriendlyACUsNearby, oACU)
+                                    if not(tbFriendlyACUsNearby[oACU]) then
+                                        tbFriendlyACUsNearby[oACU] = true
+                                        table.insert(toFriendlyACUsNearby, oACU)
+                                    end
                                 end
                             end
                         end
                         if (bACUInCombatButProbablySafe == nil or bACUInCombatButProbablySafe) and M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
                             for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
                                 local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
+                                M28ACU.CleanInvalidACUsFromZone(tAdjLZTeamData)
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is ACUs in iAdjLZ='..iAdjLZ..'empty='..tostring(M28Utilities.IsTableEmpty(tAdjLZTeamData[M28Map.subrefAlliedACU]))) end
                                 if M28Utilities.IsTableEmpty(tAdjLZTeamData[M28Map.subrefAlliedACU]) == false then
                                     for iACU, oACU in tAdjLZTeamData[M28Map.subrefAlliedACU] do
                                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adj zone ACU, owned by '..oACU:GetAIBrain().Nickname..' time since fired weapon='..GetGameTimeSeconds() - (oACU[M28UnitInfo.refiLastWeaponEvent] or 0)..'; Health%='..M28UnitInfo.GetUnitHealthPercent(oACU)) end
                                         if not(oACU.Dead) and GetGameTimeSeconds() - (oACU[M28UnitInfo.refiLastWeaponEvent] or 0) <= 2 and M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.95 then
-                                            table.insert(toFriendlyACUsNearby, oACU)
+                                            if not(tbFriendlyACUsNearby[oACU]) then
+                                                tbFriendlyACUsNearby[oACU] = true
+                                                table.insert(toFriendlyACUsNearby, oACU)
+                                            end
                                             bACUInCombatButProbablySafe = true
                                         end
                                     end
@@ -7797,7 +7816,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         local iLowestHealthACU = 100000
                         for iACU, oACU in toFriendlyACUsNearby do
                             --Get lowest health ACU in this or adj zone that we can path to
-                            if oACU:GetHealth() < iLowestHealthACU and oACU[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][1] == iPlateau and  M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][oACU[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2]][M28Map.subrefLZIslandRef] == tLZData[M28Map.subrefLZIslandRef] then
+                            local tiACUZone = oACU[M28ACU.reftiCurAssignedPlateauAndZone]
+                            local tACULZData = tiACUZone and tiACUZone[1] == iPlateau and M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][tiACUZone[2]]
+                            if tACULZData and oACU:GetHealth() < iLowestHealthACU and tACULZData[M28Map.subrefLZIslandRef] == tLZData[M28Map.subrefLZIslandRef] then
                                 iLowestHealthACU = oACU:GetHealth()
                                 oACUToProtect = oACU
                             end
@@ -7877,7 +7898,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                             end
                         end
                     elseif bHaveACUInTroubleAndRecentlyInCombat then
-                        M28Utilities.ErrorHandler('Thought we would be protecting an ACU but no ACU to protect')
+                        bHaveACUInTroubleAndRecentlyInCombat = false
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Cleared ACU protection state because no living path-compatible ACU remains') end
                     end
                 end
 
@@ -13546,9 +13568,9 @@ function ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
                 if tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] > 0 or tLZTeamData[M28Map.subrefLZThreatEnemyMobileIndirectTotal] > 0 then bWantDFSupport = true end
                 --If havent flagged for any support but enemy has units in this LZ (presumably non-combat) and we have no combat units, then flag for support
                 if not(bWantIndirectSupport) and not(bWantDFSupport) and tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] == 0 and tLZTeamData[M28Map.subrefLZThreatAllyMobileIndirectTotal] == 0 and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTEnemyUnits]) == false then
-                    if M28Utilities.IsTableEmpty(EntityCategoryFilterDown(categories.MOBILE * categories.LAND, tLZTeamData[M28Map.subrefTEnemyUnits])) == false then
+                    if M28UnitInfo.DoesUnitTableContainCategory(tLZTeamData[M28Map.subrefTEnemyUnits], categories.MOBILE * categories.LAND) then
                         bWantDFSupport = true
-                    elseif M28Utilities.IsTableEmpty(EntityCategoryFilterDown(categories.STRUCTURE, tLZTeamData[M28Map.subrefTEnemyUnits])) == false then
+                    elseif M28UnitInfo.DoesUnitTableContainCategory(tLZTeamData[M28Map.subrefTEnemyUnits], categories.STRUCTURE) then
                         if bDebugMessages == true then
                             local tEnemyBuildings = EntityCategoryFilterDown(categories.STRUCTURE, tLZTeamData[M28Map.subrefTEnemyUnits])
                             for iBuilding, oBuilding in tEnemyBuildings do
@@ -13645,8 +13667,8 @@ function ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
 
     ManageLandZoneScouts(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, tScouts, bLandZoneOrAdjHasUnitsWantingScout)
 
-    --Update ACU in trouble incase ACU moved zones
-    if tLZTeamData[M28Map.refbACUInTrouble] and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefAlliedACU]) then tLZTeamData[M28Map.refbACUInTrouble] = false end
+    --Update ACU state in case an ACU moved zones or died before this zone refreshed.
+    M28ACU.CleanInvalidACUsFromZone(tLZTeamData)
     --Update visual based on omni
     if tLZTeamData[M28Map.refiOmniCoverage] > 30 then tLZTeamData[M28Map.refiTimeLastHadVisual] = GetGameTimeSeconds() end
 
@@ -13688,7 +13710,6 @@ function AssignValuesToLandZones(iTeam)
             end
         end
         local iCurValue
-        local tFriendlyNonPDBuildings
         local bAdjacentToCoreFactory
         local iFriendlyBuildingValue
         local iCurCycleCount = 0
@@ -13731,8 +13752,7 @@ function AssignValuesToLandZones(iTeam)
                         --Treat each mex position as being worth 250 mass, value reclaim at 25% of the total value, and reflect the value of all non-PD in the area
                         iCurValue = tLandZoneData[M28Map.subrefLZOrWZMexCount] * 250 + (tLandZoneData[M28Map.subrefTotalMassReclaim] or 0) * 0.25
                         if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
-                            tFriendlyNonPDBuildings = EntityCategoryFilterDown(M28UnitInfo.refCategoryStructure - M28UnitInfo.refCategoryPD, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
-                            iFriendlyBuildingValue = M28UnitInfo.GetMassCostOfUnits(tFriendlyNonPDBuildings)
+                            iFriendlyBuildingValue = M28UnitInfo.GetMassCostOfUnitsInCategory(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits], M28UnitInfo.refCategoryStructure - M28UnitInfo.refCategoryPD)
                             iCurValue = iCurValue + iFriendlyBuildingValue
                         else
                             iFriendlyBuildingValue = 0
@@ -13774,8 +13794,9 @@ function AssignValuesToLandZones(iTeam)
                                         break
                                     end
                                 end
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bAdjacentToCoreFactory='..tostring(bAdjacentToCoreFactory)..'; Is table of factory HQs empty='..tostring(M28Utilities.IsTableEmpty(EntityCategoryFilterDown(iBaseCategory, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])))) end
-                                if bAdjacentToCoreFactory and M28Utilities.IsTableEmpty(EntityCategoryFilterDown(iBaseCategory, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])) == false then
+                                local bHaveBaseFactory = M28UnitInfo.DoesUnitTableContainCategory(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits], iBaseCategory)
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bAdjacentToCoreFactory='..tostring(bAdjacentToCoreFactory)..'; Have factory HQ='..tostring(bHaveBaseFactory)) end
+                                if bAdjacentToCoreFactory and bHaveBaseFactory then
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Are adjacent to a core factory, and have iBaseCategory units in this zone, iLandZone='..iLandZone..'; iPlateau='..iPlateau) end
                                     tLZTeamData[M28Map.subrefLZbCoreBase] = true
                                     if not(M28Team.tTeamData[iTeam][M28Team.reftiCoreZonesByPlateau][iPlateau]) then
@@ -13839,6 +13860,8 @@ function ManageAllLandZones(aiBrain, iTeam, bIgnoreMinorPlateaus, iCurMinorPlate
     local iRefreshThreshold = math.max(2, math.ceil(iLastRefreshCount * 0.95 / iTicksToSpreadOver))
     local iCurCycleRefreshCount = 0
     local iCurTicksWaited = 0
+    tiLandZonePassByTeam[iTeam] = (tiLandZonePassByTeam[iTeam] or 0) + 1
+    local iLandZonePass = tiLandZonePassByTeam[iTeam]
 
     if bDebugMessages == true then
         LOG(sFunctionRef..': Start of code, Time='..GetGameTimeSeconds()..'; iTeam='..iTeam..'; If have an ACU will list its plateau and land zone. iRefreshThreshold='..iRefreshThreshold..'; iLastRefreshCount='..iLastRefreshCount..'; iTicksToSpreadOver='..iTicksToSpreadOver)
@@ -13877,8 +13900,26 @@ function ManageAllLandZones(aiBrain, iTeam, bIgnoreMinorPlateaus, iCurMinorPlate
                         iCurCycleRefreshCount = iCurCycleRefreshCount + 1
                     end
 
-                    ForkThread(ManageSpecificLandZone, aiBrain, iTeam, iPlateau, iLandZone)
-                    iCurCycleRefreshCount = iCurCycleRefreshCount + 1
+                    local bActiveZone = tLZTeamData[M28Map.subrefLZbCoreBase]
+                        or tLZTeamData[M28Map.subrefLZCoreExpansion]
+                        or tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]
+                        or tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]
+                        or M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTEnemyUnits]) == false
+                        or M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftLZEnemyAirUnits]) == false
+                        or M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false
+                    if not(tLZTeamData[refiLastIdleLandZoneRefreshPass]) then
+                        --Seed different ages so ordinary zones spread their first idle refresh across five passes.
+                        tLZTeamData[refiLastIdleLandZoneRefreshPass] = iLandZonePass - math.mod(iPlateau * 31 + iLandZone, iIdleLandZoneRefreshPasses) - 1
+                    end
+                    local bRefreshIdleZone = iLandZonePass - tLZTeamData[refiLastIdleLandZoneRefreshPass] >= iIdleLandZoneRefreshPasses
+                    if bActiveZone or bRefreshIdleZone then
+                        ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
+                        M28Profiler.IncrementPerformanceCounter('LandZoneExecuted')
+                        if not(bActiveZone) then tLZTeamData[refiLastIdleLandZoneRefreshPass] = iLandZonePass end
+                        iCurCycleRefreshCount = iCurCycleRefreshCount + 1
+                    else
+                        M28Profiler.IncrementPerformanceCounter('LandZoneSkipped')
+                    end
 
                     if iCurCycleRefreshCount >= iRefreshThreshold then
                         iCurRefreshCount = iCurRefreshCount + iCurCycleRefreshCount
@@ -13951,7 +13992,7 @@ function LandZoneOverseer(iTeam)
             iMinorCycleCount = iMinorCycleCount + 1
             if iMinorCycleCount > 10 then iMinorCycleCount = 1 end
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will call logic to refresh every unit in a land zone, iMinorCycleCount='..iMinorCycleCount) end
-            ForkThread(ManageAllLandZones, aiBrain, iTeam, (GetGameTimeSeconds() <= 10 or M28Map.iPlateauCount <= 2000), iMinorCycleCount)
+            ManageAllLandZones(aiBrain, iTeam, (GetGameTimeSeconds() <= 10 or M28Map.iPlateauCount <= 2000), iMinorCycleCount)
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
             WaitTicks(iTicksPerLandCycle)
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)

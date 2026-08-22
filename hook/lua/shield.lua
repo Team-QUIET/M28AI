@@ -10,7 +10,7 @@ do --Per Balthazaar - encasing the code in do .... end means that you dont have 
     Shield = Class(M28OldShield) {
         OnDamage = function(self, instigator, amount, vector, dmgType)
             M28OldShield.OnDamage(self, instigator, amount, vector, dmgType)
-            ForkThread(M28Events.OnShieldBubbleDamaged, self, instigator)
+            M28Events.DispatchOnShieldBubbleDamaged(self, instigator)
         end,
         IsUp = function(self)
             if M28OldShield.IsUp then return M28OldShield.IsUp(self)

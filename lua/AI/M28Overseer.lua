@@ -2882,32 +2882,32 @@ function ConsiderSlowdownForHighUnitCount()
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelOverseer, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
+    local iConfiguredTicks = math.max(1, math.ceil(tonumber((ScenarioInfo.Options.M28TimeBetweenOrders or 1)) * 10 + 1))
+    local iDesiredTicks = iConfiguredTicks
+    local iTotalArmyUnitCost = 0
+    local oFirstM28Brain
+
     if refiRoughTotalUnitsInGame >= 1500 then --in case the rough number isnt accurate
-        local iM28Units = 0
-        local oFirstM28Brain
         for iBrain, oBrain in ArmyBrains do
             if not(oBrain.M28IsDefeated) then
-                iM28Units = iM28Units + GetArmyUnitCostTotal(oBrain:GetArmyIndex())
+                iTotalArmyUnitCost = iTotalArmyUnitCost + GetArmyUnitCostTotal(oBrain:GetArmyIndex())
                 if oBrain.M28AI then oFirstM28Brain = oBrain end
             end
         end
-        if iM28Units > 1750 or M28Land.iTicksPerLandCycle > 11 or M28Air.iExtraTicksToWaitBetweenAirCycles > 0 then
-            local iOrigTicksPerLandCycle = M28Land.iTicksPerLandCycle
-            M28Land.iTicksPerLandCycle = math.min(11, math.max(11, 11 + (iM28Units-1500) / 200, tonumber((ScenarioInfo.Options.M28TimeBetweenOrders or 1))*10+1))
-            M28Air.iExtraTicksToWaitBetweenAirCycles = math.max(0,M28Land.iTicksPerLandCycle - 11)
-            M28Navy.iTicksPerNavyCycle = math.min(40, M28Land.iTicksPerLandCycle) --want to cap at 40 as bombardment logic considers if we have been bombarding in the last 4s
-            if M28Land.iTicksPerLandCycle > iOrigTicksPerLandCycle then
-                if oFirstM28Brain.BrainType == 'AI' then
-                    M28Chat.SendSlowdownModeMessage(oFirstM28Brain)
-                end
-            end
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Slowdown mode active, M28Land.iTicksPerLandCycle='..M28Land.iTicksPerLandCycle..'; iOrigTicksPerLandCycle='..iOrigTicksPerLandCycle..'; M28Air.iExtraTicksToWaitBetweenAirCycles='..M28Air.iExtraTicksToWaitBetweenAirCycles) end
-        else
-            --Use default values
-            M28Land.iTicksPerLandCycle = tonumber((ScenarioInfo.Options.M28TimeBetweenOrders or 1))*10+1
-            M28Air.iExtraTicksToWaitBetweenAirCycles = 0
+        if iTotalArmyUnitCost > 1750 then
+            iDesiredTicks = math.ceil(math.max(11, iConfiguredTicks, 11 + (iTotalArmyUnitCost - 1500) / 200))
         end
     end
+
+    local iOrigTicksPerLandCycle = M28Land.iTicksPerLandCycle
+    M28Land.iTicksPerLandCycle = math.min(40, iDesiredTicks)
+    M28Air.iExtraTicksToWaitBetweenAirCycles = math.max(0, M28Land.iTicksPerLandCycle - 11)
+    M28Navy.iTicksPerNavyCycle = M28Land.iTicksPerLandCycle --cap is already applied above; bombardment logic assumes no more than 40 ticks
+
+    if M28Land.iTicksPerLandCycle > iOrigTicksPerLandCycle and oFirstM28Brain and oFirstM28Brain.BrainType == 'AI' then
+        M28Chat.SendSlowdownModeMessage(oFirstM28Brain)
+    end
+    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iTotalArmyUnitCost='..iTotalArmyUnitCost..'; iConfiguredTicks='..iConfiguredTicks..'; M28Land.iTicksPerLandCycle='..M28Land.iTicksPerLandCycle..'; iOrigTicksPerLandCycle='..iOrigTicksPerLandCycle..'; M28Air.iExtraTicksToWaitBetweenAirCycles='..M28Air.iExtraTicksToWaitBetweenAirCycles) end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
@@ -2921,8 +2921,8 @@ function GlobalOverseer()
     local iIntelRefreshThreshold = 5 -- Refresh intel every 5 seconds
 
     --Set time between refreshing
-    M28Land.iTicksPerLandCycle = tonumber((ScenarioInfo.Options.M28TimeBetweenOrders or 1))*10+1
-    M28Air.iExtraTicksToWaitBetweenAirCycles = math.max(0,tonumber((ScenarioInfo.Options.M28TimeBetweenOrders or 1))*10+1 - 11)
+    M28Land.iTicksPerLandCycle = math.max(1, math.ceil(tonumber((ScenarioInfo.Options.M28TimeBetweenOrders or 1)) * 10 + 1))
+    M28Air.iExtraTicksToWaitBetweenAirCycles = math.max(0, M28Land.iTicksPerLandCycle - 11)
     M28Navy.iTicksPerNavyCycle = math.min(40, M28Land.iTicksPerLandCycle) --want to cap at 40 as bombardment logic considers if we have been bombarding in the last 4s
 
     --ForkThread(DebugCheckProfiling) = true --will  output cur tick each log

@@ -13,8 +13,8 @@ M28RunProfiling = false --If turning to true-part way through the game then also
 M28ProfilingIncludePerTick = false --if M28RunProfiling is true, then this determins whether will just do the detailed log of time taken for functions, or will also include the per tick results
 M28ProfilerIgnoreFirst2Seconds = false --Means logic relating to pathing generation gets ignored
 M28RunMemoryProfiling = false --if this is true then every 60s will list out how much memory each file in M28 is using
-M28RunGamePerformanceCheck = false --Aug 22 profiling tourney profiling - Runs regardless of whether M28 is active in the game, sends a log every second with how long it took to run that second and how many units are in the game.  Copy of same profiling available for M27 (that was used in the profiling tourney)
-M28RunMicroStutterCheck = false --Logs individual delayed sim ticks and a rolling actual tick rate without changing synced state
+M28RunGamePerformanceCheck = true --Low-overhead 10s sim-performance summary, including unit count and M28 hot-path counters
+M28RunMicroStutterCheck = true --Logs individual delayed sim ticks and a rolling actual tick rate without changing synced state
 M28MicroStutterTickThreshold = 0.12 --Wall-clock seconds for one sim tick before it is logged as a stutter
 M28MicroStutterSummaryTicks = 50 --Emit an actual sim-tick-rate summary after this many ticks
 --Simple profiling option:

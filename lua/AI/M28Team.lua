@@ -1239,7 +1239,7 @@ function AddUnitToLandZoneForBrain(aiBrain, oUnit, iPlateau, iLandZone, bIsEnemy
 
     if oUnit[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam] and oUnit[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][aiBrain.M28Team] then
         --Is the unit already assigned to this zone?
-        if oUnit[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][aiBrain.M28Team][1] == iPlateau and oUnit[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][aiBrain.M28LandTeam][2] == iLandZone then
+        if oUnit[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][aiBrain.M28Team][1] == iPlateau and oUnit[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][aiBrain.M28Team][2] == iLandZone then
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit is already assigned to this plateau and land zone so will abort adding it') end
             bAddToZone = false
             --[[else

@@ -1114,7 +1114,7 @@ function ShouldBomberAbortAttack(oBomber, iTeam, iAirSubteam)
     -- Get bomber mass value for comparison
     local iBomberMass = oBomber[M28UnitInfo.refiUnitMassCost] or 0
     if iBomberMass <= 0 then
-        iBomberMass = GetUnitMassCost(oBomber)
+        iBomberMass = M28UnitInfo.GetUnitMassCost(oBomber)
     end
     
     -- Check ground AA threat in target zone
@@ -3753,8 +3753,17 @@ function TargetUnitWithAirAA(oAirAA, oEnemyUnit, iOptionalClosestDist)
             local bInterceptingDestination = false
             local iOurSpeed = (oAirAA:GetBlueprint().Air.MaxAirspeed or 0)
             local iEnemySpeed = (oEnemyUnit:GetBlueprint().Air.MaxAirspeed or 0)
-            if not(oAirAA[M28UnitInfo.refiAARange]) then M28Utilities.ErrorHandler('Have AirAA unit with no AARange, will proceed on assumption it still has an AA attack, UnitId='..oAirAA.UnitId) end
-            if iClosestUnitDist >= 50 and iClosestUnitDist >= 15 + (oAirAA[M28UnitInfo.refiAARange] or 5) and not(EntityCategoryContains(M28UnitInfo.refCategoryAirAA, oEnemyUnit.UnitId)) then
+            local iOurAARange = oAirAA[M28UnitInfo.refiAARange]
+            if not(iOurAARange) then
+                M28UnitInfo.RecordUnitRange(oAirAA)
+                iOurAARange = oAirAA[M28UnitInfo.refiAARange]
+                if not(iOurAARange) then
+                    M28Utilities.ErrorHandler('Have AirAA unit with no AARange after refreshing unit data, will proceed on assumption it still has an AA attack, UnitId='..oAirAA.UnitId)
+                    iOurAARange = 5
+                    oAirAA[M28UnitInfo.refiAARange] = iOurAARange
+                end
+            end
+            if iClosestUnitDist >= 50 and iClosestUnitDist >= 15 + iOurAARange and not(EntityCategoryContains(M28UnitInfo.refCategoryAirAA, oEnemyUnit.UnitId)) then
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iOurSpeed='..iOurSpeed..'; iEnemySpeed='..iEnemySpeed) end
                 if iOurSpeed < 8 + iEnemySpeed then
                     --If enemy has better speed than us then dont consider intercepting unless angles are signif dif
@@ -3764,9 +3773,9 @@ function TargetUnitWithAirAA(oAirAA, oEnemyUnit, iOptionalClosestDist)
                     if iOurSpeed > iEnemySpeed or M28Utilities.GetAngleDifference(iAngleFromEnemyToUs, iEnemyDirection) < 170 then --If 180 then it means we are in the opposite direction to the way the enemy air unit is facing
                         --Consider predicting where air unit will move to, and aim for this location
                         local iDistToTravel
-                        if iOurSpeed < iEnemySpeed then iDistToTravel = iClosestUnitDist - (oAirAA[M28UnitInfo.refiAARange] or 5)
+                        if iOurSpeed < iEnemySpeed then iDistToTravel = iClosestUnitDist - iOurAARange
                         else
-                            iDistToTravel = (iClosestUnitDist - (oAirAA[M28UnitInfo.refiAARange] or 5)) * iEnemySpeed / iOurSpeed
+                            iDistToTravel = (iClosestUnitDist - iOurAARange) * iEnemySpeed / iOurSpeed
                         end
                         --This isnt precise, but hopefully will be close enough that I dont have to figure out the complicated maths:
                         local tInterceptTarget = M28Utilities.MoveInDirection(oEnemyUnit:GetPosition(), iEnemyDirection, iDistToTravel, true, false, M28Map.bIsCampaignMap)
@@ -3777,7 +3786,7 @@ function TargetUnitWithAirAA(oAirAA, oEnemyUnit, iOptionalClosestDist)
                 end
             end
             if not(bInterceptingDestination) then
-                if iClosestUnitDist and ((iClosestUnitDist >= 120 or EntityCategoryContains(M28UnitInfo.refCategoryCzar, oEnemyUnit.UnitId) or (iClosestUnitDist <= math.max((oAirAA[M28UnitInfo.refiAARange] or 5) + iOurSpeed or 40) and EntityCategoryContains(M28UnitInfo.refCategoryBomber * categories.TECH3 + M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL + M28UnitInfo.refCategoryTransport, oEnemyUnit.UnitId))) or (iClosestUnitDist <= 5 and EntityCategoryContains(M28UnitInfo.refCategoryGunship, oEnemyUnit.UnitId))
+                if iClosestUnitDist and ((iClosestUnitDist >= 120 or EntityCategoryContains(M28UnitInfo.refCategoryCzar, oEnemyUnit.UnitId) or (iClosestUnitDist <= math.max(iOurAARange + iOurSpeed or 40) and EntityCategoryContains(M28UnitInfo.refCategoryBomber * categories.TECH3 + M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL + M28UnitInfo.refCategoryTransport, oEnemyUnit.UnitId))) or (iClosestUnitDist <= 5 and EntityCategoryContains(M28UnitInfo.refCategoryGunship, oEnemyUnit.UnitId))
                         and ((M28UnitInfo.CanSeeUnit(oAirAA:GetAIBrain(), oEnemyUnit)) or oAirAA[M28Orders.reftiLastOrders][1][M28Orders.subrefoOrderUnitTarget] == oEnemyUnit)) then
                     --Note - sometimes get lua error from above re the logic for existing airaa orders; however we are checking oEnemyUnit is a valid unit before calling, and also are checking oAirAA is valid
                     M28Orders.IssueTrackedAttack(oAirAA, oEnemyUnit, false, 'AAAA', false)
@@ -6732,7 +6741,8 @@ function ManageBombers(iTeam, iAirSubteam)
                     end
                 end
                 if M28UnitInfo.IsUnitValid(oUnit) and not(oUnit:IsUnitState('Attached')) and not(M28UnitInfo.IsUnitUnderwater(oUnit)) and (bDontConsiderPlayableArea or M28Conditions.IsLocationInPlayableArea(oUnit:GetPosition())) then
-                    if ((oUnit[M28UnitInfo.refiUnitMassCost] or GetUnitMassCost(oUnit)) >= iMassThreshold or (oUnit[M28UnitInfo.refiUnitMassCost] >= iAAMassThreshold and EntityCategoryContains(iAACategory, oUnit.UnitId))) and (not(iOptionalCategory) or (iOptionalCategory and EntityCategoryContains(iOptionalCategory, oUnit.UnitId))) then
+                    local iUnitMassCost = oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit)
+                    if (iUnitMassCost >= iMassThreshold or (iUnitMassCost >= iAAMassThreshold and EntityCategoryContains(iAACategory, oUnit.UnitId))) and (not(iOptionalCategory) or (iOptionalCategory and EntityCategoryContains(iOptionalCategory, oUnit.UnitId))) then
                         if not(bOptionalCheckNotAlreadyInEnemyTargets) then
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adding unit to enemy targets') end
                             table.insert(tEnemyTargets, oUnit)

@@ -5600,6 +5600,61 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
     if iLZToMoveTo or iWaterZoneToConsiderBuildingNavalFactoryInFirst then return true else return false end
 end
 
+function CleanInvalidACUsFromZone(tLZOrWZTeamData)
+    if not(tLZOrWZTeamData) then return 0 end
+    local toAlliedACUs = tLZOrWZTeamData[M28Map.subrefAlliedACU]
+    if M28Utilities.IsTableEmpty(toAlliedACUs) == false then
+        for iACU = table.getn(toAlliedACUs), 1, -1 do
+            local oACU = toAlliedACUs[iACU]
+            if not(oACU) or oACU.Dead or not(M28UnitInfo.IsUnitValid(oACU)) then
+                table.remove(toAlliedACUs, iACU)
+            end
+        end
+    end
+    local iLivingACUCount = toAlliedACUs and table.getn(toAlliedACUs) or 0
+    if iLivingACUCount == 0 then tLZOrWZTeamData[M28Map.refbACUInTrouble] = false end
+    return iLivingACUCount
+end
+
+function RemoveACUFromLandOrWaterZoneAssignment(oACU)
+    if not(oACU) then return end
+    local tiCurrentZone = oACU[reftiCurAssignedPlateauAndZone]
+    local iPlateauOrZero = tiCurrentZone and tiCurrentZone[1] or 0
+    local iLandOrWaterZone = tiCurrentZone and tiCurrentZone[2] or 0
+    local aiBrain = oACU.GetAIBrain and oACU:GetAIBrain()
+    local iTeam = aiBrain and aiBrain.M28Team
+    local tLZOrWZTeamData
+
+    if iTeam and iLandOrWaterZone > 0 then
+        if iPlateauOrZero > 0 then
+            local tPlateauData = M28Map.tAllPlateaus and M28Map.tAllPlateaus[iPlateauOrZero]
+            local tLandZones = tPlateauData and tPlateauData[M28Map.subrefPlateauLandZones]
+            local tLZData = tLandZones and tLandZones[iLandOrWaterZone]
+            tLZOrWZTeamData = tLZData and tLZData[M28Map.subrefLZTeamData] and tLZData[M28Map.subrefLZTeamData][iTeam]
+        else
+            local iPond = M28Map.tiPondByWaterZone and M28Map.tiPondByWaterZone[iLandOrWaterZone]
+            local tPondData = iPond and M28Map.tPondDetails and M28Map.tPondDetails[iPond]
+            local tWaterZones = tPondData and tPondData[M28Map.subrefPondWaterZones]
+            local tWZData = tWaterZones and tWaterZones[iLandOrWaterZone]
+            tLZOrWZTeamData = tWZData and tWZData[M28Map.subrefWZTeamData] and tWZData[M28Map.subrefWZTeamData][iTeam]
+        end
+    end
+
+    if tLZOrWZTeamData then
+        if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefAlliedACU]) == false then
+            for iRecordedACU = table.getn(tLZOrWZTeamData[M28Map.subrefAlliedACU]), 1, -1 do
+                if tLZOrWZTeamData[M28Map.subrefAlliedACU][iRecordedACU] == oACU then
+                    table.remove(tLZOrWZTeamData[M28Map.subrefAlliedACU], iRecordedACU)
+                end
+            end
+        end
+        CleanInvalidACUsFromZone(tLZOrWZTeamData)
+    end
+
+    oACU[reftiLastAssignedPlateauAndZone] = {iPlateauOrZero, iLandOrWaterZone}
+    oACU[reftiCurAssignedPlateauAndZone] = {0, 0}
+end
+
 function UpdateACULandOrWaterZoneAssignment(oACU, iPlateauOrZero, iLandOrWaterZone, tLZOrWZTeamData)
     local sFunctionRef = 'UpdateACULandOrWaterZoneAssignment'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelACU, sFunctionRef)
@@ -5607,7 +5662,8 @@ function UpdateACULandOrWaterZoneAssignment(oACU, iPlateauOrZero, iLandOrWaterZo
 
     --Update ACU tracking
     --Is the actual LZ and plateau the same? If not, then need to update tracking
-    if oACU[reftiCurAssignedPlateauAndZone][1] == iPlateauOrZero and oACU[reftiCurAssignedPlateauAndZone][iLandOrWaterZone] == iLandOrWaterZone then
+    if not(oACU[reftiCurAssignedPlateauAndZone]) then oACU[reftiCurAssignedPlateauAndZone] = {0, 0} end
+    if oACU[reftiCurAssignedPlateauAndZone][1] == iPlateauOrZero and oACU[reftiCurAssignedPlateauAndZone][2] == iLandOrWaterZone then
         --Do nothing
     else
         local iTeam = oACU:GetAIBrain().M28Team
@@ -5617,19 +5673,27 @@ function UpdateACULandOrWaterZoneAssignment(oACU, iPlateauOrZero, iLandOrWaterZo
             if (oACU[reftiLastAssignedPlateauAndZone][2] or 0) > 0 then
                 local tPrevLZOrWZTeamData
                 if oACU[reftiLastAssignedPlateauAndZone][1] > 0 then
-                    tPrevLZOrWZTeamData = M28Map.tAllPlateaus[oACU[reftiLastAssignedPlateauAndZone][1]][M28Map.subrefPlateauLandZones][oACU[reftiLastAssignedPlateauAndZone][2]][M28Map.subrefLZTeamData][iTeam]
+                    local tPrevPlateauData = M28Map.tAllPlateaus and M28Map.tAllPlateaus[oACU[reftiLastAssignedPlateauAndZone][1]]
+                    local tPrevLandZones = tPrevPlateauData and tPrevPlateauData[M28Map.subrefPlateauLandZones]
+                    local tPrevLZData = tPrevLandZones and tPrevLandZones[oACU[reftiLastAssignedPlateauAndZone][2]]
+                    tPrevLZOrWZTeamData = tPrevLZData and tPrevLZData[M28Map.subrefLZTeamData] and tPrevLZData[M28Map.subrefLZTeamData][iTeam]
                 else
-                    tPrevLZOrWZTeamData = M28Map.tPondDetails[M28Map.tiPondByWaterZone[oACU[reftiLastAssignedPlateauAndZone][2]]][M28Map.subrefPondWaterZones][oACU[reftiLastAssignedPlateauAndZone][2]][M28Map.subrefWZTeamData][iTeam]
+                    local iPrevPond = M28Map.tiPondByWaterZone and M28Map.tiPondByWaterZone[oACU[reftiLastAssignedPlateauAndZone][2]]
+                    local tPrevPondData = iPrevPond and M28Map.tPondDetails and M28Map.tPondDetails[iPrevPond]
+                    local tPrevWaterZones = tPrevPondData and tPrevPondData[M28Map.subrefPondWaterZones]
+                    local tPrevWZData = tPrevWaterZones and tPrevWaterZones[oACU[reftiLastAssignedPlateauAndZone][2]]
+                    tPrevLZOrWZTeamData = tPrevWZData and tPrevWZData[M28Map.subrefWZTeamData] and tPrevWZData[M28Map.subrefWZTeamData][iTeam]
                 end
 
                 --Check we are in the table
-                if M28Utilities.IsTableEmpty(tPrevLZOrWZTeamData[M28Map.subrefAlliedACU]) == false then
-                    for iRecordedACU, oRecordedACU in tPrevLZOrWZTeamData[M28Map.subrefAlliedACU] do
+                if tPrevLZOrWZTeamData and M28Utilities.IsTableEmpty(tPrevLZOrWZTeamData[M28Map.subrefAlliedACU]) == false then
+                    for iRecordedACU = table.getn(tPrevLZOrWZTeamData[M28Map.subrefAlliedACU]), 1, -1 do
+                        local oRecordedACU = tPrevLZOrWZTeamData[M28Map.subrefAlliedACU][iRecordedACU]
                         if oRecordedACU == oACU then
                             table.remove(tPrevLZOrWZTeamData[M28Map.subrefAlliedACU], iRecordedACU)
-                            break
                         end
                     end
+                    CleanInvalidACUsFromZone(tPrevLZOrWZTeamData)
                 end
             end
             local bAlreadyRecorded = false --Redundancy - we shouldnt have scenario where we are already recorded

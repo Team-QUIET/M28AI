@@ -49,6 +49,8 @@ refbEnemyNavyPreventingBuildingNavy = 'M28PondEnemyNavyNearBuildLocation' --agai
 
 --Global variables
 tWZRefreshCountByTeam = {}
+local tiWaterZonePassByTeam = {}
+local iIdleWaterZoneRefreshPasses = 5
 iLongRangeThreshold = 50 --I.e. units with this or better range get recorded in table of long range threats
 iTicksPerNavyCycle = 11
 iCurTime = 0 --used due to local variable limit - will be updated with math.floor(getgametimeseconds())
@@ -639,6 +641,8 @@ function ManageAllWaterZones(aiBrain, iTeam)
     local iRefreshThreshold = math.max(2, math.ceil(iLastRefreshCount * 0.95 / iTicksToSpreadOver))
     local iCurCycleRefreshCount = 0
     local iCurTicksWaited = 0
+    tiWaterZonePassByTeam[iTeam] = (tiWaterZonePassByTeam[iTeam] or 0) + 1
+    local iWaterZonePass = tiWaterZonePassByTeam[iTeam]
 
 
 
@@ -664,8 +668,20 @@ function ManageAllWaterZones(aiBrain, iTeam)
                     iCurCycleRefreshCount = iCurCycleRefreshCount + 1
                 end
 
-                ForkThread(ManageSpecificWaterZone, aiBrain, iTeam, iPond, iWaterZone)
-                iCurCycleRefreshCount = iCurCycleRefreshCount + 1
+                local bActiveZone = tWZTeamData[M28Map.subrefWZbCoreBase]
+                    or tWZTeamData[M28Map.subrefWZbContainsNavalBuildLocation]
+                    or tWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentWZ]
+                    or M28Utilities.IsTableEmpty(tWZTeamData[M28Map.subrefTEnemyUnits]) == false
+                    or M28Utilities.IsTableEmpty(tWZTeamData[M28Map.reftWZEnemyAirUnits]) == false
+                    or M28Utilities.IsTableEmpty(tWZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false
+                local bRefreshIdleZone = math.mod(iWaterZone + iWaterZonePass, iIdleWaterZoneRefreshPasses) == 0
+                if bActiveZone or bRefreshIdleZone then
+                    ManageSpecificWaterZone(aiBrain, iTeam, iPond, iWaterZone)
+                    M28Profiler.IncrementPerformanceCounter('WaterZoneExecuted')
+                    iCurCycleRefreshCount = iCurCycleRefreshCount + 1
+                else
+                    M28Profiler.IncrementPerformanceCounter('WaterZoneSkipped')
+                end
 
                 if iCurCycleRefreshCount >= iRefreshThreshold then
                     iCurRefreshCount = iCurRefreshCount + iCurCycleRefreshCount
@@ -770,7 +786,7 @@ function RecordGroundThreatForWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWat
         tWZTeamData[M28Map.subrefWZThreatEnemyVsSurface] = M28UnitInfo.GetCombatThreatRating(tWZTeamData[M28Map.subrefTEnemyUnits],   true,       false,              false,                      false,      true,           false)
         --GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGroundToAir, bIncludeAirToGround, bIncludeNonCombatAir, bIncludeAirTorpedo, bBlueprintThreat)
         tWZTeamData[M28Map.subrefiThreatEnemyGroundAA] = M28UnitInfo.GetAirThreatLevel(tWZTeamData[M28Map.subrefTEnemyUnits], true, false, true, false, false, false, false)
-        tWZTeamData[M28Map.subrefThreatEnemyStructureTotalMass] = M28UnitInfo.GetMassCostOfUnits(EntityCategoryFilterDown(M28UnitInfo.refCategoryStructure, tWZTeamData[M28Map.subrefTEnemyUnits]), true)
+        tWZTeamData[M28Map.subrefThreatEnemyStructureTotalMass] = M28UnitInfo.GetMassCostOfUnitsInCategory(tWZTeamData[M28Map.subrefTEnemyUnits], M28UnitInfo.refCategoryStructure, true)
         tWZTeamData[M28Map.subreftEnemyLongRangeUnits] = {}
         local iTorpDefenceCount = 0
         local iLRThreshold = iLongRangeThreshold
@@ -2392,8 +2408,7 @@ function AssignValuesToWaterZones(iTeam)
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Setting iWaterZone='..iWaterZone..' to be a WZ core base as it contains a naval build location') end
                                 tWZTeamData[M28Map.subrefWZbCoreBase] = true
                             elseif M28Utilities.IsTableEmpty(tWZData[M28Map.subrefWZTeamData][iTeam][M28Map.subreftoLZOrWZAlliedUnits]) == false then
-                                local tFactories = EntityCategoryFilterDown(iBaseCategory, tWZData[M28Map.subrefWZTeamData][iTeam][M28Map.subreftoLZOrWZAlliedUnits])
-                                if M28Utilities.IsTableEmpty(tFactories) == false then
+                                if M28UnitInfo.DoesUnitTableContainCategory(tWZData[M28Map.subrefWZTeamData][iTeam][M28Map.subreftoLZOrWZAlliedUnits], iBaseCategory) then
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Setting iWaterZone='..iWaterZone..' to be a WZ core base as it contains factories') end
                                     tWZData[M28Map.subrefWZTeamData][iTeam][M28Map.subrefWZbCoreBase] = true
                                 end
@@ -2466,9 +2481,9 @@ function WaterZoneOverseer(iTeam)
         end
 
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will call logic to refresh every unit in a water zone') end
-        ForkThread(ManageAllWaterZones, aiBrain, iTeam)
+        ManageAllWaterZones(aiBrain, iTeam)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-        WaitSeconds(1)
+        WaitTicks(math.max(1, math.ceil(iTicksPerNavyCycle)))
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
         if aiBrain.M28IsDefeated and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]) == false then
             aiBrain = M28Team.GetFirstActiveM28Brain(iTeam)

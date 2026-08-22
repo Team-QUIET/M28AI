@@ -8,6 +8,6 @@ local M28OldWeapon = Weapon
 Weapon = Class(M28OldWeapon) {
     OnWeaponFired = function(self, target)
         M28OldWeapon.OnWeaponFired(self, target)
-        ForkThread(M28Events.OnWeaponFired, self)
+        M28Events.DispatchOnWeaponFired(self)
     end,
 }

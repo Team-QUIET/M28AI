@@ -11,14 +11,14 @@ M28DefaultProjectileWeapon = DefaultProjectileWeapon
 DefaultProjectileWeapon = Class(M28DefaultProjectileWeapon) {
     OnWeaponFired = function(self)
         M28DefaultProjectileWeapon.OnWeaponFired(self)
-        M28Events.OnWeaponFired(self)
+        M28Events.DispatchOnWeaponFired(self)
     end,
     CalculateBallisticAcceleration = function(self, projectile)
         ForkThread(M28Events.OnBombFired, self, projectile)
         return M28DefaultProjectileWeapon.CalculateBallisticAcceleration(self, projectile)
     end,
     CreateProjectileAtMuzzle = function(self, muzzle)
-        ForkThread(M28Events.OnWeaponFired, self)
+        M28Events.DispatchOnWeaponFired(self)
         return M28DefaultProjectileWeapon.CreateProjectileAtMuzzle(self, muzzle)
 
         --Use below code if want to refer to the projectile created when a weapon is fired (note that the projectile target will be the intended target, pre any firing randomness)

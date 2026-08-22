@@ -433,10 +433,22 @@ local function GetFactoryMAAQueueRunLength(oFactory, iRemainingPlanDepth)
     return math.min(iRemainingPlanDepth, math.max(0, iCap - iPendingMAA))
 end
 
-local function GetFactorySafeNearbySignificantReclaim(oFactory, iTeam)
+local function GetFactoryReclaimQueueEvidence(oFactory, iTeam)
+    local tEvidence = {
+        iRawMapReclaim = 0,
+        iRawNearbySignificantReclaim = 0,
+        iMapCommittedEngineers = 0,
+        iNearbyCommittedEngineers = 0,
+        iEffectiveMapReclaim = 0,
+        iEffectiveNearbySignificantReclaim = 0,
+    }
     if not(M28UnitInfo.IsUnitValid(oFactory))
             or not(EntityCategoryContains(M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryMobileLandFactory, oFactory.UnitId)) then
-        return 0
+        return tEvidence
+    end
+    local iCurTick = math.floor(GetGameTimeSeconds() * 10)
+    if oFactory['M28FacRecEvT'] == iCurTick and oFactory['M28FacRecEv'] then
+        return oFactory['M28FacRecEv']
     end
 
     local iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oFactory:GetPosition(), true, oFactory)
@@ -444,25 +456,96 @@ local function GetFactorySafeNearbySignificantReclaim(oFactory, iTeam)
     local tLandZones = tPlateauData and tPlateauData[M28Map.subrefPlateauLandZones]
     local tLocalLZData = tLandZones and tLandZones[iLandZone]
     if not(tLocalLZData) then
+        return tEvidence
+    end
+
+    local tbNearbyZones = {[iLandZone] = true}
+    if M28Utilities.IsTableEmpty(tLocalLZData[M28Map.subrefLZAdjacentLandZones]) == false then
+        for _, iAdjLZ in tLocalLZData[M28Map.subrefLZAdjacentLandZones] do
+            tbNearbyZones[iAdjLZ] = true
+        end
+    end
+
+    local toMapEngineerCapacity = {}
+    local toNearbyEngineerCapacity = {}
+    local toMapFactoryCapacity = {}
+    local toNearbyFactoryCapacity = {}
+    local function RecordUnit(oUnit, toCapacity, bCountFactoryPlan)
+        if not(M28UnitInfo.IsUnitValid(oUnit)) then return 0 end
+        if EntityCategoryContains(M28UnitInfo.refCategoryEngineer, oUnit.UnitId) then
+            if oUnit.GetFractionComplete and oUnit:GetFractionComplete() < 1 then return 0 end
+            if not(toCapacity[oUnit]) then
+                toCapacity[oUnit] = true
+                return 1
+            end
+        elseif bCountFactoryPlan and EntityCategoryContains(M28UnitInfo.refCategoryFactory, oUnit.UnitId) and not(toCapacity[oUnit]) then
+            toCapacity[oUnit] = true
+            local iPendingEngineers = GetFactoryActualBuildOrderCount(oUnit, M28UnitInfo.refCategoryEngineer) or 0
+            if M28Utilities.IsTableEmpty(oUnit[reftFactoryBuildPlan]) == false then
+                local iPlannedEngineers = 0
+                for _, sBlueprint in oUnit[reftFactoryBuildPlan] do
+                    if EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBlueprint) then iPlannedEngineers = iPlannedEngineers + 1 end
+                end
+                iPendingEngineers = math.max(iPendingEngineers, iPlannedEngineers)
+            end
+            return iPendingEngineers
+        end
         return 0
     end
 
-    local function GetSafeZoneReclaim(tLZData)
+    local function RecordEngineerCapacity(tLZTeamData, bNearby)
+        if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
+            for _, oUnit in tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits] do
+                local bIsFactory = M28UnitInfo.IsUnitValid(oUnit) and EntityCategoryContains(M28UnitInfo.refCategoryFactory, oUnit.UnitId)
+                local iMapCapacity = RecordUnit(oUnit, bIsFactory and toMapFactoryCapacity or toMapEngineerCapacity, true)
+                tEvidence.iMapCommittedEngineers = tEvidence.iMapCommittedEngineers + iMapCapacity
+                if bNearby then
+                    local iNearbyCapacity = RecordUnit(oUnit, bIsFactory and toNearbyFactoryCapacity or toNearbyEngineerCapacity, true)
+                    tEvidence.iNearbyCommittedEngineers = tEvidence.iNearbyCommittedEngineers + iNearbyCapacity
+                end
+            end
+        end
+        if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTEngineersTravelingHere]) == false then
+            for _, oEngineer in tLZTeamData[M28Map.subrefTEngineersTravelingHere] do
+                tEvidence.iMapCommittedEngineers = tEvidence.iMapCommittedEngineers + RecordUnit(oEngineer, toMapEngineerCapacity, false)
+                if bNearby then tEvidence.iNearbyCommittedEngineers = tEvidence.iNearbyCommittedEngineers + RecordUnit(oEngineer, toNearbyEngineerCapacity, false) end
+            end
+        end
+    end
+
+    local function IsSafeServiceableZone(tLZData, bNearby)
         local tLZTeamData = tLZData and tLZData[M28Map.subrefLZTeamData] and tLZData[M28Map.subrefLZTeamData][iTeam]
-        if not(tLZTeamData) or tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] then
-            return 0
+        if not(tLZTeamData)
+                or tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]
+                or (tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) > 0
+                or M28Engineer.IsZoneReclaimTemporarilyUnavailable(tLZData) then
+            return false, tLZTeamData
         end
-        return tLZData[M28Map.subrefTotalSignificantMassReclaim] or 0
+        if not(bNearby)
+                and (tLZTeamData[M28Map.refiModDistancePercent] or 1) > 0.65
+                and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) then
+            return false, tLZTeamData
+        end
+        return true, tLZTeamData
     end
 
-    local iNearbySignificantReclaim = GetSafeZoneReclaim(tLocalLZData)
-    if M28Utilities.IsTableEmpty(tLocalLZData[M28Map.subrefLZAdjacentLandZones]) == false then
-        for _, iAdjLZ in tLocalLZData[M28Map.subrefLZAdjacentLandZones] do
-            iNearbySignificantReclaim = iNearbySignificantReclaim + GetSafeZoneReclaim(tLandZones[iAdjLZ])
+    for iCurLZ, tLZData in tLandZones do
+        local bNearby = tbNearbyZones[iCurLZ] == true
+        local bServiceable, tLZTeamData = IsSafeServiceableZone(tLZData, bNearby)
+        if bServiceable then
+            tEvidence.iRawMapReclaim = tEvidence.iRawMapReclaim + (tLZData[M28Map.subrefTotalMassReclaim] or 0)
+            if bNearby then
+                tEvidence.iRawNearbySignificantReclaim = tEvidence.iRawNearbySignificantReclaim + (tLZData[M28Map.subrefTotalSignificantMassReclaim] or 0)
+            end
+            RecordEngineerCapacity(tLZTeamData, bNearby)
         end
     end
 
-    return iNearbySignificantReclaim
+    tEvidence.iEffectiveMapReclaim = math.max(0, tEvidence.iRawMapReclaim - tEvidence.iMapCommittedEngineers * 1000)
+    tEvidence.iEffectiveNearbySignificantReclaim = math.max(0, tEvidence.iRawNearbySignificantReclaim - tEvidence.iNearbyCommittedEngineers * 1000)
+    oFactory['M28FacRecEvT'] = iCurTick
+    oFactory['M28FacRecEv'] = tEvidence
+    return tEvidence
 end
 
 
@@ -472,6 +555,10 @@ local function GetFactoryEngineerQueueState(oFactory)
         iMassStoredRatio = 0,
         iTotalMapReclaim = 0,
         iNearbySignificantReclaim = 0,
+        iRawMapReclaim = 0,
+        iRawNearbySignificantReclaim = 0,
+        iMapCommittedEngineers = 0,
+        iNearbyCommittedEngineers = 0,
         iReclaimRunLimit = 1,
     }
 
@@ -490,8 +577,13 @@ local function GetFactoryEngineerQueueState(oFactory)
     end
 
     if aiBrain and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryMobileLandFactory, oFactory.UnitId) then
-        tQueueState.iTotalMapReclaim = M28Engineer.GetTotalMapReclaim() or 0
-        tQueueState.iNearbySignificantReclaim = GetFactorySafeNearbySignificantReclaim(oFactory, aiBrain.M28Team)
+        local tReclaimEvidence = GetFactoryReclaimQueueEvidence(oFactory, aiBrain.M28Team)
+        tQueueState.iTotalMapReclaim = tReclaimEvidence.iEffectiveMapReclaim
+        tQueueState.iNearbySignificantReclaim = tReclaimEvidence.iEffectiveNearbySignificantReclaim
+        tQueueState.iRawMapReclaim = tReclaimEvidence.iRawMapReclaim
+        tQueueState.iRawNearbySignificantReclaim = tReclaimEvidence.iRawNearbySignificantReclaim
+        tQueueState.iMapCommittedEngineers = tReclaimEvidence.iMapCommittedEngineers
+        tQueueState.iNearbyCommittedEngineers = tReclaimEvidence.iNearbyCommittedEngineers
 
         if tQueueState.iTotalMapReclaim >= 50000 then
             tQueueState.iCap = math.max(tQueueState.iCap, 8)
@@ -7353,7 +7445,7 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
             M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning MAA queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..tMAAQueueState.iCap..'; PendingMAA='..GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryMAA)..'; ThreatForCap='..tMAAQueueState.iThreatForCap..'; TeamAirToGround='..tMAAQueueState.iEnemyAirToGroundThreat..'; LocalAirToGround='..tMAAQueueState.iLocalAirToGroundThreat..'; LocalMAAWanted='..tMAAQueueState.iLocalMAAWanted..'; LocalGroundAA='..tMAAQueueState.iLocalGroundAAThreat..'; LowTechGunshipCount='..tMAAQueueState.iLowTechGunshipCount..'; LowTechGunshipPressure='..tMAAQueueState.iLowTechGunshipPressure..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
         elseif bDebugMessages == true and EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBPToBuild) then
             local tEngineerQueueState = GetFactoryEngineerQueueState(oFactory)
-            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning engineer queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..tEngineerQueueState.iCap..'; PendingEngineers='..GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryEngineer)..'; MassStoredRatio='..tEngineerQueueState.iMassStoredRatio..'; TotalMapReclaim='..tEngineerQueueState.iTotalMapReclaim..'; NearbySignificantReclaim='..tEngineerQueueState.iNearbySignificantReclaim..'; ReclaimRunLimit='..tEngineerQueueState.iReclaimRunLimit..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning engineer queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..tEngineerQueueState.iCap..'; PendingEngineers='..GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryEngineer)..'; MassStoredRatio='..tEngineerQueueState.iMassStoredRatio..'; EffectiveMapReclaim='..tEngineerQueueState.iTotalMapReclaim..'; RawMapReclaim='..tEngineerQueueState.iRawMapReclaim..'; MapCommittedEngineers='..tEngineerQueueState.iMapCommittedEngineers..'; EffectiveNearbySignificantReclaim='..tEngineerQueueState.iNearbySignificantReclaim..'; RawNearbySignificantReclaim='..tEngineerQueueState.iRawNearbySignificantReclaim..'; NearbyCommittedEngineers='..tEngineerQueueState.iNearbyCommittedEngineers..'; ReclaimRunLimit='..tEngineerQueueState.iReclaimRunLimit..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
         elseif bDebugMessages == true and EntityCategoryContains(iFactoryAttackAirQueueCategory, sBPToBuild) then
             M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Planning attack-air queue run. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; RunLength='..iRunLength..'; Cap='..GetFactoryAttackAirQueueCap(oFactory)..'; PendingAttackAir='..GetFactoryPendingBuildCountByCategory(oFactory, iFactoryAttackAirQueueCategory)..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
         elseif bDebugMessages == true and EntityCategoryContains(M28UnitInfo.refCategoryAirAA, sBPToBuild) then
@@ -11132,7 +11224,7 @@ function GetBlueprintToBuildForMobileLandFactory(aiBrain, oFactory)
         --Build engineer if we have lots of reclaim in this zone and dont have a large enemy threat
         iCurrentConditionToTry = iCurrentConditionToTry + 1
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Engineer for reclaim builder - mass in LZ='..tLZData[M28Map.subrefTotalMassReclaim]..'; Enemy mobile DF='..tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal]..'; Want BP='..tostring(tLZTeamData[M28Map.subrefTbWantBP])) end
-        if tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 500 and tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 2000 or M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] and tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] <= 500 and tLZTeamData[M28Map.subrefTbWantBP] then
+        if (tLZData[M28Map.subrefTotalSignificantMassReclaim] >= 2000 or M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and tLZTeamData[M28Map.subrefLZThreatEnemyMobileDFTotal] <= 500 and tLZTeamData[M28Map.subrefTbWantBP] then
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will try and get an engineer') end
             if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end
         end

@@ -83,9 +83,15 @@ refbHasReclaimPath = 'M28EngHasReclaimPath' --True if engineer has an active rec
 iTotalMapReclaimCache = 0 --Cached total reclaim across all zones
 iLastReclaimCacheUpdate = 0 --Game time when cache was last updated
 iReclaimCacheUpdateInterval = 10 --Update cache every 10 seconds
+local iReclaimFailureCooldown = 10 --Seconds to suppress excess reclaim assignment/queue evidence after a full-zone search fails
 iMaxReclaimPathEngineers = 9 --Base value
 tTeamReclaimPathEngineers = {} --[iTeam] = table of engineers with reclaim path; initialized in team setup
 tTeamAssignedReclaim = {} --[iTeam] = table of reclaim objects already assigned; key is reclaim object, value is count of engineers
+
+function IsZoneReclaimTemporarilyUnavailable(tLZOrWZData)
+    local iTimeFailed = tLZOrWZData and tLZOrWZData[M28Map.subrefiTimeFailedToGetReclaim]
+    return iTimeFailed and GetGameTimeSeconds() - iTimeFailed <= iReclaimFailureCooldown
+end
 
 function GetMaxEngineersForReclaim(oReclaim)
     --Returns max number of engineers that can share this reclaim based on its mass value
@@ -228,6 +234,19 @@ function GetValidAssignedMexEngineer(iTeam, sLocKey)
         end
     end
     return oAssigned
+end
+
+function GetUnassignedMexLocationCount(iTeam, tLZOrWZData)
+    local tUnbuiltMexes = tLZOrWZData and tLZOrWZData[M28Map.subrefMexUnbuiltLocations]
+    if M28Utilities.IsTableEmpty(tUnbuiltMexes) then return 0 end
+    local iUnassignedCount = 0
+    for _, tMexLocation in tUnbuiltMexes do
+        local sLocKey = tostring(tMexLocation[1])..','..tostring(tMexLocation[3])
+        if not(GetValidAssignedMexEngineer(iTeam, sLocKey)) then
+            iUnassignedCount = iUnassignedCount + 1
+        end
+    end
+    return iUnassignedCount
 end
 
 --Shield related variables against a unit
@@ -7471,7 +7490,7 @@ function GetEngineerToReclaimNearbyArea(oEngineer, iPriorityOverride, tLZOrWZTea
                             elseif iMinIndividualValueOverride and iMinIndividualValueOverride > M28Map.iLowestMassThreshold and EntityCategoryContains(categories.COMMAND, oEngineer.UnitId) then
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': ACU was trying to get high value reclaim if there was any, since there isnt ACU should just proceed to other orders') end
                             else
-                                M28Utilities.ErrorHandler('Couldnt find anything to reclaim but we have refreshed the zone in the last second, mass value post refresh was less than pre refresh, see log for more info', true)
+                                M28Utilities.ErrorHandler('Couldnt find available reclaim after a comprehensive refresh and the recorded mass did not decrease; remaining targets are likely reserved, filtered, or unreachable, see log for more info', true)
                                 --LOG(sFunctionRef..': Post warning message: iPlateauOrPond='..iPlateauOrPond..'; iLandOrWaterZone='..iLandOrWaterZone..'; iMinIndividualValueOverride='..(iMinIndividualValueOverride or 'nil')..'; subrefHighestIndividualReclaim='..(tLZOrWZData[M28Map.subrefHighestIndividualReclaim] or 'nil'))
                             end
                         end
@@ -8163,16 +8182,12 @@ function QueueMexBuildPath(oEngineer, iTeam, tLZOrWZData, tLZOrWZTeamData, iPlat
 
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Sorted '..iSortedCount..' mexes for build path') end
 
-    --Mark all sorted mexes as assigned to this engineer
+    --Only locations that pass the final placement check and receive an order are reserved.
     oEngineer[reftAssignedMexBuildPath] = {}
-    for _, tMex in ipairs(tSortedMexes) do
-        local sLocKey = tostring(tMex[1])..','..tostring(tMex[3])
-        tTeamAssignedMexLocations[iTeam][sLocKey] = oEngineer
-        table.insert(oEngineer[reftAssignedMexBuildPath], tMex)
-    end
 
     --Issue build orders for each mex in the sorted path, with reclaim along the way
     local bFirstOrder = true
+    local iQueuedMexCount = 0
     local iCurPriority = 1
     local tPrevPos = oEngineer:GetPosition()
     local iMinReclaimValue = 5 --Minimum mass value to bother reclaiming
@@ -8180,6 +8195,11 @@ function QueueMexBuildPath(oEngineer, iTeam, tLZOrWZData, tLZOrWZTeamData, iPlat
     for iMex, tMexLocation in ipairs(tSortedMexes) do
         --Check if we can build at this location
         if aiBrain:CanBuildStructureAt(sMexBlueprint, tMexLocation) then
+            local sLocKey = tostring(tMexLocation[1])..','..tostring(tMexLocation[3])
+            tTeamAssignedMexLocations[iTeam][sLocKey] = oEngineer
+            table.insert(oEngineer[reftAssignedMexBuildPath], tMexLocation)
+            iQueuedMexCount = iQueuedMexCount + 1
+
             --Find all reclaim along the path to this mex (no limit - grab everything in efficient direction)
             local tReclaimAlongPath = GetReclaimAlongPath(tPrevPos, tMexLocation, iMinReclaimValue, iBuildRange)
 
@@ -8226,11 +8246,13 @@ function QueueMexBuildPath(oEngineer, iTeam, tLZOrWZData, tLZOrWZTeamData, iPlat
         table.insert(tTeamMexBuildPathEngineers[iTeam], oEngineer)
         --Start monitor thread to clean up when done
         ForkThread(MonitorMexBuildPathEngineer, oEngineer, iTeam)
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Successfully queued mex build path with '..iSortedCount..' targets and reclaim') end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Successfully queued mex build path with '..iQueuedMexCount..' valid targets from '..iSortedCount..' candidates and reclaim') end
+    else
+        oEngineer[reftAssignedMexBuildPath] = nil
     end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-    return bGivenOrder
+    return bGivenOrder, iQueuedMexCount
 end
 
 function FilterEngineersOfTechAndEngiCountForFaction(iOptionalFactionRequired, tEngineersOfTechWanted, bOkWithNoEngisIfDontHaveFactionRequired)
@@ -11669,8 +11691,8 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
             end
         end
 
-        --Reclaim specific - limit BP to 5 if we have recenlty failed to find something to reclaim
-        if (iActionToAssign == refActionReclaimArea or iActionToAssign == refActionReclaimTrees) and tLZOrWZData[M28Map.subrefiTimeFailedToGetReclaim] and GetGameTimeSeconds() - tLZOrWZData[M28Map.subrefiTimeFailedToGetReclaim] <= 1 then
+        --Reclaim specific - limit BP to 5 while a recent full-zone search says the recorded reclaim is not serviceable.
+        if (iActionToAssign == refActionReclaimArea or iActionToAssign == refActionReclaimTrees) and IsZoneReclaimTemporarilyUnavailable(tLZOrWZData) then
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time since last failed to get reclaim for this zone='..GetGameTimeSeconds() - tLZOrWZData[M28Map.subrefiTimeFailedToGetReclaim]..'; BP wanted before limitation='..iTotalBuildPowerWanted..'; will cap at 5') end
             iTotalBuildPowerWanted = math.min(5, iTotalBuildPowerWanted)
         end
@@ -12230,7 +12252,10 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                                             --Couldnt find a build locaiton, but might be valid particularly later in the game or on small island maps, so only show as a warning message every 5m
                                             if not(M28UnitInfo.IsUnitRestricted(sBlueprint, M28Team.GetFirstActiveM28Brain(iTeam))) then
                                                 local bShowError = true
-                                                if M28Map.bIsCampaignMap and EntityCategoryContains(M28UnitInfo.refCategoryMex, sBlueprint) then
+                                                if iActionToAssign == refActionBuildMex and GetUnassignedMexLocationCount(iTeam, tLZOrWZData) == 0 then
+                                                    --Every remaining marker is deliberately owned by a live mex-path engineer.
+                                                    bShowError = false
+                                                elseif M28Map.bIsCampaignMap and EntityCategoryContains(M28UnitInfo.refCategoryMex, sBlueprint) then
                                                     --Is the first unbuilt mex location outside the playable area?
                                                     if M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subrefMexUnbuiltLocations][1]) == false and not(M28Conditions.IsLocationInPlayableArea(tLZOrWZData[M28Map.subrefMexUnbuiltLocations][1])) then
                                                         --Mex is outside playable area so dont show error, and dont flag location as needing engis for mexes
@@ -14630,8 +14655,8 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
 
     --Unclaimed mex in the zone (top priority)
     iCurPriority = iCurPriority + 1
-    if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefMexUnbuiltLocations]) == false and not(M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tLZData, true)) then
-        local iUnbuiltMexCount = table.getn(tLZData[M28Map.subrefMexUnbuiltLocations])
+    if GetUnassignedMexLocationCount(iTeam, tLZData) > 0 and not(M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tLZData, true)) then
+        local iUnbuiltMexCount = GetUnassignedMexLocationCount(iTeam, tLZData)
         local iAvailableEngineersBeforeMexAssignment = GetAvailableEngineerCount(1)
         local iReservedEngineersForPowerRecovery = 0
         if iDesiredEngineersReservedForPowerRecovery > 0 and iAvailableEngineersBeforeMexAssignment > 0 then
@@ -14665,13 +14690,13 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                 if not(oEngineerForPath) or not(M28UnitInfo.IsUnitValid(oEngineerForPath)) then break end
 
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Attempting mex build path #'..(iMexBuildPathsAssigned + 1)..' with engineer '..oEngineerForPath.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineerForPath)) end
-                local bQueued = QueueMexBuildPath(oEngineerForPath, iTeam, tLZData, tLZTeamData, iPlateau, iLandZone, false, 5)
+                local bQueued, iQueuedMexCount = QueueMexBuildPath(oEngineerForPath, iTeam, tLZData, tLZTeamData, iPlateau, iLandZone, false, 5)
                 if bQueued then
                     table.remove(toAvailableEngineersByTech[iHighestTechAvailable], 1)
                     table.insert(toAssignedEngineers, oEngineerForPath)
                     iMexBuildPathsAssigned = iMexBuildPathsAssigned + 1
-                    --Reduce unbuilt count estimate (path queues ~5 mexes)
-                    iUnbuiltMexCount = iUnbuiltMexCount - 5
+                    --Reduce the estimate by the number of mex orders that actually passed placement validation.
+                    iUnbuiltMexCount = math.max(0, iUnbuiltMexCount - (iQueuedMexCount or 0))
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Successfully assigned engineer to mex build path, total='..iMexBuildPathsAssigned) end
                 else
                     --No more available mexes to queue
@@ -14680,8 +14705,8 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
             end
         end
 
-        --Fall back to normal mex building if no mex paths were used or we still have more mexes to build
-        if (iMexBuildPathsAssigned == 0 or iUnbuiltMexCount > 5) and iBPWanted > 0 then
+        --Fall back only if at least one marker remains outside valid mex-path reservations.
+        if GetUnassignedMexLocationCount(iTeam, tLZData) > 0 and iBPWanted > 0 then
             HaveActionToAssign(refActionBuildMex, 1, iBPWanted)
         end
         if not(bEngineersRecentlyRunFromEnemy) and (tLZTeamData[M28Map.subreftiBPWantedByAction][refActionBuildMex] or 0) > 0 and not(tLZTeamData[M28Map.refbAdjZonesWantEngiForUnbuiltMex]) then
@@ -18735,8 +18760,8 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     if iHighestTechEngiAvailable > 0 then
         --Build any unbuilt mexes (with more build power than would normally assign)
         iCurPriority = iCurPriority + 1
-        if M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations]) == false then
-            iBPWanted = 5 + tiBPByTech[M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech]] * table.getn(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations])
+        if GetUnassignedMexLocationCount(iTeam, tLZData) > 0 then
+            iBPWanted = 5 + tiBPByTech[M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech]] * GetUnassignedMexLocationCount(iTeam, tLZData)
             if iBPWanted > 10 and bHaveLowPower and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.1 and not(bHaveLowMass) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 80 then
                 iBPWanted = 10
             end
@@ -18987,8 +19012,8 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
 
         end
     end
-    if M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations]) == false and not(M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tLZData, true)) then
-        local iUnbuiltMexCount = table.getn(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMexUnbuiltLocations])
+    if GetUnassignedMexLocationCount(iTeam, tLZData) > 0 and not(M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tLZData, true)) then
+        local iUnbuiltMexCount = GetUnassignedMexLocationCount(iTeam, tLZData)
         iBPWanted = math.min(15, math.max(5, iUnbuiltMexCount * 5))
         if bHaveLowPower and (not(bHaveLowMass) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.1) and iBPWanted > 5 then
             if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 then
@@ -19645,7 +19670,7 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to consider what actions we want to give engineers for iPlateau='..iPlateau..'; iLandZone='..iLandZone..'; iTeam='..iTeam..'; Is table of unbuilt mex locations empty='..tostring(M28Utilities.IsTableEmpty(tLZData[M28Map.subrefMexUnbuiltLocations]))..'; Is table of part complete mexes empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoPartBuiltMexes]))) end
     iCurPriority = iCurPriority + 1
     --Unclaimed mex high priority
-    if not(bTeammateHasBuiltHere) and M28Utilities.IsTableEmpty(tLZData[M28Map.subrefMexUnbuiltLocations]) == false and not(M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tLZData, true)) then
+    if not(bTeammateHasBuiltHere) and GetUnassignedMexLocationCount(iTeam, tLZData) > 0 and not(M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tLZData, true)) then
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We have unbuilt mex locations for this land zone, locations='..repru(tLZData[M28Map.subrefMexUnbuiltLocations])..'; will assign a mex to build') end
         HaveActionToAssign(refActionBuildMex, 1, 5)
         if not(bEngineersRecentlyRunFromEnemy) and (tLZTeamData[M28Map.subreftiBPWantedByAction][refActionBuildMex] or 0) > 0 then
@@ -21407,11 +21432,11 @@ function ConsiderWaterZoneEngineerAssignment(tWZTeamData, iTeam, iPond, iWaterZo
 
     --Higih priority mex if we have water zone start
     iCurPriority = iCurPriority + 1
-    if M28Utilities.IsTableEmpty(tWZData[M28Map.subrefMexUnbuiltLocations]) == false and tWZTeamData[M28Map.subrefWZbContainsUnderwaterStart] and not(M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tWZData, true)) then
+    if GetUnassignedMexLocationCount(iTeam, tWZData) > 0 and tWZTeamData[M28Map.subrefWZbContainsUnderwaterStart] and not(M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tWZData, true)) then
         if bDebugMessages == true then
             LOG(sFunctionRef .. ': We want to build a mex asap as we have unbuilt locations and have started in water')
         end
-        iBPWanted = math.max(5, table.getn(tWZData[M28Map.subrefMexUnbuiltLocations]) * 2.5)
+        iBPWanted = math.max(5, GetUnassignedMexLocationCount(iTeam, tWZData) * 2.5)
         if bHaveLowPower and not(bHaveLowMass) and iBPWanted > 5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 then
             iBPWanted = 5
         elseif bHaveLowPower and iBPWanted > 10 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.2 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 80  then
@@ -21792,13 +21817,13 @@ function ConsiderWaterZoneEngineerAssignment(tWZTeamData, iTeam, iPond, iWaterZo
             LOG(sFunctionRef .. ': Size of unbuilt locations table=' .. table.getn(tWZData[M28Map.subrefMexUnbuiltLocations]))
         end
     end
-    if M28Utilities.IsTableEmpty(tWZData[M28Map.subrefMexUnbuiltLocations]) == false and not(M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tWZData, true)) then
+    if GetUnassignedMexLocationCount(iTeam, tWZData) > 0 and not(M28Overseer.bNoRushActive and M28Conditions.NoRushPreventingHydroOrMex(tWZData, true)) then
         if bDebugMessages == true then
             LOG(sFunctionRef .. ': We want to build a mex as we have unbuilt locations')
         end
         if bEngineersRecentlyRunFromEnemy then iBPWanted = 5
         else
-            iBPWanted = math.max(5, table.getn(tWZData[M28Map.subrefMexUnbuiltLocations]) * 2.5)
+            iBPWanted = math.max(5, GetUnassignedMexLocationCount(iTeam, tWZData) * 2.5)
             if bHaveLowPower and not(bHaveLowMass) and iBPWanted > 5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 then
                 iBPWanted = 5
             elseif bHaveLowPower and iBPWanted > 10 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] <= 0.2 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] <= 80  then

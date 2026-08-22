@@ -20,7 +20,7 @@ if M28OldUnit then
         end,
         OnCreate = function(self)
             M28OldUnit.OnCreate(self)
-            if M28OldUnit.OnCreate then ForkThread(M28Events.OnCreate, self) end
+            if M28OldUnit.OnCreate then M28Events.DispatchOnCreate(self) end
         end,
 
     }

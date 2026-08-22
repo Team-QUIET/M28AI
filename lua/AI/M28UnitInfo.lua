@@ -784,6 +784,28 @@ function GetMassCostOfUnits(tUnits, bEnemyUnits)
     return iMassCost
 end
 
+function DoesUnitTableContainCategory(tUnits, iCategory)
+    if M28Utilities.IsTableEmpty(tUnits) then return false end
+    for iUnit, oUnit in tUnits do
+        if not(oUnit.Dead) and EntityCategoryContains(iCategory, oUnit.UnitId) then return true end
+    end
+    return false
+end
+
+function GetMassCostOfUnitsInCategory(tUnits, iCategory, bEnemyUnits)
+    --Equivalent to filtering the table before GetMassCostOfUnits, without allocating a result table.
+    local iMassCost = 0
+    if M28Utilities.IsTableEmpty(tUnits) == false then
+        for iUnit, oUnit in tUnits do
+            if not(oUnit.Dead) and EntityCategoryContains(iCategory, oUnit.UnitId) then
+                iMassCost = iMassCost + (oUnit[refiUnitMassCost] or 0)
+            end
+        end
+    end
+    if bCustomThreatFactor and bEnemyUnits then iMassCost = iMassCost * iThreatFactor end
+    return iMassCost
+end
+
 local function LayerCapsContainsValue(sValue, sNeedle)
     return sValue and string.find(string.lower(sValue), string.lower(sNeedle), 1, true)
 end
