@@ -730,13 +730,14 @@ function ConsiderDodgingShot(oUnit, oWeapon)
                                                     bCancelDodge = true
                                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Megalith or fatboy in size so wont dodge shot') end
                                                 else
-                                                    local tLastOrder = oTarget[M28Orders.reftiLastOrders][oUnit[M28Orders.refiOrderCount]]
-                                                    if tLastOrder[M28Orders.refiOrderIssueAttack] and M28UnitInfo.IsUnitValid(tLastOrder[M28Orders.subrefoOrderUnitTarget]) and EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental + categories.COMMAND, tLastOrder[M28Orders.subrefoOrderUnitTarget].UnitId) and (not(EntityCategoryContains(M28UnitInfo.refCategoryYthotha, tLastOrder[M28Orders.subrefoOrderUnitTarget].UnitId)) or oWeaponBP.Damage <= 4000) then
+                                                    local tLastOrders = oTarget[M28Orders.reftiLastOrders]
+                                                    local tLastOrder = tLastOrders and tLastOrders[oTarget[M28Orders.refiOrderCount] or 0]
+                                                    if tLastOrder and tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueAttack and M28UnitInfo.IsUnitValid(tLastOrder[M28Orders.subrefoOrderUnitTarget]) and EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental + categories.COMMAND, tLastOrder[M28Orders.subrefoOrderUnitTarget].UnitId) and (not(EntityCategoryContains(M28UnitInfo.refCategoryYthotha, tLastOrder[M28Orders.subrefoOrderUnitTarget].UnitId)) or oWeaponBP.Damage <= 4000) then
                                                         bCancelDodge = true
                                                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Target '..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..' was trying to attack an enemy exp or ACU, targets target='..tLastOrder[M28Orders.subrefoOrderUnitTarget].UnitId..M28UnitInfo.GetUnitLifetimeCount(tLastOrder[M28Orders.subrefoOrderUnitTarget])..'; so will cancel dodge') end
                                                     end
                                                 end
-                                                if not(bCancelDodge) and not(oUnit[M28UnitInfo.refbCanKite]) then
+                                                if not(bCancelDodge) and not(oTarget[M28UnitInfo.refbCanKite]) then
                                                     --Special case - if dealing with say a GC that is trying to dodge a shot from a ythotha, then get its facing to that unit, and dont dodge if angle dif is so large that it would likely cause it to stop firing at the unit if it was to dodge
                                                     if oTarget.UnitId == 'ual0401' and oUnit.UnitId and M28Utilities.GetDistanceBetweenPositions(oTarget:GetPosition(), oUnit:GetPosition()) <= oTarget[M28UnitInfo.refiDFRange] then
                                                         local iCurFacingAngle = M28UnitInfo.GetUnitFacingAngle(oTarget)
