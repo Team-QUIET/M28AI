@@ -744,7 +744,7 @@ function IssueTrackedFactoryBuild(oUnit, sOrderBlueprint, bAddToExistingQueue, s
 
         if not(bSkipDuplicateOrder) then
             if not(M28Factory.CanIssueFactoryBlueprintToQueue(oUnit, sOrderBlueprint, bAddToExistingQueue)) then
-                return
+                return false
             end
             if not(bAddToExistingQueue) then IssueTrackedClearCommands(oUnit) end
             if not(oUnit[reftiLastOrders]) then oUnit[reftiLastOrders] = {} oUnit[refiOrderCount] = 0 end
@@ -755,7 +755,9 @@ function IssueTrackedFactoryBuild(oUnit, sOrderBlueprint, bAddToExistingQueue, s
 
         end
         if M28Config.M28ShowUnitNames then UpdateUnitNameForOrder(oUnit, sOptionalOrderDesc) end
+        return true
     end
+    return false
 end
 
 

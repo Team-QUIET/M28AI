@@ -69,6 +69,13 @@ local iFactoryEngineerStandardQueueCap = 3
 local iFactoryEngineerHighMassQueueCap = 6
 local iFactoryEngineerHighMassStoredRatio = 0.3
 local iFactoryAttackAirQueueCategory = M28UnitInfo.refCategoryBomber + M28UnitInfo.refCategoryTorpBomber + M28UnitInfo.refCategoryGunship
+local iHighTechAirProductionCategory = (categories.TECH2 + categories.TECH3) * categories.AIR * categories.MOBILE - categories.EXPERIMENTAL
+local iHighTechAirAAProductionCategory = iHighTechAirProductionCategory * M28UnitInfo.refCategoryAirAA
+local iHighTechAirFactoryCategory = M28UnitInfo.refCategoryAirFactory + M28UnitInfo.refCategoryMobileAircraftFactory
+local iHighTechAirStorageReserveRatio = 0.25
+local iEmergencyHighTechAirMinimumEnergyRatio = 0.35
+local iHighTechAirNetReservePerBrain = 2
+local iHighTechAirGrossEnergyReserveRatio = 0.03
 
 local DoesT1LandFactoryPassAttackAirGate
 local GetMaxT1MAACount
@@ -105,9 +112,9 @@ end
 local function FactoryEcoWantsAirRecoveryMode(aiBrain, tFactoryEco, iFactoryTechLevel, iTeam, iAirSubteam)
     if not(tFactoryEco) then
         return false
-    elseif tFactoryEco.bWantPowerRecovery then
+    elseif tFactoryEco.bHaveLowPower then
         return true
-    elseif tFactoryEco.bWantMassRecovery and aiBrain[M28Overseer.refbPrioritiseLand] then
+    elseif tFactoryEco.bHaveLowMass and aiBrain[M28Overseer.refbPrioritiseLand] then
         if (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] == 3 and M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] >= 1500) or
                 (iFactoryTechLevel >= M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] and not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]) and M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] >= 500) then
             return true
@@ -6434,8 +6441,202 @@ local function GetFactoryIssuedQueueCountByCategory(oFactory, iCategoryWanted)
     return iQueuedCount
 end
 
+local function IsHighTechAirProductionBlueprint(oFactory, sBlueprint)
+    if not(sBlueprint) or not(__blueprints[string.lower(sBlueprint)]) then
+        return false
+    end
+    return M28UnitInfo.IsUnitValid(oFactory)
+            and EntityCategoryContains(iHighTechAirFactoryCategory, oFactory.UnitId)
+            and EntityCategoryContains(iHighTechAirProductionCategory, sBlueprint)
+end
+
+local function GetHighTechAirBlueprintEnergyProfile(oFactory, sBlueprint)
+    if not(M28UnitInfo.IsUnitValid(oFactory)) or not(sBlueprint) then
+        return nil, nil
+    end
+
+    local oUnitBlueprint = __blueprints[string.lower(sBlueprint)]
+    local oFactoryBlueprint = oFactory:GetBlueprint()
+    local aiBrain = oFactory:GetAIBrain()
+    local iBuildCostEnergy = oUnitBlueprint and oUnitBlueprint.Economy and tonumber(oUnitBlueprint.Economy.BuildCostEnergy or 0) or 0
+    local iBuildTime = oUnitBlueprint and oUnitBlueprint.Economy and tonumber(oUnitBlueprint.Economy.BuildTime or 0) or 0
+    local iFactoryBuildRate = oFactoryBlueprint and oFactoryBlueprint.Economy and tonumber(oFactoryBlueprint.Economy.BuildRate or 0) or 0
+    local iBuildRateMultiplier = aiBrain and tonumber(aiBrain[M28Economy.refiBrainBuildRateMultiplier] or 1) or 1
+    local iEffectiveBuildRate = iFactoryBuildRate * iBuildRateMultiplier
+    if iBuildCostEnergy <= 0 or iBuildTime <= 0 or iEffectiveBuildRate <= 0 then
+        return nil, nil
+    end
+
+    local iEnergyDrainPerTick = 0.1 * iBuildCostEnergy * iEffectiveBuildRate / iBuildTime
+    local iBuildDurationTicks = iBuildTime / iEffectiveBuildRate * 10
+    return iEnergyDrainPerTick, iBuildDurationTicks
+end
+
+local function GetHighTechAirTeamFactories(aiBrain, iTeam)
+    local toFactories = {}
+    local tTeamData = M28Team.tTeamData[iTeam]
+    local tFriendlyBrains = tTeamData and tTeamData[M28Team.subreftoFriendlyActiveM28Brains]
+    if M28Utilities.IsTableEmpty(tFriendlyBrains) then
+        tFriendlyBrains = {aiBrain}
+    end
+
+    for _, oBrain in tFriendlyBrains do
+        if oBrain and oBrain.M28AI then
+            local toBrainFactories = oBrain:GetListOfUnits(iHighTechAirFactoryCategory, false, true)
+            if M28Utilities.IsTableEmpty(toBrainFactories) == false then
+                for _, oFactory in toBrainFactories do
+                    if M28UnitInfo.IsUnitValid(oFactory) and oFactory:GetFractionComplete() == 1 then
+                        table.insert(toFactories, oFactory)
+                    end
+                end
+            end
+        end
+    end
+    return toFactories, tFriendlyBrains
+end
+
+local function GetTeamPendingHighTechAirEnergyDrain(aiBrain, iTeam, oCandidateFactory)
+    local iPendingEnergyDrain = 0
+    local toFactories = GetHighTechAirTeamFactories(aiBrain, iTeam)
+    for _, oFactory in toFactories do
+        if oFactory ~= oCandidateFactory and not(IsFactoryActivelyBuilding(oFactory)) then
+            local tQueuedBlueprints = GetQueuedFactoryBlueprints(oFactory)
+            if M28Utilities.IsTableEmpty(tQueuedBlueprints) == false then
+                for _, sQueuedBlueprint in tQueuedBlueprints do
+                    if IsHighTechAirProductionBlueprint(oFactory, sQueuedBlueprint) then
+                        local iQueuedEnergyDrain = GetHighTechAirBlueprintEnergyProfile(oFactory, sQueuedBlueprint)
+                        if iQueuedEnergyDrain then
+                            iPendingEnergyDrain = iPendingEnergyDrain + iQueuedEnergyDrain
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return iPendingEnergyDrain
+end
+
+local function GetTeamIssuedHighTechAirAACount(aiBrain, iTeam)
+    local iIssuedAirAA = 0
+    local toFactories = GetHighTechAirTeamFactories(aiBrain, iTeam)
+    for _, oFactory in toFactories do
+        iIssuedAirAA = iIssuedAirAA + GetFactoryIssuedQueueCountByCategory(oFactory, iHighTechAirAAProductionCategory)
+    end
+    return iIssuedAirAA
+end
+
+local function GetTeamEnergyStorageCapacity(aiBrain, iTeam)
+    local iStorageCapacity = 0
+    local tTeamData = M28Team.tTeamData[iTeam]
+    local tFriendlyBrains = tTeamData and tTeamData[M28Team.subreftoFriendlyActiveM28Brains]
+    if M28Utilities.IsTableEmpty(tFriendlyBrains) then
+        tFriendlyBrains = {aiBrain}
+    end
+    for _, oBrain in tFriendlyBrains do
+        if oBrain and oBrain.M28AI then
+            iStorageCapacity = iStorageCapacity + (M28Economy.GetEnergyStorageMaximum(oBrain) or 0)
+        end
+    end
+    return iStorageCapacity
+end
+
+local function GetHighTechAirProductionAdmission(aiBrain, oFactory, sBlueprint)
+    if not(sBlueprint) or not(__blueprints[string.lower(sBlueprint)]) or not(EntityCategoryContains(iHighTechAirProductionCategory, sBlueprint)) then
+        return true, 'NotHighTechAir'
+    end
+
+    local sFunctionRef = 'GetHighTechAirProductionAdmission'
+    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelFactory, sFunctionRef)
+    local iTeam = aiBrain and aiBrain.M28Team
+    local tTeamData = iTeam and M28Team.tTeamData[iTeam]
+    local tDetails = {
+        iCandidateDrain = 0,
+        iPendingDrain = 0,
+        iNetEnergy = tTeamData and (tTeamData[M28Team.subrefiTeamNetEnergy] or 0) or 0,
+        iNetReserve = 0,
+        iRequiredStoredEnergy = 0,
+        iSpareStoredEnergy = 0,
+        iEnergyRatio = tTeamData and (tTeamData[M28Team.subrefiTeamAverageEnergyPercentStored] or 0) or 0,
+        iIssuedEmergencyAirAA = 0,
+        iActiveBrains = tTeamData and math.max(1, tTeamData[M28Team.subrefiActiveM28BrainCount] or 1) or 1,
+    }
+
+    local function FinishAdmission(bAllowed, sReason)
+        if bDebugMessages == true then
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Factory='..(oFactory and oFactory.UnitId or 'nil')..'; Blueprint='..(sBlueprint or 'nil')..'; Allowed='..tostring(bAllowed)..'; Reason='..sReason..'; CandidateDrainPerTick='..tDetails.iCandidateDrain..'; PendingDrainPerTick='..tDetails.iPendingDrain..'; TeamNetEnergy='..tDetails.iNetEnergy..'; NetReserve='..tDetails.iNetReserve..'; RequiredStoredEnergy='..tDetails.iRequiredStoredEnergy..'; SpareStoredAbove25Pct='..tDetails.iSpareStoredEnergy..'; TeamEnergyRatio='..tDetails.iEnergyRatio..'; IssuedEmergencyAirAA='..tDetails.iIssuedEmergencyAirAA..'/'..tDetails.iActiveBrains..'; Time='..GetGameTimeSeconds())
+        end
+        return bAllowed, sReason
+    end
+
+    if not(aiBrain) or not(tTeamData) or not(IsHighTechAirProductionBlueprint(oFactory, sBlueprint)) then
+        return FinishAdmission(false, 'InvalidFactoryOrTeam')
+    end
+
+    local iCandidateDrain, iBuildDurationTicks = GetHighTechAirBlueprintEnergyProfile(oFactory, sBlueprint)
+    if not(iCandidateDrain) or not(iBuildDurationTicks) then
+        return FinishAdmission(false, 'InvalidEnergyProfile')
+    end
+    tDetails.iCandidateDrain = iCandidateDrain
+
+    local tFactoryEco = GetFactoryEcoState(aiBrain, iTeam)
+    local bIsHighTechAirAA = EntityCategoryContains(iHighTechAirAAProductionCategory, sBlueprint)
+    if bIsHighTechAirAA then
+        local sAirPriorityReason = GetAirQueuePriorityState(aiBrain)
+        tDetails.iIssuedEmergencyAirAA = GetTeamIssuedHighTechAirAACount(aiBrain, iTeam)
+        if sAirPriorityReason and not(tFactoryEco.bStallingEnergy)
+                and tDetails.iEnergyRatio >= iEmergencyHighTechAirMinimumEnergyRatio
+                and tDetails.iIssuedEmergencyAirAA < tDetails.iActiveBrains then
+            return FinishAdmission(true, 'EmergencyAirAA-'..sAirPriorityReason)
+        end
+    end
+
+    if tFactoryEco.bStallingEnergy then
+        return FinishAdmission(false, 'EnergyStall')
+    elseif tFactoryEco.bHaveLowPower then
+        return FinishAdmission(false, 'LowPower')
+    end
+
+    tDetails.iPendingDrain = GetTeamPendingHighTechAirEnergyDrain(aiBrain, iTeam, oFactory)
+
+    local iGrossEnergy = tTeamData[M28Team.subrefiTeamGrossEnergy] or 0
+    local iResourceMultiplier = math.max(1, tTeamData[M28Team.refiHighestBrainResourceMultiplier] or 1)
+    tDetails.iNetReserve = math.max(iHighTechAirNetReservePerBrain * tDetails.iActiveBrains * iResourceMultiplier, iGrossEnergy * iHighTechAirGrossEnergyReserveRatio)
+    local iEnergyShortfallPerTick = math.max(0, tDetails.iCandidateDrain + tDetails.iPendingDrain + tDetails.iNetReserve - tDetails.iNetEnergy)
+    tDetails.iRequiredStoredEnergy = iEnergyShortfallPerTick * iBuildDurationTicks
+
+    local iStorageCapacity = GetTeamEnergyStorageCapacity(aiBrain, iTeam)
+    local iStoredEnergy = tTeamData[M28Team.subrefiTeamEnergyStored] or 0
+    tDetails.iSpareStoredEnergy = math.max(0, iStoredEnergy - iStorageCapacity * iHighTechAirStorageReserveRatio)
+    if tDetails.iRequiredStoredEnergy <= tDetails.iSpareStoredEnergy then
+        return FinishAdmission(true, 'ProjectedAffordable')
+    end
+    return FinishAdmission(false, 'ProjectedEnergyShortfall')
+end
+
 function CanIssueFactoryBlueprintToQueue(oFactory, sBlueprint, bAddToExistingQueue)
-    if not(bAddToExistingQueue) or not(sBlueprint) then
+    if not(sBlueprint) then
+        return true
+    end
+
+    if IsHighTechAirProductionBlueprint(oFactory, sBlueprint) then
+        local sFunctionRef = 'CanIssueFactoryBlueprintToQueue'
+        local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelFactory, sFunctionRef)
+        if bAddToExistingQueue or IsFactoryActivelyBuilding(oFactory) then
+            if bDebugMessages == true then
+                M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Rejecting high-tech air order unless it replaces an idle queue. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBlueprint..'; AddToExistingQueue='..tostring(bAddToExistingQueue or false)..'; ActivelyBuilding='..tostring(IsFactoryActivelyBuilding(oFactory))..'; ActualBuildOrders='..(GetFactoryActualBuildOrderCount(oFactory) or 0)..'; Time='..GetGameTimeSeconds())
+            end
+            return false
+        end
+        local bAllowed, sAdmissionReason = GetHighTechAirProductionAdmission(oFactory:GetAIBrain(), oFactory, sBlueprint)
+        if not(bAllowed) then
+            if bDebugMessages == true then
+                M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Rejecting high-tech air order at final issuance. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBlueprint..'; AdmissionReason='..sAdmissionReason..'; Time='..GetGameTimeSeconds())
+            end
+            return false
+        end
+    end
+
+    if not(bAddToExistingQueue) then
         return true
     end
 
@@ -6661,7 +6862,9 @@ function GetFactoryTargetQueueDepth(aiBrain, oFactory, sReferenceBlueprint)
         return 1
     end
 
-    if sReferenceBlueprint and EntityCategoryContains(categories.SUBCOMMANDER + categories.EXPERIMENTAL, sReferenceBlueprint) then
+    if IsHighTechAirProductionBlueprint(oFactory, sReferenceBlueprint) then
+        iQueueDepth = 1
+    elseif sReferenceBlueprint and EntityCategoryContains(categories.SUBCOMMANDER + categories.EXPERIMENTAL, sReferenceBlueprint) then
         iQueueDepth = 1
     end
 
@@ -6980,9 +7183,11 @@ local function ApplyPendingAirQueuePriority(oFactory)
     end
     ClearPendingAirQueuePriority(oFactory)
     InvalidateFactoryBuildPlan(oFactory)
-    M28Orders.IssueTrackedFactoryBuild(oFactory, sAirAABlueprint, false, 'UrgentAirAAQueuePreempt')
-    QueueAdditionalFactoryBuildOrders(aiBrain, oFactory, sAirAABlueprint)
-    return true
+    if M28Orders.IssueTrackedFactoryBuild(oFactory, sAirAABlueprint, false, 'UrgentAirAAQueuePreempt') then
+        QueueAdditionalFactoryBuildOrders(aiBrain, oFactory, sAirAABlueprint)
+        return true
+    end
+    return false
 end
 
 local function TryStartPendingFactoryUpgrade(aiBrain, oFactory, sFunctionRef, bDebugMessages, tDebugContext)
@@ -7130,6 +7335,12 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
             end
             break
         end
+        if IsHighTechAirProductionBlueprint(oFactory, sBPToBuild) then
+            if bDebugMessages == true then
+                M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Not adding a speculative T2/T3 aircraft to a factory refill plan. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; CandidateBlueprint='..sBPToBuild..'; CurrentBuildOrders='..iCurBuildOrders..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
+            end
+            break
+        end
         if not(sBPToBuild) or bEnhancement or EntityCategoryContains(M28UnitInfo.refCategoryFactory, sBPToBuild) then
             break
         end
@@ -7159,9 +7370,13 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
     oFactory[reftFactoryBuildPlanCategoryBlacklist] = nil
 
     while iCurBuildOrders < iTargetQueueDepth and iIssuedCount < table.getn(tBuildPlan) do
-        iIssuedCount = iIssuedCount + 1
-        M28Orders.IssueTrackedFactoryBuild(oFactory, tBuildPlan[iIssuedCount], true)
-        iCurBuildOrders = iCurBuildOrders + 1
+        local iNextIssuedCount = iIssuedCount + 1
+        if M28Orders.IssueTrackedFactoryBuild(oFactory, tBuildPlan[iNextIssuedCount], true) then
+            iIssuedCount = iNextIssuedCount
+            iCurBuildOrders = iCurBuildOrders + 1
+        else
+            break
+        end
     end
 
     oFactory[reftFactoryBuildPlan] = tBuildPlan
@@ -7411,8 +7626,14 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait)
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to send a tracked factory build, sBPToBuild='..sBPToBuild..'; bAddToExistingQueue='..tostring(bAddToExistingQueue or false)..'; Factory work progress='..oFactory:GetWorkProgress()..'; Factory last orders='..repru(oFactory[M28Orders.reftiLastOrders])) end
                         --Campaign - clear orders if work progress is 0 to protect against issues where campaign AI script tells the factory to build something it cant due to unit restrictions
                         if M28Map.bIsCampaignMap and oFactory:GetWorkProgress() == 0 then M28Orders.IssueTrackedClearCommands(oFactory) end
-                        M28Orders.IssueTrackedFactoryBuild(oFactory, sBPToBuild, bAddToExistingQueue)
-                        QueueAdditionalFactoryBuildOrders(aiBrain, oFactory, sBPToBuild)
+                        if M28Orders.IssueTrackedFactoryBuild(oFactory, sBPToBuild, bAddToExistingQueue) then
+                            QueueAdditionalFactoryBuildOrders(aiBrain, oFactory, sBPToBuild)
+                        else
+                            InvalidateFactoryBuildPlan(oFactory)
+                            if bDebugMessages == true then
+                                M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Final factory-build admission rejected the selected blueprint. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; Blueprint='..sBPToBuild..'; Time='..GetGameTimeSeconds())
+                            end
+                        end
                     end
                 else
                     InvalidateFactoryBuildPlan(oFactory)
@@ -7734,6 +7955,20 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
         end
         if sBPIDToBuild then
             sBPIDToBuild = AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamData, iFactoryTechLevel)
+        end
+        if IsHighTechAirProductionBlueprint(oFactory, sBPIDToBuild) then
+            local bHighTechAirAllowed, sHighTechAirAdmissionReason = GetHighTechAirProductionAdmission(aiBrain, oFactory, sBPIDToBuild)
+            if not(bHighTechAirAllowed) then
+                local sRejectedBlueprint = sBPIDToBuild
+                if EntityCategoryContains(iHighTechAirAAProductionCategory, sRejectedBlueprint) then
+                    sBPIDToBuild = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryAirAA * categories.TECH1, oFactory, nil, nil, nil, nil, false)
+                else
+                    sBPIDToBuild = nil
+                end
+                if bDebugMessages == true then
+                    M28Profiler.DebugLog(tDebugContext, sFunctionRef..': High-tech air candidate failed energy admission. RejectedBlueprint='..sRejectedBlueprint..'; AdmissionReason='..sHighTechAirAdmissionReason..'; FallbackBlueprint='..(sBPIDToBuild or 'nil')..'; Time='..GetGameTimeSeconds())
+                end
+            end
         end
         if sBPIDToBuild then
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Blueprint still valid after considering overrides') end
