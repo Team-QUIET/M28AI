@@ -3145,11 +3145,12 @@ end
 local function GetHQMassBufferBypass(iM28Team, iFactoryCategory, iSourceTech)
     local tCurTeamData = tTeamData[iM28Team]
     local iActiveBrainCount = math.max(1, tCurTeamData[subrefiActiveM28BrainCount] or 1)
-    local iSourceProductionThreshold = 20 * iActiveBrainCount
+    local iSourceProductionThreshold = 25 * iActiveBrainCount
+    local iNextTechMobileProductionThreshold = 12 * math.min(2.5, iActiveBrainCount)
     if iSourceTech == 1 then
         iSourceProductionThreshold = 35 * iActiveBrainCount
+        iNextTechMobileProductionThreshold = 10 * math.min(2.5, iActiveBrainCount)
     end
-    local iNextTechMobileProductionThreshold = 10 * math.min(2.5, iActiveBrainCount)
     local iSourceProductionCount = 0
     local iNextTechMobileProductionCount = 0
     local sBypassReason = 'None'
@@ -3172,16 +3173,31 @@ local function GetHQMassBufferBypass(iM28Team, iFactoryCategory, iSourceTech)
     return sBypassReason, iSourceProductionCount, iSourceProductionThreshold, iNextTechMobileProductionCount, iNextTechMobileProductionThreshold
 end
 
+local function GetHQGrossMassPerBrain(iSourceTech, sMassBufferBypassReason)
+    local bProductionMaturity = sMassBufferBypassReason == 'MatureSourceTechProduction'
+            or sMassBufferBypassReason == 'MatureNextTechProduction'
+    local bUrgentBypass = sMassBufferBypassReason and sMassBufferBypassReason ~= 'None' and not(bProductionMaturity)
+
+    if iSourceTech == 1 then
+        if bProductionMaturity then return 25 end
+        if bUrgentBypass then return 4 end
+        return 30
+    elseif iSourceTech == 2 then
+        if bProductionMaturity then return 60 end
+        if bUrgentBypass then return 5 end
+        return 80
+    end
+    return nil
+end
+
 local function GetHQEconomyAdmission(iM28Team, iSourceTech, sMassBufferBypassReason)
     local tCurTeamData = tTeamData[iM28Team]
     local iActiveBrainCount = math.max(1, tCurTeamData[subrefiActiveM28BrainCount] or 1)
-    local iGrossMassPerBrain
+    local iGrossMassPerBrain = GetHQGrossMassPerBrain(iSourceTech, sMassBufferBypassReason)
     local iNetMassPerBrain
     if iSourceTech == 1 then
-        iGrossMassPerBrain = 4
         iNetMassPerBrain = 0.5
     elseif iSourceTech == 2 then
-        iGrossMassPerBrain = 5
         iNetMassPerBrain = 1
     else
         return false, 'UnsupportedSourceTech'

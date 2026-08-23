@@ -73,8 +73,8 @@ local iAirProductionCategory = iFactoryProductionCategory * categories.AIR
 local iAirAAProductionCategory = iAirProductionCategory * M28UnitInfo.refCategoryAirAA
 local iManagedFactoryCategory = M28UnitInfo.refCategoryFactory + M28UnitInfo.refCategoryMobileLandFactory + M28UnitInfo.refCategoryMobileAircraftFactory + categories.EXTERNALFACTORYUNIT
 local iAirProducingFactoryCategory = M28UnitInfo.refCategoryAirFactory + M28UnitInfo.refCategoryMobileAircraftFactory
-local iFactoryEnergyStorageReserveRatio = 0.25
-local iFactoryMassStorageReserveRatio = 0.10
+local iFactoryEnergyStorageReserveRatio = 0.15
+local iFactoryMassStorageReserveRatio = 0.025
 local iEmergencyAirMinimumEnergyRatio = 0.35
 local iFactoryNetEnergyReservePerBrain = 2
 local iFactoryNetMassReservePerBrain = 0.1
@@ -6723,7 +6723,7 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
 
     local function FinishAdmission(bAllowed, sReason)
         if bDebugMessages == true then
-            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Factory='..(oFactory and oFactory.UnitId or 'nil')..'; Blueprint='..(sBlueprint or 'nil')..'; Allowed='..tostring(bAllowed)..'; Reason='..sReason..'; CandidateMassDrainPerTick='..tDetails.iCandidateMassDrain..'; CandidateEnergyDrainPerTick='..tDetails.iCandidateEnergyDrain..'; CurrentMassDrainPerTick='..tDetails.iCurrentMassDrain..'; CurrentEnergyDrainPerTick='..tDetails.iCurrentEnergyDrain..'; PendingMassDrainPerTick='..tDetails.iPendingMassDrain..'; PendingEnergyDrainPerTick='..tDetails.iPendingEnergyDrain..'; TeamNetMass='..(tTeamData and (tTeamData[M28Team.subrefiTeamNetMass] or 0) or 0)..'; TeamNetEnergy='..(tTeamData and (tTeamData[M28Team.subrefiTeamNetEnergy] or 0) or 0)..'; MassNetReserve='..tDetails.iMassNetReserve..'; EnergyNetReserve='..tDetails.iEnergyNetReserve..'; RequiredStoredMass='..tDetails.iRequiredStoredMass..'; SpareStoredMassAbove10Pct='..tDetails.iSpareStoredMass..'; RequiredStoredEnergy='..tDetails.iRequiredStoredEnergy..'; SpareStoredEnergyAbove25Pct='..tDetails.iSpareStoredEnergy..'; TeamEnergyRatio='..tDetails.iEnergyRatio..'; IssuedEmergencyAirAA='..tDetails.iIssuedEmergencyAirAA..'/'..tDetails.iActiveBrains..'; Time='..GetGameTimeSeconds())
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Factory='..(oFactory and oFactory.UnitId or 'nil')..'; Blueprint='..(sBlueprint or 'nil')..'; Allowed='..tostring(bAllowed)..'; Reason='..sReason..'; CandidateMassDrainPerTick='..tDetails.iCandidateMassDrain..'; CandidateEnergyDrainPerTick='..tDetails.iCandidateEnergyDrain..'; CurrentMassDrainPerTick='..tDetails.iCurrentMassDrain..'; CurrentEnergyDrainPerTick='..tDetails.iCurrentEnergyDrain..'; PendingMassDrainPerTick='..tDetails.iPendingMassDrain..'; PendingEnergyDrainPerTick='..tDetails.iPendingEnergyDrain..'; TeamNetMass='..(tTeamData and (tTeamData[M28Team.subrefiTeamNetMass] or 0) or 0)..'; TeamNetEnergy='..(tTeamData and (tTeamData[M28Team.subrefiTeamNetEnergy] or 0) or 0)..'; MassNetReserve='..tDetails.iMassNetReserve..'; EnergyNetReserve='..tDetails.iEnergyNetReserve..'; RequiredStoredMass='..tDetails.iRequiredStoredMass..'; SpareStoredMassAbove2_5Pct='..tDetails.iSpareStoredMass..'; RequiredStoredEnergy='..tDetails.iRequiredStoredEnergy..'; SpareStoredEnergyAbove15Pct='..tDetails.iSpareStoredEnergy..'; TeamEnergyRatio='..tDetails.iEnergyRatio..'; IssuedEmergencyAirAA='..tDetails.iIssuedEmergencyAirAA..'/'..tDetails.iActiveBrains..'; Time='..GetGameTimeSeconds())
         end
         return bAllowed, sReason
     end
@@ -6735,10 +6735,6 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
     local tFactoryEco = GetFactoryEcoState(aiBrain, iTeam)
     if oFactory[M28UnitInfo.refbPaused] or oFactory:IsPaused() then
         return FinishAdmission(false, 'FactoryPaused')
-    elseif tFactoryEco.bStallingMass then
-        return FinishAdmission(false, 'MassStall')
-    elseif tFactoryEco.bStallingEnergy then
-        return FinishAdmission(false, 'EnergyStall')
     end
 
     local iCandidateMassDrain, iCandidateEnergyDrain, iBuildDurationTicks = GetFactoryBlueprintResourceProfile(oFactory, sBlueprint)
@@ -6747,6 +6743,13 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
     end
     tDetails.iCandidateMassDrain = iCandidateMassDrain
     tDetails.iCandidateEnergyDrain = iCandidateEnergyDrain
+    if EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBlueprint) then
+        return FinishAdmission(true, 'EngineerEconomyBypass')
+    elseif tFactoryEco.bStallingMass then
+        return FinishAdmission(false, 'MassStall')
+    elseif tFactoryEco.bStallingEnergy then
+        return FinishAdmission(false, 'EnergyStall')
+    end
     tDetails.iCurrentMassDrain, tDetails.iCurrentEnergyDrain = GetFactoryCurrentProductionResourceDrain(oFactory)
     local iMassStorageCapacity, iEnergyStorageCapacity
     tDetails.iPendingMassDrain, tDetails.iPendingEnergyDrain, iMassStorageCapacity, iEnergyStorageCapacity = GetTeamPendingFactoryResourceDrain(aiBrain, iTeam, oFactory)
