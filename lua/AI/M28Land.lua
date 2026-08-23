@@ -84,6 +84,8 @@ iLandSupportTargetLockSeconds = 8
 iLandBaselinePressureTargetLockSeconds = 8
 iMAAAirTargetAnchorLockSeconds = 5
 local iEnemyFixedDFClearance = 7
+local refCategoryPredictiveRangeLand = M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategoryFatboy
+local refCategoryGenericExperimentalRangeLand = M28UnitInfo.refCategoryLandExperimental - M28UnitInfo.refCategoryFatboy
 
 --See M28navy for sonar equivalent
 refoAssignedMobileShield = 'M28LandAssignedMobileShield' --Gives the mobile shield assigned ot this unit
@@ -5075,40 +5077,97 @@ local function GetFixedDFSpreadAvoidanceAreaTables(tLZData, tLZTeamData, iTeam, 
     return tSpreadAvoidanceAreaTables
 end
 
-local function TryMaintainLandExperimentalRange(tLZTeamData, oUnit, oTarget, bSuicideIntoFatboyOrACU)
-    if bSuicideIntoFatboyOrACU
-            or not(EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental - M28UnitInfo.refCategoryFatboy, oUnit.UnitId))
-            or oUnit[M28UnitInfo.refbSpecialMicroActive]
-            or not(M28UnitInfo.IsUnitValid(oTarget))
-            or not(M28UnitInfo.CanSeeUnit(oUnit:GetAIBrain(), oTarget, false)) then
-        return false
+local function GetClosestVisibleDirectFireEnemy(tLZTeamData, oUnit, oFallbackTarget)
+    local aiBrain = oUnit:GetAIBrain()
+    local tUnitPosition = oUnit:GetPosition()
+    if not(tUnitPosition) then return nil end
+
+    local oClosestEnemy
+    local iClosestEnemyDistance = 100000
+    local tEnemyCandidates = tLZTeamData[M28Map.reftoNearestDFEnemies]
+    if M28Utilities.IsTableEmpty(tEnemyCandidates) == false then
+        for _, oEnemy in tEnemyCandidates do
+            if M28UnitInfo.IsUnitValid(oEnemy) and (oEnemy[M28UnitInfo.refiDFRange] or 0) > 0 and M28UnitInfo.CanSeeUnit(aiBrain, oEnemy, false) then
+                local tEnemyPosition = oEnemy:GetPosition()
+                if tEnemyPosition then
+                    local iEnemyDistance = M28Utilities.GetDistanceBetweenPositions(tUnitPosition, tEnemyPosition)
+                    if iEnemyDistance < iClosestEnemyDistance then
+                        oClosestEnemy = oEnemy
+                        iClosestEnemyDistance = iEnemyDistance
+                    end
+                end
+            end
+        end
     end
 
+    if M28UnitInfo.IsUnitValid(oFallbackTarget) and (oFallbackTarget[M28UnitInfo.refiDFRange] or 0) > 0 and M28UnitInfo.CanSeeUnit(aiBrain, oFallbackTarget, false) then
+        local tFallbackPosition = oFallbackTarget:GetPosition()
+        if tFallbackPosition then
+            local iFallbackDistance = M28Utilities.GetDistanceBetweenPositions(tUnitPosition, tFallbackPosition)
+            if iFallbackDistance < iClosestEnemyDistance then oClosestEnemy = oFallbackTarget end
+        end
+    end
+    return oClosestEnemy
+end
+
+local function TryMaintainLandUnitRange(tLZTeamData, oUnit, oFallbackTarget, bSuicideIntoFatboyOrACU, bWeOutrangeEnemy)
+    if bSuicideIntoFatboyOrACU then return false end
+
+    local bLandExperimental = EntityCategoryContains(refCategoryGenericExperimentalRangeLand, oUnit.UnitId)
+    local bKitingMobileDirectFire = EntityCategoryContains(refCategoryPredictiveRangeLand, oUnit.UnitId) and oUnit[M28UnitInfo.refbCanKite]
+    if not(bLandExperimental) and not(bKitingMobileDirectFire) then return false end
+    if not(bLandExperimental) and not(bWeOutrangeEnemy) then return false end
+    if oUnit[M28UnitInfo.refbSpecialMicroActive] and not(oUnit[M28UnitInfo.refbLowerPriorityMicroActive]) then return false end
+
     local iOurRange = oUnit[M28UnitInfo.refiDFRange] or 0
-    if iOurRange < 20 then return false end
+    if iOurRange <= 0 then return false end
+    local oTarget = GetClosestVisibleDirectFireEnemy(tLZTeamData, oUnit, oFallbackTarget)
+    if not(M28UnitInfo.IsUnitValid(oTarget)) then return false end
+    local iEnemyRange = oTarget[M28UnitInfo.refiDFRange] or 0
+    if iEnemyRange <= 0 or iOurRange < iEnemyRange + 6 then return false end
+
     local tUnitPosition = oUnit:GetPosition()
     local tTargetPosition = oTarget:GetPosition()
     if not(tUnitPosition) or not(tTargetPosition) then return false end
 
+    local iResponseHorizon = math.max(0.5, iTicksPerLandCycle * 0.1)
+    local iUnitVelocityX, iUnitVelocityY, iUnitVelocityZ = oUnit:GetVelocity()
+    local iTargetVelocityX, iTargetVelocityY, iTargetVelocityZ = oTarget:GetVelocity()
+    iUnitVelocityX = iUnitVelocityX or 0
+    iUnitVelocityY = iUnitVelocityY or 0
+    iUnitVelocityZ = iUnitVelocityZ or 0
+    iTargetVelocityX = iTargetVelocityX or 0
+    iTargetVelocityY = iTargetVelocityY or 0
+    iTargetVelocityZ = iTargetVelocityZ or 0
+    local tProjectedUnitPosition = {
+        tUnitPosition[1] + iUnitVelocityX * iResponseHorizon,
+        tUnitPosition[2] + iUnitVelocityY * iResponseHorizon,
+        tUnitPosition[3] + iUnitVelocityZ * iResponseHorizon,
+    }
+    local tProjectedTargetPosition = {
+        tTargetPosition[1] + iTargetVelocityX * iResponseHorizon,
+        tTargetPosition[2] + iTargetVelocityY * iResponseHorizon,
+        tTargetPosition[3] + iTargetVelocityZ * iResponseHorizon,
+    }
     local iDistance = M28Utilities.GetDistanceBetweenPositions(tUnitPosition, tTargetPosition)
+    local iProjectedDistance = M28Utilities.GetDistanceBetweenPositions(tProjectedUnitPosition, tProjectedTargetPosition)
     local iRangeBuffer = math.max(4, math.min(10, iOurRange * 0.10))
-    local iPreferredRange = iOurRange - iRangeBuffer
-    local iEnemyRange = oTarget[M28UnitInfo.refiDFRange] or 0
-    local bRecentlyFired = oUnit[M28UnitInfo.refiLastWeaponEvent] and GetGameTimeSeconds() - oUnit[M28UnitInfo.refiLastWeaponEvent] <= (oUnit[M28UnitInfo.refiTimeBetweenDFShots] or 1.2) + 0.5
+    local iPreferredRange = math.max(iOurRange - iRangeBuffer, iEnemyRange + 2)
     local tMovePosition
     local sOrderRef
 
-    if iDistance > iOurRange + 2 then
+    if iProjectedDistance < iPreferredRange then
+        local iAngleAwayFromTarget = M28Utilities.GetAngleFromAToB(tProjectedTargetPosition, tProjectedUnitPosition)
+        local iBackoutDistance = math.max(8, math.min(20, iPreferredRange - iProjectedDistance + 4))
+        tMovePosition = M28Utilities.MoveInDirection(tUnitPosition, iAngleAwayFromTarget, iBackoutDistance, true, false, M28Map.bIsCampaignMap)
+        sOrderRef = 'LandBandOut'
+    elseif iDistance > iOurRange + 2 then
         local iAngleFromTargetToUnit = M28Utilities.GetAngleFromAToB(tTargetPosition, tUnitPosition)
         tMovePosition = M28Utilities.MoveInDirection(tTargetPosition, iAngleFromTargetToUnit, iPreferredRange, true, false, M28Map.bIsCampaignMap)
-        sOrderRef = 'ExpBandIn'
-    elseif iDistance < iPreferredRange - 4 and iEnemyRange > 0 and iOurRange >= iEnemyRange + 6 and bRecentlyFired then
-        local iAngleAwayFromTarget = M28Utilities.GetAngleFromAToB(tTargetPosition, tUnitPosition)
-        tMovePosition = M28Utilities.MoveInDirection(tUnitPosition, iAngleAwayFromTarget, 8, true, false, M28Map.bIsCampaignMap)
-        sOrderRef = 'ExpBandOut'
+        sOrderRef = 'LandBandIn'
     else
-        M28Orders.IssueTrackedAttack(oUnit, oTarget, false, 'ExpBandAtk')
-        RecordAttackingExperimental(tLZTeamData, oUnit)
+        M28Orders.IssueTrackedAttack(oUnit, oTarget, false, 'LandBandAtk', oUnit[M28UnitInfo.refbLowerPriorityMicroActive])
+        if bLandExperimental then RecordAttackingExperimental(tLZTeamData, oUnit) end
         return true
     end
 
@@ -5118,8 +5177,8 @@ local function TryMaintainLandExperimentalRange(tLZTeamData, oUnit, oTarget, bSu
     local bMovePositionPathable = iCurrentPathingLabel and NavUtils.GetLabel(sPathingType, tMovePosition) == iCurrentPathingLabel
     if not(bMovePositionPathable) then return false end
 
-    M28Orders.IssueTrackedMove(oUnit, tMovePosition, 4, false, sOrderRef, false)
-    RecordAttackingExperimental(tLZTeamData, oUnit)
+    M28Orders.IssueTrackedMove(oUnit, tMovePosition, 4, false, sOrderRef, oUnit[M28UnitInfo.refbLowerPriorityMicroActive])
+    if bLandExperimental then RecordAttackingExperimental(tLZTeamData, oUnit) end
     return true
 end
 
@@ -5139,7 +5198,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
         end
     end
 
-    function ProceedWithUnitOrder(oUnit, bWeOutrangeEnemy, bAllowExperimentalRangeControl, oExperimentalTarget, bExperimentalSuicideMode)
+    function ProceedWithUnitOrder(oUnit, bWeOutrangeEnemy, bAllowPredictiveRangeControl, oRangeControlFallbackTarget, bExperimentalSuicideMode)
+        if bAllowPredictiveRangeControl and TryMaintainLandUnitRange(tLZTeamData, oUnit, oRangeControlFallbackTarget, bExperimentalSuicideMode, bWeOutrangeEnemy) then return false end
         if bDelayOrdersForHover and EntityCategoryContains(categories.HOVER, oUnit.UnitId) then
             if bWeOutrangeEnemy then
                 if GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiTimeOfLastHoverLandCombatOrder] or -10) <= 6 then
@@ -5152,7 +5212,6 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
             end
             oUnit[M28UnitInfo.refiTimeOfLastHoverLandCombatOrder] = GetGameTimeSeconds()
         end
-        if bAllowExperimentalRangeControl and TryMaintainLandExperimentalRange(tLZTeamData, oUnit, oExperimentalTarget, bExperimentalSuicideMode) then return false end
         return true
     end
     local iCurTime = math.floor(GetGameTimeSeconds())
@@ -8714,8 +8773,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                             local iDistToClosestEnemy = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]:GetPosition())
                                                             if iDistToClosestEnemy - oUnit[M28UnitInfo.refiDFRange] >= -1.5 and iDistToClosestEnemy - oUnit[M28UnitInfo.refiDFRange] <= 2 then
                                                                 --Get where enemy will move towards
-                                                                local iVelocityX, iVelocityY, iVelocityZ = oUnit:GetVelocity()
-                                                                local tCurEnemyPosition = oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]:GetPosition()
+                                                                local oClosestEnemy = oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]
+                                                                local iVelocityX, iVelocityY, iVelocityZ = oClosestEnemy:GetVelocity()
+                                                                local tCurEnemyPosition = oClosestEnemy:GetPosition()
                                                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iDistToClosestEnemy='..iDistToClosestEnemy..'; Dist to position based on enemy movement='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), {tCurEnemyPosition[1]+iVelocityX, tCurEnemyPosition[2], tCurEnemyPosition[3] + iVelocityZ})) end
                                                                 if iDistToClosestEnemy <= M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), {tCurEnemyPosition[1]+iVelocityX, tCurEnemyPosition[2], tCurEnemyPosition[3] + iVelocityZ}) then
                                                                     bStillAttack = true
@@ -12971,7 +13031,7 @@ function IsLandCombatIntentLocked(oUnit, iPlateau, iLandZone)
 
     local iTeam = oUnit:GetAIBrain().M28Team
     local tCurrentLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][iTeam]
-    if tCurrentLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] then
+    if tCurrentLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or tCurrentLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] then
         ClearLandCombatIntent(oUnit)
         return false
     end
@@ -14029,6 +14089,7 @@ function ManageAllLandZones(aiBrain, iTeam, bIgnoreMinorPlateaus, iCurMinorPlate
     tLZRefreshCountByTeam[iTeam] = iCurRefreshCount
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return iCurTicksWaited
 end
 
 function LandZoneOverseer(iTeam)
@@ -14071,9 +14132,9 @@ function LandZoneOverseer(iTeam)
             iMinorCycleCount = iMinorCycleCount + 1
             if iMinorCycleCount > 10 then iMinorCycleCount = 1 end
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will call logic to refresh every unit in a land zone, iMinorCycleCount='..iMinorCycleCount) end
-            ManageAllLandZones(aiBrain, iTeam, (GetGameTimeSeconds() <= 10 or M28Map.iPlateauCount <= 2000), iMinorCycleCount)
+            local iTicksWaitedDuringLandPass = ManageAllLandZones(aiBrain, iTeam, (GetGameTimeSeconds() <= 10 or M28Map.iPlateauCount <= 2000), iMinorCycleCount) or 0
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-            WaitTicks(iTicksPerLandCycle)
+            WaitTicks(math.max(1, iTicksPerLandCycle - iTicksWaitedDuringLandPass))
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
             if aiBrain.M28IsDefeated and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]) == false then
                 aiBrain = M28Team.GetFirstActiveM28Brain(iTeam)
