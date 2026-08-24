@@ -1608,13 +1608,19 @@ function OnBombFired(oWeapon, projectile, bIgnoreProjectileCheck)
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will try and dodge the bomb fired by unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
                     M28Micro.DodgeBomb(oUnit, oWeapon, projectile)
                 end
+                local bHandledUnifiedStrike = false
+                if not(EntityCategoryContains(M28UnitInfo.refCategoryTorpBomber, sUnitID)) then
+                    bHandledUnifiedStrike = M28Air.HandleStrikeAircraftWeaponFired(oUnit)
+                    if bHandledUnifiedStrike then M28Micro.FriendlyGunshipsAvoidBomb(oUnit, oWeapon, projectile) end
+                end
                 --Logic relating to the bomber itself:
-                if not(oUnit.Dead) then
+                if not(bHandledUnifiedStrike) and not(oUnit.Dead) then
                     --Ahwassa and strats - micro the bomber so they turn around and retreat to rally point/nearest base, but dont micro the first couple of strats as the enemy is less likely to have T3 AA (and slowing down to micro could cause them to die to flak)
                     if EntityCategoryContains(categories.EXPERIMENTAL + M28UnitInfo.refCategoryBomber, sUnitID) and ((not(oUnit[M28UnitInfo.refbSpecialMicroActive]) and not(oUnit[M28Air.rebEarlyBomberTargetBase]) and not(oUnit[M28Air.refiBomberTargetNavalEngiWZ])) or not(EntityCategoryContains(categories.TECH1, sUnitID))) then
                         --bombers - micro to turn around and go to rally point
                         if oUnit:GetAIBrain().M28AI then
-                            local oTargetUnit = oUnit[M28Orders.reftiLastOrders][M28Orders.subrefoOrderUnitTarget]
+                            local tLastOrder = oUnit[M28Orders.reftiLastOrders] and oUnit[M28Orders.reftiLastOrders][oUnit[M28Orders.refiOrderCount] or 1]
+                            local oTargetUnit = tLastOrder and tLastOrder[M28Orders.subrefoOrderUnitTarget]
                             if M28UnitInfo.IsUnitValid(oUnit) then
                                 oUnit[M28UnitInfo.refiBombMissedCount] = ( oUnit[M28UnitInfo.refiBombMissedCount] or 0) + 1
                             end
@@ -1633,7 +1639,7 @@ function OnBombFired(oWeapon, projectile, bIgnoreProjectileCheck)
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Do nothing as naval engi bomber') end
                                 else
                                     --Track exp bombs fired (relevant for when trying to use our aoe to hit mobile targets safely)
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': will get bomber to head towards rally point, bomber='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Bomber position='..repru(oUnit:GetPosition())..'; Rally point='..repru(M28Team.tAirSubteamData[oUnit:GetAIBrain().M28AirSubteam][M28Team.reftAirSubRallyPoint])..'; Dist to rally point='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), M28Team.tAirSubteamData[oUnit:GetAIBrain().M28AirSubteam][M28Team.reftAirSubRallyPoint])..'; Angle from bomber to rally='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), M28Team.tAirSubteamData[oUnit:GetAIBrain().M28AirSubteam][M28Team.reftAirSubRallyPoint])..'; Angle from bomber to its owners start position='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), M28Map.GetPlayerStartPosition(oUnit:GetAIBrain()))..'; oTargetUnit='..(oTargetUnit.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oTargetUnit) or 'nil')) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': will get specialized bomber to head towards rally point, bomber='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Bomber position='..repru(oUnit:GetPosition())..'; Rally point='..repru(M28Team.tAirSubteamData[oUnit:GetAIBrain().M28AirSubteam][M28Team.reftAirSubRallyPoint])..'; Dist to rally point='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), M28Team.tAirSubteamData[oUnit:GetAIBrain().M28AirSubteam][M28Team.reftAirSubRallyPoint])..'; Angle from bomber to rally='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), M28Team.tAirSubteamData[oUnit:GetAIBrain().M28AirSubteam][M28Team.reftAirSubRallyPoint])..'; Angle from bomber to its owners start position='..M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), M28Map.GetPlayerStartPosition(oUnit:GetAIBrain()))..'; oTargetUnit='..(oTargetUnit and oTargetUnit.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oTargetUnit) or 'nil')) end
                                     if M28UnitInfo.IsUnitValid(oTargetUnit) and EntityCategoryContains(categories.EXPERIMENTAL, sUnitID) then
                                         oTargetUnit[M28Air.refiExpBomberShotCount] = (oTargetUnit[M28Air.refiExpBomberShotCount] or 0) + 1
                                     end
@@ -1701,7 +1707,9 @@ function OnWeaponFired(oWeapon)
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by '..oUnit:GetAIBrain().Nickname..' has just fired a shot, Time='..GetGameTimeSeconds()..'; oWeapon[M28UnitInfo.refiLastWeaponEvent]='..(oWeapon[M28UnitInfo.refiLastWeaponEvent] or 'nil')..'; is salvo data nil='..tostring(oUnit.CurrentSalvoData == nil)..'; Unit state='..M28UnitInfo.GetUnitState(oUnit)..'; Is unit state attacking='..tostring(oUnit:IsUnitState('Attacking'))..'; reprs of Weapon salvo data='..reprs(oWeapon.CurrentSalvoData)..'; Weapon blueprint='..reprs((oWeapon.Blueprint or oWeapon.bp))..'; Is rack size highest value='..tostring((oWeapon.CurrentRackSalvoNumber or 0) >= ((oWeapon.Blueprint or oWeapon.bp).RackSalvoSize or 0))..'; Is salvo size highest value='..tostring((oWeapon.CurrentSalvoNumber or 0) >= ((oWeapon.Blueprint or oWeapon.bp).MuzzleSalvoSize or 0))..'; oWeapon.CurrentRackSalvoNumber='..(oWeapon.CurrentRackSalvoNumber or 'nil')..'; (oWeapon.Blueprint or oWeapon.bp).RackSalvoSize='..(oWeapon.Blueprint or oWeapon.bp).RackSalvoSize..';oWeapon.CurrentSalvoNumber='..(oWeapon.CurrentSalvoNumber or 'nil')..'; Muzzle salvo size='..((oWeapon.Blueprint or oWeapon.bp).MuzzleSalvoSize or 0)) end
                     if (oWeapon.CurrentRackSalvoNumber or 0) >= ((oWeapon.Blueprint or oWeapon.bp).RackSalvoSize or 0) and (oWeapon.CurrentSalvoNumber or 0) >= ((oWeapon.Blueprint or oWeapon.bp).MuzzleSalvoSize or 0) then
                         if not(oUnit[M28UnitInfo.refbEasyBrain]) then
-                            ForkThread(M28Micro.TurnAirUnitAndMoveToTarget, oUnit, M28Team.tAirSubteamData[oParentBrain.M28AirSubteam][M28Team.reftAirSubRallyPoint], 25, 1)
+                            if not(M28Air.HandleStrikeAircraftWeaponFired(oUnit)) then
+                                ForkThread(M28Micro.TurnAirUnitAndMoveToTarget, oUnit, M28Team.tAirSubteamData[oParentBrain.M28AirSubteam][M28Team.reftAirSubRallyPoint], 25, 1)
+                            end
                         end
                     end
                 elseif EntityCategoryContains(M28UnitInfo.refCategoryFixedT2Arti, oUnit.UnitId) then
@@ -1709,15 +1717,6 @@ function OnWeaponFired(oWeapon)
                     local iTeam = oParentBrain.M28Team
                     local tLZTeamData = M28Map.tAllPlateaus[oUnit[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][1]][M28Map.subrefPlateauLandZones][oUnit[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2]][M28Map.subrefLZTeamData][iTeam]
                     if tLZTeamData then tLZTeamData[M28Map.refiTimeOurT2ArtiLastFired] = GetGameTimeSeconds() end
-                elseif EntityCategoryContains(M28UnitInfo.refCategoryAirAA, oUnit.UnitId) and not(oUnit[M28UnitInfo.refbSpecialMicroActive]) then
-                    --Micro asfs and inties to hover-fire at slower targets
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by '..oUnit:GetAIBrain().Nickname..' has just fired a shot, Time='..GetGameTimeSeconds()..'; oWeapon[M28UnitInfo.refiLastWeaponEvent]='..(oWeapon[M28UnitInfo.refiLastWeaponEvent] or 'nil')..'; is salvo data nil='..tostring(oUnit.CurrentSalvoData == nil)..'; Unit state='..M28UnitInfo.GetUnitState(oUnit)..'; Is unit state attacking='..tostring(oUnit:IsUnitState('Attacking'))..'; reprs of Weapon salvo data='..reprs(oWeapon.CurrentSalvoData)..'; reprs of weapon='..reprs(oWeapon)..'; Weapon blueprint='..reprs((oWeapon.Blueprint or oWeapon.bp))..'; Is rack size highest value='..tostring((oWeapon.CurrentRackSalvoNumber or 0) >= ((oWeapon.Blueprint or oWeapon.bp).RackSalvoSize or 0))..'; Is salvo size highest value='..tostring((oWeapon.CurrentSalvoNumber or 0) >= ((oWeapon.Blueprint or oWeapon.bp).MuzzleSalvoSize or 0))..'; oWeapon.CurrentRackSalvoNumber='..(oWeapon.CurrentRackSalvoNumber or 'nil')..'; (oWeapon.Blueprint or oWeapon.bp).RackSalvoSize='..(oWeapon.Blueprint or oWeapon.bp).RackSalvoSize..';oWeapon.CurrentSalvoNumber='..(oWeapon.CurrentSalvoNumber or 'nil')..'; Muzzle salvo size='..((oWeapon.Blueprint or oWeapon.bp).MuzzleSalvoSize or 0)) end
-                    if (oWeapon.CurrentRackSalvoNumber or 0) >= ((oWeapon.Blueprint or oWeapon.bp).RackSalvoSize or 0) and (oWeapon.CurrentSalvoNumber or 0) >= ((oWeapon.Blueprint or oWeapon.bp).MuzzleSalvoSize or 0) then
-
-                        if not(oUnit[M28UnitInfo.refbEasyBrain]) and not(oUnit:GetAIBrain()[M28Micro.refiMaxUnitsToHoverMicroAtOnce]) then --If have limit on how many units can hover-micro then want to save for bombers, not waste on 1 asf/intie
-                            ForkThread(M28Micro.ConsiderAirAAHoverAttackTowardsTarget, oUnit, oWeapon)
-                        end
-                    end
                 end
 
 
@@ -3765,9 +3764,9 @@ function OnCreate(oUnit, bIgnoreMapSetup)
                             end
                         end
 
-                        --Penetration fighters - disable airaa micro
+                        --Penetration fighters use direct aggressive-move combat
                         if oUnit.UnitId == 'uea0303' or oUnit.UnitId == 'ura0303' or oUnit.UnitId == 'uaa0303' or oUnit.UnitId == 'xsa0303' then
-                            oUnit[M28Air.refbDisableAirAAAttackMicro] = true
+                            oUnit[M28Air.refbUseAirAAAggressiveMove] = true
                         end
 
                         --Cover units transferred to us or cheated in or presumably that we have captured - will leave outside the OnCreate flag above in case the oncreate variable transfers over when a unit is captured/gifted
