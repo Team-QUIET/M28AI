@@ -1349,11 +1349,17 @@ function GetOverchargeTarget(tLZData, aiBrain, oUnitWithOvercharge, bOnlyConside
     return oOverchargeTarget
 end
 
-function TurnAirUnitAndMoveToTarget(oBomber, tDirectionToMoveTo, iMaxAcceptableAngleDif, iOptionalSecondsToMoveAtEndIfFarFromTarget)
+function TurnAirUnitAndMoveToTarget(oBomber, tDirectionToMoveTo, iMaxAcceptableAngleDif, iOptionalSecondsToMoveAtEndIfFarFromTarget, iOptionalInitialTurnAdjust, bForceMicroOwnership)
     --Based on hoverbomb logic - may give unexpected results if not using with T3 bombers
     local sFunctionRef = 'TurnAirUnitAndMoveToTarget'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMicro, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+    --Own the aircraft before any salvo-completion wait so the air manager cannot retask it mid-release.
+    local bPreTurnLockApplied = false
+    if M28UnitInfo.IsUnitValid(oBomber) and (bForceMicroOwnership or not(oBomber[M28UnitInfo.refbSpecialMicroActive])) then
+        oBomber[M28UnitInfo.refbSpecialMicroActive] = true
+        bPreTurnLockApplied = true
+    end
 
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, oBomber='..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; Does bomber fire salvo='..tostring(M28UnitInfo.DoesBomberFireSalvo(oBomber) or false)..'; GameTime='..GetGameTimeSeconds()) end
     --First delay microing until finished our salvo if dealing with T1-T3 bomber
@@ -1381,7 +1387,8 @@ function TurnAirUnitAndMoveToTarget(oBomber, tDirectionToMoveTo, iMaxAcceptableA
             if aiBrain[refiMaxUnitsToHoverMicroAtOnce] then
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if reached hover micro limit, aiBrain[refiMaxUnitsToHoverMicroAtOnce]='..aiBrain[refiMaxUnitsToHoverMicroAtOnce]..'; aiBrain[refiCurUnitsHoverMicroing]='..aiBrain[refiCurUnitsHoverMicroing]..'; oBomber='..oBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBomber)..'; Time='..GetGameTimeSeconds()) end
                 if aiBrain[refiCurUnitsHoverMicroing] >= aiBrain[refiMaxUnitsToHoverMicroAtOnce] then
-                    M28Orders.IssueTrackedMove(oBomber, tDirectionToMoveTo, 2, false, 'NoMiAirMv', false)
+                    M28Orders.IssueTrackedMove(oBomber, tDirectionToMoveTo, 2, false, 'NoMiAirMv', true)
+                    if bPreTurnLockApplied then TrackTemporaryUnitMicro(oBomber, 3) end
                     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                     return nil
                 else
@@ -1409,6 +1416,7 @@ function TurnAirUnitAndMoveToTarget(oBomber, tDirectionToMoveTo, iMaxAcceptableA
 
             local iCurTick = 0
             local bTriedMovingForwardsAndTurning = false
+            local bUsedOptionalInitialTurnAdjust = false
             local iDistToTarget
             local tTempTarget
 
@@ -1446,6 +1454,10 @@ function TurnAirUnitAndMoveToTarget(oBomber, tDirectionToMoveTo, iMaxAcceptableA
                     if iCurAngleDif < 0 then
                         iAngleAdjustToUse = iAngleAdjust
                     else iAngleAdjustToUse = -iAngleAdjust
+                    end
+                    if not(bUsedOptionalInitialTurnAdjust) and iOptionalInitialTurnAdjust then
+                        iAngleAdjustToUse = iOptionalInitialTurnAdjust
+                        bUsedOptionalInitialTurnAdjust = true
                     end
 
                     --Are we close enough to the direction wanted?
@@ -1491,6 +1503,9 @@ function TurnAirUnitAndMoveToTarget(oBomber, tDirectionToMoveTo, iMaxAcceptableA
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Turning off special micro2') end
                 oBomber[M28UnitInfo.refiGameTimeToResetMicroActive] = GetGameTimeSeconds()
             end
+        elseif bPreTurnLockApplied then
+            oBomber[M28UnitInfo.refbSpecialMicroActive] = false
+            oBomber[M28UnitInfo.refiGameTimeToResetMicroActive] = GetGameTimeSeconds()
         end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)

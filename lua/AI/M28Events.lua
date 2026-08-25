@@ -2685,8 +2685,6 @@ function OnConstructed(oEngineer, oJustBuilt)
                         --Transport specific - tell the factory that just built the transport to build something else
                         if EntityCategoryContains(M28UnitInfo.refCategoryTransport, oJustBuilt.UnitId) and EntityCategoryContains(M28UnitInfo.refCategoryAirFactory * categories.TECH1, oEngineer.UnitId) then
                             oEngineer[M28Factory.refbWantNextUnitToBeEngineer] = true
-                        elseif EntityCategoryContains(M28UnitInfo.refCategoryBomber * categories.TECH3, oJustBuilt.UnitId) and not(oJustBuilt[M28Air.refbBomberUsingMexHunterLogic]) then
-                            ForkThread(M28Air.ApplyMexHuntingLogicToBomber, oJustBuilt)
                         end
 
                         local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oJustBuilt:GetPosition())
@@ -3899,10 +3897,6 @@ function OnCreate(oUnit, bIgnoreMapSetup)
                                 if EntityCategoryContains(categories.COMMAND, oUnit.UnitId) and oUnit:GetAIBrain().CampaignAI and (not(M28UnitInfo.IsUnitValid(oUnit:GetAIBrain()[M28ACU.refoPrimaryACU])) or not(EntityCategoryContains(categories.COMMAND, oUnit:GetAIBrain()[M28ACU.refoPrimaryACU]))) then
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will run ACU thread for this unit') end
                                     ForkThread(M28ACU.ManageACU, oUnit:GetAIBrain(), oUnit)
-                                end
-                            elseif EntityCategoryContains(M28UnitInfo.refCategoryBomber * categories.TECH3, oUnit.UnitId) then
-                                if M28UnitInfo.GetUnitLifetimeCount(oUnit) == 1 and not(oUnit[M28Air.refbBomberUsingMexHunterLogic]) then
-                                    ForkThread(M28Air.ApplyMexHuntingLogicToBomber, oUnit)
                                 end
                             elseif EntityCategoryContains(M28UnitInfo.refCategoryPower, oUnit.UnitId) then --In LOUD t2 pgen upgrades to t3 are as efficient as t3 pgens
                                 local sUpgrade = oUnit:GetBlueprint().General.UpgradesTo
