@@ -13300,7 +13300,9 @@ function ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
                     end
                 end
                 if oUnit:GetFractionComplete() >= 1 then
-                    if EntityCategoryContains(categories.MOBILE - M28UnitInfo.refCategoryScathis, oUnit.UnitId) then
+                    if EntityCategoryContains(M28UnitInfo.refCategoryAllAir - M28UnitInfo.refCategoryEngineer, oUnit.UnitId) then
+                        -- Aircraft can finish between zone refreshes; their orders belong to the air manager.
+                    elseif EntityCategoryContains(categories.MOBILE - M28UnitInfo.refCategoryScathis, oUnit.UnitId) then
                         if EntityCategoryContains(M28UnitInfo.refCategoryEngineer, oUnit.UnitId) then
                             table.insert(tEngineers, oUnit)
                             bLandZoneOrAdjHasUnitsWantingScout = true
