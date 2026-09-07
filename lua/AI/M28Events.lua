@@ -10,6 +10,7 @@ local M28UnitInfo = import('/mods/M28AI/lua/AI/M28UnitInfo.lua')
 local M28Utilities = import('/mods/M28AI/lua/AI/M28Utilities.lua')
 local M28Economy = import('/mods/M28AI/lua/AI/M28Economy.lua')
 local M28Profiler = import('/mods/M28AI/lua/AI/M28Profiler.lua')
+local M28Diagnostics = import('/mods/M28AI/lua/AI/M28Diagnostics.lua')
 local M28ACU = import('/mods/M28AI/lua/AI/M28ACU.lua')
 local M28Engineer = import('/mods/M28AI/lua/AI/M28Engineer.lua')
 local M28Team = import('/mods/M28AI/lua/AI/M28Team.lua')
@@ -370,6 +371,18 @@ function OnKilled(oUnitKilled, instigator, type, overkillRatio)
 
         if not(oUnitKilled[refbAlreadyRunUnitKilled]) then
             oUnitKilled[refbAlreadyRunUnitKilled] = true
+
+            if M28Diagnostics.Enabled('Events') and EntityCategoryContains(categories.LAND * categories.MOBILE, oUnitKilled.UnitId) then
+                local aiVictim = GetEntityBrain(oUnitKilled)
+                if aiVictim and aiVictim.M28AI then
+                    local oKiller = GetInstigatorOwner(instigator)
+                    local sKiller = oKiller and oKiller.UnitId
+                    local bT3PD = sKiller and EntityCategoryContains(M28UnitInfo.refCategoryPD * categories.TECH3, sKiller) or false
+                    local bp = __blueprints[oUnitKilled.UnitId]
+                    local iMass = oUnitKilled[M28UnitInfo.refiUnitMassCost] or (bp and bp.Economy.BuildCostMass) or 0
+                    M28Diagnostics.CountLandLoss(aiVictim:GetArmyIndex(), iMass, bT3PD, not(sKiller))
+                end
+            end
 
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oUnitKilled='..oUnitKilled.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitKilled)..'; GameTime='..GetGameTimeSeconds()) end
             if oUnitKilled.GetAIBrain then

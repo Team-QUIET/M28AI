@@ -10,6 +10,7 @@ local M28Map = import('/mods/M28AI/lua/AI/M28Map.lua')
 local M28Overseer = import('/mods/M28AI/lua/AI/M28Overseer.lua')
 local M28Orders = import('/mods/M28AI/lua/AI/M28Orders.lua')
 local M28Profiler = import('/mods/M28AI/lua/AI/M28Profiler.lua')
+local M28Diagnostics = import('/mods/M28AI/lua/AI/M28Diagnostics.lua')
 local M28Conditions = import('/mods/M28AI/lua/AI/M28Conditions.lua')
 local M28Team = import('/mods/M28AI/lua/AI/M28Team.lua')
 local M28Engineer = import('/mods/M28AI/lua/AI/M28Engineer.lua')
@@ -3768,6 +3769,10 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             end
             if sBPIDToBuild then
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': After adjusting for overrides still have blueprint to build='..sBPIDToBuild) end
+                if M28Diagnostics.ShouldLog('Factory', aiBrain:GetArmyIndex(), 'choice:'..oFactory.EntityId) then
+                    M28Diagnostics.Record('Factory', aiBrain:GetArmyIndex(), 'choice:'..oFactory.EntityId, 'land-blueprint-selected',
+                        {blueprint = sBPIDToBuild, condition = iCurrentConditionToTry, tech = iFactoryTechLevel, plateau = iPlateau, zone = iLandZone})
+                end
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd) --Assumes we will end code if we get to this point
                 return sBPIDToBuild
             elseif bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dont have a blueprint to build')
@@ -10966,6 +10971,13 @@ function RegisterCompletedFactoryBuild(oFactory, sBlueprint)
     end
     oFactory[refiBuildCountByBlueprint][sBlueprint] = (oFactory[refiBuildCountByBlueprint][sBlueprint] or 0) + 1
     oFactory[refsLastBlueprintBuilt] = sBlueprint
+    if M28Diagnostics.Enabled('Factory') then
+        local iArmy = oFactory:GetAIBrain():GetArmyIndex()
+        if M28Diagnostics.ShouldLog('Factory', iArmy, 'completed:'..oFactory.EntityId) then
+            M28Diagnostics.Record('Factory', iArmy, 'completed:'..oFactory.EntityId, 'factory-unit-completed',
+                {blueprint = sBlueprint, factory = oFactory.UnitId, blueprint_completed = oFactory[refiBuildCountByBlueprint][sBlueprint]})
+        end
+    end
     ConsumeFactoryBuildPlanEntry(oFactory, sBlueprint)
     ApplyPendingAirQueuePriority(oFactory)
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Registered completed build '..(sBlueprint or 'nil')..' for factory '..(oFactory.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oFactory) or 'nil')) end

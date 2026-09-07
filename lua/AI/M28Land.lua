@@ -8,6 +8,7 @@ local M28Utilities = import('/mods/M28AI/lua/AI/M28Utilities.lua')
 local M28Map = import('/mods/M28AI/lua/AI/M28Map.lua')
 local NavUtils = M28Utilities.NavUtils
 local M28Profiler = import('/mods/M28AI/lua/AI/M28Profiler.lua')
+local M28Diagnostics = import('/mods/M28AI/lua/AI/M28Diagnostics.lua')
 local M28Conditions = import('/mods/M28AI/lua/AI/M28Conditions.lua')
 --local M28Overseer = import('/mods/M28AI/lua/AI/M28Overseer.lua')
 local M28Team = import('/mods/M28AI/lua/AI/M28Team.lua')
@@ -178,11 +179,23 @@ function ShouldHaveBaselineZonePressure(tLZData, tLZTeamData, iPlateau, iLandZon
     local sFunctionRef = 'ShouldHaveBaselineZonePressure'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLand, sFunctionRef)
     
+    local function Finish(bAllowed, sReason)
+        local iArmy = tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]
+        if M28Diagnostics.ShouldLog('Land', iArmy, 'baseline:'..iPlateau..':'..iLandZone) then
+            M28Diagnostics.Record('Land', iArmy, 'baseline:'..iPlateau..':'..iLandZone, sReason,
+                {allowed = bAllowed, mexes = tLZData[M28Map.subrefLZOrWZMexCount] or 0,
+                 distance_fraction = tLZTeamData[M28Map.refiModDistancePercent] or 0,
+                 current_df = tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0,
+                 wanted_df = tLZTeamData[M28Map.subrefLZDFThreatWanted] or 0,
+                 x = tLZData[M28Map.subrefMidpoint][1], z = tLZData[M28Map.subrefMidpoint][3]})
+        end
+        return bAllowed
+    end
     -- Skip if pacifist area
-    if tLZData[M28Map.subrefbPacifistArea] then return false end
+    if tLZData[M28Map.subrefbPacifistArea] then return Finish(false, 'pacifist-area') end
 
     -- Start early enough that opening armies can choose flank lanes before the center blob forms
-    if GetGameTimeSeconds() < 45 then return false end
+    if GetGameTimeSeconds() < 45 then return Finish(false, 'opening-too-early') end
 
     local iZoneValue = tLZTeamData[M28Map.subrefLZTValue] or 0
     local iZoneStructureValue = tLZTeamData[M28Map.subrefLZSValue] or 0
@@ -193,7 +206,7 @@ function ShouldHaveBaselineZonePressure(tLZData, tLZTeamData, iPlateau, iLandZon
     local iModDist = tLZTeamData[M28Map.refiModDistancePercent] or 0
 
     -- Zone must be in a forward contestable band of the map (pushing toward enemy)
-    if iModDist < 0.35 or iModDist > 0.9 then return false end
+    if iModDist < 0.35 or iModDist > 0.9 then return Finish(false, 'outside-contestable-band') end
 
     -- Check if we already have enough DF coverage here
     local iCurrentDFThreat = tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0
@@ -205,7 +218,7 @@ function ShouldHaveBaselineZonePressure(tLZData, tLZTeamData, iPlateau, iLandZon
         local iTech = M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] or 1
         iCoverageThreshold = 200 * iTech
     end
-    if iCurrentDFThreat >= iCoverageThreshold then return false end
+    if iCurrentDFThreat >= iCoverageThreshold then return Finish(false, 'already-covered') end
     
     -- This zone has NO friendly units - check if it's on a valid lane
     -- and if it's the FURTHEST FORWARD undefended zone on that lane
@@ -245,7 +258,7 @@ function ShouldHaveBaselineZonePressure(tLZData, tLZTeamData, iPlateau, iLandZon
     end
     
     local bHasContestValue = bHasDirectValue or bHasAdjacentValue or (tLZTeamData[M28Map.subrefLZCoreExpansion] == true)
-    if not(bHasContestValue) then return false end
+    if not(bHasContestValue) then return Finish(false, 'no-contest-value') end
 
     -- Zone is a valid lane if it connects toward both enemy and friendly territory
     local bIsValidLane = bHasAdjZoneCloserToEnemy and bHasAdjZoneCloserToUs
@@ -255,7 +268,7 @@ function ShouldHaveBaselineZonePressure(tLZData, tLZTeamData, iPlateau, iLandZon
         if tLZTeamData[M28Map.subrefLZCoreExpansion] == true then
             bIsValidLane = true
         else
-            return false
+            return Finish(false, 'no-forward-connection')
         end
     end
     
@@ -304,7 +317,7 @@ function ShouldHaveBaselineZonePressure(tLZData, tLZTeamData, iPlateau, iLandZon
     --         end
     --     end
     -- end
-    return bShouldRequestUnits
+    return Finish(bShouldRequestUnits, bIsLeadingEdge and 'leading-edge' or (bIsAnchorZone and 'empty-anchor' or 'forward-presence-exists'))
 end
 
 function GetBaselinePressureThreatFloor(tLZData, tLZTeamData, iTeam)
@@ -6514,6 +6527,16 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
             end
         end
 
+        -- Record engagement state before the retreat check can return.
+        if M28Diagnostics.ShouldLog('Land', tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex], 'combat:'..iPlateau..':'..iLandZone) then
+            M28Diagnostics.Record('Land', tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex], 'combat:'..iPlateau..':'..iLandZone,
+                bRunFromFirebase and 'retreat-from-firebase' or (bRunFromEnemyAir and 'retreat-from-air' or 'evaluate-engagement'),
+                {available = iAvailableCombatUnitThreat, enemy = tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0,
+                 pd = tLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0, firebase_adjust = iFirebaseThreatAdjust or 0,
+                 our_range = tLZTeamData[M28Map.subrefLZAllyBestCombatRange] or 0, pd_range = tLZTeamData[M28Map.subrefLZThreatEnemyBestStructureDFRange] or 0,
+                 aggression = M28UnitInfo.iThreatFactor or 1, suicide_override = bSuicideIntoFatboyOrACU or false, baseline = tLZTeamData[M28Map.subrefbLZBaselinePressure] or false,
+                 x = tLZData[M28Map.subrefMidpoint][1], z = tLZData[M28Map.subrefMidpoint][3]})
+        end
         --If enemy has units in this or adjacent LZ, then decide what to do
         if (tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentWZ]) and (bSuicideIntoFatboyOrACU or not(bRunFromFirebase) and not(bRunFromEnemyAir)) then
             local tFriendlyNearbyExperimentals --used lateron if we want to assess if there is negligible neemy threat

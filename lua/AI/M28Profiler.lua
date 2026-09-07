@@ -5,6 +5,7 @@
 ---
 local M28Config = import('/mods/M28AI/lua/M28Config.lua')
 local M28Utilities = import('/mods/M28AI/lua/AI/M28Utilities.lua')
+local M28Diagnostics = import('/mods/M28AI/lua/AI/M28Diagnostics.lua')
 
 
 --Profiling variables
@@ -113,6 +114,23 @@ local tsDebugConfigSuffixByChannel = {
 local tDebugLastFunctionWindow = {}
 local tDebugLastMessageWindow = {}
 local tDebugLastDecisionState = {}
+local tDebugMessageKeys = {}
+local iDebugMessageSlot = 1
+local tDebugFunctionKeys = {}
+local iDebugFunctionSlot = 1
+local tDebugDecisionKeys = {}
+local iDebugDecisionSlot = 1
+
+local function RememberDebugValue(tValues, tKeys, iSlot, sKey, vValue)
+    if tValues[sKey] == nil then
+        if tKeys[iSlot] then tValues[tKeys[iSlot]] = nil end
+        tKeys[iSlot] = sKey
+        iSlot = iSlot + 1
+        if iSlot > 1024 then iSlot = 1 end --FA's LuaPlus parser has no % operator.
+    end
+    tValues[sKey] = vValue
+    return iSlot
+end
 
 local function GetDebugChannelSuffix(sDebugChannel)
     return tsDebugConfigSuffixByChannel[sDebugChannel] or sDebugChannel
@@ -139,6 +157,9 @@ function GetDebugControl(sDebugChannel, sFunctionRef, iOptionalMinInterval, bFor
     local iCurTime = GetGameTimeSeconds()
     local iInterval = iOptionalMinInterval or GetDebugChannelInterval(sDebugChannel)
     local sFunctionKey = (sDebugChannel or 'Unknown')..'|'..(sFunctionRef or 'Unknown')
+    if not(bForceDebug) and iCurTime - (tDebugLastFunctionWindow[sFunctionKey] or -100) < iInterval then
+        return false, nil --Do not allocate a context for a suppressed pass.
+    end
     local tDebugContext = {
         sDebugChannel = sDebugChannel,
         sFunctionRef = sFunctionRef,
@@ -148,10 +169,7 @@ function GetDebugControl(sDebugChannel, sFunctionRef, iOptionalMinInterval, bFor
         iLineCount = 0,
     }
 
-    if not(bForceDebug) and iCurTime - (tDebugLastFunctionWindow[sFunctionKey] or -100) < iInterval then
-        return false, tDebugContext
-    end
-    tDebugLastFunctionWindow[sFunctionKey] = iCurTime
+    iDebugFunctionSlot = RememberDebugValue(tDebugLastFunctionWindow, tDebugFunctionKeys, iDebugFunctionSlot, sFunctionKey, iCurTime)
     return true, tDebugContext
 end
 
@@ -165,7 +183,8 @@ function DebugLog(tDebugContext, sMessage, bBypassRepeatWindow)
         return
     end
 
-    tDebugLastMessageWindow[sMessageKey] = iCurTime
+    -- Messages often embed time/position and never repeat; retain only 1024 keys.
+    iDebugMessageSlot = RememberDebugValue(tDebugLastMessageWindow, tDebugMessageKeys, iDebugMessageSlot, sMessageKey, iCurTime)
     tDebugContext.iLineCount = tDebugContext.iLineCount + 1
     LOG(sMessage)
 end
@@ -176,7 +195,7 @@ function DebugDecision(tDebugContext, sDecisionRef, vState, sOptionalDetails)
     local sDecisionKey = (tDebugContext.sFunctionKey or 'Unknown')..'|'..sDecisionRef
     local sState = tostring(vState)
     local bStateChanged = tDebugLastDecisionState[sDecisionKey] ~= sState
-    tDebugLastDecisionState[sDecisionKey] = sState
+    iDebugDecisionSlot = RememberDebugValue(tDebugLastDecisionState, tDebugDecisionKeys, iDebugDecisionSlot, sDecisionKey, sState)
 
     local sMessage = (tDebugContext.sFunctionRef or 'Unknown')..': '..sDecisionRef..'='..sState
     if sOptionalDetails then
@@ -192,6 +211,7 @@ function IncrementPerformanceCounter(sCounterRef, iAmount)
 end
 
 local function ConsumePerformanceCounterSummary()
+    M28Diagnostics.FlushLosses()
     local sSummary = ''
     for iCounter, sCounterRef in tsPerformanceCounterRefs do
         if iCounter > 1 then sSummary = sSummary..',' end

@@ -61,6 +61,7 @@ local M28Engineer = import('/mods/M28AI/lua/AI/M28Engineer.lua')
 local M28Config = import('/mods/M28AI/lua/M28Config.lua')
 local M28Map = import('/mods/M28AI/lua/AI/M28Map.lua')
 local M28Profiler = import('/mods/M28AI/lua/AI/M28Profiler.lua')
+local M28Diagnostics = import('/mods/M28AI/lua/AI/M28Diagnostics.lua')
 local M28Team = import('/mods/M28AI/lua/AI/M28Team.lua')
 local M28Air = import('/mods/M28AI/lua/AI/M28Air.lua')
 
@@ -751,6 +752,14 @@ function IssueTrackedFactoryBuild(oUnit, sOrderBlueprint, bAddToExistingQueue, s
             table.insert(oUnit[reftiLastOrders], {[subrefiOrderType] = refiOrderIssueFactoryBuild, [subrefsOrderBlueprint] = sOrderBlueprint})
             IssueBuildFactory({ oUnit }, sOrderBlueprint, 1)
             M28Factory.UpdateLastOrderedTracker(oUnit, sOrderBlueprint)
+            if M28Diagnostics.Enabled('Factory') then
+                local iArmy = oUnit:GetAIBrain():GetArmyIndex()
+                if M28Diagnostics.ShouldLog('Factory', iArmy, 'order:'..oUnit.EntityId) then
+                    local tPosition = oUnit:GetPosition()
+                    M28Diagnostics.Record('Factory', iArmy, 'order:'..oUnit.EntityId, 'factory-order-issued',
+                        {factory = oUnit.UnitId, blueprint = sOrderBlueprint, append = bAddToExistingQueue or false, x = tPosition[1], z = tPosition[3]})
+                end
+            end
 
         end
         if M28Config.M28ShowUnitNames then UpdateUnitNameForOrder(oUnit, sOptionalOrderDesc) end

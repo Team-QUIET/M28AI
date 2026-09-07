@@ -9,6 +9,7 @@ local M28Economy = import('/mods/M28AI/lua/AI/M28Economy.lua')
 local M28Map = import('/mods/M28AI/lua/AI/M28Map.lua')
 local M28Orders = import('/mods/M28AI/lua/AI/M28Orders.lua')
 local M28Profiler = import('/mods/M28AI/lua/AI/M28Profiler.lua')
+local M28Diagnostics = import('/mods/M28AI/lua/AI/M28Diagnostics.lua')
 local M28Factory = import('/mods/M28AI/lua/AI/M28Factory.lua')
 local M28Conditions = import('/mods/M28AI/lua/AI/M28Conditions.lua')
 local M28Overseer = import('/mods/M28AI/lua/AI/M28Overseer.lua')
@@ -6244,6 +6245,16 @@ function TrackQueuedBuilding(oEngineer, sBuildingID, tBuildLocation)
 
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code at time='..GetGameTimeSeconds()..'; oEngineer='..(oEngineer.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oEngineer) or 'nil')..'; sBuildingID='..(sBuildingID or 'nil')..'; tBuildLocation='..repru(tBuildLocation)..'; iCurQueueRefNumber='..iCurQueueRefNumber) end
 
+    if M28Diagnostics.Enabled('Engineer') or M28Diagnostics.Enabled('AA') or M28Diagnostics.Enabled('Gateway') then
+        local iArmy = oEngineer:GetAIBrain():GetArmyIndex()
+        local sChannel = 'Engineer'
+        if EntityCategoryContains(M28UnitInfo.refCategoryStructureAA, sBuildingID) then sChannel = 'AA'
+        elseif EntityCategoryContains(M28UnitInfo.refCategoryQuantumGateway, sBuildingID) then sChannel = 'Gateway' end
+        if M28Diagnostics.ShouldLog(sChannel, iArmy, 'order:'..oEngineer.EntityId) then
+            M28Diagnostics.Record(sChannel, iArmy, 'order:'..oEngineer.EntityId, 'build-order-issued',
+                {blueprint = sBuildingID, x = tBuildLocation[1], z = tBuildLocation[3], action = oEngineer[refiAssignedAction] or 0})
+        end
+    end
     local iPlateauOrZero, iLandOrWaterZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(tBuildLocation)
 
     if iPlateauOrZero > 0 then

@@ -23,6 +23,13 @@ M28DebugFunctionCalls = false --Separate from normal debug so profiling traces d
 
 --Centralized debug config
 M28DebugGlobal = false --Enable all channels, still subject to interval and duplicate suppression
+-- Optional decision traces, independent of verbose module debugging.
+M28ReplayDiagnostics = false --Enable temporarily when collecting a test log
+M28ReplayDiagnosticArmy = nil --nil = all M28 armies; otherwise use an army index
+M28ReplayDiagnosticInterval = 10 --Seconds per channel/army/unit or zone identity
+M28ReplayDiagnosticLinesPerSecond = 24
+M28ReplayDiagnosticChannelLinesPerSecond = 6
+M28ReplayDiagnosticChannels = {Factory = true, Budget = true, Engineer = true, Gateway = true, AA = true, Land = true, Events = true}
 M28DebugDefaultInterval = 5 --Seconds between debug-enabled passes of the same function
 M28DebugRepeatInterval = 20 --Seconds before repeating the same exact debug line for the same function
 M28DebugMaxLinesPerFunctionCall = 6 --Stops one debug-enabled pass from dumping every line in the function
@@ -30,6 +37,7 @@ M28DebugFunctions = { --Exact function names to debug without enabling their who
     ConsiderPriorityLandFactoryUpgrades = false,
     ConsiderPriorityAirFactoryUpgrades = false,
     GetSafeAirOrNavalHQUpgrade = false,
+    FindAndUpgradeUnitOfCategory = false,
     UpgradeUnit = false,
     DeferAdmittedFactoryUpgrade = false,
     DecideAndBuildUnitForFactory = false,
