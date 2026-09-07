@@ -4073,6 +4073,7 @@ function AssignAirAATargets(tAvailableAirAA, tEnemyTargets, iTeam, iAirSubteam, 
                 TargetUnitWithAirAA(oClosestUnit, oEnemyUnit, iClosestUnitDist)
             end
             iCurValueAssigned = iCurValueAssigned + M28UnitInfo.GetAirThreatLevel({ oClosestUnit }, false, true, false, true, true, true)
+            tExistingThreatAssignedByUnitRef[oEnemyUnit.EntityId] = iCurValueAssigned
             table.remove(tAvailableAirAA, iClosestAARef)
             if M28Utilities.IsTableEmpty(tAvailableAirAA) then break end
         end
@@ -4117,14 +4118,14 @@ function AssignAirAATargets(tAvailableAirAA, tEnemyTargets, iTeam, iAirSubteam, 
         end
 
         if M28Utilities.IsTableEmpty(tAvailableAirAA) == false and M28Utilities.IsTableEmpty(tEnemyAirAAAndCargoUnits) == false then
-            --Assign more threat to enemy AirAA units since where there's 1 more are likely to follow, and want to overwhelm; dont bother sorting for performacne reasons (as this means we have already assigned air units to every enemy air unit)
+            -- Reinforce fighter targets after covering the other contacts; totals include earlier assignment passes.
             for iUnit, oUnit in tEnemyAirAAAndCargoUnits do
-                iThreatWanted = M28UnitInfo.GetAirThreatLevel({ oUnit }, true, true, false, true, true, true) * 7 --Will reset the cur assigned threat to 0 when calling below funciton, ehnce doing *3 here is in addition to what assigned before
+                iThreatWanted = M28UnitInfo.GetAirThreatLevel({ oUnit }, true, true, false, true, true, true) * 7
                 ConsiderAttackingUnit(oUnit, iThreatWanted)
             end
             if M28Utilities.IsTableEmpty(tAvailableAirAA) == false and table.getn(tEnemyAirAAAndCargoUnits) >= 5 then
                 for iUnit, oUnit in tEnemyAirAAAndCargoUnits do
-                    iThreatWanted = M28UnitInfo.GetAirThreatLevel({ oUnit }, true, true, false, true, true, true) * 16 --Will reset the cur assigned threat to 0 when calling below funciton, ehnce doing *3 here is in addition to what assigned before
+                    iThreatWanted = M28UnitInfo.GetAirThreatLevel({ oUnit }, true, true, false, true, true, true) * 16
                     ConsiderAttackingUnit(oUnit, iThreatWanted)
                 end
             end
@@ -4780,6 +4781,24 @@ function AddEnemyAirUnitsAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWater
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+function IsAttackAirApproachingProtectedUnit(oEnemy, oProtectedUnit)
+    if not(M28UnitInfo.IsUnitValid(oEnemy)) or oEnemy:IsUnitState('Attached')
+            or not(EntityCategoryContains(M28UnitInfo.refCategoryBomber + M28UnitInfo.refCategoryGunship, oEnemy.UnitId))
+            or not(M28UnitInfo.CanSeeUnit(oProtectedUnit:GetAIBrain(), oEnemy)) then return false end
+    local tEnemy, tProtected = oEnemy:GetPosition(), oProtectedUnit:GetPosition()
+    local iX, iZ = tEnemy[1] - tProtected[1], tEnemy[3] - tProtected[3]
+    if iX * iX + iZ * iZ <= 90 * 90 then return true end
+    local iVX, _, iVZ = oEnemy:GetVelocity()
+    iVX, iVZ = (iVX or 0) * 10, (iVZ or 0) * 10
+    local iSpeedSquared = iVX * iVX + iVZ * iVZ
+    local iClosing = -(iX * iVX + iZ * iVZ)
+    if iSpeedSquared < 4 or iClosing <= 0 then return false end
+    local iTime = math.min(12, iClosing / iSpeedSquared)
+    iX, iZ = iX + iVX * iTime, iZ + iVZ * iTime
+    local iStrikeRadius = math.min(120, math.max(65, (oEnemy[M28UnitInfo.refiBomberRange] or 0) + 20))
+    return iX * iX + iZ * iZ <= iStrikeRadius * iStrikeRadius
+end
+
 function ManageAirAAUnits(iTeam, iAirSubteam)
     local sFunctionRef = 'ManageAirAAUnits'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
@@ -4927,7 +4946,7 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
     local tExistingThreatAssignedByUnitRef = {}
     if M28Utilities.IsTableEmpty(tInCombatUnits) == false then
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to update orders for all incombat units, iTeam='..iTeam..'; iAirSubteam='..iAirSubteam..'; Time='..GetGameTimeSeconds()) end
-        tExistingThreatAssignedByUnitRef = UpdateOrdersForExistingAirAATargets(tInCombatUnits, not(M28Utilities.IsTableEmpty(tAvailableAirAA)))
+        tExistingThreatAssignedByUnitRef = UpdateOrdersForExistingAirAATargets(tInCombatUnits, true)
     end
     M28Team.tAirSubteamData[iAirSubteam][M28Team.refbNoAirAAForCoreEnemies] = true
     if M28Utilities.IsTableEmpty(tAvailableAirAA) == false or M28Utilities.IsTableEmpty(tInCombatUnits) == false then
@@ -5305,7 +5324,7 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
         if M28Conditions.IsTableOfUnitsStillValid(M28Team.tTeamData[iTeam][M28Team.toBomberSuicideTargets]) then
             AssignASFsToEnemyStrats(tAvailableAirAA, iTeam, iAirSubteam)
         end
-        if M28Utilities.IsTableEmpty(tAvailableAirAA) == false then
+        if M28Utilities.IsTableEmpty(tAvailableAirAA) == false or M28Utilities.IsTableEmpty(tInCombatUnits) == false then
 
 
             --First search for air near priority defence targets - look for enemies near priority defensive targets and core bases
@@ -5368,7 +5387,11 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                 return M28UnitInfo.IsUnitValid(oUnit) and EntityCategoryContains(M28UnitInfo.refCategoryGunship + M28UnitInfo.refCategoryCzar + M28UnitInfo.refCategoryRestorer, oUnit.UnitId)
             end
             local function GetUrgentEscortThreatSearchRadius(oProtectedUnit)
-                if EntityCategoryContains(M28UnitInfo.refCategoryBomber - categories.EXPERIMENTAL, oProtectedUnit.UnitId) then
+                if EntityCategoryContains(categories.COMMAND + M28UnitInfo.refCategoryLandExperimental, oProtectedUnit.UnitId) then
+                    return 280
+                elseif EntityCategoryContains(M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL, oProtectedUnit.UnitId) then
+                    return 175
+                elseif EntityCategoryContains(M28UnitInfo.refCategoryBomber - categories.EXPERIMENTAL, oProtectedUnit.UnitId) then
                     if EntityCategoryContains(categories.TECH3, oProtectedUnit.UnitId) then
                         return 145
                     end
@@ -5431,7 +5454,7 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                 if M28UnitInfo.IsUnitValid(oUnit)
                         and oUnit.EntityId
                         and not(tsProtectedAirUnitRefs[oUnit.EntityId])
-                        and EntityCategoryContains(M28UnitInfo.refCategoryBomber + M28UnitInfo.refCategoryTorpBomber + M28UnitInfo.refCategoryGunship + M28UnitInfo.refCategoryCzar + M28UnitInfo.refCategoryRestorer, oUnit.UnitId) then
+                        and EntityCategoryContains(categories.COMMAND + M28UnitInfo.refCategoryLandExperimental + M28UnitInfo.refCategoryBomber + M28UnitInfo.refCategoryTorpBomber + M28UnitInfo.refCategoryGunship + M28UnitInfo.refCategoryCzar + M28UnitInfo.refCategoryRestorer, oUnit.UnitId) then
                     table.insert(tProtectedAirUnits, oUnit)
                     tsProtectedAirUnitRefs[oUnit.EntityId] = true
                 end
@@ -5448,6 +5471,7 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                 local iThreatRadius = GetUrgentEscortThreatSearchRadius(oProtectedUnit)
                 local iSearchRadius = iThreatRadius + 25
                 local bProtectedGunshipLike = IsUrgentEscortGunshipLikeUnit(oProtectedUnit)
+                local bProtectedGroundUnit = EntityCategoryContains(categories.COMMAND + M28UnitInfo.refCategoryLandExperimental, oProtectedUnit.UnitId)
                 local aiSearchBrain = oProtectedUnit:GetAIBrain() or aiEscortThreatBrain
                 if not(aiSearchBrain) then
                     return tUrgentEnemyAirTargets
@@ -5468,7 +5492,8 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                         tEnemyPos = oEnemyUnit:GetPosition()
                         iCurDist = M28Utilities.GetDistanceBetweenPositions(tProtectedPos, tEnemyPos)
                         bEnemyGunshipLike = IsUrgentEscortGunshipLikeUnit(oEnemyUnit)
-                        if iCurDist <= iThreatRadius or ((oEnemyUnit:IsUnitState('Attacking') or (bProtectedGunshipLike and bEnemyGunshipLike)) and iCurDist <= iSearchRadius) then
+                        local bApproachingGroundUnit = bProtectedGroundUnit and IsAttackAirApproachingProtectedUnit(oEnemyUnit, oProtectedUnit)
+                        if (bProtectedGroundUnit and bApproachingGroundUnit) or (not(bProtectedGroundUnit) and (iCurDist <= iThreatRadius or ((oEnemyUnit:IsUnitState('Attacking') or (bProtectedGunshipLike and bEnemyGunshipLike)) and iCurDist <= iSearchRadius))) then
                             iNearbyMobileHighTechGroundAA = GetUrgentEscortMobileHighTechGroundAAThreat(tEnemyPos)
                             iCurGroundAAThreshold = GetUrgentEscortGroundAAThreatThresholdForProtectedUnit(oProtectedUnit, oEnemyUnit, iCurDist, iThreatRadius)
                             if iNearbyMobileHighTechGroundAA < iCurGroundAAThreshold then
@@ -5527,12 +5552,17 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                 for iAirAA, oAirAA in tInCombatUnits do
                     local oCurrentTarget = M28UnitInfo.IsUnitValid(oAirAA) and oAirAA[refoAirAACurTarget]
                     local bAlreadyEngagingUrgentTarget = M28UnitInfo.IsUnitValid(oCurrentTarget) and oCurrentTarget.EntityId and tsUrgentTargetRefs[oCurrentTarget.EntityId]
+                    local bRetainPriorityTarget = M28UnitInfo.IsUnitValid(oCurrentTarget) and EntityCategoryContains(refCategoryAirAAPriorityRetainedTarget, oCurrentTarget.UnitId)
                     if oAirAA.EntityId and not(tbAvailableAirAARefs[oAirAA.EntityId]) and not(bAlreadyEngagingUrgentTarget)
+                            and not(bRetainPriorityTarget)
                             and IsAirAAOperationalForLocalEscort(iAirSubteam, oAirAA, tProtectedPosition)
                             and M28Utilities.GetDistanceBetweenPositions(oAirAA:GetPosition(), tProtectedPosition) <= iUrgentEscortExtendedFocusDistance then
                         table.insert(tAvailableAirAA, oAirAA)
                         table.insert(tReclaimedAirAA, oAirAA)
                         tbAvailableAirAARefs[oAirAA.EntityId] = true
+                        if M28UnitInfo.IsUnitValid(oCurrentTarget) and oCurrentTarget.EntityId then
+                            tExistingThreatAssignedByUnitRef[oCurrentTarget.EntityId] = math.max(0, (tExistingThreatAssignedByUnitRef[oCurrentTarget.EntityId] or 0) - M28UnitInfo.GetAirThreatLevel({oAirAA}, false, true, false, true, true, true))
+                        end
                     end
                 end
                 return tReclaimedAirAA
@@ -5544,6 +5574,10 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                         if tAvailableAirAA[iAvailable] == oReclaimed then
                             table.remove(tAvailableAirAA, iAvailable)
                             if oReclaimed.EntityId then tbAvailableAirAARefs[oReclaimed.EntityId] = nil end
+                            local oTarget = oReclaimed[refoAirAACurTarget]
+                            if M28UnitInfo.IsUnitValid(oTarget) and oTarget.EntityId then
+                                tExistingThreatAssignedByUnitRef[oTarget.EntityId] = (tExistingThreatAssignedByUnitRef[oTarget.EntityId] or 0) + M28UnitInfo.GetAirThreatLevel({oReclaimed}, false, true, false, true, true, true)
+                            end
                             break
                         end
                     end
