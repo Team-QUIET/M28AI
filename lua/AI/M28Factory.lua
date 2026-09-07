@@ -196,7 +196,12 @@ local function CanRepeatFactoryQueueCombatBlueprint(sBlueprint)
             and not(IsFactoryBuildPlanSupportBlueprint(sBlueprint))
 end
 
-local function IsCombatQueueRefillSuppressed(sBlueprint)
+local function IsCombatQueueRefillSuppressed(sBlueprint, oFactory)
+    if sBlueprint and oFactory and not(M28Map.bIsCampaignMap) and oFactory:GetAIBrain()[M28Map.refbCanPathToEnemyBaseWithLand]
+            and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory * categories.TECH1, oFactory.UnitId)
+            and EntityCategoryContains((M28UnitInfo.refCategoryMobileDFLand - categories.ENGINEER - categories.COMMAND) * categories.TECH1, sBlueprint) then
+        return false
+    end
     return GetGameTimeSeconds() < 210 and CanRepeatFactoryQueueCombatBlueprint(sBlueprint)
 end
 
@@ -3026,6 +3031,28 @@ function ShouldPrioritizeOpeningLandCombat(aiBrain)
     return iEngineers >= 4 and iCombat < iCombatWanted, iEngineers, iCombat
 end
 
+function ShouldReserveLandFactoryForCombat(aiBrain, oFactory, tLZTeamData)
+    if M28Map.bIsCampaignMap or not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]) then return false end
+    if aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer) < 4 then return false end
+    if aiBrain:GetEconomyStoredRatio('ENERGY') < 0.1 and (aiBrain[M28Economy.refiNetEnergyBaseIncome] or 0) < 0 then return false end
+    -- Keep an unstaffed expansion able to build its first worker.
+    if tLZTeamData[M28Map.subrefTbWantBP] and M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryEngineer) == 0 then return false end
+
+    local iFactories, iOtherEngineerFactories = 0, 0
+    for _, oCandidate in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory * categories.TECH1, false, true) do
+        if M28UnitInfo.IsUnitValid(oCandidate) and oCandidate:GetFractionComplete() == 1
+                and not(oCandidate:IsUnitState('Upgrading')) and not(oCandidate:IsPaused()) then
+            iFactories = iFactories + 1
+            if oCandidate ~= oFactory and GetFactoryPendingBuildCountByCategory(oCandidate, M28UnitInfo.refCategoryEngineer) > 0 then
+                iOtherEngineerFactories = iOtherEngineerFactories + 1
+            end
+        end
+    end
+    -- Retain an economy producer as the factory count grows; extra queues supply the army.
+    local iEngineerFactoryLimit = math.max(1, math.ceil(iFactories / 3))
+    return iFactories >= 2 and iOtherEngineerFactories >= iEngineerFactoryLimit, iOtherEngineerFactories, iEngineerFactoryLimit
+end
+
 function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     local sFunctionRef = 'GetBlueprintToBuildForLandFactory'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelFactory, sFunctionRef)
@@ -3751,6 +3778,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     end
     --subfunctions to mean we can do away with the 'current condition == 1, == 2.....==999 type approach making it much easier to add to
     local bOpeningCombatWanted, iOpeningEngineers, iOpeningCombat
+    local bShareCombatWanted, iEngineerFactories, iEngineerFactoryLimit
     function ConsiderBuildingCategory(iCategoryToBuild)
         if iCategoryToBuild == 'Upgrade' then
             if ConsiderUpgrading() then
@@ -3789,13 +3817,15 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             end
             if sBPIDToBuild and iFactoryTechLevel == 1 and EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBPIDToBuild) then
                 if bOpeningCombatWanted == nil then bOpeningCombatWanted, iOpeningEngineers, iOpeningCombat = ShouldPrioritizeOpeningLandCombat(aiBrain) end
-                if bOpeningCombatWanted then
+                if bShareCombatWanted == nil then bShareCombatWanted, iEngineerFactories, iEngineerFactoryLimit = ShouldReserveLandFactoryForCombat(aiBrain, oFactory, tLZTeamData) end
+                if bOpeningCombatWanted or bShareCombatWanted then
                     local sCombatBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, (M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher - categories.ENGINEER - categories.COMMAND) * categories.TECH1, oFactory)
                     if sCombatBlueprint then
+                        -- Normal combat affordability still applies; do not refill surplus queues with workers when it fails.
                         sBPIDToBuild = AdjustBlueprintForOverrides(aiBrain, oFactory, sCombatBlueprint, tLZTeamData, iFactoryTechLevel)
-                        if M28Diagnostics.ShouldLog('Factory', aiBrain:GetArmyIndex(), 'opening:'..oFactory.EntityId) then
-                            M28Diagnostics.Record('Factory', aiBrain:GetArmyIndex(), 'opening:'..oFactory.EntityId, 'opening-combat-balance',
-                                {engineers = iOpeningEngineers, combat = iOpeningCombat, blueprint = sBPIDToBuild})
+                        if sBPIDToBuild and M28Diagnostics.ShouldLog('Factory', aiBrain:GetArmyIndex(), 'mix:'..oFactory.EntityId) then
+                            M28Diagnostics.Record('Factory', aiBrain:GetArmyIndex(), 'mix:'..oFactory.EntityId, bShareCombatWanted and 'combat-factory-share' or 'opening-combat-balance',
+                                {engineers = iOpeningEngineers, combat = iOpeningCombat, engineer_factories = iEngineerFactories, engineer_factory_limit = iEngineerFactoryLimit, blueprint = sBPIDToBuild})
                         end
                     end
                 end
@@ -7512,6 +7542,10 @@ local function GetFactoryBuildPlanRunLength(oFactory, sBlueprint, iRemainingPlan
         end
         return math.min(iRemainingPlanDepth, 2)
     elseif EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBlueprint) then
+        if oFactory:GetAIBrain()[M28Map.refbCanPathToEnemyBaseWithLand]
+                and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory * categories.TECH1, oFactory.UnitId) then
+            return math.min(iRemainingPlanDepth, 2, GetFactoryEngineerQueueRunLength(oFactory, iRemainingPlanDepth))
+        end
         return GetFactoryEngineerQueueRunLength(oFactory, iRemainingPlanDepth)
     elseif EntityCategoryContains(iFactoryAttackAirQueueCategory, sBlueprint) then
         return GetFactoryAttackAirQueueRunLength(oFactory, iRemainingPlanDepth)
@@ -7620,7 +7654,7 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
                 sBPToBuild = nil
             end
         end
-        if IsCombatQueueRefillSuppressed(sBPToBuild) then
+        if IsCombatQueueRefillSuppressed(sBPToBuild, oFactory) then
             if bDebugMessages == true then
                 M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Suppressing queued combat refill before 210s. Factory='..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; CandidateBlueprint='..(sBPToBuild or 'nil')..'; CurrentBuildOrders='..iCurBuildOrders..'; FactoryActivelyBuilding='..tostring(bFactoryActivelyBuilding)..'; PlanLength='..table.getn(tBuildPlan)..'; Time='..GetGameTimeSeconds())
             end
