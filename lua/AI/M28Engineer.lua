@@ -11187,12 +11187,54 @@ function ConsiderEmergencyPDReassignment(oEngiGivenPDOrder, tLZData, tLZMidpoint
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+function CanStartQuantumGateway(aiBrain, tZoneTeamData)
+    -- Allow SACUs needed for missile defence or experimental construction.
+    local iNow = GetGameTimeSeconds()
+    local iSMD = tZoneTeamData[M28Map.subrefiTimeLastWantSACUForSMD]
+    local iExp = tZoneTeamData[M28Map.subrefiTimeLastWantSACUForExp]
+    if iSMD and iNow - iSMD <= 30 then return true, 'smd-builder-required' end
+    if iExp and iNow - iExp <= 30 then return true, 'experimental-builder-required' end
+    if aiBrain[M28Economy.refbBuiltParagon] then return true, 'paragon' end
+    for _, oGate in EntityCategoryFilterDown(M28UnitInfo.refCategoryQuantumGateway, tZoneTeamData[M28Map.subreftoLZOrWZAlliedUnits] or {}) do
+        if not(oGate.Dead) then return true, 'continue-existing-gateway' end
+    end
+    -- M28LifetimeUnitCount includes unfinished units. Require completed combat
+    -- units, then remember the milestone so late losses do not close the gate.
+    if aiBrain.M28T3CombatEstablished then return true, 't3-combat-established', 3 end
+    local iCombatBuilt = 0
+    for _, oUnit in aiBrain:GetListOfUnits(categories.MOBILE * categories.TECH3 * (categories.DIRECTFIRE + categories.INDIRECTFIRE) - M28UnitInfo.refCategoryEngineer, false) do
+        if not(oUnit.Dead) and oUnit:GetFractionComplete() == 1 then
+            iCombatBuilt = iCombatBuilt + 1
+            if iCombatBuilt >= 3 then
+                aiBrain.M28T3CombatEstablished = true
+                return true, 't3-combat-established', iCombatBuilt
+            end
+        end
+    end
+    return false, 'produce-t3-combat-first', iCombatBuilt
+end
+
 function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iCurPriority, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrPond, iLandOrWaterZone, toAvailableEngineersByTech, toAssignedEngineers, bIsWaterZone, iSpecificFactionRequiredOverride, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
     --vOptionalVariable can be a table, nil or a value; used to pass info specific to the action if it needs it
     local sFunctionRef = 'ConsiderActionToAssign'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEngineer, sFunctionRef)
     local bQueuedLandExperimentalReserve = false
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    if iActionToAssign == refActionBuildQuantumGateway then
+        local aiOwner = ArmyBrains[tLZOrWZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
+        if aiOwner then
+            local bAllowed, sReason, iCombatBuilt = CanStartQuantumGateway(aiOwner, tLZOrWZTeamData)
+            if M28Diagnostics.ShouldLog('Gateway', aiOwner:GetArmyIndex(), iPlateauOrPond..':'..iLandOrWaterZone) then
+                M28Diagnostics.Record('Gateway', aiOwner:GetArmyIndex(), iPlateauOrPond..':'..iLandOrWaterZone, sReason,
+                    {allowed = bAllowed, combat_milestone_count = iCombatBuilt or 'not-queried', priority = iCurPriority, bp = iTotalBuildPowerWanted})
+            end
+            if not(bAllowed) then
+                M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                return
+            end
+        end
+    end
 
     if M28Utilities.bLoudModActive and not(bBPIsInAdditionToExisting) and tiActionOrder[iActionToAssign] == M28Orders.refiOrderIssueBuild then iTotalBuildPowerWanted = iTotalBuildPowerWanted * 0.8 end
     if iTotalBuildPowerWanted > 0 and ShouldSuppressReclaimForPower(iActionToAssign, iTeam) then
@@ -15257,7 +15299,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
 
     --Build quantum gateway if using a mod (e.g. LOUD) that requires SACUs to build experimentals, or if we have lots of T3 mexes with high resource mod
     iCurPriority = iCurPriority + 1
-    if (tLZTeamData[M28Map.subrefMexCountByTech][3] >= 2 and tLZTeamData[M28Map.subrefMexCountByTech][2] <= (tLZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) and tLZTeamData[M28Map.subrefMexCountByTech][1] == 0 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 5 * (aiBrain[M28Economy.refiBrainResourceMultiplier] or 1) * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and not(aiBrain:GetArmyIndex() == M28UnitInfo.refFactionSeraphim)) or ((tLZTeamData[M28Map.subrefiTimeLastWantSACUForExp] or tLZTeamData[M28Map.subrefiTimeLastWantSACUForSMD]) and GetGameTimeSeconds() - math.max((tLZTeamData[M28Map.subrefiTimeLastWantSACUForExp] or 0), tLZTeamData[M28Map.subrefiTimeLastWantSACUForSMD] or 0) <= 30 and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false and (not(bHaveLowPower) or M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] >= 3 or (not(bHaveLowMass) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 and tLZTeamData[M28Map.subrefMexCountByTech][3] >= tLZData[M28Map.subrefLZOrWZMexCount]))) then
+    if (tLZTeamData[M28Map.subrefMexCountByTech][3] >= 2 and tLZTeamData[M28Map.subrefMexCountByTech][2] <= (tLZTeamData[M28Map.subrefiActiveMexUpgrades] or 0) and tLZTeamData[M28Map.subrefMexCountByTech][1] == 0 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 5 * (aiBrain[M28Economy.refiBrainResourceMultiplier] or 1) * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and not(aiBrain:GetFactionIndex() == M28UnitInfo.refFactionSeraphim)) or ((tLZTeamData[M28Map.subrefiTimeLastWantSACUForExp] or tLZTeamData[M28Map.subrefiTimeLastWantSACUForSMD]) and GetGameTimeSeconds() - math.max((tLZTeamData[M28Map.subrefiTimeLastWantSACUForExp] or 0), tLZTeamData[M28Map.subrefiTimeLastWantSACUForSMD] or 0) <= 30 and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false and (not(bHaveLowPower) or M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] >= 3 or (not(bHaveLowMass) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 and tLZTeamData[M28Map.subrefMexCountByTech][3] >= tLZData[M28Map.subrefLZOrWZMexCount]))) then
         --Require at least 1 t3 pgen in the zone before starting on quantum gateway unless have very high gross energy
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if we have enough gross E to warrant building a quantum gateway, or if we should get more power first, bWantMorePower='..tostring(bWantMorePower)..'; Gross energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; No. of t3 pgens constructed in zone='..M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryT3Power)) end
         if not(bWantMorePower) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 100 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryT3Power) > 0 then
@@ -15288,7 +15330,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                         end
                     end
                 end
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Building quantum gateway as a high priority so we can get experimentals, oExistingGateway='..(oExistingGateway.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oExistingGateway) or 'nil')) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Building quantum gateway as a high priority so we can get experimentals, oExistingGateway='..(oExistingGateway and oExistingGateway.UnitId or 'nil')..(oExistingGateway and oExistingGateway.M28LifetimeUnitCount or 'nil')) end
                 if not(oExistingGateway) then
                     if M28Utilities.bFAFActive and aiBrain[M28Economy.refiBrainResourceMultiplier] >= 1.5 then --we are building the gateway for the eco not for buildilng experimentals
                         ConsiderBuildingMassFabOrGateway(iTeam, iLandZone, tLZTeamData, HaveActionToAssign, bWantMorePower, 1.5, false)
@@ -20217,7 +20259,7 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
                 elseif M28Utilities.bLoudModActive or M28Utilities.bQuietModActive or M28Team.tTeamData[iTeam][M28Team.refiLowestUnitCapAdjustmentLevel] <= 1 then
                     --HaveActionToAssign(iActionToAssign, iMinTechLevelWanted, iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting)
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want to build land factory as only have 1 factory') end
-                    HaveActionToAssign(refActionBuildQuantumGateway, 3, 100)
+                    HaveActionToAssign(refActionBuildLandFactory, 1, 100)
                 end
             else
                 --Build land experimental if enemy base is pathable by land from here and we have high gross mass, and we have a high % stored or low mod dist

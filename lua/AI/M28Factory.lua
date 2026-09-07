@@ -1123,7 +1123,7 @@ function GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryCondition, oFactor
                             iHighestPriority = -100
                         end
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if sBlueprint has a priority specified if we arent looking for slowest or fastest. sBlueprint='..sBlueprint..'; bGetSlowest='..tostring(bGetSlowest)..'; bGetFastest='..tostring(bGetFastest)..'; bGetCheapest='..tostring((bGetCheapest or false))..'; bGetMostExpensive='..tostring(bGetMostExpensive or false)) end
-                        if not(bGetSlowest) and not(bGetFastest) and not(bGetCheapest) and not(bGetMostExpensive) and (aiBrain[reftBlueprintPriorityOverride][sBlueprint] or 0) > iHighestPriority then
+                        if iCurrentTech == iHighestTech and not(bGetSlowest) and not(bGetFastest) and not(bGetCheapest) and not(bGetMostExpensive) and (aiBrain[reftBlueprintPriorityOverride][sBlueprint] or 0) > iHighestPriority then
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have a priority specified, or is higher than current priority='..(aiBrain[reftBlueprintPriorityOverride][sBlueprint] or 'nil')..'; iHighestPriority='..iHighestPriority) end
                             iHighestPriority = math.max((aiBrain[reftBlueprintPriorityOverride][sBlueprint] or 0), iHighestPriority)
                         end
@@ -1167,7 +1167,8 @@ function GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryCondition, oFactor
 
         for _, sBlueprint in tValidBlueprints do
             bIsValid = false
-            if EntityCategoryContains(categories.TECH3 + categories.EXPERIMENTAL, sBlueprint) then iCurrentTech = 3
+            if bIgnoreTechDifferences then iCurrentTech = 1
+            elseif EntityCategoryContains(categories.TECH3 + categories.EXPERIMENTAL, sBlueprint) then iCurrentTech = 3
             elseif EntityCategoryContains(categories.TECH2, sBlueprint) then iCurrentTech = 2
             else iCurrentTech = 1
             end
@@ -1217,6 +1218,10 @@ function GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryCondition, oFactor
             end
         end
 
+        if iBestBlueprints == 0 then
+            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+            return nil
+        end
         local iBPToBuild = math.random(1, iBestBlueprints)
 
         if bDebugMessages == true then
@@ -3061,7 +3066,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     end
 
     local iCurrentTechMobileUnitLifetimeCount
-    local iMinCurrentTechUnitsBeforeGenericEngineer = 0
+    local iMinCurrentTechUnitsBeforeGenericEngineer = (iFactoryTechLevel >= 3 and 3 or 2)
     local iTeamMassStored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] or 0
     local iTeamAverageMassStored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0
     local iTeamNetMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 0
@@ -3077,7 +3082,12 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         return iCurrentTechMobileUnitLifetimeCount
     end
     function ShouldDelayGenericHighTechEngineer()
-        return iFactoryTechLevel >= 2 and not(bHighMassAllowsEarlyHighTechEngineer) and GetCurrentTechMobileUnitLifetimeCount() < iMinCurrentTechUnitsBeforeGenericEngineer
+        local bDelay = iFactoryTechLevel >= 2 and not(bHighMassAllowsEarlyHighTechEngineer) and GetCurrentTechMobileUnitLifetimeCount() < iMinCurrentTechUnitsBeforeGenericEngineer
+        if iFactoryTechLevel >= 2 and M28Diagnostics.ShouldLog('Factory', aiBrain:GetArmyIndex(), 'engineer:'..oFactory.EntityId) then
+            M28Diagnostics.Record('Factory', aiBrain:GetArmyIndex(), 'engineer:'..oFactory.EntityId, bDelay and 'combat-before-engineer' or 'engineer-eligible',
+                {tech = iFactoryTechLevel, combat_count = iCurrentTechMobileUnitLifetimeCount or 'not-queried', minimum = iMinCurrentTechUnitsBeforeGenericEngineer, overflow = bHighMassAllowsEarlyHighTechEngineer})
+        end
+        return bDelay
     end
     local bPreferThisFactoryForEarlyT1Engineers
     function ShouldThisFactoryOwnEarlyT1EngineerProduction()
