@@ -11214,6 +11214,57 @@ function CanStartQuantumGateway(aiBrain, tZoneTeamData)
     return false, 'produce-t3-combat-first', iCombatBuilt
 end
 
+function GetPreemptiveAADemand(iT2Mex, iT3Mex, iEnemyAirToGround, iLocalAirToGround, bAirControl)
+    -- Fighters elsewhere on the map are not a ground-attack threat. A global T3
+    -- sighting alone must not impose a 1500-threat SAM floor in every mex zone.
+    local iWanted = math.min(150 * (iT2Mex + iT3Mex * 4), iEnemyAirToGround * 0.25)
+    if iT3Mex > 0 then iWanted = math.max(iWanted, math.min(1500, iLocalAirToGround * 0.75)) end
+    if bAirControl then iWanted = iWanted * 0.25 end
+    return iWanted
+end
+
+function GetEconomicZoneAACoverage(iTeam, iPlateau, tZoneData, tZoneTeamData)
+    local iNow = GetGameTimeSeconds()
+    local tCached = tZoneTeamData.M28EconomicAACoverage
+    if tCached and iNow - tCached.time < 5 then return tCached.threat end
+    local tAnchors = {}
+    for _, oMex in EntityCategoryFilterDown(M28UnitInfo.refCategoryT2Mex + M28UnitInfo.refCategoryT3Mex, tZoneTeamData[M28Map.subreftoLZOrWZAlliedUnits] or {}) do
+        if not(oMex.Dead) then table.insert(tAnchors, oMex:GetPosition()) end
+    end
+    if table.getn(tAnchors) == 0 then tAnchors = {tZoneData[M28Map.subrefMidpoint]} end
+    local tCoverage = {}
+    for i, _ in tAnchors do tCoverage[i] = 0 end
+    local tSeen = {}
+    local function AddZone(tOtherTeamData)
+        if not(tOtherTeamData) then return end
+        for _, oAA in EntityCategoryFilterDown(M28UnitInfo.refCategoryStructureAA, tOtherTeamData[M28Map.subreftoLZOrWZAlliedUnits] or {}) do
+            if not(tSeen[oAA]) and not(oAA.Dead) and oAA:GetFractionComplete() == 1 then
+                tSeen[oAA] = true
+                local iRange = oAA[M28UnitInfo.refiAARange] or 0
+                local tPosition = oAA:GetPosition()
+                local iThreat
+                for i, tAnchor in tAnchors do
+                    if M28Utilities.GetDistanceBetweenPositions(tPosition, tAnchor) <= iRange then
+                        if not(iThreat) then iThreat = M28UnitInfo.GetAirThreatLevel({oAA}, false, false, true, false) end
+                        tCoverage[i] = tCoverage[i] + iThreat
+                    end
+                end
+            end
+        end
+    end
+    AddZone(tZoneTeamData)
+    for _, iAdjacent in tZoneData[M28Map.subrefLZAdjacentLandZones] or {} do
+        local tAdjacent = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjacent]
+        if tAdjacent then AddZone(tAdjacent[M28Map.subrefLZTeamData][iTeam]) end
+    end
+    local iMinimumCoverage = tCoverage[1]
+    for _, iCoverage in tCoverage do iMinimumCoverage = math.min(iMinimumCoverage, iCoverage) end
+    -- Neighbouring static AA only earns credit when ALL upgraded mexes are covered.
+    local iResult = math.max(tZoneTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0, iMinimumCoverage)
+    tZoneTeamData.M28EconomicAACoverage = {time = iNow, threat = iResult}
+    return iResult
+end
+
 function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iCurPriority, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrPond, iLandOrWaterZone, toAvailableEngineersByTech, toAssignedEngineers, bIsWaterZone, iSpecificFactionRequiredOverride, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
     --vOptionalVariable can be a table, nil or a value; used to pass info specific to the action if it needs it
     local sFunctionRef = 'ConsiderActionToAssign'
@@ -14198,7 +14249,8 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     --For now only do land zone not water zone given water zone includes torp bombers
     if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
         for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
-            iNearbyEnemyAirToGroundThreat = iNearbyEnemyAirToGroundThreat + tLZTeamData[M28Map.refiEnemyAirToGroundThreat]
+            local tAdjacentTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
+            iNearbyEnemyAirToGroundThreat = iNearbyEnemyAirToGroundThreat + (tAdjacentTeamData[M28Map.refiEnemyAirToGroundThreat] or 0)
         end
     end
 
@@ -19998,7 +20050,12 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
         end
         iGroundAAWanted = math.min(iGroundAAWanted, 2000)
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Approaching air threat, tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] ='..tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]..'; iGroundAAWanted='..iGroundAAWanted..'; Team air to ground threat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]) end
-        if tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] < iGroundAAWanted then
+        local iCoverage = GetEconomicZoneAACoverage(iTeam, iPlateau, tLZData, tLZTeamData)
+        if M28Diagnostics.ShouldLog('AA', aiBrain:GetArmyIndex(), 'raid:'..iPlateau..':'..iLandZone) then
+            M28Diagnostics.Record('AA', aiBrain:GetArmyIndex(), 'raid:'..iPlateau..':'..iLandZone, iCoverage < iGroundAAWanted and 'raid-deficit' or 'raid-covered',
+                {wanted = iGroundAAWanted, coverage = iCoverage, nearby_air = iNearbyEnemyAirToGroundThreat, x = tLZData[M28Map.subrefMidpoint][1], z = tLZData[M28Map.subrefMidpoint][3]})
+        end
+        if iCoverage < iGroundAAWanted then
             iBPWanted = tiBPByTech[math.max(iHighestTechEngiAvailable, 1)]
             if bEngineersRecentlyRunFromEnemy then iBPWanted = iBPWanted * 0.5 end
             if (tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0) >= 600 then
@@ -20418,11 +20475,17 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
         --Are we likely on a small island/plateau (due to having at least 50% of the island's mexes)? Or we have significant value here?
         if tLZData[M28Map.subrefLZOrWZMexCount] >= 0.5 * M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauIslandMexCount][tLZData[M28Map.subrefLZIslandRef]] or tLZTeamData[M28Map.subrefMexCountByTech][3] >= 1 then
             if M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 300 then
-                local iAAWanted = math.min(150 * (tLZTeamData[M28Map.subrefMexCountByTech][2] + tLZTeamData[M28Map.subrefMexCountByTech][3] * 4), M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] * 0.25 + (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 0) * 0.05)
-                if not(bHaveLowMass) and not(bHaveLowPower) and tLZTeamData[M28Map.subrefMexCountByTech][3] > 0 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3 then iAAWanted = math.max(iAAWanted, 1500) end
-                if M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbHaveAirControl] then iAAWanted = iAAWanted * 0.25 end
+                local iAAWanted = GetPreemptiveAADemand(tLZTeamData[M28Map.subrefMexCountByTech][2], tLZTeamData[M28Map.subrefMexCountByTech][3],
+                    M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat], tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0,
+                    M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbHaveAirControl])
+                local iCoverage = GetEconomicZoneAACoverage(iTeam, iPlateau, tLZData, tLZTeamData)
+                if M28Diagnostics.ShouldLog('AA', aiBrain:GetArmyIndex(), 'preemptive:'..iPlateau..':'..iLandZone) then
+                    M28Diagnostics.Record('AA', aiBrain:GetArmyIndex(), 'preemptive:'..iPlateau..':'..iLandZone, iAAWanted > iCoverage and 'economic-deficit' or 'economic-covered',
+                        {wanted = iAAWanted, coverage = iCoverage, local_air = tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0,
+                         x = tLZData[M28Map.subrefMidpoint][1], z = tLZData[M28Map.subrefMidpoint][3]})
+                end
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iAAWanted='..iAAWanted..'; tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]='..tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA]..'; tLZTeamData[M28Map.subrefMexCountByTech]='..repru(tLZTeamData[M28Map.subrefMexCountByTech])..'; M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]) end
-                if iAAWanted > tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] then
+                if iAAWanted > iCoverage then
                     if tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] >= 700 then
                         HaveActionToAssign(refActionBuildAA, M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech], 5)
                     else
