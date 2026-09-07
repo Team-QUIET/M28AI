@@ -89,9 +89,29 @@ iMaxReclaimPathEngineers = 9 --Base value
 tTeamReclaimPathEngineers = {} --[iTeam] = table of engineers with reclaim path; initialized in team setup
 tTeamAssignedReclaim = {} --[iTeam] = table of reclaim objects already assigned; key is reclaim object, value is count of engineers
 
-function IsZoneReclaimTemporarilyUnavailable(tLZOrWZData)
+function IsZoneReclaimTemporarilyUnavailable(tLZOrWZData, tLZOrWZTeamData, bWantEnergyNotMass, iMinimumValue)
+    if tLZOrWZTeamData then
+        local sResource = bWantEnergyNotMass and 'energy' or 'mass'
+        local tFailures = tLZOrWZTeamData.M28ReclaimSearchFailures
+        local tFailure = tFailures and tFailures[sResource]
+        if not(tFailure) then return false end
+        local sValueRef = bWantEnergyNotMass and M28Map.subrefLZTotalEnergyReclaim or M28Map.subrefTotalMassReclaim
+        -- A new wreck or newly discovered resource permits an immediate retry.
+        if (tLZOrWZData[sValueRef] or 0) > tFailure.value or GetGameTimeSeconds() - tFailure.time >= iReclaimFailureCooldown then
+            tFailures[sResource] = nil
+            return false
+        end
+        return (iMinimumValue or M28Map.iLowestMassThreshold) >= tFailure.minimum
+    end
     local iTimeFailed = tLZOrWZData and tLZOrWZData[M28Map.subrefiTimeFailedToGetReclaim]
     return iTimeFailed and GetGameTimeSeconds() - iTimeFailed <= iReclaimFailureCooldown
+end
+
+function RecordZoneReclaimSearchFailure(tLZOrWZData, tLZOrWZTeamData, bWantEnergyNotMass, iMinimumValue)
+    local sResource = bWantEnergyNotMass and 'energy' or 'mass'
+    local sValueRef = bWantEnergyNotMass and M28Map.subrefLZTotalEnergyReclaim or M28Map.subrefTotalMassReclaim
+    if not(tLZOrWZTeamData.M28ReclaimSearchFailures) then tLZOrWZTeamData.M28ReclaimSearchFailures = {} end
+    tLZOrWZTeamData.M28ReclaimSearchFailures[sResource] = {time = GetGameTimeSeconds(), value = tLZOrWZData[sValueRef] or 0, minimum = iMinimumValue or M28Map.iLowestMassThreshold}
 end
 
 function GetMaxEngineersForReclaim(oReclaim)
@@ -6715,6 +6735,15 @@ function GetEngineerToReclaimNearbyArea(oEngineer, iPriorityOverride, tLZOrWZTea
 
     local iTotalMassAtStartOfCodeInZone = tLZOrWZData[M28Map.subrefTotalMassReclaim] --used to give error message if 0 and we couldnt find reclaim
 
+    local bSharedFullSearch = not(bOnlyConsiderReclaimInRangeOfEngineer)
+            and not(EntityCategoryContains(categories.COMMAND, oEngineer.UnitId))
+    if bSharedFullSearch and IsZoneReclaimTemporarilyUnavailable(tLZOrWZData, tLZOrWZTeamData, bWantEnergyNotMass, iMinIndividualValueOverride) then
+        M28Profiler.IncrementPerformanceCounter('ReclaimSearchSkipped')
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return
+    end
+    if bSharedFullSearch then M28Profiler.IncrementPerformanceCounter('ReclaimSearchStarted') end
+
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, oEngineer='..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..'; iPlateauOrPond='..iPlateauOrPond..'; iLandOrWaterZone='..iLandOrWaterZone..'; bWantEnergyNotMass='..tostring(bWantEnergyNotMass or false)..'; bOnlyConsiderReclaimInRangeOfEngineer='..tostring(bOnlyConsiderReclaimInRangeOfEngineer or false)..'; iMinIndividualValueOverride='..(iMinIndividualValueOverride or 'nil')..'; bIsWaterZone='..tostring(bIsWaterZone or false)..'; Total mass in zone='..tLZOrWZData[M28Map.subrefTotalMassReclaim]..'; Total significant mass='..tLZOrWZData[M28Map.subrefTotalSignificantMassReclaim]..'; tLZOrWZData[M28Map.subrefHighestIndividualReclaim]='..(tLZOrWZData[M28Map.subrefHighestIndividualReclaim] or 'nil')..'; iTotalMassAtStartOfCodeInZone='..(iTotalMassAtStartOfCodeInZone or 'nil')) end
     if M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subrefReclaimSegments]) == false then
         local iClosestSegmentDist = 100000
@@ -7010,9 +7039,6 @@ function GetEngineerToReclaimNearbyArea(oEngineer, iPriorityOverride, tLZOrWZTea
         if bGivenOrder and not(EntityCategoryContains(categories.COMMAND, oEngineer.UnitId)) then
             TrackEngineerAction(oEngineer, refActionReclaimArea, false, iCurPriority, nil, tiClosestSegmentXZ)
         elseif not(bGivenOrder) and not(bOnlyConsiderReclaimInRangeOfEngineer) then
-            --Flag that this zone has failed to find anything for engineers to reclaim, so we limit BP to assign to 5
-            tLZOrWZData[M28Map.subrefiTimeFailedToGetReclaim] = GetGameTimeSeconds()
-
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Recording that we failed to get reclaim in this zone, is oNearestReclaim nil='..tostring(oNearestReclaim == nil)..'; oEngineer='..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)) end
             --If there is a valid reclaim nearby (it just is too low value) then also give order to reclaim this
             if oNearestReclaim and not(oEngineer:IsUnitState('Capturing')) then
@@ -7038,14 +7064,21 @@ function GetEngineerToReclaimNearbyArea(oEngineer, iPriorityOverride, tLZOrWZTea
                             elseif iMinIndividualValueOverride and iMinIndividualValueOverride > M28Map.iLowestMassThreshold and EntityCategoryContains(categories.COMMAND, oEngineer.UnitId) then
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': ACU was trying to get high value reclaim if there was any, since there isnt ACU should just proceed to other orders') end
                             else
-                                M28Utilities.ErrorHandler('Couldnt find available reclaim after a comprehensive refresh and the recorded mass did not decrease; remaining targets are likely reserved, filtered, or unreachable, see log for more info', true)
-                                --LOG(sFunctionRef..': Post warning message: iPlateauOrPond='..iPlateauOrPond..'; iLandOrWaterZone='..iLandOrWaterZone..'; iMinIndividualValueOverride='..(iMinIndividualValueOverride or 'nil')..'; subrefHighestIndividualReclaim='..(tLZOrWZData[M28Map.subrefHighestIndividualReclaim] or 'nil'))
+                                -- Recorded mass may remain while every eligible target is reserved or unreachable.
+                                if M28Diagnostics.ShouldLog('Engineer', oEngineer:GetArmy(), 'reclaim:'..iPlateauOrPond..':'..iLandOrWaterZone) then
+                                    M28Diagnostics.Record('Engineer', oEngineer:GetArmy(), 'reclaim:'..iPlateauOrPond..':'..iLandOrWaterZone, 'reclaim-unavailable',
+                                        {mass = tLZOrWZData[M28Map.subrefTotalMassReclaim], plateau = iPlateauOrPond, zone = iLandOrWaterZone})
+                                end
                             end
                         end
                     end
                 end
             end
         end
+    end
+    if bSharedFullSearch and not(bGivenOrder) then
+        RecordZoneReclaimSearchFailure(tLZOrWZData, tLZOrWZTeamData, bWantEnergyNotMass, iMinIndividualValueOverride)
+        M28Profiler.IncrementPerformanceCounter('ReclaimSearchFailed')
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     if bGivenOrder and bOptionalReturnTrueIfGivenOrder then return true end
@@ -7157,6 +7190,11 @@ function QueueReclaimPath(oEngineer, iPriorityOverride, tLZOrWZTeamData, iPlatea
     end
 
     --Calculate iMaxReclaimCount based on total reclaim in zone and adjacent zones if not specified
+    if IsZoneReclaimTemporarilyUnavailable(tLZOrWZData, tLZOrWZTeamData, bWantEnergyNotMass, iMinIndividualValueOverride) then
+        M28Profiler.IncrementPerformanceCounter('ReclaimSearchSkipped')
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
     if not(iMaxReclaimCount) then
         local iTotalZoneReclaim = tLZOrWZData[M28Map.subrefTotalMassReclaim] or 0
         --Add reclaim from adjacent zones
@@ -11239,10 +11277,12 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
             end
         end
 
-        --Reclaim specific - limit BP to 5 while a recent full-zone search says the recorded reclaim is not serviceable.
-        if (iActionToAssign == refActionReclaimArea or iActionToAssign == refActionReclaimTrees) and IsZoneReclaimTemporarilyUnavailable(tLZOrWZData) then
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time since last failed to get reclaim for this zone='..GetGameTimeSeconds() - tLZOrWZData[M28Map.subrefiTimeFailedToGetReclaim]..'; BP wanted before limitation='..iTotalBuildPowerWanted..'; will cap at 5') end
-            iTotalBuildPowerWanted = math.min(5, iTotalBuildPowerWanted)
+        -- Let idle engineers take other work until a failed search can be retried.
+        if iActionToAssign == refActionReclaimArea then
+            if IsZoneReclaimTemporarilyUnavailable(tLZOrWZData, tLZOrWZTeamData, vOptionalVariable[1], vOptionalVariable[2]) then
+                iTotalBuildPowerWanted = 0
+                M28Profiler.IncrementPerformanceCounter('ReclaimDemandDeferred')
+            end
         end
 
 

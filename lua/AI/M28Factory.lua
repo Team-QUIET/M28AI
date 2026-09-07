@@ -529,7 +529,7 @@ local function GetFactoryReclaimQueueEvidence(oFactory, iTeam)
         if not(tLZTeamData)
                 or tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]
                 or (tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) > 0
-                or M28Engineer.IsZoneReclaimTemporarilyUnavailable(tLZData) then
+                or M28Engineer.IsZoneReclaimTemporarilyUnavailable(tLZData, tLZTeamData) then
             return false, tLZTeamData
         end
         if not(bNearby)

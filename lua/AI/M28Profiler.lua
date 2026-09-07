@@ -48,6 +48,7 @@ local tsPerformanceCounterRefs = {
     'DetectionRaw', 'DetectionAdmitted', 'DetectionRejected',
     'CreationRaw', 'CreationAdmitted', 'CreationDeferred', 'CreationDuplicate', 'CreationExpired', 'CreationRejected',
     'LandZoneExecuted', 'LandZoneSkipped', 'WaterZoneExecuted', 'WaterZoneSkipped',
+    'ReclaimSearchStarted', 'ReclaimSearchSkipped', 'ReclaimSearchFailed', 'ReclaimDemandDeferred',
 }
 local tiPerformanceCounters = {}
 
