@@ -1885,18 +1885,19 @@ local function GetZoneFactoryMassBudgetState(iTeam, iPlateau, iLandZone)
     -- QUIET land factories have roughly 40 / 70 / 100 build power at T1 / T2 / T3.
     -- A representative T1 tank (e.g. UEF striker at ~56 mass) spends about 10 mass/sec
     -- on a T1 land factory, i.e. 1 mass/tick at 10 ticks/sec. Use the BP ratios as the
-    -- rough baseline for continuous combat production: 10 / 17.5 / 25 mass per second.
-    local tiGrossMassWantedPerFactoryByTech = {[1] = 10, [2] = 17.5, [3] = 25}
+    -- rough baseline for continuous combat production. Team gross income is PER TICK,
+    -- so convert every absolute requirement below to the same units (10 ticks/sec).
+    local tiGrossMassWantedPerFactoryByTech = {[1] = 1, [2] = 1.75, [3] = 2.5}
     local iCurIsland = NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZData[M28Map.subrefMidpoint])
     local iEnemyIsland = NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestEnemyBase])
 
     if iCurIsland ~= iEnemyIsland and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.35 then
-        tiGrossMassWantedPerFactoryByTech = {[1]=30, [2] = 28, [3] = 30}
+        tiGrossMassWantedPerFactoryByTech = {[1]=3, [2] = 2.8, [3] = 3}
     elseif M28Map.iMapSize <= 256 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 60 then
         if M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] >= 120 then
-            tiGrossMassWantedPerFactoryByTech[1] = 3.5
+            tiGrossMassWantedPerFactoryByTech[1] = 0.35
         else
-            tiGrossMassWantedPerFactoryByTech[1] = 5
+            tiGrossMassWantedPerFactoryByTech[1] = 0.5
         end
     elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.2 and tLZTeamData[M28Map.refiModDistancePercent] <= 0.35 and (tLZTeamData[M28Map.refiModDistancePercent] <= 0.25 or M28Map.iMapSize < 1000) and (tLZData[M28Map.subrefLZOrWZMexCount] <= 3 or tLZTeamData[M28Map.subrefLZbCoreBase]) and tLZTeamData[M28Map.subrefMexCountByTech][3] == 0 and M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] == 0 and M28Map.iMapSize >= 512 and M28Map.iMapSize <= 1024 and iCurIsland == NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestFriendlyBase]) and M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiEnemyMobileDFThreatNearOurSide] * 1.25 < M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.refiAllyMobileDFThreatNearOurSide] and not(M28Team.tTeamData[iTeam][M28Team.refbFocusOnT1Spam]) then
         local tBaseLZData, tBaseLZTeamData = M28Map.GetLandOrWaterZoneData(tLZTeamData[M28Map.reftClosestFriendlyBase], true, iTeam)
@@ -1932,6 +1933,13 @@ local function GetZoneFactoryMassBudgetState(iTeam, iPlateau, iLandZone)
     local iAverageCurAirAndLandFactories = (M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeLand] or 0) / M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] + (M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeAir] or 0) / M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]
     local iHighestFriendlyFactoryTech = M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] or 1
     local iFactoriesWantedByMass = (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0) / math.max(0.1, tiGrossMassWantedPerFactoryByTech[iHighestFriendlyFactoryTech] or 1)
+
+    if M28Diagnostics.ShouldLog('Budget', tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex], iPlateau..':'..iLandZone) then
+        M28Diagnostics.Record('Budget', tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex], iPlateau..':'..iLandZone, 'factory-mass-budget',
+            {gross_per_tick = M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass], per_factory_per_tick = tiGrossMassWantedPerFactoryByTech[iHighestFriendlyFactoryTech],
+             current_average = iAverageCurAirAndLandFactories, wanted_average = iFactoriesWantedByMass, tech = iHighestFriendlyFactoryTech,
+             mass_stored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored], connected = iCurIsland == iEnemyIsland})
+    end
 
     return tiGrossMassWantedPerFactoryByTech, tLZData, tLZTeamData, aiBrain, iAverageCurAirAndLandFactories, iFactoriesWantedByMass, iCurIsland, iEnemyIsland
 end
@@ -2136,8 +2144,18 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
                                 local iStartPlateau, iStartLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(tLZTeamData[M28Map.reftClosestEnemyBase])
                                 if iStartPlateau == iPlateau and iStartLandZone > 0 then
                                     local iTravelDist = (M28Map.GetTravelDistanceBetweenLandZones(iPlateau, iLandZone, iStartLandZone) or 10000)
-                                    if iTravelDist <= 350 and (iTravelDist <= 225 or NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestEnemyBase]) == tLZData[M28Map.subrefLZIslandRef]) then
+                                    local bFundedOpening = GetGameTimeSeconds() <= 360 and tLZTeamData[M28Map.subrefLZbCoreBase]
+                                        and iCurIsland == iEnemyIsland and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandFactory) < 3
+                                        and iAverageCurAirAndLandFactories < iFactoriesWantedByMass
+                                        and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])
+                                        and not(aiBrain[M28Overseer.refbPrioritiseNavy]) and not(aiBrain[M28Overseer.refbPrioritiseAir])
+                                    if bFundedOpening or (iTravelDist <= 350 and (iTravelDist <= 225 or NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestEnemyBase]) == tLZData[M28Map.subrefLZIslandRef])) then
                                         bWantMoreFactories = true
+                                    end
+                                    if M28Diagnostics.ShouldLog('Budget', tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex], 'opening:'..iPlateau..':'..iLandZone) then
+                                        M28Diagnostics.Record('Budget', tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex], 'opening:'..iPlateau..':'..iLandZone,
+                                            bFundedOpening and 'funded-distant-opening' or 'distance-gated-opening',
+                                            {allowed = bWantMoreFactories, travel_distance = iTravelDist, current_average = iAverageCurAirAndLandFactories, wanted_average = iFactoriesWantedByMass})
                                     end
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iTravelDist='..iTravelDist..'; This island='..(tLZData[M28Map.subrefLZIslandRef] or 'nil')..'; Closest enemy base island='..(NavUtils.GetLabel(M28Map.refPathingTypeLand, tLZTeamData[M28Map.reftClosestEnemyBase]) or 'nil')..'; bWantMoreFactories following distance based condition='..tostring(bWantMoreFactories)) end
                                 end
@@ -2292,6 +2310,14 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': End of code, bWantMoreFactories='..tostring(bWantMoreFactories)) end
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    if M28Diagnostics.ShouldLog('Budget', tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex], 'decision:'..iPlateau..':'..iLandZone) then
+        M28Diagnostics.Record('Budget', tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex], 'decision:'..iPlateau..':'..iLandZone, bWantMoreFactories and 'factory-wanted' or 'factory-deferred',
+            {current_average = iAverageCurAirAndLandFactories, wanted_average = iFactoriesWantedByMass,
+             land = M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeLand] or 0,
+             air = M28Team.tTeamData[iTeam][M28Team.subrefiTotalFactoryCountByType][M28Factory.refiFactoryTypeAir] or 0,
+             mass_fraction = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored],
+             energy_stall = M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] or false})
+    end
     return bWantMoreFactories
 end
 

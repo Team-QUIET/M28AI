@@ -2997,6 +2997,30 @@ local function ShouldAllowGenericAmphibiousLandFallback(aiBrain)
     return aiBrain and not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand])
 end
 
+function ShouldPrioritizeOpeningLandCombat(aiBrain)
+    if GetGameTimeSeconds() > 360 or M28Map.bIsCampaignMap or not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]) then return false end
+    if aiBrain:GetEconomyStoredRatio('ENERGY') < 0.05 and (aiBrain[M28Economy.refiNetEnergyBaseIncome] or 0) < 0 then return false end
+
+    local iEngineers, iCombat = 0, 0
+    local iCombatCategory = (M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher - categories.COMMAND - categories.ENGINEER) * categories.TECH1
+    local iEngineerCategory = M28UnitInfo.refCategoryEngineer * categories.TECH1
+    local iFactoryCategory = M28UnitInfo.refCategoryLandFactory * categories.TECH1
+    for _, oUnit in aiBrain:GetListOfUnits(iEngineerCategory + iCombatCategory + iFactoryCategory, false, true) do
+        if M28UnitInfo.IsUnitValid(oUnit) then
+            if EntityCategoryContains(iFactoryCategory, oUnit.UnitId) then
+                -- Plans include issued orders; the queue helper counts their overlap once.
+                iEngineers = iEngineers + GetFactoryPendingBuildCountByCategory(oUnit, iEngineerCategory)
+                iCombat = iCombat + GetFactoryPendingBuildCountByCategory(oUnit, iCombatCategory)
+            elseif oUnit:GetFractionComplete() == 1 then
+                if EntityCategoryContains(iEngineerCategory, oUnit.UnitId) then iEngineers = iEngineers + 1
+                else iCombat = iCombat + 1 end
+            end
+        end
+    end
+    local iCombatWanted = math.min(8, math.max(2, math.floor(iEngineers * 0.5)))
+    return iEngineers >= 4 and iCombat < iCombatWanted, iEngineers, iCombat
+end
+
 function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     local sFunctionRef = 'GetBlueprintToBuildForLandFactory'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelFactory, sFunctionRef)
@@ -3716,6 +3740,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         end
     end
     --subfunctions to mean we can do away with the 'current condition == 1, == 2.....==999 type approach making it much easier to add to
+    local bOpeningCombatWanted, iOpeningEngineers, iOpeningCombat
     function ConsiderBuildingCategory(iCategoryToBuild)
         if iCategoryToBuild == 'Upgrade' then
             if ConsiderUpgrading() then
@@ -3750,6 +3775,19 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                         LOG(sFunctionRef .. ': Blocking overrepresented early T1 indirect build. Original=' .. sBPIDToBuild .. '; Fallback=' .. (sFallbackBlueprint or 'nil'))
                     end
                     sBPIDToBuild = nil
+                end
+            end
+            if sBPIDToBuild and iFactoryTechLevel == 1 and EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBPIDToBuild) then
+                if bOpeningCombatWanted == nil then bOpeningCombatWanted, iOpeningEngineers, iOpeningCombat = ShouldPrioritizeOpeningLandCombat(aiBrain) end
+                if bOpeningCombatWanted then
+                    local sCombatBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, (M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher - categories.ENGINEER - categories.COMMAND) * categories.TECH1, oFactory)
+                    if sCombatBlueprint then
+                        sBPIDToBuild = AdjustBlueprintForOverrides(aiBrain, oFactory, sCombatBlueprint, tLZTeamData, iFactoryTechLevel)
+                        if M28Diagnostics.ShouldLog('Factory', aiBrain:GetArmyIndex(), 'opening:'..oFactory.EntityId) then
+                            M28Diagnostics.Record('Factory', aiBrain:GetArmyIndex(), 'opening:'..oFactory.EntityId, 'opening-combat-balance',
+                                {engineers = iOpeningEngineers, combat = iOpeningCombat, blueprint = sBPIDToBuild})
+                        end
+                    end
                 end
             end
             local bAllowLowMassCombatFallback = bContinueLowerTechLandProduction
@@ -4888,6 +4926,8 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         if iFactoryTechLevel == 1 and GetGameTimeSeconds() <= 480 and tLZTeamData[M28Map.subrefLZbCoreBase] and ShouldThisFactoryOwnEarlyT1EngineerProduction() and not(M28Map.bIsLowMexMap) and (not(tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) or (oFactory[refiTotalBuildCount] <= 4 and M28UnitInfo.GetUnitLifetimeCount(oFactory) <= 2)) and (not (aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]) or M28Utilities.GetDistanceBetweenPositions(tLZTeamData[M28Map.reftClosestEnemyBase], tLZData[M28Map.subrefMidpoint]) >= 450) then
             --Do we have a low lifetime engineer build count?
             local iLCWanted = 12
+            -- Leave production capacity for combat units on connected maps.
+            if aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] then iLCWanted = 8 end
             if M28Map.iMapSize <= 512 and aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] then
                 iLCWanted = 6
             end
@@ -4900,11 +4940,13 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             if iLifetimeEngiCount < iLCWanted then
                 if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then return sBPIDToBuild end
             end
-            if iLifetimeEngiCount < iLifetimeEngiCount * 2 and (not (aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]) or M28Map.iMapSize > 512 or iLifetimeEngiCount < iLCWanted * 1.25) then
-                --Do we have adjacent LZ with unbuilt mexes, no enemies, needing engineers with no engineers currently assigned or traveling?
+            if iLifetimeEngiCount < iLCWanted * 2 and (not (aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]) or M28Map.iMapSize > 512 or iLifetimeEngiCount < iLCWanted * 1.25) then
+                -- Fill unmet expansion demand only when no engineer is already traveling there.
                 for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
-                    if not (M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam][M28Map.subrefbEnemiesInThisOrAdjacentLZ]) then
-                        if M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam][M28Map.subrefMexUnbuiltLocations]) == false and M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam][M28Map.subrefTEngineersTravelingHere]) == false and M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam][M28Map.subrefTbWantBP] then
+                    local tAdjacentZone = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ]
+                    local tAdjacentTeam = tAdjacentZone[M28Map.subrefLZTeamData][iTeam]
+                    if not(tAdjacentTeam[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) then
+                        if not(M28Utilities.IsTableEmpty(tAdjacentZone[M28Map.subrefMexUnbuiltLocations])) and M28Utilities.IsTableEmpty(tAdjacentTeam[M28Map.subrefTEngineersTravelingHere]) and tAdjacentTeam[M28Map.subrefTbWantBP] then
                             if ConsiderBuildingCategory(M28UnitInfo.refCategoryEngineer) then
                                 return sBPIDToBuild
                             end
@@ -7452,6 +7494,13 @@ local function GetFactoryBuildPlanRunLength(oFactory, sBlueprint, iRemainingPlan
         return 0
     elseif EntityCategoryContains(categories.SUBCOMMANDER + categories.EXPERIMENTAL + M28UnitInfo.refCategoryFactory, sBlueprint) then
         return 1
+    elseif GetGameTimeSeconds() <= 360 and oFactory:GetAIBrain()[M28Map.refbCanPathToEnemyBaseWithLand]
+            and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory * categories.TECH1, oFactory.UnitId)
+            and EntityCategoryContains((M28UnitInfo.refCategoryEngineer + M28UnitInfo.refCategoryMobileDFLand) * categories.TECH1, sBlueprint) then
+        if EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBlueprint) then
+            return math.min(iRemainingPlanDepth, 2, GetFactoryEngineerQueueRunLength(oFactory, iRemainingPlanDepth))
+        end
+        return math.min(iRemainingPlanDepth, 2)
     elseif EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBlueprint) then
         return GetFactoryEngineerQueueRunLength(oFactory, iRemainingPlanDepth)
     elseif EntityCategoryContains(iFactoryAttackAirQueueCategory, sBlueprint) then
