@@ -3173,7 +3173,7 @@ local function GetHQMassBufferBypass(iM28Team, iFactoryCategory, iSourceTech)
     return sBypassReason, iSourceProductionCount, iSourceProductionThreshold, iNextTechMobileProductionCount, iNextTechMobileProductionThreshold
 end
 
-local function GetHQGrossMassPerBrain(iSourceTech, sMassBufferBypassReason)
+local function GetHQGrossMassPerBrain(iSourceTech, sMassBufferBypassReason, iFactoryCategory)
     local bProductionMaturity = sMassBufferBypassReason == 'MatureSourceTechProduction'
             or sMassBufferBypassReason == 'MatureNextTechProduction'
     local bUrgentBypass = sMassBufferBypassReason and sMassBufferBypassReason ~= 'None' and not(bProductionMaturity)
@@ -3183,6 +3183,14 @@ local function GetHQGrossMassPerBrain(iSourceTech, sMassBufferBypassReason)
         if bUrgentBypass then return 4 end
         return 30
     elseif iSourceTech == 2 then
+        if iFactoryCategory == M28UnitInfo.refCategoryLandFactory then
+            -- Land T3 requires 80 mass/sec, or 60 after sustained T2 production.
+            -- Team income is per tick; keep the urgent response floor at 50 mass/sec.
+            local iMassPerSecond = 80
+            if bProductionMaturity then iMassPerSecond = 60
+            elseif bUrgentBypass then iMassPerSecond = 50 end
+            return iMassPerSecond * 0.1
+        end
         if bProductionMaturity then return 60 end
         if bUrgentBypass then return 5 end
         return 80
@@ -3190,10 +3198,10 @@ local function GetHQGrossMassPerBrain(iSourceTech, sMassBufferBypassReason)
     return nil
 end
 
-local function GetHQEconomyAdmission(iM28Team, iSourceTech, sMassBufferBypassReason)
+local function GetHQEconomyAdmission(iM28Team, iSourceTech, sMassBufferBypassReason, iFactoryCategory)
     local tCurTeamData = tTeamData[iM28Team]
     local iActiveBrainCount = math.max(1, tCurTeamData[subrefiActiveM28BrainCount] or 1)
-    local iGrossMassPerBrain = GetHQGrossMassPerBrain(iSourceTech, sMassBufferBypassReason)
+    local iGrossMassPerBrain = GetHQGrossMassPerBrain(iSourceTech, sMassBufferBypassReason, iFactoryCategory)
     local iNetMassPerBrain
     if iSourceTech == 1 then
         iNetMassPerBrain = 0.5
@@ -3293,7 +3301,7 @@ local function DoesBrainPassSharedHQAdmission(oBrain, iM28Team, iFactoryCategory
 
     local iSourceTech = oBrain[tPolicy.sBrainTechRef] or 0
     local sMassBufferBypassReason, iSourceProductionCount, iSourceProductionThreshold, iNextTechMobileProductionCount, iNextTechMobileProductionThreshold = GetHQMassBufferBypass(iM28Team, iFactoryCategory, iSourceTech)
-    local bEconomyReady, sEconomyBlocker, iGrossMassRequired, iNetMassRequired, iStoredMassRequired, iGrossEnergyRequired, iStoredEnergyRequired = GetHQEconomyAdmission(iM28Team, iSourceTech, sMassBufferBypassReason)
+    local bEconomyReady, sEconomyBlocker, iGrossMassRequired, iNetMassRequired, iStoredMassRequired, iGrossEnergyRequired, iStoredEnergyRequired = GetHQEconomyAdmission(iM28Team, iSourceTech, sMassBufferBypassReason, iFactoryCategory)
     if bDebugMessages == true then
         M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Shared HQ admission; Brain='..oBrain.Nickname..'; Layer='..tPolicy.sLayer..'; SourceTech='..iSourceTech..'; TargetTech='..(iSourceTech + 1)..'; Ready='..tostring(bEconomyReady)..'; Blocker='..sEconomyBlocker..'; MassBufferBypass='..sMassBufferBypassReason..'; SourceProduction='..iSourceProductionCount..'/'..iSourceProductionThreshold..'; NextTechMobileProduction='..iNextTechMobileProductionCount..'/'..iNextTechMobileProductionThreshold..'; GrossMass='..tTeamData[iM28Team][subrefiTeamGrossMass]..'/'..(iGrossMassRequired or 0)..'; NetMass='..tTeamData[iM28Team][subrefiTeamNetMass]..'/'..(iNetMassRequired or 0)..'; StoredMass='..tTeamData[iM28Team][subrefiTeamMassStored]..'/'..(iStoredMassRequired or 0)..'; GrossEnergy='..tTeamData[iM28Team][subrefiTeamGrossEnergy]..'/'..(iGrossEnergyRequired or 0)..'; StoredEnergy='..tTeamData[iM28Team][subrefiTeamEnergyStored]..'/'..(iStoredEnergyRequired or 0))
     end
@@ -3419,7 +3427,7 @@ function ConsiderPriorityLandFactoryUpgrades(iM28Team, bIntentOnly)
                 or iEnemyBrainsAtHigherGroundTech >= iEnemyBrainsNeededForBroadTechResponse
                 or tTeamData[iM28Team][subrefiHighestEnemyGroundTech] >= tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] + 2
         local sLandHQMassBufferBypassReason, iSourceLandProductionCount, iSourceLandProductionThreshold, iNextTechMobileProductionCount, iNextTechMobileProductionThreshold = GetHQMassBufferBypass(iM28Team, M28UnitInfo.refCategoryLandFactory, iTeamLandTech)
-        local bLandHQEconomyReady, sLandHQEconomyBlocker, iGrossMassRequired, iNetMassRequired, iStoredMassRequired, iGrossEnergyRequired, iStoredEnergyRequired = GetHQEconomyAdmission(iM28Team, iTeamLandTech, sLandHQMassBufferBypassReason)
+        local bLandHQEconomyReady, sLandHQEconomyBlocker, iGrossMassRequired, iNetMassRequired, iStoredMassRequired, iGrossEnergyRequired, iStoredEnergyRequired = GetHQEconomyAdmission(iM28Team, iTeamLandTech, sLandHQMassBufferBypassReason, M28UnitInfo.refCategoryLandFactory)
         if bDebugMessages == true then
             LOG('LandHQEconomyGate: SourceTech='..iTeamLandTech..'; TargetTech='..(iTeamLandTech + 1)..'; Ready='..tostring(bLandHQEconomyReady)..'; Blocker='..sLandHQEconomyBlocker..'; MassBufferBypass='..sLandHQMassBufferBypassReason..'; SourceLandProduction='..iSourceLandProductionCount..'/'..iSourceLandProductionThreshold..'; NextTechMobileProduction='..iNextTechMobileProductionCount..'/'..iNextTechMobileProductionThreshold..'; GrossMass='..tTeamData[iM28Team][subrefiTeamGrossMass]..'/'..iGrossMassRequired..'; NetMass='..tTeamData[iM28Team][subrefiTeamNetMass]..'/'..iNetMassRequired..'; StoredMass='..tTeamData[iM28Team][subrefiTeamMassStored]..'/'..iStoredMassRequired..'; GrossEnergy='..tTeamData[iM28Team][subrefiTeamGrossEnergy]..'/'..iGrossEnergyRequired..'; NetEnergy='..tTeamData[iM28Team][subrefiTeamNetEnergy]..'; StoredEnergy='..tTeamData[iM28Team][subrefiTeamEnergyStored]..'/'..iStoredEnergyRequired..'; EnergyRatio='..tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored])
         end
