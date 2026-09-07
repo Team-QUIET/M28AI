@@ -3053,6 +3053,16 @@ function ShouldReserveLandFactoryForCombat(aiBrain, oFactory, tLZTeamData)
     return iFactories >= 2 and iOtherEngineerFactories >= iEngineerFactoryLimit, iOtherEngineerFactories, iEngineerFactoryLimit
 end
 
+function ShouldPrioritizeInitialT3LandCombat(aiBrain, oFactory, tLZTeamData)
+    if M28Map.bIsCampaignMap or not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand])
+            or M28UnitInfo.GetUnitTechLevel(oFactory) ~= 3 then return false end
+    -- Keep the first builders and recovery capacity; surplus worker branches share this combat floor.
+    if aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer * categories.TECH3) < 2
+            or M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZTeamData, M28UnitInfo.refCategoryEngineer * categories.TECH3) == 0
+            or (aiBrain:GetEconomyStoredRatio('ENERGY') < 0.1 and (aiBrain[M28Economy.refiNetEnergyBaseIncome] or 0) < 0) then return false end
+    return M28Conditions.GetFactoryLifetimeCount(oFactory, categories.LAND * categories.MOBILE * categories.TECH3 * (categories.DIRECTFIRE + categories.INDIRECTFIRE) - categories.ENGINEER - categories.SCOUT) < 3
+end
+
 function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     local sFunctionRef = 'GetBlueprintToBuildForLandFactory'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelFactory, sFunctionRef)
@@ -3828,6 +3838,15 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                                 {engineers = iOpeningEngineers, combat = iOpeningCombat, engineer_factories = iEngineerFactories, engineer_factory_limit = iEngineerFactoryLimit, blueprint = sBPIDToBuild})
                         end
                     end
+                end
+            end
+            if sBPIDToBuild and iFactoryTechLevel == 3 and EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBPIDToBuild)
+                    and ShouldPrioritizeInitialT3LandCombat(aiBrain, oFactory, tLZTeamData) then
+                local sCombatBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryMobileDFLand * categories.TECH3 - categories.ENGINEER - categories.SCOUT, oFactory)
+                if sCombatBlueprint then
+                    sBPIDToBuild = AdjustBlueprintForOverrides(aiBrain, oFactory, sCombatBlueprint, tLZTeamData, iFactoryTechLevel)
+                else
+                    sBPIDToBuild = nil
                 end
             end
             local bAllowLowMassCombatFallback = bContinueLowerTechLandProduction
@@ -6776,6 +6795,23 @@ local function GetProjectedFactoryResourceAdmission(iCandidateDrain, iPendingDra
     return iRequiredStoredResource <= iSpareStoredResource, iNetReserve, iRequiredStoredResource, iSpareStoredResource
 end
 
+local function CanReserveInitialT3CombatProduction(aiBrain, oFactory, sBlueprint, iMassDrain)
+    local iCombatCategory = categories.LAND * categories.MOBILE * categories.TECH3 * (categories.DIRECTFIRE + categories.INDIRECTFIRE) - categories.ENGINEER - categories.SCOUT
+    if M28Map.bIsCampaignMap or not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand])
+            or not(EntityCategoryContains(M28UnitInfo.refCategoryLandFactory * categories.TECH3, oFactory.UnitId))
+            or not(EntityCategoryContains(iCombatCategory, sBlueprint))
+            or M28Conditions.GetFactoryLifetimeCount(oFactory, iCombatCategory) >= 3
+            or aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer * categories.TECH3) < 2 then return false end
+    local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
+    if iMassDrain > (tTeamData[M28Team.subrefiTeamGrossMass] or 0) * 0.2
+            or (tTeamData[M28Team.subrefiTeamAverageEnergyPercentStored] or 0) < 0.35 then return false end
+    -- One initial T3 combat queue may share mass with construction; energy admission still applies.
+    for _, oOtherFactory in GetTeamManagedFactories(aiBrain, aiBrain.M28Team) do
+        if oOtherFactory ~= oFactory and GetFactoryIssuedQueueCountByCategory(oOtherFactory, iCombatCategory) > 0 then return false end
+    end
+    return true
+end
+
 GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
     if not(sBlueprint) or not(__blueprints[string.lower(sBlueprint)]) then
         return false, 'InvalidResourceProfile'
@@ -6809,6 +6845,13 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
     }
 
     local function FinishAdmission(bAllowed, sReason)
+        if M28Diagnostics.ShouldLog('Factory', aiBrain and aiBrain:GetArmyIndex(), 'admission:'..oFactory.EntityId) then
+            M28Diagnostics.Record('Factory', aiBrain and aiBrain:GetArmyIndex(), 'admission:'..oFactory.EntityId, sReason,
+                {allowed = bAllowed, blueprint = sBlueprint, mass_drain = tDetails.iCandidateMassDrain,
+                 energy_drain = tDetails.iCandidateEnergyDrain, required_mass = tDetails.iRequiredStoredMass,
+                 spare_mass = tDetails.iSpareStoredMass, required_energy = tDetails.iRequiredStoredEnergy,
+                 spare_energy = tDetails.iSpareStoredEnergy, energy_ratio = tDetails.iEnergyRatio})
+        end
         if bDebugMessages == true then
             M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Factory='..(oFactory and oFactory.UnitId or 'nil')..'; Blueprint='..(sBlueprint or 'nil')..'; Allowed='..tostring(bAllowed)..'; Reason='..sReason..'; CandidateMassDrainPerTick='..tDetails.iCandidateMassDrain..'; CandidateEnergyDrainPerTick='..tDetails.iCandidateEnergyDrain..'; CurrentMassDrainPerTick='..tDetails.iCurrentMassDrain..'; CurrentEnergyDrainPerTick='..tDetails.iCurrentEnergyDrain..'; PendingMassDrainPerTick='..tDetails.iPendingMassDrain..'; PendingEnergyDrainPerTick='..tDetails.iPendingEnergyDrain..'; TeamNetMass='..(tTeamData and (tTeamData[M28Team.subrefiTeamNetMass] or 0) or 0)..'; TeamNetEnergy='..(tTeamData and (tTeamData[M28Team.subrefiTeamNetEnergy] or 0) or 0)..'; MassNetReserve='..tDetails.iMassNetReserve..'; EnergyNetReserve='..tDetails.iEnergyNetReserve..'; RequiredStoredMass='..tDetails.iRequiredStoredMass..'; SpareStoredMassAbove2_5Pct='..tDetails.iSpareStoredMass..'; RequiredStoredEnergy='..tDetails.iRequiredStoredEnergy..'; SpareStoredEnergyAbove15Pct='..tDetails.iSpareStoredEnergy..'; TeamEnergyRatio='..tDetails.iEnergyRatio..'; IssuedEmergencyAirAA='..tDetails.iIssuedEmergencyAirAA..'/'..tDetails.iActiveBrains..'; Time='..GetGameTimeSeconds())
         end
@@ -6832,10 +6875,12 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
     tDetails.iCandidateEnergyDrain = iCandidateEnergyDrain
     if EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBlueprint) then
         return FinishAdmission(true, 'EngineerEconomyBypass')
-    elseif tFactoryEco.bStallingMass then
-        return FinishAdmission(false, 'MassStall')
     elseif tFactoryEco.bStallingEnergy then
         return FinishAdmission(false, 'EnergyStall')
+    end
+    local bInitialT3CombatReserve = CanReserveInitialT3CombatProduction(aiBrain, oFactory, sBlueprint, iCandidateMassDrain)
+    if tFactoryEco.bStallingMass and not(bInitialT3CombatReserve) then
+        return FinishAdmission(false, 'MassStall')
     end
     tDetails.iCurrentMassDrain, tDetails.iCurrentEnergyDrain = GetFactoryCurrentProductionResourceDrain(oFactory)
     local iMassStorageCapacity, iEnergyStorageCapacity
@@ -6856,7 +6901,7 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
         tDetails.iActiveBrains,
         iResourceMultiplier
     )
-    if not(bMassAllowed) then
+    if not(bMassAllowed) and not(bInitialT3CombatReserve) then
         return FinishAdmission(false, 'ProjectedMassShortfall')
     end
 
@@ -6875,7 +6920,7 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
         iResourceMultiplier
     )
     if bEnergyAllowed then
-        return FinishAdmission(true, 'ProjectedAffordable')
+        return FinishAdmission(true, bMassAllowed and not(tFactoryEco.bStallingMass) and 'ProjectedAffordable' or 'InitialT3CombatReserve')
     end
 
     if EntityCategoryContains(iAirAAProductionCategory, sBlueprint) then
