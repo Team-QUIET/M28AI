@@ -3063,6 +3063,46 @@ function ShouldPrioritizeInitialT3LandCombat(aiBrain, oFactory, tLZTeamData)
     return M28Conditions.GetFactoryLifetimeCount(oFactory, categories.LAND * categories.MOBILE * categories.TECH3 * (categories.DIRECTFIRE + categories.INDIRECTFIRE) - categories.ENGINEER - categories.SCOUT) < 3
 end
 
+function GetLandArmyMAAFloorCategory(oFactory)
+    local aiBrain = oFactory:GetAIBrain()
+    if M28Map.bIsCampaignMap or not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand])
+            or aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer) < 4 then return nil end
+    local iFactoryTech = M28UnitInfo.GetUnitTechLevel(oFactory)
+    local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
+    local iMAACategory = M28UnitInfo.refCategoryMAA
+    if (tTeamData[M28Team.subrefiHighestFriendlyLandFactoryTech] or 1) >= 2 then
+        if iFactoryTech < 2 then return nil end
+        iMAACategory = iMAACategory - categories.TECH1
+    end
+    local iCombat, iExperimentals, iMAA, iCombatMass = 0, 0, 0, 0
+    for _, oUnit in aiBrain:GetListOfUnits(categories.LAND * categories.MOBILE - categories.ENGINEER - categories.COMMAND, false, true) do
+        if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 then
+            if EntityCategoryContains(iMAACategory, oUnit.UnitId) then
+                iMAA = iMAA + 1
+            elseif EntityCategoryContains(M28UnitInfo.refCategoryLandCombat - M28UnitInfo.refCategoryMAA - categories.SCOUT, oUnit.UnitId) then
+                iCombat = iCombat + 1
+                iCombatMass = iCombatMass + (oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit))
+                if EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId) then iExperimentals = iExperimentals + 1 end
+            end
+        end
+    end
+    if iCombat < 8 and iExperimentals == 0 then return nil end
+    local iCategoryWanted = GetPreferredLandMAACategory(oFactory, aiBrain.M28Team, true, false)
+    local sBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryWanted, oFactory)
+    if not(sBlueprint) then return nil end
+    local iEscortMass = __blueprints[sBlueprint].Economy.BuildCostMass or 1
+    local iWanted = math.min(16, math.ceil(iCombat / 10) + iExperimentals * 2, math.max(1, math.ceil(iCombatMass * 0.08 / math.max(1, iEscortMass))))
+    if iMAA >= iWanted then return nil end
+    for _, oOtherFactory in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryMobileLandFactory, false, true) do
+        if M28UnitInfo.IsUnitValid(oOtherFactory) then
+            iMAA = iMAA + GetFactoryPendingBuildCountByCategory(oOtherFactory, iMAACategory)
+            if iMAA >= iWanted then return nil end
+        end
+    end
+    -- Fixed defenses cannot accompany an army. Existing resource admission still funds each escort.
+    return iCategoryWanted
+end
+
 function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     local sFunctionRef = 'GetBlueprintToBuildForLandFactory'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelFactory, sFunctionRef)
@@ -3957,6 +3997,12 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     end
 
     iCurrentConditionToTry = iCurrentConditionToTry + 1
+    local iArmyMAACategory = not(bHaveLowPower) and GetLandArmyMAAFloorCategory(oFactory)
+    if iArmyMAACategory then
+        local sEscortBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, iArmyMAACategory, oFactory)
+        if sEscortBlueprint and GetFactoryProductionAdmission(aiBrain, oFactory, sEscortBlueprint)
+                and ConsiderBuildingCategory(iArmyMAACategory) then return sBPIDToBuild end
+    end
     local tEarlyMAAIntent = GetLandFactoryMAAIntent(oFactory, iTeam, {
         sMode = 'Main',
         tLZData = tLZData,

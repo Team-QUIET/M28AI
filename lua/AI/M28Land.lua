@@ -13145,6 +13145,34 @@ function IsLandCombatIntentLocked(oUnit, iPlateau, iLandZone)
     return true
 end
 
+function AssignNearbyExperimentalMAAGuard(oMAA)
+    local oExisting = oMAA[refoAssignedUnitToGuard]
+    if M28UnitInfo.IsUnitValid(oExisting) then return end
+    if GetGameTimeSeconds() < (oMAA.M28NextExperimentalGuardSearch or -1) then return end
+    oMAA.M28NextExperimentalGuardSearch = GetGameTimeSeconds() + 5
+    local sPathing = EntityCategoryContains(M28UnitInfo.refCategoryAmphibious + categories.HOVER, oMAA.UnitId) and M28Map.refPathingTypeHover or M28Map.refPathingTypeLand
+    local oBest, iBestScore
+    for _, oExperimental in oMAA:GetAIBrain():GetUnitsAroundPoint(M28UnitInfo.refCategoryLandExperimental, oMAA:GetPosition(), 100, 'Ally') do
+        if M28UnitInfo.IsUnitValid(oExperimental) and oExperimental:GetAIBrain().M28AI and oExperimental:GetFractionComplete() == 1
+                and (not(M28UnitInfo.IsUnitUnderwater(oExperimental)) or EntityCategoryContains(M28UnitInfo.refCategoryAmphibious + categories.HOVER, oMAA.UnitId)) then
+            local tGuards = oExperimental[reftoAssignedMAAGuards] or {}
+            oExperimental[reftoAssignedMAAGuards] = tGuards
+            for iGuard = table.getn(tGuards), 1, -1 do
+                if not(M28UnitInfo.IsUnitValid(tGuards[iGuard])) or tGuards[iGuard][refoAssignedUnitToGuard] ~= oExperimental then table.remove(tGuards, iGuard) end
+            end
+            local iWanted = EntityCategoryContains(M28UnitInfo.refCategoryFatboy, oExperimental.UnitId) and iFatboyBaseMAACount or 3
+            if table.getn(tGuards) < iWanted and NavUtils.CanPathTo(sPathing, oMAA:GetPosition(), oExperimental:GetPosition()) then
+                local iScore = table.getn(tGuards) * 100 + M28Utilities.GetDistanceBetweenPositions(oMAA:GetPosition(), oExperimental:GetPosition())
+                if not(iBestScore) or iScore < iBestScore then oBest, iBestScore = oExperimental, iScore end
+            end
+        end
+    end
+    if oBest then
+        table.insert(oBest[reftoAssignedMAAGuards], oMAA)
+        oMAA[refoAssignedUnitToGuard] = oBest
+    end
+end
+
 function ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
     local sFunctionRef = 'ManageSpecificLandZone'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLand, sFunctionRef)
@@ -13369,6 +13397,7 @@ function ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
                             --Is the unit available for use by this land zone?
                             if oUnit:GetFractionComplete() == 1 then
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Does unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' have a valid guard? Guard='..(oUnit[refoAssignedUnitToGuard].UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oUnit[refoAssignedUnitToGuard]) or 'nil')) end
+                                if EntityCategoryContains(M28UnitInfo.refCategoryMAA, oUnit.UnitId) then AssignNearbyExperimentalMAAGuard(oUnit) end
                                 if oUnit[refoAssignedUnitToGuard] and M28UnitInfo.IsUnitValid(oUnit[refoAssignedUnitToGuard]) and (EntityCategoryContains(M28UnitInfo.refCategoryAmphibious + categories.HOVER, oUnit.UnitId) or not(M28UnitInfo.IsUnitUnderwater(oUnit[refoAssignedUnitToGuard]))) then
 
                                     --Guard actually causes MAA to move a bit too far away so will just move towards the unit; currently are just using this for MAA covering a fatboy so moving directly to the unit means it works out well since they wont block the fatboy and will rotate instead to be to the fatboy's rear at all times
@@ -13409,9 +13438,9 @@ function ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
                                                             end
                                                             if bEnemyDoesntHaveBigEnoughBomberThreat and iCurDist < iMaxDistance then
                                                                 if bCustomThreat then
-                                                                    iEnemyBomberMassNearby = iEnemyBomberMassNearby + (oBomber[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit)) * M28UnitInfo.iThreatFactor
+                                                                    iEnemyBomberMassNearby = iEnemyBomberMassNearby + (oBomber[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oBomber)) * M28UnitInfo.iThreatFactor
                                                                 else
-                                                                    iEnemyBomberMassNearby = iEnemyBomberMassNearby + (oBomber[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit))
+                                                                    iEnemyBomberMassNearby = iEnemyBomberMassNearby + (oBomber[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oBomber))
                                                                 end
                                                                 if iEnemyBomberMassNearby >= 1500 and (iEnemyBomberMassNearby >= 4000 or (iCurDist < 200 and (iCurDist < 120 or iEnemyBomberMassNearby >= 2500))) then
                                                                     bEnemyDoesntHaveBigEnoughBomberThreat = false
@@ -13437,7 +13466,7 @@ function ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
                                                     LOG(sFunctionRef..': refoClosestEnemyFromLastCloseToEnemyUnitCheck is not valid, oUnit[refoAssignedUnitToGuard]='..oUnit[refoAssignedUnitToGuard].UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit[refoAssignedUnitToGuard]))
                                                 end
                                             end
-                                            if (not(M28UnitInfo.IsUnitValid(oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck])) or M28Utilities.GetDistanceBetweenPositions(oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]:GetPosition(), oUnit:GetPosition()) - oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck][M28UnitInfo.refiCombatRange] >= 15) and EntityCategoryContains(M28UnitInfo.refCategoryFatboy + categories.COMMAND, oUnit[refoAssignedUnitToGuard].UnitId) then
+                                            if (not(M28UnitInfo.IsUnitValid(oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck])) or M28Utilities.GetDistanceBetweenPositions(oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck]:GetPosition(), oUnit:GetPosition()) - oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck][M28UnitInfo.refiCombatRange] >= 15) and EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental + categories.COMMAND, oUnit[refoAssignedUnitToGuard].UnitId) then
                                                 if not(tPreferredPositionToProtectFromBomber) then
                                                     --Move between fatboy/ACU and closest bomber
                                                     local iAngleToBomber = M28Utilities.GetAngleFromAToB(oUnit[refoAssignedUnitToGuard]:GetPosition(), oClosestEnemyT1ToT3Bomber:GetPosition())

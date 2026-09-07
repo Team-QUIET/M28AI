@@ -18581,8 +18581,9 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
     --For now only do land zone not water zone given water zone includes torp bombers
     if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
         for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
-            iNearbyEnemyAirToGroundThreat = iNearbyEnemyAirToGroundThreat + tLZTeamData[M28Map.refiEnemyAirToGroundThreat]
-            if tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefLZbCoreBase] then bAdjacentToCoreZone = true end
+            local tAdjacentTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
+            iNearbyEnemyAirToGroundThreat = iNearbyEnemyAirToGroundThreat + (tAdjacentTeamData[M28Map.refiEnemyAirToGroundThreat] or 0)
+            if tAdjacentTeamData[M28Map.subrefLZbCoreBase] then bAdjacentToCoreZone = true end
         end
     end
 
