@@ -350,6 +350,42 @@ function GetBaselinePressureDFShortfall(tLZData, tLZTeamData, iPlateau, iLandZon
 end
 
 
+function CanShareBaselinePressureTarget(bSameOwner, iIncoming, iEnemyThreat, iPDThreat, iDistance, bCoreBase, iFriendlyThreat, bSourceHasEnemies)
+    if bSameOwner then return true, 'own-lane' end
+    -- Local danger cancels travel intents; avoid reissuing them every zone update.
+    if bSourceHasEnemies then return false, 'source-under-pressure' end
+    if bCoreBase then return false, 'other-core' end
+    if (iFriendlyThreat or 0) > 0 then return false, 'already-covered' end
+    if iIncoming > 0 then return false, 'already-reinforced' end
+    if iEnemyThreat > 200 or iPDThreat > 0 then return false, 'contested-use-normal-support' end
+    if iDistance > 350 then return false, 'too-far' end
+    return true, 'uncovered-allied-flank'
+end
+
+function GetBaselinePressureBudget(iTotalBudget, iSmallestUnit, bHasPrimaryTarget)
+    local iBudget = bHasPrimaryTarget and iTotalBudget * 0.65 or iTotalBudget
+    -- A fractional budget must still fit one cheap unit; cross-owner groups remain capped at 300.
+    if iSmallestUnit and iSmallestUnit <= 300 then iBudget = math.max(iBudget, math.min(iTotalBudget, iSmallestUnit)) end
+    return iBudget
+end
+
+function GetBaselinePressureIncomingCount(tTargetLZTeamData)
+    local tIncoming = tTargetLZTeamData.M28BaselinePressureIncoming
+    local iCount = 0
+    if tIncoming then
+        local iNow = GetGameTimeSeconds()
+        for oUnit, tIntent in tIncoming do
+            if not(M28UnitInfo.IsUnitValid(oUnit)) or iNow >= tIntent.untilTime
+                    or oUnit[refiLandCombatIntentPlateau] ~= tIntent.plateau
+                    or oUnit[refiLandCombatIntentTargetLZ] ~= tIntent.target
+                    or oUnit:GetAIBrain().M28Team ~= tIntent.team then
+                tIncoming[oUnit] = nil
+            else iCount = iCount + 1 end
+        end
+    end
+    return iCount
+end
+
 function GetUnitPlateauAndLandZoneOverride(oUnit)
     --Return true if have changed something
     local sFunctionRef = 'GetUnitPlateauAndLandZoneOverride'
@@ -11898,7 +11934,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 end
             end
             function GetIncomingSupportCount(tTargetLZTeamData)
-                local iCount = 0
+                local iCount = GetBaselinePressureIncomingCount(tTargetLZTeamData)
                 if tTargetLZTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF] then
                     for _, _ in tTargetLZTeamData[M28Map.subreftiLandZonesTargetingThisWithOurDF] do
                         iCount = iCount + 1
@@ -12370,21 +12406,34 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 if M28Utilities.IsTableEmpty(tDFUnits) == false and M28Team.tTeamData[iTeam][M28Team.subrefiLandZonesWantingSupportByPlateau][iPlateau] then
                     local tBaselinePressureZones = {}
                     local iTotalDFBudget = 0
+                    local iSmallestDFUnit
                     local iIslandWanted = tLZData[M28Map.subrefLZIslandRef]
                     local iLatchedBaselinePressureTarget = GetLatchedBaselinePressureTarget()
 
                     for _, oUnit in tDFUnits do
-                        iTotalDFBudget = iTotalDFBudget + (oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit))
+                        local iUnitMass = oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit)
+                        iTotalDFBudget = iTotalDFBudget + iUnitMass
+                        iSmallestDFUnit = math.min(iSmallestDFUnit or iUnitMass, iUnitMass)
                     end
 
-                    local iMaxBaselineBudget = iDFLZToSupport and (iTotalDFBudget * 0.65) or iTotalDFBudget
+                    local iMaxBaselineBudget = GetBaselinePressureBudget(iTotalDFBudget, iSmallestDFUnit, iDFLZToSupport ~= nil)
                     if iMaxBaselineBudget > 0 then
                         for iOtherLZ, bWantsSupport in M28Team.tTeamData[iTeam][M28Team.subrefiLandZonesWantingSupportByPlateau][iPlateau] do
                             if bWantsSupport and not(iOtherLZ == iLandZone) and not(iOtherLZ == iDFLZToSupport) then
                                 local tOtherLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iOtherLZ]
                                 if tOtherLZData and iIslandWanted == tOtherLZData[M28Map.subrefLZIslandRef] and (bDontCheckPlayableArea or M28Conditions.IsLocationInPlayableArea(tOtherLZData[M28Map.subrefMidpoint])) then
                                     local tOtherLZTeamData = tOtherLZData[M28Map.subrefLZTeamData][iTeam]
-                                    if IsSameOwningBrain(tOtherLZTeamData) and tOtherLZTeamData[M28Map.subrefbLZBaselinePressure] then
+                                    local bSameOwner = IsSameOwningBrain(tOtherLZTeamData)
+                                    local bCanShare, sShareReason = CanShareBaselinePressureTarget(bSameOwner, GetIncomingSupportCount(tOtherLZTeamData),
+                                        tOtherLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0, tOtherLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0,
+                                        M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], tOtherLZData[M28Map.subrefMidpoint]), tOtherLZTeamData[M28Map.subrefLZbCoreBase],
+                                        tOtherLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0,
+                                        tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or (tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) > 0)
+                                    if tOtherLZTeamData[M28Map.subrefbLZBaselinePressure] and M28Diagnostics.ShouldLog('Land', tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex], 'flank:'..iPlateau..':'..iLandZone..':'..iOtherLZ) then
+                                        M28Diagnostics.Record('Land', tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex], 'flank:'..iPlateau..':'..iLandZone..':'..iOtherLZ, sShareReason,
+                                            {allowed = bCanShare, same_owner = bSameOwner, x = tOtherLZData[M28Map.subrefMidpoint][1], z = tOtherLZData[M28Map.subrefMidpoint][3]})
+                                    end
+                                    if bCanShare and tOtherLZTeamData[M28Map.subrefbLZBaselinePressure] then
                                         local iShortfall = GetBaselinePressureDFShortfall(tOtherLZData, tOtherLZTeamData, iPlateau, iOtherLZ, iTeam)
                                         local iIncomingTotal = GetIncomingSupportCount(tOtherLZTeamData)
                                         local bLatchedPressureTarget = (iOtherLZ == iLatchedBaselinePressureTarget)
@@ -12394,7 +12443,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                             if not(bSameLane) then iZoneScore = iZoneScore * 0.9 end
                                             if iIncomingTotal == 0 then iZoneScore = iZoneScore * 1.25 end
                                             if bLatchedPressureTarget then iZoneScore = iZoneScore + 100000 end
-                                            table.insert(tBaselinePressureZones, {iOtherLZ, iZoneScore, iShortfall})
+                                            if not(bSameOwner) then iZoneScore = iZoneScore * 0.75 end
+                                            table.insert(tBaselinePressureZones, {iOtherLZ, iZoneScore, iShortfall, bSameOwner})
                                         end
                                     end
                                 end
@@ -12402,7 +12452,12 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         end
 
                         if table.getn(tBaselinePressureZones) > 0 then
-                            table.sort(tBaselinePressureZones, function(a, b) return a[2] > b[2] end)
+                            table.sort(tBaselinePressureZones, function(a, b)
+                                -- Seed an empty allied lane before topping up an established own lane.
+                                if a[4] ~= b[4] then return not(a[4]) end
+                                if a[2] == b[2] then return a[1] < b[1] end
+                                return a[2] > b[2]
+                            end)
                             local iAssignedBaselineBudget = 0
                             local bRecordedBaselinePressureTarget = false
 
@@ -12411,6 +12466,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
                                 local iPressureLZ = tPressureTarget[1]
                                 local iThreatToAssign = math.min(tPressureTarget[3] * 1.4, iMaxBaselineBudget - iAssignedBaselineBudget)
+                                if not(tPressureTarget[4]) then iThreatToAssign = math.min(iThreatToAssign, 300) end
                                 local tPressureLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iPressureLZ]
                                 local iAssignedThreat = 0
 
@@ -12421,9 +12477,22 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                             local bReturningToPressureLane = (oUnit[refiLastBaselineLZAssignment] == iPressureLZ)
                                             if (iPass == 1 and bReturningToPressureLane) or (iPass == 2 and not(bReturningToPressureLane)) then
                                                 local iUnitThreat = oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit)
-                                                if bReturningToPressureLane or iUnitThreat <= math.max(iThreatToAssign, 900) or table.getn(tDFUnits) <= 3 then
-                                                    SetLandCombatIntent(oUnit, iPlateau, iPressureLZ, iLandSupportOrderIntentSeconds, 'BPrDF')
-                                                    M28Orders.IssueSmartMove(oUnit, tPressureLZData[M28Map.subrefMidpoint], 5, false, 'BPrDF'..iLandZone..'To'..iPressureLZ, false)
+                                                if (tPressureTarget[4] or iUnitThreat <= iThreatToAssign - iAssignedThreat) and (bReturningToPressureLane or iUnitThreat <= math.max(iThreatToAssign, 900) or table.getn(tDFUnits) <= 3) then
+                                                    local iIntentSeconds = iLandSupportOrderIntentSeconds
+                                                    local sIntentOwner = 'BPrDF'
+                                                    if not(tPressureTarget[4]) then
+                                                        local iDistance = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tPressureLZData[M28Map.subrefMidpoint])
+                                                        local tPhysics = __blueprints[oUnit.UnitId].Physics or {}
+                                                        iIntentSeconds = math.min(120, math.max(iIntentSeconds, iDistance / math.max(1, tPhysics.MaxSpeed or 1) + 5))
+                                                        sIntentOwner = 'BPrCross'
+                                                    end
+                                                    SetLandCombatIntent(oUnit, iPlateau, iPressureLZ, iIntentSeconds, sIntentOwner)
+                                                    M28Orders.IssueSmartMove(oUnit, tPressureLZData[M28Map.subrefMidpoint], 5, false, sIntentOwner..iLandZone..'To'..iPressureLZ, false)
+                                                    if not(tPressureTarget[4]) then
+                                                        local tTargetTeam = tPressureLZData[M28Map.subrefLZTeamData][iTeam]
+                                                        if not(tTargetTeam.M28BaselinePressureIncoming) then tTargetTeam.M28BaselinePressureIncoming = {} end
+                                                        tTargetTeam.M28BaselinePressureIncoming[oUnit] = {untilTime = GetGameTimeSeconds() + iIntentSeconds, plateau = iPlateau, target = iPressureLZ, team = iTeam}
+                                                    end
                                                     oUnit[refiLastBaselineLZAssignment] = iPressureLZ
                                                     iAssignedThreat = iAssignedThreat + iUnitThreat
                                                     iAssignedBaselineBudget = iAssignedBaselineBudget + iUnitThreat
@@ -12438,6 +12507,10 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
                                 if bDebugMessages == true and iAssignedThreat > 0 then
                                     LOG(sFunctionRef..': Assigned baseline pressure detachment of '..math.floor(iAssignedThreat)..' to P'..iPlateau..'Z'..iPressureLZ..'; source=P'..iPlateau..'Z'..iLandZone..'; Remaining DF units='..table.getn(tDFUnits))
+                                end
+                                if iAssignedThreat > 0 and M28Diagnostics.ShouldLog('Land', tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex], 'detachment:'..iPlateau..':'..iLandZone..':'..iPressureLZ) then
+                                    M28Diagnostics.Record('Land', tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex], 'detachment:'..iPlateau..':'..iLandZone..':'..iPressureLZ, 'flank-orders-issued',
+                                        {target = iPressureLZ, assigned = iAssignedThreat, budget = iThreatToAssign, same_owner = tPressureTarget[4]})
                                 end
                                 if iAssignedThreat > 0 and not(bRecordedBaselinePressureTarget) then
                                     RecordLatchedBaselinePressureTarget(iPressureLZ)
@@ -13054,7 +13127,12 @@ function IsLandCombatIntentLocked(oUnit, iPlateau, iLandZone)
 
     local iTeam = oUnit:GetAIBrain().M28Team
     local tCurrentLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][iTeam]
-    if tCurrentLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or tCurrentLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] then
+    local bThreatBlocksIntent = tCurrentLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or tCurrentLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]
+    if oUnit[refsLandCombatIntentOwner] == 'BPrCross' then
+        -- Adjacent contacts alone should not interrupt travel through an empty zone.
+        bThreatBlocksIntent = tCurrentLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or (tCurrentLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) > 0
+    end
+    if bThreatBlocksIntent then
         ClearLandCombatIntent(oUnit)
         return false
     end
