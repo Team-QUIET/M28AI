@@ -6812,6 +6812,29 @@ local function CanReserveInitialT3CombatProduction(aiBrain, oFactory, sBlueprint
     return true
 end
 
+local function CanReserveFighterRecoveryProduction(aiBrain, oFactory, sBlueprint, iMassDrain, iEnergyDrain)
+    if not(EntityCategoryContains(iAirAAProductionCategory * categories.TECH3, sBlueprint)) then return false end
+    local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
+    local tAirData = M28Team.tAirSubteamData[aiBrain.M28AirSubteam]
+    if not(tAirData) or (tTeamData[M28Team.refiEnemyAirAAThreat] or 0) <= 0
+            or (tAirData[M28Team.subrefiOurAirAAThreat] or 0) >= tTeamData[M28Team.refiEnemyAirAAThreat] * 1.15
+            or (tTeamData[M28Team.subrefiTeamAverageEnergyPercentStored] or 0) < 0.6 then return false end
+    local iOtherQueues = 0
+    for _, oOtherFactory in GetTeamManagedFactories(aiBrain, aiBrain.M28Team) do
+        if oOtherFactory ~= oFactory and GetFactoryIssuedQueueCountByCategory(oOtherFactory, iAirAAProductionCategory) > 0 then
+            iOtherQueues = iOtherQueues + 1
+            local tQueue = GetQueuedFactoryBlueprints(oOtherFactory)
+            local iOtherMass, iOtherEnergy = GetFactoryBlueprintResourceProfile(oOtherFactory, tQueue and tQueue[1])
+            if not(iOtherMass) or not(iOtherEnergy) then return false end
+            iMassDrain, iEnergyDrain = iMassDrain + iOtherMass, iEnergyDrain + iOtherEnergy
+        end
+    end
+    -- A small funded fighter share remains available while construction consumes the mass surplus.
+    return iOtherQueues < math.max(1, tTeamData[M28Team.subrefiActiveM28BrainCount] or 1)
+        and iMassDrain <= (tTeamData[M28Team.subrefiTeamGrossMass] or 0) * 0.15
+        and iEnergyDrain <= (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * 0.25
+end
+
 GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
     if not(sBlueprint) or not(__blueprints[string.lower(sBlueprint)]) then
         return false, 'InvalidResourceProfile'
@@ -6879,7 +6902,8 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
         return FinishAdmission(false, 'EnergyStall')
     end
     local bInitialT3CombatReserve = CanReserveInitialT3CombatProduction(aiBrain, oFactory, sBlueprint, iCandidateMassDrain)
-    if tFactoryEco.bStallingMass and not(bInitialT3CombatReserve) then
+    local bFighterRecoveryReserve = CanReserveFighterRecoveryProduction(aiBrain, oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain)
+    if tFactoryEco.bStallingMass and not(bInitialT3CombatReserve or bFighterRecoveryReserve) then
         return FinishAdmission(false, 'MassStall')
     end
     tDetails.iCurrentMassDrain, tDetails.iCurrentEnergyDrain = GetFactoryCurrentProductionResourceDrain(oFactory)
@@ -6901,7 +6925,7 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
         tDetails.iActiveBrains,
         iResourceMultiplier
     )
-    if not(bMassAllowed) and not(bInitialT3CombatReserve) then
+    if not(bMassAllowed) and not(bInitialT3CombatReserve or bFighterRecoveryReserve) then
         return FinishAdmission(false, 'ProjectedMassShortfall')
     end
 
@@ -6920,7 +6944,7 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
         iResourceMultiplier
     )
     if bEnergyAllowed then
-        return FinishAdmission(true, bMassAllowed and not(tFactoryEco.bStallingMass) and 'ProjectedAffordable' or 'InitialT3CombatReserve')
+        return FinishAdmission(true, bMassAllowed and not(tFactoryEco.bStallingMass) and 'ProjectedAffordable' or (bFighterRecoveryReserve and 'FighterRecoveryReserve' or 'InitialT3CombatReserve'))
     end
 
     if EntityCategoryContains(iAirAAProductionCategory, sBlueprint) then
@@ -6935,6 +6959,15 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
     return FinishAdmission(false, 'ProjectedEnergyShortfall')
 end
 
+local function ShouldRequireT3AirAA(aiBrain, oFactory)
+    if not(EntityCategoryContains(iAirProducingFactoryCategory * categories.TECH3, oFactory.UnitId)) then return false end
+    if M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.refbOnlyGetASFs] then return true end
+    for _, oEnemy in M28Team.tTeamData[aiBrain.M28Team][M28Team.reftoAllEnemyAir] or {} do
+        if M28UnitInfo.IsUnitValid(oEnemy) and EntityCategoryContains(iAirAAProductionCategory * categories.TECH3, oEnemy.UnitId) then return true end
+    end
+    return false
+end
+
 GetEconomyAdmittedFactoryProductionBlueprint = function(aiBrain, oFactory, sBlueprint)
     local bAllowed, sAdmissionReason = GetFactoryProductionAdmission(aiBrain, oFactory, sBlueprint)
     if bAllowed then
@@ -6942,7 +6975,8 @@ GetEconomyAdmittedFactoryProductionBlueprint = function(aiBrain, oFactory, sBlue
     end
 
     if IsAirProductionBlueprint(oFactory, sBlueprint)
-            and EntityCategoryContains(iAirAAProductionCategory - categories.TECH1, sBlueprint) then
+            and EntityCategoryContains(iAirAAProductionCategory - categories.TECH1, sBlueprint)
+            and not(ShouldRequireT3AirAA(aiBrain, oFactory)) then
         local sT1AirAA = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryAirAA * categories.TECH1, oFactory, nil, nil, nil, nil, false)
         if sT1AirAA then
             local bFallbackAllowed, sFallbackAdmissionReason = GetFactoryProductionAdmission(aiBrain, oFactory, sT1AirAA)
@@ -9292,6 +9326,7 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
             local iAirAASearchCategory
             local bPreferLowerTierInties = false
             local iPreferredTech = iFactoryTechLevel --Default to factory tech level
+            local bRequireT3AirAA = ShouldRequireT3AirAA(aiBrain, oFactory)
 
             local iEnemyAirAAThreat = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 0
 
@@ -9308,7 +9343,7 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
                     iPreferredTech = 1
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': T1_INTY - T2 fac preferring T1 interceptors (T1IntyBuilt='..iT1IntyLifetimeBuildCount..', Threshold='..iT1IntyThreshold..', T2Facs='..iT2AirFacCount..', EnemyAirAA='..iEnemyAirAAThreat..')') end
                 end
-            elseif iFactoryTechLevel == 3 then
+            elseif iFactoryTechLevel == 3 and not(bRequireT3AirAA) then
                 local iT2FighterLifetimeBuildCount = M28Conditions.GetAirSubteamLifetimeBuildCount(iAirSubteam, M28UnitInfo.refCategoryAirAA * categories.TECH2)
                 local iT3AirFacCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryAirFactory * categories.TECH3)
                 local iT2FighterThreshold = math.max(3, 3 * iT3AirFacCount)
@@ -9323,7 +9358,9 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
                 end
             end
 
-            if bPreferLowerTierInties then
+            if bRequireT3AirAA then
+                iAirAASearchCategory = M28UnitInfo.refCategoryAirAA * categories.TECH3
+            elseif bPreferLowerTierInties then
                 if iPreferredTech == 1 then
                     iAirAASearchCategory = M28UnitInfo.refCategoryAirAA * categories.TECH1
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Using T1 interceptor category') end
