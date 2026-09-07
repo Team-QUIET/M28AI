@@ -42,7 +42,7 @@ local iProfilerActualLongestTickRef = 0
 local iMaximumActiveProfilerStartsPerFunction = 64
 
 local tsPerformanceCounterRefs = {
-    'DamageRaw', 'DamageAdmitted', 'DamageRejected',
+    'DamageRaw', 'DamageAdmitted', 'DamageRejected', 'DamageOwnerExpired',
     'WeaponRaw', 'WeaponAdmitted', 'WeaponDuplicate', 'WeaponRejected',
     'ShieldRaw', 'ShieldAdmitted', 'ShieldRejected',
     'DetectionRaw', 'DetectionAdmitted', 'DetectionRejected',

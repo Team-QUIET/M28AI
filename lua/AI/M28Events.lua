@@ -39,12 +39,22 @@ local iMaximumCreateDispatchesPerTick = 32
 
 local function GetEntityBrain(oEntity)
     if not(oEntity) then return nil end
-    if oEntity.GetAIBrain then return oEntity:GetAIBrain() end
+    -- Projectiles can outlive their launchers. Prefer Lua ownership fields; native
+    -- methods on an expired entity can throw even while the Lua object still exists.
     if oEntity.Brain then return oEntity.Brain end
-
     local iArmy = oEntity.Army
-    if not(iArmy) and oEntity.GetArmy then iArmy = oEntity:GetArmy() end
     if iArmy and ArmyBrains then return ArmyBrains[iArmy] end
+    if oEntity.Dead then return nil end
+    if oEntity.GetAIBrain then
+        local bOK, aiBrain = pcall(oEntity.GetAIBrain, oEntity)
+        if bOK then return aiBrain end
+        M28Profiler.IncrementPerformanceCounter('DamageOwnerExpired')
+        return nil
+    end
+    if oEntity.GetArmy then
+        local bOK, iOwner = pcall(oEntity.GetArmy, oEntity)
+        if bOK and ArmyBrains then return ArmyBrains[iOwner] end
+    end
     return nil
 end
 
@@ -52,9 +62,9 @@ local function GetInstigatorOwner(oInstigator)
     if not(oInstigator) then return nil end
     if oInstigator.unit then return oInstigator.unit end
     if oInstigator.Launcher then return oInstigator.Launcher end
-    if oInstigator.GetLauncher then
-        local oLauncher = oInstigator:GetLauncher()
-        if oLauncher then return oLauncher end
+    if not(oInstigator.Dead) and oInstigator.GetLauncher then
+        local bOK, oLauncher = pcall(oInstigator.GetLauncher, oInstigator)
+        if bOK and oLauncher then return oLauncher end
     end
     return oInstigator
 end
