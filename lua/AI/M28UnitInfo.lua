@@ -561,8 +561,10 @@ function GetUnitState(oUnit)
 end
 
 function GetUnitTechLevel(oUnit)
-    if oUnit.UnitId then
-        return GetBlueprintTechLevel(oUnit.UnitId)
+    -- Native construction targets can be queried before M28 assigns UnitId.
+    local sUnitId = oUnit and (oUnit.UnitId or oUnit.BlueprintID)
+    if sUnitId then
+        return GetBlueprintTechLevel(sUnitId)
     else
         M28Utilities.ErrorHandler('Invalid blueprint reference, dont have .UnitId, have we used the blueprint instead of the unit? will return 1')
         return 1

@@ -22291,6 +22291,19 @@ function ConsiderLandOrWaterZoneEngineerAssignment(tLZOrWZData, tLZOrWZTeamData,
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEngineer, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
+    -- The cached nearest brain can expire before the next zone refresh.
+    local aiBrain = ArmyBrains[tLZOrWZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
+    if not(aiBrain) or aiBrain.M28IsDefeated then
+        aiBrain = M28Team.GetFirstActiveM28Brain(iTeam)
+        if not(aiBrain) then
+            tLZOrWZTeamData[M28Map.subrefTbWantBP] = false
+            tLZOrWZTeamData[M28Map.subrefTBuildPowerByTechWanted] = {[1]=0,[2]=0,[3]=0}
+            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+            return
+        end
+        tLZOrWZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex] = aiBrain:GetArmyIndex()
+    end
+
 
 
     if bDebugMessages == true then
