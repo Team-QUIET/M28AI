@@ -1501,9 +1501,8 @@ function RecordPlateauReclaimSegmentsMidpointAndRadius(iPlateau, sPathing, tSegm
     local iZRadius = (tAllPlateaus[iPlateau][subrefPlateauMaxXZ][2] - tAllPlateaus[iPlateau][subrefPlateauMinXZ][2])*0.5
     tAllPlateaus[iPlateau][subrefPlateauMidpoint] = {tAllPlateaus[iPlateau][subrefPlateauMinXZ][1] + iXRadius, 0, tAllPlateaus[iPlateau][subrefPlateauMinXZ][2] + iZRadius}
     tAllPlateaus[iPlateau][subrefPlateauMidpoint][2] = GetTerrainHeight(tAllPlateaus[iPlateau][subrefPlateauMidpoint][1], tAllPlateaus[iPlateau][subrefPlateauMidpoint][3])
-    --CIrcle radius will be the square/rectangle diagonal, so (square radius^2*2)^0.5 for a square, or (x^2+z^2)^0.5
-
-    tAllPlateaus[iPlateau][subrefPlateauMaxRadius] = (iXRadius^2+iZRadius^2)^0.5
+    -- Radius from the midpoint to a corner of the plateau bounds.
+    tAllPlateaus[iPlateau][subrefPlateauMaxRadius] = math.sqrt(iXRadius * iXRadius + iZRadius * iZRadius)
 end
 
 ---@param iPlateau number

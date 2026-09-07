@@ -9476,7 +9476,7 @@ function ManageGunships(iTeam, iAirSubteam)
                     for iEntry, tiPlateauAndZone in tiFriendlyStartPositionPlateauAndZones do
                         if tiPlateauAndZone[1] > 0 then
                             local tLZData = M28Map.tAllPlateaus[tiPlateauAndZone[1]][M28Map.subrefPlateauLandZones][tiPlateauAndZone[2]]
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to consider adjacent land zones to the core zone P'..tiPlateauAndZone[1]..'Z'..tiPlateauAndZone[2]..'; bRetreatFromAhwassa='..tostring(bRetreatFromAhwassa)..'; Is table of adj zones empty='..tostring(M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]))..'; iEnemyAirAAThreatNearGunship='..iEnemyAirAAThreatNearGunship..'; 25% of gunship threat='..iOurGunshipThreat * 0.25..'; iMaxEnemyAirAA='..iMaxEnemyAirAA) end
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to consider adjacent land zones to the core zone P'..tiPlateauAndZone[1]..'Z'..tiPlateauAndZone[2]..'; bRetreatFromAhwassa='..tostring(bRetreatFromAhwassa)..'; Is table of adj zones empty='..tostring(M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]))..'; iEnemyAirAAThreatNearGunship='..iEnemyAirAAThreatNearGunship..'; 25% of gunship threat='..(iOurGunshipThreat * 0.25)..'; iMaxEnemyAirAA='..iMaxEnemyAirAA) end
                             if not(bRetreatFromAhwassa) and M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false and iEnemyAirAAThreatNearGunship < math.min(iOurGunshipThreat * 0.25, iMaxEnemyAirAA) then
                                 local iCurDistToBase
                                 local iGunshipAdjacentToCoreBaseThreatFactorWanted = 3
@@ -10429,7 +10429,7 @@ function UpdateScoutingShortlist(iTeam)
             for iLandZone, tLZData in tPlateauSubtable[M28Map.subrefPlateauLandZones] do
                 if tLZData[M28Map.subrefLZOrWZMexCount] > 0 or tLZData[M28Map.subrefLZTotalSegmentCount] >= iMinSegmentsWantedForMexFreeZones then
                     local tLZOrWZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
-                    iIntervalWanted =  tiTimeByPriority[tLZOrWZTeamData[M28Map.refiScoutingPriority]] + tLZOrWZTeamData[M28Map.refiRecentlyFailedScoutAttempts] ^ 3
+                    iIntervalWanted =  tiTimeByPriority[tLZOrWZTeamData[M28Map.refiScoutingPriority]] + math.pow(tLZOrWZTeamData[M28Map.refiRecentlyFailedScoutAttempts], 3)
                     if tLZOrWZTeamData[M28Map.refiRadarCoverage] >= 40 then iIntervalWanted = iIntervalWanted * iRadarFactor end
                     iAmountOverIntervalWanted = GetGameTimeSeconds() - (tLZOrWZTeamData[M28Map.refiTimeLastHadVisual] or 0) - iIntervalWanted
                     iLongestOverdueScoutingTarget = math.max(iLongestOverdueScoutingTarget, iAmountOverIntervalWanted)
@@ -10455,7 +10455,7 @@ function UpdateScoutingShortlist(iTeam)
         for iPond, tPondSubtable in M28Map.tPondDetails do
             for iWaterZone, tWZData in tPondSubtable[M28Map.subrefPondWaterZones] do
                 local tLZOrWZTeamData = tWZData[M28Map.subrefWZTeamData][iTeam]
-                iIntervalWanted =  tiTimeByPriority[tLZOrWZTeamData[M28Map.refiScoutingPriority]] + tLZOrWZTeamData[M28Map.refiRecentlyFailedScoutAttempts] ^ 3
+                iIntervalWanted =  tiTimeByPriority[tLZOrWZTeamData[M28Map.refiScoutingPriority]] + math.pow(tLZOrWZTeamData[M28Map.refiRecentlyFailedScoutAttempts], 3)
                 if tLZOrWZTeamData[M28Map.refiRadarCoverage] >= 50 then iIntervalWanted = iIntervalWanted * iRadarFactor end
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering iWaterZone='..iWaterZone..'; tLZOrWZTeamData[M28Map.refiTimeLastHadVisual]='..(tLZOrWZTeamData[M28Map.refiTimeLastHadVisual] or 'nil')..'; Time since last had visula='..GetGameTimeSeconds() - (tLZOrWZTeamData[M28Map.refiTimeLastHadVisual] or 0)..'; iIntervalWanted='..iIntervalWanted) end
                 if GetGameTimeSeconds() - (tLZOrWZTeamData[M28Map.refiTimeLastHadVisual] or 0) > iIntervalWanted then
