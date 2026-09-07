@@ -55,6 +55,7 @@ reftoUnitsToKillOnCompletion = 'M28RadCtrlK' --Table of units to ctrlk when this
 reftoAssignedMAAGuards = 'M28LAMAAGrd' --Table of MAA assigned to cover a unit (e.g. a fatboy)
 refoAssignedUnitToGuard = 'M28LAMAAToG' --Unit that is being guarded/assisted (e.g. MAA assisting a fatboy)
 refbLandExperimentalPreservationRetreat = 'M28LExpRet' --Low-hull retreat latch; clears only after recovery threshold
+refiExperimentalAirWithdrawalUntil = 'M28LExpAirUntil'
 reftMAAAirTargetAnchor = 'M28LMAAAirAnc' --Against LZ team data, latched MAA move target when chasing enemy air in-zone
 refiMAAAirTargetAnchorTime = 'M28LMAAAirTm' --Against LZ team data, time the MAA air target anchor was last updated
 iFatboyBaseMAACount = 6 --Number of MAA wanted as guards normally
@@ -13173,6 +13174,33 @@ function AssignNearbyExperimentalMAAGuard(oMAA)
     end
 end
 
+function ShouldWithdrawLandExperimentalFromAir(oUnit)
+    local aiBrain = oUnit:GetAIBrain()
+    local tPosition = oUnit:GetPosition()
+    local iStrikeDamage, iBomberMass = 0, 0
+    for _, oBomber in aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryBomber, tPosition, 240, 'Enemy') do
+        if M28Air.IsAttackAirApproachingProtectedUnit(oBomber, oUnit) then
+            local _, iDamage = M28UnitInfo.GetBomberAOEAndStrikeDamage(oBomber)
+            iStrikeDamage = iStrikeDamage + (iDamage or 0)
+            iBomberMass = iBomberMass + (oBomber[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oBomber))
+        end
+    end
+    local iShield = M28UnitInfo.GetCurrentAndMaximumShield(oUnit, true)
+    local bExposed = iStrikeDamage >= (oUnit:GetHealth() + (iShield or 0)) * 0.2
+    if bExposed and iBomberMass > 0 then
+        local tCover = {}
+        for _, oAA in aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryGroundAA + M28UnitInfo.refCategoryAirAA, tPosition, 100, 'Ally') do
+            if M28UnitInfo.IsUnitValid(oAA) and oAA:GetFractionComplete() == 1 and not(oAA:IsUnitState('Attached')) then
+                local iRange = EntityCategoryContains(M28UnitInfo.refCategoryAirAA, oAA.UnitId) and 100 or (oAA[M28UnitInfo.refiAARange] or 0) + 15
+                if M28Utilities.GetDistanceBetweenPositions(tPosition, oAA:GetPosition()) <= iRange then table.insert(tCover, oAA) end
+            end
+        end
+        local iCoverThreat = M28Utilities.IsTableEmpty(tCover) and 0 or M28UnitInfo.GetAirThreatLevel(tCover, false, true, true, false, false, false)
+        if iCoverThreat < iBomberMass * 0.75 then oUnit[refiExperimentalAirWithdrawalUntil] = GetGameTimeSeconds() + 10 end
+    end
+    return GetGameTimeSeconds() < (oUnit[refiExperimentalAirWithdrawalUntil] or -1)
+end
+
 function ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
     local sFunctionRef = 'ManageSpecificLandZone'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLand, sFunctionRef)
@@ -13502,7 +13530,8 @@ function ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
                                     --NOTE: If making changes to below line condition, then update simialr line in M28Team
                                     if oUnit[M28UnitInfo.refiCombatRange] > 0 and not(EntityCategoryContains(M28UnitInfo.refCategoryMAA, oUnit.UnitId)) then table.insert(tLZTeamData[M28Map.subrefLZTAlliedCombatUnits], oUnit) end
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering physical-zone combat unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; previous owner='..repru(oUnit[refiCurrentAssignmentPlateauAndLZ])..'; Unit mass cost='..(oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit))..'; iMobileShieldMassThreshold='..iMobileShieldMassThreshold) end
-                                    local bLandIntentLocked = IsLandCombatIntentLocked(oUnit, iPlateau, iLandZone)
+                                    local bExperimentalAirWithdrawal = EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental, oUnit.UnitId) and ShouldWithdrawLandExperimentalFromAir(oUnit)
+                                    local bLandIntentLocked = not(bExperimentalAirWithdrawal) and IsLandCombatIntentLocked(oUnit, iPlateau, iLandZone)
                                     if bLandIntentLocked then
                                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Skipping unit due to active land combat intent, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; owner='..(oUnit[refsLandCombatIntentOwner] or 'nil')..'; targetPlateau='..(oUnit[refiLandCombatIntentPlateau] or 'nil')..'; targetLZ='..(oUnit[refiLandCombatIntentTargetLZ] or 'nil')..'; until='..(oUnit[refiLandCombatIntentUntil] or 'nil')) end
                                         table.insert(tUnavailableUnitsInThisLZ, oUnit)
@@ -13516,7 +13545,7 @@ function ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
                                                 oUnit[refbLandExperimentalPreservationRetreat] = nil
                                             end
 
-                                            if oUnit[refbLandExperimentalPreservationRetreat] then
+                                            if oUnit[refbLandExperimentalPreservationRetreat] or bExperimentalAirWithdrawal then
                                                 table.insert(tOtherUnitsToRetreat, oUnit)
                                                 RecordUnitAsReceivingLandZoneAssignment(oUnit, iPlateau, iLandZone)
                                                 bExperimentalPreservationRetreat = true

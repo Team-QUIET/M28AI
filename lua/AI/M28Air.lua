@@ -1112,6 +1112,29 @@ function GetGunshipForGroundAAEvaluation(tGunships)
 end
 
 
+function ShouldWithdrawExperimentalBomber(oBomber)
+    local aiBrain = oBomber:GetAIBrain()
+    local tPosition = oBomber:GetPosition()
+    local tEnemies, tCover = {}, {}
+    for _, oEnemy in aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryAirAA, tPosition, 180, 'Enemy') do
+        if M28UnitInfo.IsUnitValid(oEnemy) and not(oEnemy:IsUnitState('Attached')) and M28UnitInfo.CanSeeUnit(aiBrain, oEnemy) then table.insert(tEnemies, oEnemy) end
+    end
+    if M28Utilities.IsTableEmpty(tEnemies) == false then
+        for _, oAA in aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryAirAA + M28UnitInfo.refCategoryGroundAA, tPosition, 120, 'Ally') do
+            if M28UnitInfo.IsUnitValid(oAA) and oAA:GetFractionComplete() == 1 and not(oAA:IsUnitState('Attached')) then
+                local iCoverRange = EntityCategoryContains(M28UnitInfo.refCategoryAirAA, oAA.UnitId) and 120 or (oAA[M28UnitInfo.refiAARange] or 0)
+                if M28Utilities.GetDistanceBetweenPositions(tPosition, oAA:GetPosition()) <= iCoverRange then table.insert(tCover, oAA) end
+            end
+        end
+        local iEnemyThreat = M28UnitInfo.GetAirThreatLevel(tEnemies, true, true, false, false, false, false)
+        local iCoverThreat = M28Utilities.IsTableEmpty(tCover) and 0 or M28UnitInfo.GetAirThreatLevel(tCover, false, true, true, false, false, false)
+        if iEnemyThreat > math.max(1500, 3000 * M28UnitInfo.GetUnitHealthPercent(oBomber), iCoverThreat * 1.25) then
+            oBomber.M28ExperimentalAirWithdrawalUntil = GetGameTimeSeconds() + 8
+        end
+    end
+    return GetGameTimeSeconds() < (oBomber.M28ExperimentalAirWithdrawalUntil or -1)
+end
+
 function GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, iCategory, bRecordInTorpBomberWaterZoneList, bLowHealthThresholdDueToSnipeTarget)
     local sFunctionRef = 'GetAvailableLowFuelAndInUseAirUnits'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
@@ -1246,6 +1269,9 @@ function GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, iCategory, bRec
                             elseif tLastOrder and tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueGroundAttack and (tLastOrder[M28Orders.subrefoOrderUnitTarget] and not(M28UnitInfo.IsUnitValid(tLastOrder[M28Orders.subrefoOrderUnitTarget]))) then
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..' Unit with ground attack order was linked to target that is dead so will be made available') end
                                 table.insert(tAvailableUnits, oUnit)
+                            elseif EntityCategoryContains(M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL, oUnit.UnitId) and ShouldWithdrawExperimentalBomber(oUnit) then
+                                if M28UnitInfo.IsUnitValid(oUnit[refoStrikeDamageAssigned]) then RemoveAssignedAttacker(oUnit[refoStrikeDamageAssigned], oUnit) end
+                                table.insert(tUnitsForRefueling, oUnit)
                             elseif oExistingValidAttackTarget and ((EntityCategoryContains(M28UnitInfo.refCategoryTorpBomber, oUnit.UnitId) and (M28Map.GetWaterZoneFromPosition(oExistingValidAttackTarget:GetPosition()) or 0) > 0)
                                     or (EntityCategoryContains(M28UnitInfo.refCategoryBomber, oUnit.UnitId) and not(M28UnitInfo.IsUnitUnderwater(oExistingValidAttackTarget)))) then
                                 M28Orders.UpdateRecordedOrders(oUnit)
@@ -13974,9 +14000,9 @@ function ManageExperimentalBomber(iTeam, iAirSubteam)
                     end
                 end
                 if M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] then
-                    iMaxEnemyAirAA = iMaxEnemyAirAA + (tBomberLandOrWaterZoneTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0) + (tBomberLandOrWaterZoneTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0)
+                    iMaxEnemyAirAA = iMaxEnemyAirAA + (tBomberLandOrWaterZoneTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0)
                 else
-                    iMaxEnemyAirAA = iMaxEnemyAirAA + ((tBomberLandOrWaterZoneTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0) + (tBomberLandOrWaterZoneTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0)) * 0.5
+                    iMaxEnemyAirAA = iMaxEnemyAirAA + ((tBomberLandOrWaterZoneTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0)) * 0.5
                 end
                 if iTotalExpBombers > 1 then
                     iMaxEnemyAirAA = iMaxEnemyAirAA * (1 + (iTotalExpBombers-1) * 0.5)
