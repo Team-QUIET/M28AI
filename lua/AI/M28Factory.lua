@@ -7714,6 +7714,7 @@ end
 
 function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait)
     --If factory is idle then gets it to build something; if its not idle then keeps checking for up to 20 seconds, but will abort if the factory appears to be building something
+    -- ForkThread exits must return no values; an explicit nil triggers a native yield warning.
     local sFunctionRef = 'DecideAndBuildUnitForFactory'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelFactory, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -7739,7 +7740,7 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait)
                 if TryManageActiveFactoryBuildQueue(aiBrain, oFactory) then
                     oFactory['M28BuilderCheckActive'] = false
                     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-                    return nil
+                    return
                 end
                 bProceed = IsFactoryReadyToBuild(oFactory)
             end
@@ -7760,7 +7761,7 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait)
                 end
                 if M28UnitInfo.IsUnitValid(oFactory) == false then
                     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-                    return nil
+                    return
                 end
                 bProceed = IsFactoryReadyToBuild(oFactory)
                 if oFactory:GetWorkProgress() > iWorkProgressStart then
@@ -7800,7 +7801,7 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait)
                 if TryStartPendingFactoryUpgrade(aiBrain, oFactory, sFunctionRef, bDebugMessages, tDebugContext) then
                     oFactory['M28BuilderCheckActive'] = false
                     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-                    return nil
+                    return
                 end
                 if bClearFactoryWhenReadyToBuild and not(oFactory:IsUnitState('Upgrading')) and not(oFactory:IsUnitState('BeingUpgraded')) then M28Orders.IssueTrackedClearCommands(oFactory) end
                 bDontCheckCutsceneStatus = false
