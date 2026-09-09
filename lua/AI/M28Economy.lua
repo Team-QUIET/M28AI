@@ -303,6 +303,12 @@ function GetMexUpgradeAggressionState(iTeam)
             and (iEnergyStoredRatio >= 0.05 or iEnergyStored >= 150 * iActiveBrains)
             and iGrossEnergy >= 6 * iActiveBrains
             and iNetEnergy >= -30 * iActiveBrains
+    -- A growing tech economy can reinvest continuously without first accumulating idle mass.
+    if not(M28Map.bIsCampaignMap) and (tTeamData[M28Team.subrefiHighestFriendlyLandFactoryTech] or 1) >= 2
+            and iGrossMass >= 4 * iActiveBrains and iNetMass >= -math.max(1, iGrossMass * 0.2)
+            and iEnergyStoredRatio >= 0.6 and iNetEnergy >= 0 then
+        bStrongEco = true
+    end
     local bVeryStrongEco = iMassStored >= 400 * iActiveBrains
             and iMassStoredRatio >= 0.12
             and iGrossMass >= 3.25 * iActiveBrains
