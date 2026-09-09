@@ -1684,11 +1684,42 @@ local function GetStrikeAircraftCohortData(tAircraft)
     return tCentroid, iCohortSpeed, oProtectedAircraft
 end
 
+local function CanFighterReachStrikeIntercept(oFighter, tIntercept, iInterceptTime)
+    local tPosition = oFighter:GetPosition()
+    local tBP = oFighter:GetBlueprint()
+    local iSpeed = math.max(1, (tBP.Air or {}).MaxAirspeed or (tBP.Physics or {}).MaxSpeed or 1)
+    local iDistance = M28Utilities.GetDistanceBetweenPositions(tPosition, tIntercept)
+    if math.max(0, iDistance - (oFighter[M28UnitInfo.refiAARange] or 20)) / iSpeed > iInterceptTime + iStrikeFighterReactionAllowance then return false end
+    local tOrder = (oFighter[M28Orders.reftiLastOrders] or {})[1] or {}
+    local oTarget = tOrder[M28Orders.subrefoOrderUnitTarget]
+    local tDestination = M28UnitInfo.IsUnitValid(oTarget) and oTarget:GetPosition() or tOrder[M28Orders.subreftOrderPosition]
+    if tDestination and iDistance > 20 then
+        -- Nearby fighters heading back to base are not yet an escort for an outgoing strike.
+        local iDot = (tDestination[1] - tPosition[1]) * (tIntercept[1] - tPosition[1])
+            + (tDestination[3] - tPosition[3]) * (tIntercept[3] - tPosition[3])
+        if iDot < 0 then return false end
+    end
+    return true
+end
+
 local function GetStrikeAircraftFighterInterceptionRisk(iTeam, iAirSubteam, tAircraft, tDestination, bGunshipCohort)
     local tCentroid, iCohortSpeed, oProtectedAircraft = GetStrikeAircraftCohortData(tAircraft)
     if M28Utilities.IsTableEmpty(tCentroid) or M28Utilities.IsTableEmpty(tDestination)
             or not(M28Team.tTeamData[iTeam]) or M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftoEnemyAirAA]) then
         return false, 0, 0, oProtectedAircraft, tCentroid, nil
+    end
+    if bGunshipCohort then
+        local iNearest = 100000
+        for _, oAircraft in tAircraft do
+            if M28UnitInfo.IsUnitValid(oAircraft) and not(oAircraft:IsUnitState('Attached')) then
+                local iDistance = M28Utilities.GetDistanceBetweenPositions(oAircraft:GetPosition(), tDestination)
+                if iDistance < iNearest then
+                    iNearest, oProtectedAircraft = iDistance, oAircraft
+                    local tFront = oAircraft:GetPosition()
+                    tCentroid = {tFront[1], tFront[2], tFront[3]}
+                end
+            end
+        end
     end
 
     local iRouteX = tDestination[1] - tCentroid[1]
@@ -1750,7 +1781,8 @@ local function GetStrikeAircraftFighterInterceptionRisk(iTeam, iAirSubteam, tAir
         if not(M28Utilities.IsTableEmpty(tNearbyAirAA)) then
             local tCompletedAirAA = {}
             for iAirAA, oAirAA in tNearbyAirAA do
-                if IsAirAAOperationalForLocalEscort(iAirSubteam, oAirAA, tCentroid) then
+                if IsAirAAOperationalForLocalEscort(iAirSubteam, oAirAA, tCentroid)
+                        and CanFighterReachStrikeIntercept(oAirAA, tInterceptPoint or tCentroid, iEarliestCohortInterceptTime) then
                     table.insert(tCompletedAirAA, oAirAA)
                 end
             end
@@ -1775,7 +1807,12 @@ local function GetStrikeAircraftFighterInterceptionRisk(iTeam, iAirSubteam, tAir
         end
     end
     if bGunshipCohort then
-        iLocalCover = iLocalCover + M28UnitInfo.GetAirThreatLevel(tAircraft, false, true, false, false, false, false) * 0.5
+        local tLocalGunships = {}
+        for _, oGunship in tAircraft do
+            if M28UnitInfo.IsUnitValid(oGunship) and not(oGunship:IsUnitState('Attached'))
+                    and M28Utilities.GetDistanceBetweenPositions(oGunship:GetPosition(), tCentroid) <= iStrikeFighterEscortRadius then table.insert(tLocalGunships, oGunship) end
+        end
+        iLocalCover = iLocalCover + M28UnitInfo.GetAirThreatLevel(tLocalGunships, false, true, false, false, false, false) * 0.5
     end
 
     local iCoverFactor = bGunshipCohort and 1.1 or 1.25
@@ -1790,6 +1827,16 @@ end
 local function IsStrikeAircraftFighterAvoidanceHoldActive(iAirSubteam, sHoldRef)
     return M28Team.tAirSubteamData[iAirSubteam]
             and (M28Team.tAirSubteamData[iAirSubteam][sHoldRef] or 0) > GetGameTimeSeconds()
+end
+
+function ShouldFinishCommittedBombRun(oAircraft, oTarget)
+    if not(M28UnitInfo.IsUnitValid(oTarget)) or M28UnitInfo.GetUnitHealthPercent(oAircraft) < 0.6 then return false end
+    local tPosition = oAircraft:GetPosition()
+    local tTarget = oTarget:GetPosition()
+    local tBP = oAircraft:GetBlueprint()
+    local iSpeed = (tBP.Air or {}).MaxAirspeed or 10
+    return M28Utilities.GetDistanceBetweenPositions(tPosition, tTarget) <= math.max(25, iSpeed * 2)
+        and M28Utilities.GetAngleDifference(M28UnitInfo.GetUnitFacingAngle(oAircraft), M28Utilities.GetAngleFromAToB(tPosition, tTarget)) <= 25
 end
 
 local function AbortCommittedStrikeAircraftForFighterRisk(iTeam, iAirSubteam, tUnavailableAircraft, iPayloadCategory, sHoldRef, sOrderRef)
@@ -1825,7 +1872,7 @@ local function AbortCommittedStrikeAircraftForFighterRisk(iTeam, iAirSubteam, tU
     end
 
     for iAircraft, oAircraft in tCommittedAircraft do
-        if M28UnitInfo.IsUnitValid(oAircraft) then
+        if M28UnitInfo.IsUnitValid(oAircraft) and not(ShouldFinishCommittedBombRun(oAircraft, oAircraft[refoStrikeDamageAssigned])) then
             local oTarget = oAircraft[refoStrikeDamageAssigned]
             if M28UnitInfo.IsUnitValid(oTarget) then RemoveAssignedAttacker(oTarget, oAircraft) end
             oAircraft[rebEarlyBomberTargetBase] = false
