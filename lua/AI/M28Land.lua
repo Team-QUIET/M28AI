@@ -9746,14 +9746,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                         for iSRUnit, oSRUnit in tOutrangedCombatUnits do
                                             --If we are close to the last known position such that we will be able to see there is no longer a unit there, then update this unit's position for next cycle
                                             if ShouldRefreshNearestEnemyVisibilityFromUnit(oSRUnit, oNearestEnemyToFriendlyBase, bCheckIfNearestUnitVisible, bUpdateNearestUnit) then bUpdateNearestUnit = true end
-                                            iClosestDist = 100000
-                                            for iLRUnit, oLRUnit in tUnitsToSupport do
-                                                iCurDist = M28Utilities.GetRoughDistanceBetweenPositions(oSRUnit:GetPosition(), oLRUnit:GetPosition())
-                                                if iCurDist < iClosestDist then
-                                                    iClosestDist = iCurDist
-                                                    oClosestUnit = oLRUnit
-                                                end
-                                            end
+                                            oClosestUnit = GetLandSupportAnchor(oSRUnit, tUnitsToSupport)
+                                            if not(oClosestUnit) then continue end
+                                            iClosestDist = M28Utilities.GetDistanceBetweenPositions(oSRUnit:GetPosition(), oClosestUnit:GetPosition())
                                             if bNearestEnemyIsACU then iDistToRetreat = 20
                                             elseif bNearestEnemyIsExperimental and not(EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental, oSRUnit.UnitId)) then iDistToRetreat = 18
                                             elseif tSRRallyOverride then iDistToRetreat = 15
@@ -13284,6 +13279,14 @@ end
 
 function SetLandCombatIntent(oUnit, iPlateau, iTargetLZ, iDurationSeconds, sOwner)
     local iCurTime = GetGameTimeSeconds()
+    if sOwner == 'DFFwd' or sOwner == 'IFFwd' or sOwner == 'DFGather' then
+        local tTarget = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iTargetLZ][M28Map.subrefMidpoint]
+        local iSpeed = math.max(1, (oUnit:GetBlueprint().Physics or {}).MaxSpeed or 1)
+        iDurationSeconds = math.max(iDurationSeconds, math.min(60, M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tTarget) / iSpeed + 5))
+        oUnit.M28LandIntentArrivalPosition = {tTarget[1], tTarget[2], tTarget[3]}
+    else
+        oUnit.M28LandIntentArrivalPosition = nil
+    end
     oUnit[refiLandCombatIntentUntil] = iCurTime + iDurationSeconds
     oUnit[refiLandCombatIntentPlateau] = iPlateau
     oUnit[refiLandCombatIntentTargetLZ] = iTargetLZ
@@ -13291,10 +13294,29 @@ function SetLandCombatIntent(oUnit, iPlateau, iTargetLZ, iDurationSeconds, sOwne
 end
 
 function ClearLandCombatIntent(oUnit)
+    oUnit.M28LandIntentArrivalPosition = nil
     oUnit[refiLandCombatIntentUntil] = nil
     oUnit[refiLandCombatIntentPlateau] = nil
     oUnit[refiLandCombatIntentTargetLZ] = nil
     oUnit[refsLandCombatIntentOwner] = nil
+end
+
+function GetLandSupportAnchor(oUnit, tCandidates)
+    local tPrevious = oUnit.M28LandSupportAnchor
+    local oBest, iBestScore
+    local iNow = GetGameTimeSeconds()
+    for _, oCandidate in tCandidates do
+        if oCandidate ~= oUnit and M28UnitInfo.IsUnitValid(oCandidate) then
+            local iDistance = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oCandidate:GetPosition())
+            if tPrevious and tPrevious.unit == oCandidate and iNow < tPrevious.untilTime and iDistance <= 100 then return oCandidate end
+            local iScore = iDistance
+            if iNow - (oCandidate[M28UnitInfo.refiLastWeaponEvent] or -100) <= 5 then iScore = iScore - 30 end
+            if not(iBestScore) or iScore < iBestScore then oBest, iBestScore = oCandidate, iScore end
+        end
+    end
+    if oBest then oUnit.M28LandSupportAnchor = {unit = oBest, untilTime = iNow + 12}
+    else oUnit.M28LandSupportAnchor = nil end
+    return oBest
 end
 
 function IssueLandTacticalMove(oUnit, tPosition, iReissueDistance, sDescription, bSupport, tAvoidance, oEnemy)
@@ -13324,7 +13346,8 @@ function IsLandCombatIntentLocked(oUnit, iPlateau, iLandZone)
     local iIntentUntil = oUnit[refiLandCombatIntentUntil]
     if not(iIntentUntil) then return false end
 
-    if oUnit[refiLandCombatIntentPlateau] == iPlateau and oUnit[refiLandCombatIntentTargetLZ] == iLandZone then
+    if oUnit[refiLandCombatIntentPlateau] == iPlateau and oUnit[refiLandCombatIntentTargetLZ] == iLandZone
+            and (not(oUnit.M28LandIntentArrivalPosition) or M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oUnit.M28LandIntentArrivalPosition) <= 20) then
         ClearLandCombatIntent(oUnit)
         return false
     end
@@ -13332,7 +13355,7 @@ function IsLandCombatIntentLocked(oUnit, iPlateau, iLandZone)
     local iTeam = oUnit:GetAIBrain().M28Team
     local tCurrentLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][iTeam]
     local bThreatBlocksIntent = tCurrentLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or tCurrentLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]
-    if oUnit[refsLandCombatIntentOwner] == 'BPrCross' then
+    if oUnit[refsLandCombatIntentOwner] == 'BPrCross' or oUnit.M28LandIntentArrivalPosition then
         -- Adjacent contacts alone should not interrupt travel through an empty zone.
         bThreatBlocksIntent = tCurrentLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] or (tCurrentLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) > 0
     end
