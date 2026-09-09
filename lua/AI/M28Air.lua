@@ -3657,7 +3657,19 @@ function ShouldWaitForStrikeWave(tAircraft, iAvailableThreat, iMinimumThreat)
     return bWait
 end
 
-function GetUnitAirStagingSize(oUnit)
+function GetAirStagingCapacity(oStaging)
+    local tTransport = oStaging:GetBlueprint().Transport or {}
+    return tTransport.DockingSlots or tTransport.StorageSlots or 0
+end
+
+function GetUnitAirStagingSize(oUnit, oStaging)
+    if oStaging then
+        local tAircraft = oUnit:GetBlueprint().Transport or {}
+        local tPlatform = oStaging:GetBlueprint().Transport or {}
+        if (tAircraft.TransportClass or 1) >= 3 then return tPlatform.Class3AttachSize or 4 end
+        if tAircraft.TransportClass == 2 then return tPlatform.Class2AttachSize or 2 end
+        return 1
+    end
     --Manually confirmed - ambassador takes up 4 spaces, janus, inties and asf take up 1, broadswords and solace take up 2 spaces
     if EntityCategoryContains(categories.TECH3 * M28UnitInfo.refCategoryBomber, oUnit.UnitId) then
         return 4
@@ -3678,6 +3690,7 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
     local subrefoUnit = 1
     local subrefiCapacity = 2
     local iMaxCapacity, iCapacityInUse
+    local tReservedRefuelingUnits = {}
 
 
 
@@ -3688,15 +3701,10 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
             for iUnit, oAirStaging in tCurBrainStaging do
                 if M28UnitInfo.IsUnitValid(oAirStaging) and oAirStaging:GetFractionComplete() == 1 and (bDontCheckPlayableArea or M28Conditions.IsLocationInPlayableArea(oAirStaging:GetPosition())) then
                     --Does this have capacity?
-                    iMaxCapacity = 4
-                    if EntityCategoryContains(categories.MOBILE, oAirStaging.UnitId) then
-                        if EntityCategoryContains(categories.EXPERIMENTAL, oAirStaging.UnitId) then iMaxCapacity = 40
-                        else iMaxCapacity = 1
-                        end
-                    end
+                    iMaxCapacity = GetAirStagingCapacity(oAirStaging)
 
                     iCapacityInUse = 0
-                    --First check for air staging cargo and release if they are all at full health
+                    -- Release the group once every aircraft has recovered enough for service.
                     local bCargoReadyToRelease = false
                     local tCargo = oAirStaging:GetCargo()
                     if M28Utilities.IsTableEmpty(tCargo) == false then
@@ -3704,7 +3712,7 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
                         for iCargo, oCargo in tCargo do
                             if oCargo.GetFuelRatio and EntityCategoryContains(categories.MOBILE, oCargo.UnitId) then --some mods add units as part of the cargo
                                 bCargoReadyToRelease = true
-                                if oCargo:GetFuelRatio() < 1 or M28UnitInfo.GetUnitHealthPercent(oCargo) < 1 then
+                                if (oCargo:GetFuelRatio() >= 0 and oCargo:GetFuelRatio() < 0.95) or M28UnitInfo.GetUnitHealthPercent(oCargo) < 0.95 then
                                     bCargoReadyToRelease = false
                                     break
                                 end
@@ -3719,26 +3727,35 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
                             --Dont clear unit status as should happen automatically in next cycle; dont consider sending units to it this cycle
                         end
                     else
+                        local tCargoCounted = {}
+                        for _, oCargo in tCargo or {} do
+                            if M28UnitInfo.IsUnitValid(oCargo) and EntityCategoryContains(categories.MOBILE * categories.AIR, oCargo.UnitId) then
+                                iCapacityInUse = iCapacityInUse + GetUnitAirStagingSize(oCargo, oAirStaging)
+                                tCargoCounted[oCargo] = true
+                                tReservedRefuelingUnits[oCargo] = true
+                            end
+                        end
                         if M28Utilities.IsTableEmpty(oAirStaging[reftAssignedRefuelingUnits]) == false then
                             --Remove any invalid units or units whose order isn't to refuel
                             local iUnitCount = table.getn(oAirStaging[reftAssignedRefuelingUnits])
                             for iCurUnit = iUnitCount, 1, -1 do
                                 local oRefuelingUnit = oAirStaging[reftAssignedRefuelingUnits][iCurUnit]
                                 if M28UnitInfo.IsUnitValid(oRefuelingUnit) then
-                                    local tLastOrder = oRefuelingUnit[M28Orders.reftiLastOrders][oRefuelingUnit[M28Orders.refiOrderCount]]
-                                    if oRefuelingUnit:IsUnitState('Attached') then
-                                        iCapacityInUse = iCapacityInUse + GetUnitAirStagingSize(oRefuelingUnit)
-                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oRefuelingUnit='..oRefuelingUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oRefuelingUnit)..', is assigned to air staging '..oAirStaging.UnitId..M28UnitInfo.GetUnitLifetimeCount(oAirStaging)..' and is attached, Size of this unit='..GetUnitAirStagingSize(oRefuelingUnit)..'; Capacity in use='..iCapacityInUse) end
-                                    elseif (tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderRefuel and tLastOrder[M28Orders.subrefoOrderUnitTarget] == oAirStaging) then
+                                    M28Orders.UpdateRecordedOrders(oRefuelingUnit)
+                                    local tLastOrder = oRefuelingUnit[M28Orders.reftiLastOrders] and oRefuelingUnit[M28Orders.reftiLastOrders][oRefuelingUnit[M28Orders.refiOrderCount]]
+                                    if tCargoCounted[oRefuelingUnit] then
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oRefuelingUnit='..oRefuelingUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oRefuelingUnit)..', is assigned to air staging '..oAirStaging.UnitId..M28UnitInfo.GetUnitLifetimeCount(oAirStaging)..' and is attached, Size of this unit='..GetUnitAirStagingSize(oRefuelingUnit, oAirStaging)..'; Capacity in use='..iCapacityInUse) end
+                                    elseif not(oRefuelingUnit:IsUnitState('Attached')) and tLastOrder and (tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderRefuel and tLastOrder[M28Orders.subrefoOrderUnitTarget] == oAirStaging) then
                                         --Unit is still assigned here and has orders to get here
-                                        iCapacityInUse = iCapacityInUse + GetUnitAirStagingSize(oRefuelingUnit)
-                                        --Refresh orders due to issue where a unit can sometimes be told to refuel but doesn't (seems particularly likely in LOUD)
-                                        M28Orders.UpdateRecordedOrders(oRefuelingUnit)
-                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..' Staging has been assigned to oRefuelingUnit='..oRefuelingUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oRefuelingUnit)..'; Size of this unit='..GetUnitAirStagingSize(oRefuelingUnit)..'; Capacity in use='..iCapacityInUse..'; Order count post refresh for refueling unit='..(oRefuelingUnit[M28Orders.refiOrderCount] or 'nil')..'; Unit state='..M28UnitInfo.GetUnitState(oRefuelingUnit)) end
+                                        if not(tReservedRefuelingUnits[oRefuelingUnit]) then
+                                            iCapacityInUse = iCapacityInUse + GetUnitAirStagingSize(oRefuelingUnit, oAirStaging)
+                                            tReservedRefuelingUnits[oRefuelingUnit] = true
+                                        end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..' Staging has been assigned to oRefuelingUnit='..oRefuelingUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oRefuelingUnit)..'; Size of this unit='..GetUnitAirStagingSize(oRefuelingUnit, oAirStaging)..'; Capacity in use='..iCapacityInUse..'; Order count post refresh for refueling unit='..(oRefuelingUnit[M28Orders.refiOrderCount] or 'nil')..'; Unit state='..M28UnitInfo.GetUnitState(oRefuelingUnit)) end
                                     else
                                         --Unit has other orders so remove from here
                                         table.remove(oAirStaging[reftAssignedRefuelingUnits], iCurUnit)
-                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Removing unit '..oRefuelingUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oRefuelingUnit)..' as it has other orders now; Unit state='..M28UnitInfo.GetUnitState(oRefuelingUnit)..'; tLastOrder[M28Orders.subrefoOrderUnitTarget]='..(tLastOrder[M28Orders.subrefoOrderUnitTarget].UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(tLastOrder[M28Orders.subrefoOrderUnitTarget]) or 'nil')..'; air staging it is recorded against='..oAirStaging.UnitId..M28UnitInfo.GetUnitLifetimeCount(oAirStaging)) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Removing stale refuel reservation for '..oRefuelingUnit.UnitId) end
                                     end
                                 else
                                     --Unit is dead so remove from this list
@@ -3754,6 +3771,15 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
             end
         end
     end
+
+    local tPendingRefueling, tPendingSeen = {}, {}
+    for _, oUnit in tUnitsForRefueling do
+        if M28UnitInfo.IsUnitValid(oUnit) and not(oUnit:IsUnitState('Attached')) and not(tReservedRefuelingUnits[oUnit]) and not(tPendingSeen[oUnit]) then
+            table.insert(tPendingRefueling, oUnit)
+            tPendingSeen[oUnit] = true
+        end
+    end
+    tUnitsForRefueling = tPendingRefueling
 
     local tUnitsUnableToRefuel = {}
     local tPriorityUnitsForRefueling = {}
@@ -3774,10 +3800,10 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
             end
         end
 
-        function SendUnitsToRefuelAtClosestAvailableAirStaging(tUnitsToSendForRefueling)
+        local function SendUnitsToRefuelAtClosestAvailableAirStaging(tUnitsToSendForRefueling)
             if M28Utilities.IsTableEmpty(tUnitsToSendForRefueling) == false then
                 for iUnit, oAirUnit in tUnitsToSendForRefueling do
-                    if M28UnitInfo.IsUnitValid(oAirUnit) and not(oAirUnit:IsUnitState('Attached')) then
+                    if M28UnitInfo.IsUnitValid(oAirUnit) and not(oAirUnit:IsUnitState('Attached')) and not(tReservedRefuelingUnits[oAirUnit]) then
                         if EntityCategoryContains(categories.CANNOTUSEAIRSTAGING + categories.EXPERIMENTAL, oAirUnit.UnitId) then
                             table.insert(tUnitsUnableToRefuel, oAirUnit)
                         else
@@ -3787,6 +3813,7 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
                             if M28Utilities.IsTableEmpty(tAirStagingUnitsAndCapacity) == false then
                                 for iAirStagingRef, tSubtable in tAirStagingUnitsAndCapacity do
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Looking for closest air staging '..(tSubtable[subrefoUnit].UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(tSubtable[subrefoUnit]) or 'nil')..', iAirStagingRef='..(iAirStagingRef or 'nil')..'; tSubtable[subrefiCapacity]='..(tSubtable[subrefiCapacity] or 'nil')..'; Unit that is trying to refuel size='..(iCurSize or 'nil')) end
+                                    iCurSize = GetUnitAirStagingSize(oAirUnit, tSubtable[subrefoUnit])
                                     if tSubtable[subrefiCapacity] >= iCurSize then
                                         iCurDist = M28Utilities.GetDistanceBetweenPositions(tSubtable[subrefoUnit]:GetPosition(), oAirUnit:GetPosition())
                                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurDist='..iCurDist..'; iClosestAirStagingDist='..(iClosestAirStagingDist or 'nil')) end
@@ -3794,7 +3821,7 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
                                             --Further adjustment - air staging that isn't in a decent direction vs nearest enemy base should have a distance increase
                                             local tAirStagingLZOrWZData, tAirStagingLZOrWZTeamData = M28Map.GetLandOrWaterZoneData(tSubtable[subrefoUnit]:GetPosition(), true, iTeam)
                                             if tAirStagingLZOrWZTeamData[M28Map.subrefLZbCoreBase] then
-                                                iClosestAirStagingRef = iCurDist
+                                                iClosestAirStagingDist = iCurDist
                                                 iClosestAirStagingRef = iAirStagingRef
                                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Air staging is in a core zone, updating closest dist to this') end
                                             else
@@ -3811,7 +3838,7 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
                                                 end
                                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have air staging that is in a minor LZ, iCurDist after adjustments='..iCurDist..'; iAngleDif='..iAngleDif) end
                                                 if iCurDist < iClosestAirStagingDist then
-                                                    iClosestAirStagingRef = iCurDist
+                                                    iClosestAirStagingDist = iCurDist
                                                     iClosestAirStagingRef = iAirStagingRef
                                                 end
                                             end
@@ -3822,7 +3849,9 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit wanting refueling='..oAirUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oAirUnit)..'; iCurSize='..iCurSize..'; iClosestAirStagingRef='..(iClosestAirStagingRef or 'nil')..'; iClosestAirStagingDist='..iClosestAirStagingDist) end
                             if iClosestAirStagingRef then
                                 local oClosestAirStaging = tAirStagingUnitsAndCapacity[iClosestAirStagingRef][subrefoUnit]
+                                iCurSize = GetUnitAirStagingSize(oAirUnit, oClosestAirStaging)
                                 M28Orders.IssueTrackedRefuel(oAirUnit, oClosestAirStaging, false, 'Refuel', false)
+                                tReservedRefuelingUnits[oAirUnit] = true
                                 local bRecordRefuelingUnit = true
                                 if not(oClosestAirStaging[reftAssignedRefuelingUnits]) then oClosestAirStaging[reftAssignedRefuelingUnits] = {}
                                 else
@@ -3877,8 +3906,8 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
 
         if bWantMoreAirStaging then M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastAirStagingShortage] = GetGameTimeSeconds() end
         local tRallyPoint = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Flagged that we want air staging for units on team '..iTeam..' at time '..GetGameTimeSeconds()..' unless we only have low health exp, bWantMoreAirStaging='..tostring(bWantMoreAirStaging)..'; tRallyPoint='..repru(tRallyPoint)..'; Plateau label='..(NavUtils.GetLabel(M28Map.refPathingTypeHover, tRallyPoint) or 'nil')..'; reftClosestFriendlyBase to rally point='..repru(tRallyLZTeamData[M28Map.reftClosestFriendlyBase])) end
         local tRallyLZData, tRallyLZTeamData = M28Map.GetLandOrWaterZoneData(tRallyPoint, true, iTeam)
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Flagged that we want air staging for units on team '..iTeam..' at time '..GetGameTimeSeconds()..' unless we only have low health exp, bWantMoreAirStaging='..tostring(bWantMoreAirStaging)..'; tRallyPoint='..repru(tRallyPoint)..'; Plateau label='..(NavUtils.GetLabel(M28Map.refPathingTypeHover, tRallyPoint) or 'nil')..'; reftClosestFriendlyBase to rally point='..repru(tRallyLZTeamData[M28Map.reftClosestFriendlyBase])) end
         local tRefuelBase
         if tRallyLZTeamData[M28Map.reftClosestFriendlyBase] and (not(M28Map.bIsCampaignMap) or M28Conditions.IsLocationInPlayableArea(tRallyLZTeamData[M28Map.reftClosestFriendlyBase])) then tRefuelBase = tRallyLZTeamData[M28Map.reftClosestFriendlyBase] else tRefuelBase = tRallyPoint end
         --If close to unit cap consider ctrl-King unit if it is close to the rally point

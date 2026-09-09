@@ -1223,7 +1223,9 @@ function ReleaseStoredUnits(oUnit, bAddToExistingQueue, sOptionalOrderDesc, bOve
 
 
         if (not(tLastOrder[subrefiOrderType] == refiOrderReleaseStoredUnits) or GetGameTimeSeconds() - (oUnit[refiLastUnloadAttemptTime] or 0) >= 10) and (bOverrideMicroOrder or not(oUnit[M28UnitInfo.refbSpecialMicroActive])) then
-            local tUnloadLocation = oUnit:GetPosition()
+            -- Structures return their cached position; offset a copy, not the cache.
+            local tPosition = oUnit:GetPosition()
+            local tUnloadLocation = {tPosition[1], tPosition[2], tPosition[3]}
             local iXRand = math.random(0, 1)
             local iZRand = math.random(0, 1)
             if iXRand == 0 then iXRand = -1 end
