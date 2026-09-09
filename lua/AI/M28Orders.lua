@@ -160,6 +160,7 @@ function IssueTrackedClearCommands(oUnit)
         end
 
         --Bomber damage tracking
+        M28UnitInfo.CancelDamageReservation(oUnit)
         if oUnit[M28Air.refoStrikeDamageAssigned] then
             M28Air.RemoveAssignedAttacker(oUnit[M28Air.refoStrikeDamageAssigned], oUnit)
         end

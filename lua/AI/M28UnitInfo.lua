@@ -2170,6 +2170,129 @@ function GetUnitCurHealthAndShield(oUnit)
     end
 end
 
+local function GetDamageReservationBook(oUnit, sLayer, iTeam, iHealth)
+    oUnit.M28DamageBudgets = oUnit.M28DamageBudgets or {}
+    oUnit.M28DamageBudgets[iTeam] = oUnit.M28DamageBudgets[iTeam] or {}
+    local tTeamBooks = oUnit.M28DamageBudgets[iTeam]
+    local tBook = tTeamBooks[sLayer] or {health = iHealth, entries = {}}
+    tTeamBooks[sLayer] = tBook
+    local iDamageObserved = math.max(0, tBook.health - iHealth)
+    tBook.health = iHealth
+    local iPending = 0
+    local iNow = GetGameTimeSeconds()
+    for i = table.getn(tBook.entries), 1, -1 do
+        local tEntry = tBook.entries[i]
+        local tReservation = tEntry.reservation
+        local bActive = not(tReservation.cancelled) and iNow < tReservation.untilTime and IsUnitValid(tReservation.target)
+        if bActive and not(tReservation.fired) then
+            local aiOwner = IsUnitValid(tReservation.attacker) and tReservation.attacker:GetAIBrain()
+            bActive = aiOwner and aiOwner.M28AI and aiOwner.M28Team == iTeam
+                and tReservation.attacker.M28DamageReservation == tReservation
+        end
+        if bActive then
+            -- Damage already reflected in current health must not be subtracted again as incoming damage.
+            if tReservation.fired and iDamageObserved > 0 then
+                local iConsumed = math.min(iDamageObserved, tEntry.damage)
+                tEntry.damage = tEntry.damage - iConsumed
+                iDamageObserved = iDamageObserved - iConsumed
+            end
+            iPending = iPending + tEntry.damage
+        else
+            table.remove(tBook.entries, i)
+        end
+    end
+    return tBook, iPending
+end
+
+function GetTargetDamageLayers(oTarget, iTeam, tCoveringShields, bIgnoreShields)
+    local tLayers = {}
+    local tSeen = {}
+    local function AddShield(oShield)
+        if not(tSeen[oShield]) and IsUnitValid(oShield) and oShield:GetFractionComplete() == 1 then
+            tSeen[oShield] = true
+            local iHealth = GetCurrentAndMaximumShield(oShield, false)
+            if iHealth > 0 then table.insert(tLayers, {unit = oShield, layer = 'shield', health = iHealth,
+                passOverkill = oShield.MyShield and oShield.MyShield.MyShieldType == 'Personal'}) end
+        end
+    end
+    if not(bIgnoreShields) then
+        for _, oShield in tCoveringShields or {} do AddShield(oShield) end
+        AddShield(oTarget)
+        table.sort(tLayers, function(a,b)
+            if a.passOverkill ~= b.passOverkill then return not(a.passOverkill) end
+            return (tonumber(a.unit.EntityId or a.unit.EntityID) or 0) < (tonumber(b.unit.EntityId or b.unit.EntityID) or 0)
+        end)
+    end
+    table.insert(tLayers, {unit = oTarget, layer = 'hull', health = math.max(0, oTarget:GetHealth())})
+    for _, tLayer in tLayers do
+        local tBook, iPending = GetDamageReservationBook(tLayer.unit, tLayer.layer, iTeam, tLayer.health)
+        tLayer.book = tBook
+        tLayer.remaining = math.max(0, tLayer.health - iPending)
+    end
+    return tLayers
+end
+
+function GetTargetDamageNeeded(oTarget, iTeam, tCoveringShields, bIgnoreShields)
+    if not(IsUnitValid(oTarget)) then return 0 end
+    local iNeeded = 0
+    for _, tLayer in GetTargetDamageLayers(oTarget, iTeam, tCoveringShields, bIgnoreShields) do iNeeded = iNeeded + tLayer.remaining end
+    return iNeeded
+end
+
+function CancelDamageReservation(oAttacker)
+    local tReservation = oAttacker.M28DamageReservation
+    if tReservation and not(tReservation.fired) then tReservation.cancelled = true end
+    oAttacker.M28DamageReservation = nil
+end
+
+function ReserveTargetDamage(oAttacker, oTarget, iDamage, iDuration, tCoveringShields, bIgnoreShields, iProjectileDamage)
+    CancelDamageReservation(oAttacker)
+    if not(IsUnitValid(oTarget)) or iDamage <= 0 then return end
+    local iTeam = oAttacker:GetAIBrain().M28Team
+    local tReservation = {attacker = oAttacker, target = oTarget, untilTime = GetGameTimeSeconds() + iDuration}
+    oAttacker.M28DamageReservation = tReservation
+    local tLayers = GetTargetDamageLayers(oTarget, iTeam, tCoveringShields, bIgnoreShields)
+    iProjectileDamage = math.max(1, iProjectileDamage or iDamage)
+    local iLayerIndex = 1
+    local iShotRemaining = math.min(iDamage, iProjectileDamage)
+    while iDamage > 0 and iLayerIndex <= table.getn(tLayers) do
+        local tLayer = tLayers[iLayerIndex]
+        if tLayer.remaining <= 0 then
+            iLayerIndex = iLayerIndex + 1
+        else
+            local iAssigned = math.min(iShotRemaining, tLayer.remaining)
+            table.insert(tLayer.book.entries, {reservation = tReservation, damage = iAssigned})
+            tLayer.remaining = tLayer.remaining - iAssigned
+            iDamage = iDamage - iAssigned
+            iShotRemaining = iShotRemaining - iAssigned
+            -- Bubble shields consume the impact; personal shields pass excess damage to the owner.
+            if tLayer.layer == 'shield' and not(tLayer.passOverkill) and tLayer.remaining <= 0 then
+                iDamage = iDamage - iShotRemaining
+                iShotRemaining = 0
+            end
+            if iShotRemaining <= 0 then iShotRemaining = math.min(iDamage, iProjectileDamage) end
+        end
+    end
+    return tReservation
+end
+
+function MarkDamageReservationFired(oAttacker, iFlightSeconds)
+    local tReservation = oAttacker.M28DamageReservation
+    if tReservation and not(tReservation.fired) then
+        tReservation.fired = true
+        tReservation.untilTime = GetGameTimeSeconds() + iFlightSeconds
+    end
+end
+
+function GetProjectilesNeededForTarget(oTarget, iTeam, tShields, bIgnoreShields, iProjectileDamage)
+    local iCount, iPersonalAndHull = 0, 0
+    for _, tLayer in GetTargetDamageLayers(oTarget, iTeam, tShields, bIgnoreShields) do
+        if tLayer.passOverkill or tLayer.layer == 'hull' then iPersonalAndHull = iPersonalAndHull + tLayer.remaining
+        else iCount = iCount + math.ceil(tLayer.remaining / math.max(1, iProjectileDamage)) end
+    end
+    return iCount + math.ceil(iPersonalAndHull / math.max(1, iProjectileDamage))
+end
+
 function GetCurrentAndMaximumShield(oUnit, bDontTreatLowPowerShieldAsZero)
     --Returns 0, 0 if unit has no shield, or 0, [max shield] if it has a shield but it is depleted
     local sFunctionRef = 'GetCurrentAndMaximumShield'
@@ -2286,40 +2409,18 @@ function GetBlueprintMaxGroundRange(oBP)
 end
 
 function GetBomberAOEAndStrikeDamage(oUnit)
-    local oBP = oUnit:GetBlueprint()
-    local iAOE = 0
-    local iStrikeDamage = 0
-    local iFiringRandomness
-    local iSalvoModifier
-    for sWeaponRef, tWeapon in oBP.Weapon do
+    local iAOE, iStrikeDamage, iFiringRandomness, iProjectileDamage = 0, 0, 0, 0
+    for _, tWeapon in oUnit:GetBlueprint().Weapon or {} do
         if tWeapon.WeaponCategory == 'Bomb' or tWeapon.WeaponCategory == 'Direct Fire' or tWeapon.Label == 'Bomb' then
-            if (tWeapon.DamageRadius or 0) > iAOE then
-                iAOE = tWeapon.DamageRadius
-                iSalvoModifier = (tWeapon.MuzzleSalvoSize or 1)
-                if iSalvoModifier > 2 then iSalvoModifier = (iSalvoModifier - 1) * 0.5 + 1 end
-                iStrikeDamage = tWeapon.Damage * iSalvoModifier
-                iFiringRandomness = (tWeapon.FiringRandomness or 0)
+            local iDamage = (tWeapon.Damage or 0) * math.max(1, tWeapon.DoTPulses or 1)
+            local iVolley = iDamage * GetBlueprintWeaponProjectileCount(tWeapon)
+            if iVolley > iStrikeDamage then
+                iAOE, iStrikeDamage = tWeapon.DamageRadius or 0, iVolley
+                iFiringRandomness, iProjectileDamage = tWeapon.FiringRandomness or 0, iDamage
             end
         end
     end
-    if iStrikeDamage == 0 then
-        M28Utilities.ErrorHandler('Couldnt identify strike damage for bomber with ID '..oUnit.UnitId..'; will refer to predefined value instead')
-    end
-
-    --Manual floor for strike damage due to complexity of some bomber calculations
-    --Check if manual override is higher, as some weapons will fire lots of shots so above method wont be accurate
-    local tiBomberStrikeDamageByFactionAndTech =
-    {
-        --UEF, Aeon, Cybran, Sera, Nomads (are using default), Default
-        { 150, 200, 155, 250, 150, 150 }, --Tech 1
-        { 350, 300, 850, 1175, 550, 550 }, --Tech 2
-        { 2500, 2500, 2500, 2500, 2500, 2500}, --Tech 3 - the strike damage calculation above should be accurate so this is just as a backup, and set at a low level due to potential for more balance changes affecting this
-        { 11000,11000,11000,11000,11000,11000} --Tech 4 - again as a backup
-    }
-    iStrikeDamage = math.max(iStrikeDamage, tiBomberStrikeDamageByFactionAndTech[GetUnitTechLevel(oUnit)][GetFactionFromBP(oBP)])
-
-
-    return iAOE, iStrikeDamage, iFiringRandomness
+    return iAOE, iStrikeDamage, iFiringRandomness, iProjectileDamage
 end
 
 function GetUnitStrikeDamage(oUnit, bReferenceIsATableWithUnitId)

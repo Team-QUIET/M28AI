@@ -267,7 +267,7 @@ function IsTargetUnderShield(aiBrain, oTarget, iIgnoreShieldsWithLessThanThisCur
         local iRef
         if iIgnoreShieldsWithLessThanThisCurHealth == nil then iIgnoreShieldsWithLessThanThisCurHealth = 0 end
 
-        if not(bReturnShieldHealthInstead) then --If want to return shield health then need to do the full calculation
+        if not(bReturnShieldHealthInstead) and not(bReturnShieldsCovringTargetInstead) then
             iRef = aiBrain.M28Team + iIgnoreShieldsWithLessThanThisCurHealth
             if bIgnoreMobileShields then iRef = iRef + 7 end
             if bTreatPartCompleteAsComplete then iRef = iRef + 13 end

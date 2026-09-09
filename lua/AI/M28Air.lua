@@ -986,6 +986,17 @@ function AddAssignedAttacker(oTarget, oNewBomber)
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oTarget='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; Existing strike damage='..(oTarget[refiStrikeDamageAssigned] or 0)..'; oNewBomber='..oNewBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oNewBomber)..'; oNewBomber strike damage='..(oNewBomber[M28UnitInfo.refiStrikeDamage] or 'nil')..'; Bomber brain owner='..oNewBomber:GetAIBrain().Nickname) end
         oTarget[refiStrikeDamageAssigned] = (oTarget[refiStrikeDamageAssigned] or 0) + oNewBomber[M28UnitInfo.refiStrikeDamage]
         oNewBomber[refoStrikeDamageAssigned] = oTarget
+        local bTorp = EntityCategoryContains(M28UnitInfo.refCategoryTorpBomber, oNewBomber.UnitId)
+        local tShields = not(bTorp) and M28Logic.IsTargetUnderShield(oNewBomber:GetAIBrain(), oTarget, 0, false, false, false, false, true) or {}
+        local tBP = oNewBomber:GetBlueprint()
+        local iSpeed = math.max(1, (tBP.Air or {}).MaxAirspeed or (tBP.Physics or {}).MaxSpeed or 1)
+        local iTravel = M28Utilities.GetDistanceBetweenPositions(oNewBomber:GetPosition(), oTarget:GetPosition()) / iSpeed
+        local iProjectileDamage
+        if not(bTorp) then
+            local _, _, _, iBombDamage = M28UnitInfo.GetBomberAOEAndStrikeDamage(oNewBomber)
+            iProjectileDamage = iBombDamage
+        end
+        M28UnitInfo.ReserveTargetDamage(oNewBomber, oTarget, oNewBomber[M28UnitInfo.refiStrikeDamage], math.min(120, iTravel + 20), tShields, bTorp, iProjectileDamage)
     end
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': End of code after assigning oNewBomber '..oNewBomber.UnitId..M28UnitInfo.GetUnitLifetimeCount(oNewBomber)..' to target oTarget '..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; Strike damage assigned='..oTarget[refiStrikeDamageAssigned]..'; Time='..GetGameTimeSeconds()) end
 
@@ -993,6 +1004,7 @@ function AddAssignedAttacker(oTarget, oNewBomber)
 end
 
 function RemoveAssignedAttacker(oTarget, oOldBomber)
+    M28UnitInfo.CancelDamageReservation(oOldBomber)
     local sFunctionRef = 'RemoveAssignedAttacker'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -8185,7 +8197,8 @@ function AssignTorpOrBomberTargets(tAvailableAircraft, tCandidateEntries, iAirSu
     local tCohortPosition = {0, 0, 0}
     local iCohortSize = 0
     for iAircraft, oAircraft in tAvailableAircraft do
-        if M28UnitInfo.IsUnitValid(oAircraft) then
+        if M28UnitInfo.IsUnitValid(oAircraft) and not(oAircraft:IsUnitState('Attached'))
+                and (bIgnoreMicro or not(oAircraft[M28UnitInfo.refbSpecialMicroActive])) then
             oFirstAircraft = oFirstAircraft or oAircraft
             local tPosition = oAircraft:GetPosition()
             tCohortPosition[1] = tCohortPosition[1] + tPosition[1]
@@ -8227,7 +8240,6 @@ function AssignTorpOrBomberTargets(tAvailableAircraft, tCandidateEntries, iAirSu
     --All non-experimental attack-run aircraft use the same release/pullback transition, including opening hunters.
     local bUseUnifiedAttackRun = bTorpedoPayload or not(EntityCategoryContains(categories.EXPERIMENTAL, oFirstAircraft.UnitId))
     local iClusterRadius = 30
-    local iFrontBandDepth = 4
     local iGroundAASafetyMargin = 35
     local iStrikeRunOvershoot = 45
     local iGroundAASearchReach = 160
@@ -8237,9 +8249,8 @@ function AssignTorpOrBomberTargets(tAvailableAircraft, tCandidateEntries, iAirSu
         if IsPayloadLegalTarget(oTarget, tDetails) then
             local iDistance = M28Utilities.GetDistanceBetweenPositions(tCohortPosition, oTarget:GetPosition())
             local iEntityId = tonumber(oTarget.EntityId or (oTarget.GetEntityId and oTarget:GetEntityId())) or 0
-            local iDamageWanted = oTarget:GetMaxHealth()
-            if oTarget.MyShield and oTarget.MyShield.GetMaxHealth then iDamageWanted = iDamageWanted + oTarget.MyShield:GetMaxHealth() end
-            table.insert(tLegalCandidates, {oUnit = oTarget, tDetails = tDetails, iEntityId = iEntityId, iDamageWanted = iDamageWanted, iDistanceToCohort = iDistance})
+            local tShields = not(bTorpedoPayload) and M28Logic.IsTargetUnderShield(oFirstAircraft:GetAIBrain(), oTarget, 0, false, false, false, false, true) or {}
+            table.insert(tLegalCandidates, {oUnit = oTarget, tDetails = tDetails, iEntityId = iEntityId, tShields = tShields, iDistanceToCohort = iDistance})
         end
     end
 
@@ -8324,7 +8335,7 @@ function AssignTorpOrBomberTargets(tAvailableAircraft, tCandidateEntries, iAirSu
         for iCandidate, tCandidate in tLegalCandidates do
             local oTarget = tCandidate.oUnit
             if not(tbRejectedCandidate[tCandidate])
-                    and (oTarget[refiStrikeDamageAssigned] or 0) < tCandidate.iDamageWanted
+                    and M28UnitInfo.GetTargetDamageNeeded(oTarget, oFirstAircraft:GetAIBrain().M28Team, tCandidate.tShields, bTorpedoPayload) > 0
                     and (tCandidate.iDistanceToCohort < iAnchorDistance
                     or (tCandidate.iDistanceToCohort == iAnchorDistance and tCandidate.iEntityId < iAnchorEntityId)) then
                 tAnchorCandidate = tCandidate
@@ -8386,7 +8397,6 @@ function AssignTorpOrBomberTargets(tAvailableAircraft, tCandidateEntries, iAirSu
     local iIngressX = tAnchorPosition[1] - tCohortPosition[1]
     local iIngressZ = tAnchorPosition[3] - tCohortPosition[3]
     local iIngressLength = math.sqrt(iIngressX * iIngressX + iIngressZ * iIngressZ)
-    local iMostForwardDepth = 100000
     for iCandidate, tCandidate in tLegalCandidates do
         local tCandidatePosition = tCandidate.oUnit:GetPosition()
         local iDistanceToAnchor = M28Utilities.GetDistanceBetweenPositions(tAnchorPosition, tCandidatePosition)
@@ -8394,28 +8404,10 @@ function AssignTorpOrBomberTargets(tAvailableAircraft, tCandidateEntries, iAirSu
             tCandidate.iDistanceToAnchor = iDistanceToAnchor
             if iIngressLength > 0.1 then
                 tCandidate.iForwardDepth = ((tCandidatePosition[1] - tCohortPosition[1]) * iIngressX + (tCandidatePosition[3] - tCohortPosition[3]) * iIngressZ) / iIngressLength
-                iMostForwardDepth = math.min(iMostForwardDepth, tCandidate.iForwardDepth)
             else
                 tCandidate.iForwardDepth = 0
             end
             table.insert(tLocalCandidates, tCandidate)
-        end
-    end
-
-    local tFrontBandCandidates = {}
-    if iIngressLength > 0.1 then
-        for iCandidate, tCandidate in tLocalCandidates do
-            if tCandidate.iForwardDepth <= iMostForwardDepth + iFrontBandDepth then
-                table.insert(tFrontBandCandidates, tCandidate)
-            end
-        end
-    else
-        iMostForwardDepth = 0
-        for iCandidate, tCandidate in tLocalCandidates do
-            if tCandidate.oUnit == oAnchorTarget then
-                table.insert(tFrontBandCandidates, tCandidate)
-                break
-            end
         end
     end
 
@@ -8428,14 +8420,15 @@ function AssignTorpOrBomberTargets(tAvailableAircraft, tCandidateEntries, iAirSu
 
     for iAircraft = table.getn(tAvailableAircraft), 1, -1 do
         local oAircraft = tAvailableAircraft[iAircraft]
-        if M28UnitInfo.IsUnitValid(oAircraft) then
+        if M28UnitInfo.IsUnitValid(oAircraft) and not(oAircraft:IsUnitState('Attached'))
+                and (bIgnoreMicro or not(oAircraft[M28UnitInfo.refbSpecialMicroActive])) then
             local tChosenCandidate
             local iBestForwardDepth = 100000
             local iBestLocalDistance = 100000
             local iBestEntityId = 1000000000
-            for iCandidate, tCandidate in tFrontBandCandidates do
+            for iCandidate, tCandidate in tLocalCandidates do
                 local oTarget = tCandidate.oUnit
-                if (oTarget[refiStrikeDamageAssigned] or 0) < tCandidate.iDamageWanted
+                if M28UnitInfo.GetTargetDamageNeeded(oTarget, oFirstAircraft:GetAIBrain().M28Team, tCandidate.tShields, bTorpedoPayload) > 0
                         and (tCandidate.iForwardDepth < iBestForwardDepth
                         or (tCandidate.iForwardDepth == iBestForwardDepth and (tCandidate.iDistanceToAnchor < iBestLocalDistance
                         or (tCandidate.iDistanceToAnchor == iBestLocalDistance and tCandidate.iEntityId < iBestEntityId)))) then
@@ -8443,18 +8436,6 @@ function AssignTorpOrBomberTargets(tAvailableAircraft, tCandidateEntries, iAirSu
                     iBestForwardDepth = tCandidate.iForwardDepth
                     iBestLocalDistance = tCandidate.iDistanceToAnchor
                     iBestEntityId = tCandidate.iEntityId
-                end
-            end
-            if not(tChosenCandidate) then
-                for iCandidate, tCandidate in tFrontBandCandidates do
-                    if tCandidate.iForwardDepth < iBestForwardDepth
-                            or (tCandidate.iForwardDepth == iBestForwardDepth and (tCandidate.iDistanceToAnchor < iBestLocalDistance
-                            or (tCandidate.iDistanceToAnchor == iBestLocalDistance and tCandidate.iEntityId < iBestEntityId))) then
-                        tChosenCandidate = tCandidate
-                        iBestForwardDepth = tCandidate.iForwardDepth
-                        iBestLocalDistance = tCandidate.iDistanceToAnchor
-                        iBestEntityId = tCandidate.iEntityId
-                    end
                 end
             end
 
@@ -8482,7 +8463,7 @@ function AssignTorpOrBomberTargets(tAvailableAircraft, tCandidateEntries, iAirSu
                     table.insert(tActiveTargets, oTarget)
                 end
                 if bDebugMessages == true then
-                    LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] STRIKE_ASSIGN - Aircraft='..oAircraft.UnitId..M28UnitInfo.GetUnitLifetimeCount(oAircraft)..', Payload='..(bTorpedoPayload and 'Torpedo' or 'Bomb')..', UnifiedRun='..tostring(bUseUnifiedAttackRun)..', Anchor='..oAnchorTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oAnchorTarget)..', Target='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..', AnchorDistance='..math.floor(iAnchorDistance)..', LocalDistance='..math.floor(tChosenCandidate.iDistanceToAnchor)..', ForwardDepth='..string.format('%.1f', tChosenCandidate.iForwardDepth)..', FrontBandMax='..string.format('%.1f', iMostForwardDepth + iFrontBandDepth)..', Pullback='..repru(tApproachPoint))
+                    LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] STRIKE_ASSIGN - Aircraft='..oAircraft.UnitId..M28UnitInfo.GetUnitLifetimeCount(oAircraft)..', Payload='..(bTorpedoPayload and 'Torpedo' or 'Bomb')..', UnifiedRun='..tostring(bUseUnifiedAttackRun)..', Anchor='..oAnchorTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oAnchorTarget)..', Target='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..', AnchorDistance='..math.floor(iAnchorDistance)..', LocalDistance='..math.floor(tChosenCandidate.iDistanceToAnchor)..', ForwardDepth='..string.format('%.1f', tChosenCandidate.iForwardDepth)..', Pullback='..repru(tApproachPoint))
                 end
                 table.remove(tAvailableAircraft, iAircraft)
             end
@@ -8540,6 +8521,7 @@ function HandleStrikeAircraftWeaponFired(oAircraft)
             or not(EntityCategoryContains(M28UnitInfo.refCategoryBomber + M28UnitInfo.refCategoryTorpBomber, oAircraft.UnitId)) then return false end
     local tPullbackPoint = oAircraft[reftStrikeAircraftPullbackPoint]
     if M28Utilities.IsTableEmpty(tPullbackPoint) then return false end
+    M28UnitInfo.MarkDamageReservationFired(oAircraft, 8)
 
     oAircraft[reftStrikeAircraftPullbackPoint] = nil
     --Opening-target routines may choose the first target, but must not reclaim the bomber after release.
