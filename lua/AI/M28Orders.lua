@@ -264,7 +264,7 @@ local tiSpreadRotationCos = {1, -1, 0, 0, iDiagonalSpreadRotation, iDiagonalSpre
 local tiSpreadRotationSin = {0, 0, 1, -1, iDiagonalSpreadRotation, -iDiagonalSpreadRotation, iDiagonalSpreadRotation, -iDiagonalSpreadRotation}
 
 local function IsSpreadPositionOutsideAvoidanceAreas(iPositionX, iPositionZ, tSpreadAvoidanceAreaTables)
-    for _, tAvoidanceAreas in tSpreadAvoidanceAreaTables do
+    for _, tAvoidanceAreas in tSpreadAvoidanceAreaTables or {} do
         for _, tAvoidanceArea in tAvoidanceAreas do
             local iXDistance = iPositionX - tAvoidanceArea[1]
             local iZDistance = iPositionZ - tAvoidanceArea[2]
@@ -302,21 +302,36 @@ function GetSpreadPositionForUnit(oUnit, tTargetPosition, iSpreadRadius, tSpread
     local iJitter = math.mod(iEntityId * 0.314159, 0.3)
     local iFinalRadius = iSpreadRadius * (iRadiusFactor + iJitter)
 
-    if not(tSpreadAvoidanceAreaTables) then
+    local sPathing, iSourceLabel
+    if EntityCategoryContains(categories.LAND * categories.MOBILE, oUnit.UnitId) then
+        sPathing = M28UnitInfo.GetUnitPathingType(oUnit)
+        if sPathing ~= M28Map.refPathingTypeAir and sPathing ~= M28Map.refPathingTypeNone then
+            iSourceLabel = M28Utilities.NavUtils.GetTerrainLabel(sPathing, oUnit:GetPosition())
+        end
+    end
+    if not(tSpreadAvoidanceAreaTables) and not(iSourceLabel) then
         return {tTargetPosition[1] + iAngleCos * iFinalRadius, tTargetPosition[2], tTargetPosition[3] + iAngleSin * iFinalRadius}
     end
 
-    for iCandidate = 1, 8 do
-        local iRotationCos = tiSpreadRotationCos[iCandidate]
-        local iRotationSin = tiSpreadRotationSin[iCandidate]
-        local iCandidateX = tTargetPosition[1] + (iAngleCos * iRotationCos - iAngleSin * iRotationSin) * iFinalRadius
-        local iCandidateZ = tTargetPosition[3] + (iAngleSin * iRotationCos + iAngleCos * iRotationSin) * iFinalRadius
-        if IsSpreadPositionOutsideAvoidanceAreas(iCandidateX, iCandidateZ, tSpreadAvoidanceAreaTables) then
-            return {iCandidateX, tTargetPosition[2], iCandidateZ}
+    -- A reachable center can have an offset on another island or beyond a cliff.
+    for iRingScale = 1, 2 do
+        for iCandidate = 1, 8 do
+            local iRotationCos = tiSpreadRotationCos[iCandidate]
+            local iRotationSin = tiSpreadRotationSin[iCandidate]
+            local iCandidateX = tTargetPosition[1] + (iAngleCos * iRotationCos - iAngleSin * iRotationSin) * iFinalRadius / iRingScale
+            local iCandidateZ = tTargetPosition[3] + (iAngleSin * iRotationCos + iAngleCos * iRotationSin) * iFinalRadius / iRingScale
+            local tCandidate = {iCandidateX, tTargetPosition[2], iCandidateZ}
+            if IsSpreadPositionOutsideAvoidanceAreas(iCandidateX, iCandidateZ, tSpreadAvoidanceAreaTables)
+                    and (not(iSourceLabel) or iSourceLabel > 0 and M28Utilities.NavUtils.GetTerrainLabel(sPathing, tCandidate) == iSourceLabel) then
+                return tCandidate
+            end
         end
     end
 
-    return tTargetPosition
+    if IsSpreadPositionOutsideAvoidanceAreas(tTargetPosition[1], tTargetPosition[3], tSpreadAvoidanceAreaTables)
+            and (not(iSourceLabel) or iSourceLabel > 0 and M28Utilities.NavUtils.GetTerrainLabel(sPathing, tTargetPosition) == iSourceLabel) then return tTargetPosition end
+    local tPosition = oUnit:GetPosition()
+    return {tPosition[1], tPosition[2], tPosition[3]}
 end
 
 function IssueSmartMove(oUnit, tOrderPosition, iDistanceToReissueOrder, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder, bIsRetreat, tSpreadAvoidanceAreaTables)
