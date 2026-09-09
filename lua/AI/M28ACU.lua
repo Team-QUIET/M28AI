@@ -5129,6 +5129,13 @@ function ConsiderNearbyReclaimForACUOrEngineer(iPlateau, iLandZone, tLZData, tLZ
     return false
 end
 
+function GetACUArmyAdvanceBonus(iHealth, iFriendlyMobile, iEnemyThreat, iPDThreat, iSourceFront, iTargetFront, iTravelDistance, bDangerous)
+    if iHealth < 0.9 or iFriendlyMobile < 350 or bDangerous or iPDThreat > 50 or iEnemyThreat > iFriendlyMobile * 0.65
+            or iTargetFront < 0.15 or iTargetFront > 0.6 or iTargetFront < iSourceFront + 0.03 or iTravelDistance > 225 then return 0 end
+    -- Join an army before contact, while leaving economic work and retreat decisions to their existing owners.
+    return math.min(900, 300 + iFriendlyMobile * 0.3) / (1 + iTravelDistance / 225)
+end
+
 function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
     --COnsiders the land zone we want to support with the ACU - get the LZ within 175 travel distance that has the greatest value, wants DF support, and has less than 800 enemy threat in it
     local sFunctionRef = 'MoveToOtherLandZone'
@@ -5164,12 +5171,18 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
     local iRecentLandZoneRef
     local iSecondsToIgnoreZonesRecentlyRunFrom = 30
     local function GetArmyCallBonusForACUZone(tZoneData, tZoneTeamData, iZoneRef)
-        if not(oACU[refbUseACUAggressively]) then return 0, 0, 1000 end
-        if not(tZoneTeamData[M28Map.subrefbLZWantsDFSupport]) then return 0, 0, 1000 end
         local iAllyMobileThreat = tZoneTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0
-        if iAllyMobileThreat < 450 then return 0, 0, 1000 end
         local iEnemyCombatThreat = tZoneTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
-        local iBonus = 0
+        local iAdvanceBonus = GetACUArmyAdvanceBonus(M28UnitInfo.GetUnitHealthPercent(oACU), iAllyMobileThreat,
+            iEnemyCombatThreat, tZoneTeamData[M28Map.subrefThreatEnemyDFStructures] or 0,
+            tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiModDistancePercent] or 0,
+            tZoneTeamData[M28Map.refiModDistancePercent] or 0,
+            M28Map.GetTravelDistanceBetweenLandZones(iPlateau, iLandZone, iZoneRef) or 10000,
+            tZoneTeamData[M28Map.subrefbDangerousEnemiesInThisLZ])
+        if not(oACU[refbUseACUAggressively]) or not(tZoneTeamData[M28Map.subrefbLZWantsDFSupport]) or iAllyMobileThreat < 450 then
+            return iAdvanceBonus, 0, 1000
+        end
+        local iBonus = iAdvanceBonus
         if iEnemyCombatThreat >= 250 then
             iBonus = iBonus + 350 + math.min(450, iAllyMobileThreat * 0.15)
         elseif tZoneTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] then
