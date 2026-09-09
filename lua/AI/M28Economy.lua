@@ -2136,17 +2136,31 @@ function ConsiderReclaimingPower(iTeam, oPowerJustBuilt)
 
 end
 
+local function GetStallCategoriesForAction(tCategoryAndEngineerTables, bPauseNotUnpause)
+    local tCategories = tCategoryAndEngineerTables[1]
+    if bPauseNotUnpause == false then
+        -- Recovery-only categories must never enter the cached pause priorities.
+        tCategories = {}
+        for _, iCategory in tCategoryAndEngineerTables[1] do
+            table.insert(tCategories, iCategory)
+        end
+        table.insert(tCategories, M28UnitInfo.refCategoryT2Mex)
+        table.insert(tCategories, M28UnitInfo.refCategoryT1Mex)
+    end
+    return tCategories, tCategoryAndEngineerTables[2]
+end
+
 function GetCategoryAndActionsToPauseWhenStalling(iTeam, bStallingMass, bPauseNotUnpause)
     --First check if we already have the category tables determiend from when the stall started
     --local tCategoriesByPriority, tEngineerActionsByPriority
     if bStallingMass then
         if M28Team.tTeamData[iTeam][M28Team.refiLastMassStallCategoryAndEngineerTables][1] and M28Team.tTeamData[iTeam][M28Team.refiLastMassStallCategoryAndEngineerTables][2] then
             --LOG('About to return category and engineer tables,  category size='..table.getn(M28Team.tTeamData[iTeam][M28Team.refiLastMassStallCategoryAndEngineerTables][1])..'; Engineer size='..table.getn(M28Team.tTeamData[iTeam][M28Team.refiLastMassStallCategoryAndEngineerTables][2]))
-            return M28Team.tTeamData[iTeam][M28Team.refiLastMassStallCategoryAndEngineerTables][1], M28Team.tTeamData[iTeam][M28Team.refiLastMassStallCategoryAndEngineerTables][2]
+            return GetStallCategoriesForAction(M28Team.tTeamData[iTeam][M28Team.refiLastMassStallCategoryAndEngineerTables], bPauseNotUnpause)
         end
     else
         if M28Team.tTeamData[iTeam][M28Team.refiLastEnergyStallCategoryAndEngineerTables][1] and M28Team.tTeamData[iTeam][M28Team.refiLastEnergyStallCategoryAndEngineerTables][2] then
-            return M28Team.tTeamData[iTeam][M28Team.refiLastEnergyStallCategoryAndEngineerTables][1], M28Team.tTeamData[iTeam][M28Team.refiLastEnergyStallCategoryAndEngineerTables][2]
+            return GetStallCategoriesForAction(M28Team.tTeamData[iTeam][M28Team.refiLastEnergyStallCategoryAndEngineerTables], bPauseNotUnpause)
         end
     end
 
@@ -2249,12 +2263,8 @@ function GetCategoryAndActionsToPauseWhenStalling(iTeam, bStallingMass, bPauseNo
                 table.insert(tCategoryAndEngineerTables[2][3], M28Engineer.refActionBuildMex)
             end
         end
-        if not(bPauseNotUnpause) then
-            table.insert(tCategoryAndEngineerTables[1], M28UnitInfo.refCategoryT2Mex)
-            table.insert(tCategoryAndEngineerTables[1], M28UnitInfo.refCategoryT1Mex)
-        end
         --LOG('About to return category and engineer tables,  category size='..table.getn(tCategoryAndEngineerTables[1])..'; Engineer size='..table.getn(tCategoryAndEngineerTables[2]))
-        return tCategoryAndEngineerTables[1], tCategoryAndEngineerTables[2]
+        return GetStallCategoriesForAction(tCategoryAndEngineerTables, bPauseNotUnpause)
     else
         M28Utilities.ErrorHandler('No active M28 brains')
     end
@@ -3093,7 +3103,7 @@ function ManageEnergyStalls(iTeam)
                     M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastEnergyStall] = GetGameTimeSeconds() --Have even if unpausing, since we may only unpause some of the units
                     --Decide on order to pause/unpause
 
-                    local tCategoriesByPriority, tEngineerActionsByPriority = GetCategoryAndActionsToPauseWhenStalling(iTeam)
+                    local tCategoriesByPriority, tEngineerActionsByPriority = GetCategoryAndActionsToPauseWhenStalling(iTeam, false, bPauseNotUnpause)
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tCategoriesByPriority='..reprs(tCategoriesByPriority)) end
 
                     local iEnergyPerTickSavingNeeded
