@@ -294,6 +294,46 @@ local function GetFactoryPendingBuildCountByCategory(oFactory, iCategoryWanted)
     return math.max(iRecordedPendingBuilds, iActualPendingBuilds)
 end
 
+local function GetIntermediateLandUnitCategories(sBlueprint)
+    if not(sBlueprint) or ScenarioInfo.Options.M28PrioritiseBPs == 2 then return nil end
+    local iSpecialCategory, iTech
+    if EntityCategoryContains(M28UnitInfo.refCategoryT15Units, sBlueprint) then
+        iSpecialCategory, iTech = M28UnitInfo.refCategoryT15Units, 1
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryT25Units, sBlueprint) then
+        iSpecialCategory, iTech = M28UnitInfo.refCategoryT25Units, 2
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryT35Units, sBlueprint) then
+        iSpecialCategory, iTech = M28UnitInfo.refCategoryT35Units, 3
+    else return nil end
+    local iRegularCategory = (M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher
+        - iSpecialCategory - categories.ENGINEER - categories.COMMAND) * M28UnitInfo.ConvertTechLevelToCategory(iTech)
+    return iSpecialCategory, iRegularCategory
+end
+
+function GetIntermediateLandBuildAllowance(oFactory, sBlueprint, bIssuedOnly, bReplaceQueue)
+    local iSpecialCategory, iRegularCategory = GetIntermediateLandUnitCategories(sBlueprint)
+    if not(iSpecialCategory) then return nil end
+    local iRegular = M28Conditions.GetFactoryLifetimeCount(oFactory, iRegularCategory)
+    local iSpecial = M28Conditions.GetFactoryLifetimeCount(oFactory, iSpecialCategory)
+    local iPending
+    if bReplaceQueue then iPending = 0
+    elseif bIssuedOnly then iPending = GetFactoryActualBuildOrderCount(oFactory, iSpecialCategory) or 0
+    else iPending = GetFactoryPendingBuildCountByCategory(oFactory, iSpecialCategory) end
+    return math.max(0, math.floor(iRegular / 5) - iSpecial - iPending), iRegularCategory
+end
+
+local function AdjustIntermediateLandBlueprint(aiBrain, oFactory, sBlueprint)
+    local iAllowance, iRegularCategory = GetIntermediateLandBuildAllowance(oFactory, sBlueprint)
+    if iAllowance and iAllowance < 1 then
+        local sFallback = GetBlueprintThatCanBuildOfCategory(aiBrain, iRegularCategory, oFactory)
+        if M28Diagnostics.ShouldLog('Factory', aiBrain:GetArmyIndex(), 'quota:'..oFactory.EntityId) then
+            M28Diagnostics.Record('Factory', aiBrain:GetArmyIndex(), 'quota:'..oFactory.EntityId, 'intermediate-combat-quota',
+                {blueprint = sBlueprint, replacement = sFallback, allowance = iAllowance})
+        end
+        return sFallback
+    end
+    return sBlueprint
+end
+
 local function GetAirQueuePriorityState(aiBrain)
     local tAirSubteamData = M28Team.tAirSubteamData[aiBrain.M28AirSubteam]
     local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
@@ -1515,47 +1555,7 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
         if not(ScenarioInfo.Options.M28PrioritiseBPs == 2) then
             if M28Utilities.bQuietModActive then
                 local iTeam = aiBrain.M28Team
-                -- T1.5 units have good range but poor HP/mass ratio, so limit to 1:5 ratio vs regular T1
-                local tT15UnitIDs = {'brmt1exm1', 'brot1exm1', 'brpt1exm1', 'uel0108'}
-                if EntityCategoryContains(M28UnitInfo.refCategoryT15Units, sBPIDToBuild) then
-                    local iT15Count = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryT15Units)
-                    local iT1DFCount = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMobileDFLand * categories.TECH1 - M28UnitInfo.refCategoryT15Units)
-                    if (iT15Count + 1) * 5 > iT1DFCount then
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': T1.5 ratio would be exceeded, blocking '..sBPIDToBuild..'; iT15Count='..iT15Count..'; iT1DFCount='..iT1DFCount) end
-                        for _, sUnitID in tT15UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = nil end
-                        sBPIDToBuild = nil
-                    else
-                        for _, sUnitID in tT15UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = 1 end
-                    end
-                end
-
-                -- T2.5 units - enforce 1:5 ratio vs normal T2
-                local tT25UnitIDs = {'brmt2medm', 'wel0304', 'brot2asb', 'brpt2btbot'}
-                if EntityCategoryContains(M28UnitInfo.refCategoryT25Units, sBPIDToBuild) then
-                    local iT25Count = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryT25Units)
-                    local iT2DFCount = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMobileDFLand * categories.TECH2 - M28UnitInfo.refCategoryT25Units)
-                    if (iT25Count + 1) * 5 > iT2DFCount then
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': T2.5 ratio would be exceeded, blocking '..sBPIDToBuild..'; iT25Count='..iT25Count..'; iT2DFCount='..iT2DFCount) end
-                        for _, sUnitID in tT25UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = nil end
-                        sBPIDToBuild = nil
-                    else
-                        for _, sUnitID in tT25UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = 1 end
-                    end
-                end
-
-                -- T3.5 units - enforce 1:5 ratio vs normal T3
-                local tT35UnitIDs = {'xrl0305', 'brl0307', 'wrl0301', 'brmt3bm2', 'xel0305', 'xel0307', 'bel0307', 'wel0305', 'sal0311', 'bal0310', 'brot3hm', 'xsl0303', 'bsl0310', 'brpt3bot'}
-                if EntityCategoryContains(M28UnitInfo.refCategoryT35Units, sBPIDToBuild) then
-                    local iT35Count = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryT35Units)
-                    local iT3DFCount = M28Conditions.GetFactoryLifetimeCount(oFactory, M28UnitInfo.refCategoryMobileDFLand * categories.TECH3 - M28UnitInfo.refCategoryT35Units)
-                    if (iT35Count + 1) * 5 > iT3DFCount then
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': T3.5 ratio would be exceeded, blocking '..sBPIDToBuild..'; iT35Count='..iT35Count..'; iT3DFCount='..iT3DFCount) end
-                        for _, sUnitID in tT35UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = nil end
-                        sBPIDToBuild = nil
-                    else
-                        for _, sUnitID in tT35UnitIDs do aiBrain[reftBlueprintPriorityOverride][sUnitID] = 1 end
-                    end
-                end
+                sBPIDToBuild = AdjustIntermediateLandBlueprint(aiBrain, oFactory, sBPIDToBuild)
 
                 -- Cap Aeon T2 snipers at 5 live units (centralized enforcement to catch all build paths)
                 if EntityCategoryContains(categories.ual0204, sBPIDToBuild) then
@@ -7040,6 +7040,10 @@ function CanIssueFactoryBlueprintToQueue(oFactory, sBlueprint, bAddToExistingQue
         return true
     end
 
+    -- Final issuance counts only orders already sent; planned entries include this candidate.
+    local iAllowance = GetIntermediateLandBuildAllowance(oFactory, sBlueprint, true, not(bAddToExistingQueue))
+    if iAllowance and iAllowance < 1 then return false end
+
     local bAllowed, sAdmissionReason = GetFactoryProductionAdmission(oFactory:GetAIBrain(), oFactory, sBlueprint)
     if not(bAllowed) then
         local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelFactory, 'CanIssueFactoryBlueprintToQueue')
@@ -7146,6 +7150,9 @@ local function AdjustLandFactoryBlueprintForQueueComposition(aiBrain, oFactory, 
     elseif not(EntityCategoryContains(M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryMobileLandFactory, oFactory.UnitId)) then
         return sBlueprint
     end
+
+    sBlueprint = AdjustIntermediateLandBlueprint(aiBrain, oFactory, sBlueprint)
+    if not(sBlueprint) then return nil end
 
     local sRole = GetLandFactoryQueueCompositionRole(sBlueprint)
     if not(sRole) or sRole == 'direct' then
@@ -7659,6 +7666,9 @@ local function GetFactoryBuildPlanRunLength(oFactory, sBlueprint, iRemainingPlan
         return 0
     elseif EntityCategoryContains(categories.SUBCOMMANDER + categories.EXPERIMENTAL + M28UnitInfo.refCategoryFactory, sBlueprint) then
         return 1
+    elseif GetIntermediateLandUnitCategories(sBlueprint) then
+        local iAllowance = GetIntermediateLandBuildAllowance(oFactory, sBlueprint)
+        return math.min(iRemainingPlanDepth, 1, iAllowance)
     elseif GetGameTimeSeconds() <= 360 and oFactory:GetAIBrain()[M28Map.refbCanPathToEnemyBaseWithLand]
             and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory * categories.TECH1, oFactory.UnitId)
             and EntityCategoryContains((M28UnitInfo.refCategoryEngineer + M28UnitInfo.refCategoryMobileDFLand) * categories.TECH1, sBlueprint) then
