@@ -363,11 +363,85 @@ function CanShareBaselinePressureTarget(bSameOwner, iIncoming, iEnemyThreat, iPD
     return true, 'uncovered-allied-flank'
 end
 
-function GetBaselinePressureBudget(iTotalBudget, iSmallestUnit, bHasPrimaryTarget)
-    local iBudget = bHasPrimaryTarget and iTotalBudget * 0.65 or iTotalBudget
-    -- A fractional budget must still fit one cheap unit; cross-owner groups remain capped at 300.
-    if iSmallestUnit and iSmallestUnit <= 300 then iBudget = math.max(iBudget, math.min(iTotalBudget, iSmallestUnit)) end
-    return iBudget
+function GetBaselinePressureBudget(iTotalBudget, iSmallestUnit, bHasPrimaryTarget, iPrimaryShortfall)
+    if bHasPrimaryTarget then
+        -- Keep the main wave together; do not send its missing strength to another lane.
+        local iBudget = math.max(0, math.min(iTotalBudget * 0.15, iTotalBudget - (iPrimaryShortfall or 0)))
+        if iSmallestUnit and iBudget < iSmallestUnit then return 0 end
+        return iBudget
+    end
+    return iTotalBudget
+end
+
+function GetSupportConcentrationPenalty(iIncoming, iFriendlyMobile, iEnemyPressure, iRequiredRatio)
+    if iEnemyPressure > 0 and iFriendlyMobile < iEnemyPressure * iRequiredRatio then
+        -- Several incomplete reinforcements are a reason to combine, not to split again.
+        return 1
+    end
+    return 1 / (1 + iIncoming * iLandSupportIncomingPenalty)
+end
+
+function GetSupportOpportunityBonus(iAvailableThreat, iEnemyThreat, iPDThreat, iEconomicValue)
+    if iAvailableThreat < 150 or iEnemyThreat * 1.5 > iAvailableThreat or iPDThreat > iAvailableThreat * 0.15 then return 0 end
+    return math.min(450, iEconomicValue * 0.3) / (1 + iEnemyThreat / math.max(150, iAvailableThreat))
+end
+
+function GetSupportAssemblyScore(iFriendlyMobile, iEnemyThreat, iPDThreat, iTravelDistance, iTargetDistance, iSourceTargetDistance, bDangerous)
+    if bDangerous or iEnemyThreat > 0 or iPDThreat > 0 or iFriendlyMobile < 80 or iTravelDistance > 300
+            or iTargetDistance > 240 or iTargetDistance > iSourceTargetDistance + 20 then return nil end
+    return math.min(1800, iFriendlyMobile) / (1 + iTravelDistance / 120) + math.max(0, 240 - iTargetDistance)
+end
+
+function GetSupportAssemblyZone(tSourceData, iPlateau, iSourceZone, iTargetZone, iTeam)
+    local tZones = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones]
+    local tTargetData = tZones[iTargetZone]
+    local tTargetTeamData = tTargetData[M28Map.subrefLZTeamData][iTeam]
+    local iSourceTargetDistance = M28Map.GetTravelDistanceBetweenLandZones(iPlateau, iSourceZone, iTargetZone)
+    if not(iSourceTargetDistance) then return nil end
+    local iBestZone, iBestScore
+    local tPrevious = tTargetTeamData.M28SupportAssembly
+    local function ConsiderAssemblyZone(iZone, iTravelDistance, tPath)
+        local tData = tZones[iZone]
+        local tTeamData = tData[M28Map.subrefLZTeamData][iTeam]
+        if iZone ~= iTargetZone and tData[M28Map.subrefLZIslandRef] == tSourceData[M28Map.subrefLZIslandRef]
+                and not(tData[M28Map.subrefbPacifistArea]) and (not(M28Map.bIsCampaignMap) or M28Conditions.IsLocationInPlayableArea(tData[M28Map.subrefMidpoint])) then
+            local iTargetDistance = M28Map.GetTravelDistanceBetweenLandZones(iPlateau, iZone, iTargetZone)
+            local iScore = iTargetDistance and GetSupportAssemblyScore(tTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0,
+                    tTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0, tTeamData[M28Map.subrefThreatEnemyDFStructures] or 0,
+                    iTravelDistance, iTargetDistance, iSourceTargetDistance, tTeamData[M28Map.subrefbDangerousEnemiesInThisLZ])
+            if iScore then
+                for _, iPathZone in tPath or {} do
+                    local tPathData = tZones[iPathZone][M28Map.subrefLZTeamData][iTeam]
+                    if tPathData[M28Map.subrefbDangerousEnemiesInThisLZ] or (tPathData[M28Map.subrefTThreatEnemyCombatTotal] or 0) > 0 then return end
+                end
+                if not(iBestScore) or iScore > iBestScore or (iScore == iBestScore and iZone < iBestZone) then
+                    iBestZone, iBestScore = iZone, iScore
+                end
+            end
+        end
+    end
+    if tPrevious and GetGameTimeSeconds() < tPrevious.untilTime then
+        if tPrevious.zone == iSourceZone then ConsiderAssemblyZone(iSourceZone, 0)
+        else
+            for _, tPath in tSourceData[M28Map.subrefLZPathingToOtherLandZones] or {} do
+                if tPath[M28Map.subrefLZNumber] == tPrevious.zone then
+                    ConsiderAssemblyZone(tPrevious.zone, tPath[M28Map.subrefLZTravelDist], tPath[M28Map.subrefLZPath])
+                    break
+                end
+            end
+        end
+        if iBestZone then return iBestZone end
+    end
+    ConsiderAssemblyZone(iSourceZone, 0)
+    for _, tPath in tSourceData[M28Map.subrefLZPathingToOtherLandZones] or {} do
+        ConsiderAssemblyZone(tPath[M28Map.subrefLZNumber], tPath[M28Map.subrefLZTravelDist], tPath[M28Map.subrefLZPath])
+    end
+    if iBestZone then
+        if not(tPrevious) or tPrevious.zone ~= iBestZone or GetGameTimeSeconds() >= tPrevious.untilTime then
+            tTargetTeamData.M28SupportAssembly = {zone = iBestZone, untilTime = GetGameTimeSeconds() + 20}
+        end
+    end
+    return iBestZone
 end
 
 function GetBaselinePressureIncomingCount(tTargetLZTeamData)
@@ -11977,10 +12051,14 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 return iCount
             end
             function ShouldForceFrontlineSupport(tTargetLZData, tTargetLZTeamData, bSameLane, iEnemyThreat)
-                if bSameLane or not(tTargetLZData) or not(tTargetLZTeamData) then return false end
+                if not(tTargetLZData) or not(tTargetLZTeamData) then return false end
                 if not(tTargetLZTeamData[M28Map.subrefbLZWantsDFSupport]) or not(tTargetLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) then return false end
                 if (tTargetLZTeamData[M28Map.refiModDistancePercent] or 0) + 0.05 < (tLZTeamData[M28Map.refiModDistancePercent] or 0) then return false end
                 local iTargetPDThreat = tTargetLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0
+                local iFriendlyMobile = tTargetLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0
+                if iFriendlyMobile >= 250 and iFriendlyMobile < iEnemyThreat * 1.25 and iAvailableCombatUnitThreat >= 150
+                        and M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], tTargetLZData[M28Map.subrefMidpoint]) <= 350 then return true end
+                if bSameLane then return false end
                 if iEnemyThreat < 200 and iTargetPDThreat < 60 then return false end
                 if iAvailableCombatUnitThreat < math.max(300, iEnemyThreat * 0.6, iTargetPDThreat * 0.9) then return false end
                 return true
@@ -12017,7 +12095,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     tLZTeamData[refiLastBaselinePressureTargetTime] = GetGameTimeSeconds()
                 end
             end
-            function GetAdjustedSupportValue(iBaseValue, bSameLane, bSameOwner, iBestSameLaneValue, iBestSameOwnerValue, iEnemyThreat, iIncomingTotal, sDebugContext, bFrontlineOverride)
+            function GetAdjustedSupportValue(iBaseValue, bSameLane, bSameOwner, iBestSameLaneValue, iBestSameOwnerValue, iEnemyThreat, iIncomingTotal, sDebugContext, bFrontlineOverride, iFriendlyMobile)
                 local bAllowed = bFrontlineOverride or bSameOwner
                 if not(bSameOwner) and not(bFrontlineOverride) then
                     if iBestSameOwnerValue > 0 then
@@ -12050,13 +12128,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     end
                 end
                 if not(bAllowed) then return nil end
-                local iEffectiveIncoming = iIncomingTotal
-                local iIncomingPenaltyMultiplier = 1
-                if bFrontlineOverride then
-                    iEffectiveIncoming = math.max(0, iIncomingTotal - 1)
-                    iIncomingPenaltyMultiplier = 0.5
-                end
-                local iPenalty = 1 / (1 + (iEffectiveIncoming * iLandSupportIncomingPenalty * iIncomingPenaltyMultiplier))
+                local iPenalty = GetSupportConcentrationPenalty(iIncomingTotal, iFriendlyMobile or 0, iEnemyThreat, 1.25)
                 local iAdjustedValue = iBaseValue * iPenalty
                 if bSameOwner then
                     iAdjustedValue = iAdjustedValue * iLandSupportSameOwnerBonus
@@ -12069,7 +12141,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     end
                 end
                 if bSupportDebugLog then
-                    LogSupportDebug((sDebugContext or '[Support]')..' Adjusted base='..math.floor(iBaseValue)..'; incoming='..iIncomingTotal..'; effIncoming='..iEffectiveIncoming..'; penalty='..string.format('%.2f', iPenalty)..'; adjusted='..math.floor(iAdjustedValue)..'; sameLane='..tostring(bSameLane)..'; sameOwner='..tostring(bSameOwner)..'; frontlineOverride='..tostring(bFrontlineOverride))
+                    LogSupportDebug((sDebugContext or '[Support]')..' Adjusted base='..math.floor(iBaseValue)..'; incoming='..iIncomingTotal..'; penalty='..string.format('%.2f', iPenalty)..'; adjusted='..math.floor(iAdjustedValue)..'; sameLane='..tostring(bSameLane)..'; sameOwner='..tostring(bSameOwner)..'; frontlineOverride='..tostring(bFrontlineOverride))
                 end
                 return iAdjustedValue
             end
@@ -12231,7 +12303,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     local iEnemyThreat = tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
                                     local sSupportContext = '[P'..iPlateau..'-LZ'..iLandZone..'->AdjLZ'..iAdjLZ..' IF]'
                                     LogLaneAngleDebug(sSupportContext, bSameLane, iAngleDiff, iTargetAngle, bSameIsland)
-                                    local iAdjusted = GetAdjustedSupportValue(iCurZoneValue, bSameLane, bSameOwner, iBestAdjIndirectSameLaneValue, iBestAdjIndirectSameOwnerValue, iEnemyThreat, iIncomingTotal, sSupportContext)
+                                    local iAdjusted = GetAdjustedSupportValue(iCurZoneValue, bSameLane, bSameOwner, iBestAdjIndirectSameLaneValue, iBestAdjIndirectSameOwnerValue, iEnemyThreat, iIncomingTotal, sSupportContext, nil, tAdjLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0)
                                     if iAdjusted and iAdjusted > iBestAdjIndirectValue then
                                         iBestAdjIndirectValue = iAdjusted
                                         iBestAdjIndirectRef = iAdjLZ
@@ -12252,7 +12324,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                 local sSupportContext = '[P'..iPlateau..'-LZ'..iLandZone..'->AdjLZ'..iAdjLZ..' DF]'
                                 LogLaneAngleDebug(sSupportContext, bSameLane, iAngleDiff, iTargetAngle, bSameIsland)
                                 local bFrontlineOverride = ShouldForceFrontlineSupport(tAdjLZData, tAdjLZTeamData, bSameLane, iEnemyThreat)
-                                local iAdjusted = GetAdjustedSupportValue(iCurZoneValue, bSameLane, bSameOwner, iBestAdjDFSameLaneValue, iBestAdjDFSameOwnerValue, iEnemyThreat, iIncomingTotal, sSupportContext, bFrontlineOverride)
+                                local iAdjusted = GetAdjustedSupportValue(iCurZoneValue, bSameLane, bSameOwner, iBestAdjDFSameLaneValue, iBestAdjDFSameOwnerValue, iEnemyThreat, iIncomingTotal, sSupportContext, bFrontlineOverride, tAdjLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0)
                                 if iAdjusted and iAdjusted > iBestAdjDFValue then
                                     iBestAdjDFValue = iAdjusted
                                     iBestAdjDFRef = iAdjLZ
@@ -12310,7 +12382,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     local iEcoValue = tOtherLZTeamData[M28Map.subrefThreatEnemyStructureTotalMass] or 0
                                     local iCombatThreat = tOtherLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
                                     if (iEcoValue + iCombatThreat) >= iMinEnemyValueToAttack or tOtherLZTeamData[M28Map.subrefbLZBaselinePressure] then
-                                        iCurZoneValue = tOtherLZTeamData[M28Map.subrefLZTValue] or 0
+                                        iCurZoneValue = (tOtherLZTeamData[M28Map.subrefLZTValue] or 0)
+                                            + GetSupportOpportunityBonus(iAvailableCombatUnitThreat, iCombatThreat,
+                                                tOtherLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0, iEcoValue)
                                         local bSameLane = IsSameLane(tOtherLZData)
                                         local bSameOwner = IsSameOwningBrain(tOtherLZTeamData)
                                         if not(iDFLZToSupport) and tOtherLZTeamData[M28Map.subrefbLZWantsDFSupport] and bSameLane and iCurZoneValue > iBestDFSameLaneValue then
@@ -12344,7 +12418,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                     local bSameOwner = IsSameOwningBrain(tOtherLZTeamData)
 
                                     if (iEcoValue + iCombatThreat) >= iMinEnemyValueToAttack or tOtherLZTeamData[M28Map.subrefbLZBaselinePressure] then
-                                        iCurZoneValue = tOtherLZTeamData[M28Map.subrefLZTValue] or 0
+                                        iCurZoneValue = (tOtherLZTeamData[M28Map.subrefLZTValue] or 0)
+                                            + GetSupportOpportunityBonus(iAvailableCombatUnitThreat, iCombatThreat,
+                                                tOtherLZTeamData[M28Map.subrefThreatEnemyDFStructures] or 0, iEcoValue)
                                         local bSameLane, iAngleDiff, iTargetAngle, bSameIsland = IsSameLane(tOtherLZData)
                                         local iIncomingTotal = GetIncomingSupportCount(tOtherLZTeamData)
                                         local iEnemyThreat = tOtherLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
@@ -12361,7 +12437,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                             local sSupportContext = '[P'..iPlateau..'-LZ'..iLandZone..'->LZ'..iOtherLZ..' DF]'
                                             LogLaneAngleDebug(sSupportContext, bSameLane, iAngleDiff, iTargetAngle, bSameIsland)
                                             local bFrontlineOverride = ShouldForceFrontlineSupport(tOtherLZData, tOtherLZTeamData, bSameLane, iEnemyThreat)
-                                            local iAdjusted = GetAdjustedSupportValue(iCurZoneValue, bSameLane, bSameOwner, iBestDFSameLaneValue, iBestDFSameOwnerValue, iEnemyThreat, iIncomingTotal, sSupportContext, bFrontlineOverride)
+                                            local iAdjusted = GetAdjustedSupportValue(iCurZoneValue, bSameLane, bSameOwner, iBestDFSameLaneValue, iBestDFSameOwnerValue, iEnemyThreat, iIncomingTotal, sSupportContext, bFrontlineOverride, tOtherLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0)
                                             if bDebugMessages == true then
                                                 LOG(sFunctionRef..': Considering DF support for iOtherLZ '..iOtherLZ..'; BaseValue='..math.floor(iCurZoneValue)..'; Adjusted='..math.floor(iAdjusted or -1)..'; Best='..math.floor(iBestDFZoneValue)..'; BestZone='..(iClosestDFLZRef or 'nil'))
                                             end
@@ -12381,7 +12457,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                             end
                                             local sSupportContext = '[P'..iPlateau..'-LZ'..iLandZone..'->LZ'..iOtherLZ..' IF]'
                                             LogLaneAngleDebug(sSupportContext, bSameLane, iAngleDiff, iTargetAngle, bSameIsland)
-                                            local iAdjusted = GetAdjustedSupportValue(iCurZoneValue, bSameLane, bSameOwner, iBestIndirectSameLaneValue, iBestIndirectSameOwnerValue, iEnemyThreat, iIncomingTotal, sSupportContext)
+                                            local iAdjusted = GetAdjustedSupportValue(iCurZoneValue, bSameLane, bSameOwner, iBestIndirectSameLaneValue, iBestIndirectSameOwnerValue, iEnemyThreat, iIncomingTotal, sSupportContext, nil, tOtherLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0)
                                             if bDebugMessages == true then
                                                 LOG(sFunctionRef..': Considering indirect support for iOtherLZ '..iOtherLZ..'; BaseValue='..math.floor(iCurZoneValue)..'; Adjusted='..math.floor(iAdjusted or -1)..'; Best='..math.floor(iBestIndirectZoneValue))
                                             end
@@ -12442,7 +12518,12 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         iSmallestDFUnit = math.min(iSmallestDFUnit or iUnitMass, iUnitMass)
                     end
 
-                    local iMaxBaselineBudget = GetBaselinePressureBudget(iTotalDFBudget, iSmallestDFUnit, iDFLZToSupport ~= nil)
+                    local iPrimaryShortfall = 0
+                    if iDFLZToSupport and iDFLZToSupport > 0 then
+                        local _, _, iTargetAlly, iPressure, iRatio = GetSupportWaveReadiness(tDFUnits, iDFLZToSupport)
+                        iPrimaryShortfall = math.max(0, iPressure * iRatio - iTargetAlly)
+                    end
+                    local iMaxBaselineBudget = GetBaselinePressureBudget(iTotalDFBudget, iSmallestDFUnit, iDFLZToSupport ~= nil, iPrimaryShortfall)
                     if iMaxBaselineBudget > 0 then
                         for iOtherLZ, bWantsSupport in M28Team.tTeamData[iTeam][M28Team.subrefiLandZonesWantingSupportByPlateau][iPlateau] do
                             if bWantsSupport and not(iOtherLZ == iLandZone) and not(iOtherLZ == iDFLZToSupport) then
@@ -12503,7 +12584,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                             local bReturningToPressureLane = (oUnit[refiLastBaselineLZAssignment] == iPressureLZ)
                                             if (iPass == 1 and bReturningToPressureLane) or (iPass == 2 and not(bReturningToPressureLane)) then
                                                 local iUnitThreat = oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit)
-                                                if (tPressureTarget[4] or iUnitThreat <= iThreatToAssign - iAssignedThreat) and (bReturningToPressureLane or iUnitThreat <= math.max(iThreatToAssign, 900) or table.getn(tDFUnits) <= 3) then
+                                                if iUnitThreat <= iThreatToAssign - iAssignedThreat then
                                                     local iIntentSeconds = iLandSupportOrderIntentSeconds
                                                     local sIntentOwner = 'BPrDF'
                                                     if not(tPressureTarget[4]) then
@@ -12740,9 +12821,18 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 else
                     RecordDFLandZoneTarget(nil)
                     local tDFWaveCenter = GetSupportWaveCenter(tDFUnits)
+                    local iAssemblyZone = GetSupportAssemblyZone(tLZData, iPlateau, iLandZone, iDFLZToSupport, iTeam)
+                    if iAssemblyZone and iAssemblyZone ~= iLandZone then
+                        tDFWaveCenter = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAssemblyZone][M28Map.subrefMidpoint]
+                    end
                     for iUnit, oUnit in tDFUnits do
                         if not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                            M28Orders.IssueSmartMove(oUnit, tDFWaveCenter, 6, false, 'DFWaitLZ'..iDFLZToSupport..'From'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
+                            if iAssemblyZone and iAssemblyZone ~= iLandZone then
+                                SetLandCombatIntent(oUnit, iPlateau, iAssemblyZone, 12, 'DFGather')
+                                M28Orders.IssueSmartMove(oUnit, tDFWaveCenter, 6, false, 'DFGather'..iAssemblyZone)
+                            else
+                                M28Orders.IssueSmartMove(oUnit, tDFWaveCenter, 6, false, 'DFWaitLZ'..iDFLZToSupport..'From'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
+                            end
                         end
                     end
                 end
@@ -12822,9 +12912,18 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     end
                 else
                     local tIFWaveCenter = GetSupportWaveCenter(tIndirectUnits)
+                    local iAssemblyZone = GetSupportAssemblyZone(tLZData, iPlateau, iLandZone, iIndirectLZToSupport, iTeam)
+                    if iAssemblyZone and iAssemblyZone ~= iLandZone then
+                        tIFWaveCenter = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAssemblyZone][M28Map.subrefMidpoint]
+                    end
                     for iUnit, oUnit in tIndirectUnits do
                         if not(IgnoreOrderDueToStuckUnit(oUnit)) then
-                            M28Orders.IssueSmartMove(oUnit, tIFWaveCenter, 6, false, 'IFWaitLZ'..iIndirectLZToSupport..'From'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
+                            if iAssemblyZone and iAssemblyZone ~= iLandZone then
+                                SetLandCombatIntent(oUnit, iPlateau, iAssemblyZone, 12, 'IFGather')
+                                M28Orders.IssueSmartMove(oUnit, tIFWaveCenter, 6, false, 'IFGather'..iAssemblyZone)
+                            else
+                                M28Orders.IssueSmartMove(oUnit, tIFWaveCenter, 6, false, 'IFWaitLZ'..iIndirectLZToSupport..'From'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
+                            end
                         end
                     end
                 end
