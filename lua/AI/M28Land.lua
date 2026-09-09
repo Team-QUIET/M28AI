@@ -2913,6 +2913,53 @@ function RefreshLandRallyPoints(iTeam, iPlateau)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+function IsMAAZoneAssignmentActive(oUnit)
+    local tAssignment = oUnit.M28MAAZoneAssignment
+    if not(tAssignment) then return false end
+    local bActive = M28UnitInfo.IsUnitValid(oUnit) and GetGameTimeSeconds() < tAssignment.untilTime
+    if bActive then
+        local aiBrain = oUnit:GetAIBrain()
+        local tOrder = (oUnit[M28Orders.reftiLastOrders] or {})[oUnit[M28Orders.refiOrderCount] or 1] or {}
+        bActive = aiBrain and aiBrain.M28AI and aiBrain.M28Team == tAssignment.team
+            and not(oUnit[M28UnitInfo.refbSpecialMicroActive]) and not(oUnit:IsUnitState('Attached'))
+            and tOrder[M28Orders.subrefsOrderDesc] == tAssignment.description
+        if bActive then
+            local iPlateau, iZone
+            if tAssignment.water then iZone = M28Map.GetWaterZoneFromPosition(oUnit:GetPosition())
+            else iPlateau, iZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oUnit:GetPosition()) end
+            bActive = not(iZone == tAssignment.zone and (tAssignment.water or iPlateau == tAssignment.plateau))
+        end
+    end
+    if not(bActive) then oUnit.M28MAAZoneAssignment = nil end
+    return bActive
+end
+
+function GetIncomingMAAThreat(tZoneTeamData)
+    local iThreat = 0
+    for oUnit, tAssignment in tZoneTeamData.M28IncomingMAA or {} do
+        if oUnit.M28MAAZoneAssignment == tAssignment and IsMAAZoneAssignmentActive(oUnit) then
+            iThreat = iThreat + tAssignment.threat
+        else
+            tZoneTeamData.M28IncomingMAA[oUnit] = nil
+        end
+    end
+    return iThreat
+end
+
+function AssignMAAToZone(oUnit, tPosition, tZoneTeamData, iTeam, iPlateau, iZone, bWater)
+    if oUnit[M28UnitInfo.refbSpecialMicroActive] or IsMAAZoneAssignmentActive(oUnit) then return false end
+    local iDistance = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tPosition)
+    local iSpeed = math.max(1, (oUnit:GetBlueprint().Physics or {}).MaxSpeed or 1)
+    local tAssignment = {team = iTeam, plateau = iPlateau, zone = iZone, water = bWater,
+        untilTime = GetGameTimeSeconds() + math.max(12, math.min(90, iDistance / iSpeed + 10)),
+        description = 'MVELZ'..iZone, threat = M28UnitInfo.GetAirThreatLevel({oUnit}, false, false, true, false, false, false)}
+    M28Orders.IssueSmartMove(oUnit, tPosition, 10, false, tAssignment.description)
+    oUnit.M28MAAZoneAssignment = tAssignment
+    tZoneTeamData.M28IncomingMAA = tZoneTeamData.M28IncomingMAA or {}
+    tZoneTeamData.M28IncomingMAA[oUnit] = tAssignment
+    return true
+end
+
 function SendMAAToSupportLandZone(tMAAToAdvance, iPlateau, iTeam, iLZOrWZToSupport, iMAAFactorAdjust, bWaterZone, tHoverMAAToAdvance)
     --Assigns MAA to the land zone up to the level at which the LZ doesnt want more MAA support, but increases the MAA wanted by the land zone by iMAAFactorAdjust (or 1 if not specified)
     local sFunctionRef = 'SendMAAToSupportLandZone'
@@ -2946,76 +2993,28 @@ function SendMAAToSupportLandZone(tMAAToAdvance, iPlateau, iTeam, iLZOrWZToSuppo
         M28Utilities.ErrorHandler('Have nil MAA or AllyGroundAA threat for iLZOrWZToSupport='..(iLZOrWZToSupport or 'nil')..'; see log for more info')
         LOG(sFunctionRef..': MAA iTeam='..(iTeam or 'nil')..'; iPlateau='..(iPlateau or 'nil')..'; iLZOrWZToSupport='..(iLZOrWZToSupport or 'nil')..'; tAltTeamLZOrWZData[M28Map.subrefLZMAAThreatWanted]='..(tAltTeamLZOrWZData[M28Map.subrefLZMAAThreatWanted] or 'nil')..'; tAltTeamLZOrWZData[M28Map.subrefLZOrWZThreatAllyGroundAA]='..(tAltTeamLZOrWZData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 'nil'))
     else
-        for iUnit, oUnit in (tHoverMAAToAdvance or tMAAToAdvance) do
-            tDistToTargetByRef[iUnit] = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tTargetPosition)
+        iMAAThreatWanted = iMAAThreatWanted - GetIncomingMAAThreat(tAltTeamLZOrWZData)
+        local tCandidates = tHoverMAAToAdvance or tMAAToAdvance
+        for iUnit, oUnit in tCandidates do
+            if not(IsMAAZoneAssignmentActive(oUnit)) and not(oUnit[M28UnitInfo.refbSpecialMicroActive]) then
+                tDistToTargetByRef[iUnit] = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tTargetPosition)
+            end
         end
-        local tbRemovedMAAReferencesByRef = {}
+        local tAssigned = {}
         for iUnitRef, iDistance in M28Utilities.SortTableByValue(tDistToTargetByRef, false) do
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to issue order to move for iUnitRef='..iUnitRef..'; tMAAToAdvance[iUnitRef]='..(tMAAToAdvance[iUnitRef].UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(tMAAToAdvance[iUnitRef]) or 'nil')..' to go to tTargetPosition='..repru(tTargetPosition)) end
-            M28Orders.IssueSmartMove(tMAAToAdvance[iUnitRef], tTargetPosition, 10, false, 'MVELZ'..iLZOrWZToSupport)
-            iMAAThreatWanted = iMAAThreatWanted - M28UnitInfo.GetAirThreatLevel({ tMAAToAdvance[iUnitRef] }, false, false, true, false, false, false)
-            tbRemovedMAAReferencesByRef[iUnitRef] = true
-            if iMAAThreatWanted < 0 then break end
+            if iMAAThreatWanted <= 0 then break end
+            local oUnit = tCandidates[iUnitRef]
+            if AssignMAAToZone(oUnit, tTargetPosition, tAltTeamLZOrWZData, iTeam, iPlateau, iLZOrWZToSupport, bWaterZone) then
+                iMAAThreatWanted = iMAAThreatWanted - oUnit.M28MAAZoneAssignment.threat
+                tAssigned[oUnit] = true
+            end
         end
-        if M28Utilities.IsTableEmpty(tbRemovedMAAReferencesByRef) == false then
-            --Remove any MAA that have given orders from tMAAToAdvance:
-            if M28Utilities.IsTableEmpty(tHoverMAAToAdvance) then
-                local iRevisedIndex = 1
-                local iTableSize = table.getn(tMAAToAdvance)
-
-                for iOrigIndex=1, iTableSize do
-                    if tMAAToAdvance[iOrigIndex] then
-                        if not(tbRemovedMAAReferencesByRef[iOrigIndex]) then --I.e. this should run the logic to decide whether we want to keep this entry of the table or remove it
-                            --We want to keep the entry; Move the original index to be the revised index number (so if e.g. a table of 1,2,3 removed 2, then this would've resulted in the revised index being 2 (i.e. it starts at 1, then icnreases by 1 for the first valid entry); this then means we change the table index for orig index 3 to be 2
-                            if (iOrigIndex ~= iRevisedIndex) then
-                                tMAAToAdvance[iRevisedIndex] = tMAAToAdvance[iOrigIndex];
-                                tMAAToAdvance[iOrigIndex] = nil;
-                            end
-                            iRevisedIndex = iRevisedIndex + 1; --i.e. this will be the position of where the next value that we keep will be located
-                        else
-                            tMAAToAdvance[iOrigIndex] = nil;
-                        end
-                    end
-                end
-                if iRevisedIndex < iTableSize then
-                    --table.setn(tMAAToAdvance, iRevisedIndex - 1)
-                    for iRemovalEntry = iTableSize, iRevisedIndex, -1 do
-                        table.remove(tMAAToAdvance, iRemovalEntry)
-                    end
-                end
-            else
-                --Need to remove from both the hover MAA table, and the main MAA table
-                local iRevisedIndex = 1
-                local iTableSize = table.getn(tHoverMAAToAdvance)
-
-
-                for iOrigIndex=1, iTableSize do
-                    if tHoverMAAToAdvance[iOrigIndex] then
-                        if not(tbRemovedMAAReferencesByRef[iOrigIndex]) then --I.e. this should run the logic to decide whether we want to keep this entry of the table or remove it
-                            --We want to keep the entry; Move the original index to be the revised index number (so if e.g. a table of 1,2,3 removed 2, then this would've resulted in the revised index being 2 (i.e. it starts at 1, then icnreases by 1 for the first valid entry); this then means we change the table index for orig index 3 to be 2
-                            if (iOrigIndex ~= iRevisedIndex) then
-                                tHoverMAAToAdvance[iRevisedIndex] = tHoverMAAToAdvance[iOrigIndex];
-                                tHoverMAAToAdvance[iOrigIndex] = nil;
-                            end
-                            iRevisedIndex = iRevisedIndex + 1; --i.e. this will be the position of where the next value that we keep will be located
-                        else
-                            --Want to remove the unit - also remove from the original MAA table
-                            for iUnit, oUnit in tMAAToAdvance do
-                                if oUnit == tHoverMAAToAdvance[iOrigIndex] then
-                                    table.remove(tMAAToAdvance, iUnit)
-                                    break
-                                end
-                            end
-                            tHoverMAAToAdvance[iOrigIndex] = nil;
-                        end
-                    end
-                end
-                if iRevisedIndex < iTableSize then
-                    --table.setn(tHoverMAAToAdvance, iRevisedIndex - 1)
-                    for iRemovalEntry = iTableSize, iRevisedIndex, -1 do
-                        table.remove(tHoverMAAToAdvance, iRemovalEntry)
-                    end
-                end
+        for i = table.getn(tMAAToAdvance), 1, -1 do
+            if tAssigned[tMAAToAdvance[i]] then table.remove(tMAAToAdvance, i) end
+        end
+        if tHoverMAAToAdvance and tHoverMAAToAdvance ~= tMAAToAdvance then
+            for i = table.getn(tHoverMAAToAdvance), 1, -1 do
+                if tAssigned[tHoverMAAToAdvance[i]] then table.remove(tHoverMAAToAdvance, i) end
             end
         end
     end
@@ -4113,6 +4112,16 @@ function ManageMAAInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, t
 
 
     --If enemy has air units in this zone then send the MAA to advance units towards it, but avoid enemy land units
+    -- Preserve travel assignments after evaluating retreats; nearby air can still require immediate defence.
+    for i = table.getn(tMAAToAdvance), 1, -1 do
+        local oMAA = tMAAToAdvance[i]
+        if bRetreatWithAllMAA or not(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftLZEnemyAirUnits])) then
+            oMAA.M28MAAZoneAssignment = nil
+        elseif IsMAAZoneAssignmentActive(oMAA) then
+            table.remove(tMAAToAdvance, i)
+        end
+    end
+
     if M28Utilities.IsTableEmpty(tMAAToAdvance) == false then
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Number of MAA units to advance='..table.getn(tMAAToAdvance)..'; Is table of enemy air units for this LZ '..iLandZone..' empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftLZEnemyAirUnits]))..'; bRetreatWithAllMAA='..tostring(bRetreatWithAllMAA)) end
         local iMAAAirTargetReissueDistance = 45
