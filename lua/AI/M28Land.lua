@@ -588,11 +588,35 @@ function RemoveUnitFromListOfUnitsTravelingToLandZone(oUnit)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+function IsScoutLandObjectiveBlocked(oScout, iPlateau, iLandZone)
+    local tBlocked = oScout.M28BlockedScoutObjective
+    if not(tBlocked) then return false end
+    if GetGameTimeSeconds() >= tBlocked.untilTime or not(M28UnitInfo.IsUnitValid(tBlocked.enemy))
+            or (tBlocked.enemy.BeenDestroyed and tBlocked.enemy:BeenDestroyed()) then
+        oScout.M28BlockedScoutObjective = nil
+        return false
+    end
+    return tBlocked.plateau == iPlateau and tBlocked.zone == iLandZone
+end
+
+function BlockScoutLandObjective(oScout, oEnemy)
+    local tGoal = oScout[reftiPlateauAndLZToMoveTo]
+    if tGoal and EntityCategoryContains(M28UnitInfo.refCategoryStructure, oEnemy.UnitId) then
+        oScout.M28BlockedScoutObjective = {plateau = tGoal[1], zone = tGoal[2], enemy = oEnemy, untilTime = GetGameTimeSeconds() + 45}
+        RemoveUnitFromListOfUnitsTravelingToLandZone(oScout)
+    end
+end
+
 function GetUnitToTravelToLandZone(oUnit, iTargetPlateau, iTargetLandZone, subrefTScoutsTravelingHere)
     --Intended for non-engineer units (engineers are handled separately)
     local sFunctionRef = 'GetUnitToTravelToLandZone'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLand, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    if IsScoutLandObjectiveBlocked(oUnit, iTargetPlateau, iTargetLandZone) then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
 
     M28Navy.RemoveUnitFromAnyExistingLandOrWaterZoneItWasPreviouslyTravelingTo(oUnit, subrefTScoutsTravelingHere)
 
@@ -1662,6 +1686,7 @@ function ManageLandZoneScouts(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, 
                     end
                     oPrevEnemyToRunFrom = nil --DOnt want to bypass checking enemy units incase there is a threatening one nearby
                 elseif oEnemyToRunFrom then
+                    BlockScoutLandObjective(oScout, oEnemyToRunFrom)
                     tLZTeamData[M28Map.refbWantLandScout] = false
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want scout '..oScout.UnitId..M28UnitInfo.GetUnitLifetimeCount(oScout)..' to run from oEnemyToRunFrom '..oEnemyToRunFrom.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEnemyToRunFrom)..' unless iti s a combat scout vs an engineer/mex in a low threat LZ in which case want it to attack the unit; LZ combat total='..tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal]..'; Scout DF range='..(oScout[M28UnitInfo.refiDFRange] or 'nil')..'; Do we have a combat scout='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryCombatScout, oScout.UnitId))..'; Distance to nearest enemy='..M28Utilities.GetDistanceBetweenPositions(oEnemyToRunFrom:GetPosition(), oScout:GetPosition())..'; bStandAlmostStill='..tostring(bStandAlmostStill)) end
                     oPrevEnemyToRunFrom = oEnemyToRunFrom
@@ -1704,7 +1729,7 @@ function ManageLandZoneScouts(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, 
                             local function ConsiderUrgentFrontlineScoutTarget(iCandidateLZ, iTravelDist)
                                 local tCandidateLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iCandidateLZ]
                                 local tCandidateLZTeamData = tCandidateLZData[M28Map.subrefLZTeamData][iTeam]
-                                if not(tCandidateLZData[M28Map.subrefbPacifistArea])
+                                if not(tCandidateLZData[M28Map.subrefbPacifistArea]) and not(IsScoutLandObjectiveBlocked(oScout, iPlateau, iCandidateLZ))
                                         and tCandidateLZData[M28Map.subrefLZIslandRef] == tLZData[M28Map.subrefLZIslandRef]
                                         and tCandidateLZTeamData[M28Map.refbWantLandScout]
                                         and tCandidateLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]
@@ -1731,7 +1756,7 @@ function ManageLandZoneScouts(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, 
                                 local tEnemyBaseLZTeamData = tEnemyBaseLZData[M28Map.subrefLZTeamData][iTeam]
                                 bEnemyBaseWantsLandScout = tEnemyBaseLZTeamData[M28Map.refbWantLandScout] or false
                                 bEnemyBaseScoutsTravelingEmpty = M28Utilities.IsTableEmpty(tEnemyBaseLZTeamData[M28Map.subrefTScoutsTravelingHere])
-                                if not(iUrgentFrontlineScoutLZ) and bEnemyBaseScoutsTravelingEmpty and NavUtils.GetLabel(M28Map.refPathingTypeLand,tLZTeamData[M28Map.reftClosestEnemyBase]) == tLZData[M28Map.subrefLZIslandRef] and (bEnemyBaseWantsLandScout or M28Utilities.IsTableEmpty(tEnemyBaseLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])) then
+                                if not(IsScoutLandObjectiveBlocked(oScout, iEnemyBasePlateauOrZero, iEnemyBaseLZOrWZ)) and not(iUrgentFrontlineScoutLZ) and bEnemyBaseScoutsTravelingEmpty and NavUtils.GetLabel(M28Map.refPathingTypeLand,tLZTeamData[M28Map.reftClosestEnemyBase]) == tLZData[M28Map.subrefLZIslandRef] and (bEnemyBaseWantsLandScout or M28Utilities.IsTableEmpty(tEnemyBaseLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])) then
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dealing with first ever land scout so will have it prioritise enemy base for intel, iEnemyBasePlateauOrZero='..iEnemyBasePlateauOrZero..'; iEnemyBaseLZOrWZ='..iEnemyBaseLZOrWZ) end
                                     bGoingToEnemyBase = true
                                 end
@@ -1820,7 +1845,7 @@ function ManageLandZoneScouts(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, 
                     for _, iAdjLZ in M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZAdjacentLandZones] do
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Consideri niAdjLZ='..iAdjLZ..'; Does this LZ want land scout='..tostring(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam][M28Map.refbWantLandScout] or false)..'; Is table of traveling scouts here empty='..tostring(M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam][M28Map.subrefTScoutsTravelingHere]))) end
                         local tAdjLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ]
-                        if tAdjLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refbWantLandScout] and (bDontCheckInPlayableArea or M28Conditions.IsLocationInPlayableArea(tAdjLZData[M28Map.subrefMidpoint])) then
+                        if not(IsScoutLandObjectiveBlocked(tAvailableScouts[1], iPlateau, iAdjLZ)) and tAdjLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refbWantLandScout] and (bDontCheckInPlayableArea or M28Conditions.IsLocationInPlayableArea(tAdjLZData[M28Map.subrefMidpoint])) then
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will send land scout '..tAvailableScouts[1].UnitId..M28UnitInfo.GetUnitLifetimeCount(tAvailableScouts[1])..' to go to adjacent land zone '..iAdjLZ..' in plateau '..iPlateau) end
                             if not(tAdjLZData[M28Map.subrefbPacifistArea]) then
                                 if not(bPrioritiseLandZonesWithFriendlyCombat) or M28Utilities.IsTableEmpty(tAdjLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefLZTAlliedCombatUnits]) == false then
@@ -1885,7 +1910,7 @@ function ManageLandZoneScouts(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, 
                             if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZPathingToOtherLandZones]) == false then
                                 for iEntry, tPathingDetails in tLZData[M28Map.subrefLZPathingToOtherLandZones] do
                                     local tTeamTargetLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][tPathingDetails[M28Map.subrefLZNumber]][M28Map.subrefLZTeamData][iTeam]
-                                    if tTeamTargetLZData[M28Map.refbWantLandScout] then
+                                    if tTeamTargetLZData[M28Map.refbWantLandScout] and not(IsScoutLandObjectiveBlocked(tAvailableScouts[1], iPlateau, tPathingDetails[M28Map.subrefLZNumber])) then
                                         --Consider assigning to priority units wanting land scouts as a backup to normal logic
                                         if M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoUnitsWantingPriorityScouts]) == false then
                                             for iCurRecorded = table.getn(tLZTeamData[M28Map.reftoUnitsWantingPriorityScouts]), 1, -1 do
