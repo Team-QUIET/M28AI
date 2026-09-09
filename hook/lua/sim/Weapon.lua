@@ -6,6 +6,11 @@
 local M28Events = import('/mods/M28AI/lua/AI/M28Events.lua')
 local M28OldWeapon = Weapon
 Weapon = Class(M28OldWeapon) {
+    ChangeMaxRadius = function(self, radius)
+        M28OldWeapon.ChangeMaxRadius(self, radius)
+        -- Blueprint ranges do not reflect runtime enhancement changes.
+        self.M28CurrentMaxRadius = radius
+    end,
     OnWeaponFired = function(self, target)
         M28OldWeapon.OnWeaponFired(self, target)
         M28Events.DispatchOnWeaponFired(self)

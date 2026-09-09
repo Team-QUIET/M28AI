@@ -2381,6 +2381,19 @@ function GetTorpedoDefenceValue(oUnit, oCurWeapon)
     end
 end
 
+function GetCommanderWeaponForRange(oUnit, iWeapon, tBlueprintWeapon)
+    if tBlueprintWeapon.Label == 'TargetPainter' then return nil end
+    local oWeapon = oUnit.GetWeapon and oUnit:GetWeapon(iWeapon)
+    local iRange = oWeapon and oWeapon.M28CurrentMaxRadius
+    if iRange == nil then iRange = tBlueprintWeapon.MaxRadius end
+    -- Inactive commander upgrade weapons are parked at radius one.
+    if not(iRange) or iRange <= 1 then return nil end
+    local tWeapon = {}
+    for k, v in tBlueprintWeapon do tWeapon[k] = v end
+    tWeapon.MaxRadius = iRange
+    return tWeapon
+end
+
 function RecordUnitRange(oUnit, bReferenceIsATableWithUnitId)
     --Updates unit range variables - sets to nil if it has nothing with that range, otherwise records it as the highest range it has.  Factors in enhancements. Also records if unit unpacks for T3 mobile arti
     --Also updates if unit can kite
@@ -2400,9 +2413,19 @@ function RecordUnitRange(oUnit, bReferenceIsATableWithUnitId)
     local bWeaponUnpacks = false
     local bWeaponIsFixed = false
     local bReplaceValues, bIgnoreValues
+    local bLiveCommander = not(bReferenceIsATableWithUnitId) and EntityCategoryContains(categories.COMMAND, oUnit.UnitId)
+    if bLiveCommander then
+        -- Rebuild after enhancement removal as well as addition.
+        for _, sKey in {refiDFRange, refiDFMinRange, refiDFAOE, refiTimeBetweenDFShots,
+                refiIndirectRange, refiIFMinRange, refiIndirectAOE, refiTimeBetweenIFShots,
+                refiAntiNavyRange, refiAARange, refiManualRange, refiMissileDefenceRange, refiTorpedoDefenceCount} do
+            oUnit[sKey] = nil
+        end
+    end
     if oBP.Weapon then
         for iCurWeapon, oCurWeapon in oBP.Weapon do
-            if oCurWeapon.MaxRadius and not(oCurWeapon.EnabledByEnhancement) or (oCurWeapon.EnabledByEnhancement and oUnit.HasEnhancement and oUnit:HasEnhancement(oCurWeapon.EnabledByEnhancement)) then
+            if bLiveCommander then oCurWeapon = GetCommanderWeaponForRange(oUnit, iCurWeapon, oCurWeapon) end
+            if oCurWeapon and oCurWeapon.MaxRadius and (not(oCurWeapon.EnabledByEnhancement) or (oUnit.HasEnhancement and oUnit:HasEnhancement(oCurWeapon.EnabledByEnhancement))) then
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering weapon with range category='..(oCurWeapon.RangeCategory or 'nil')..'; weapon category='..(oCurWeapon.WeaponCategory or 'nil')..' and label='..(oCurWeapon.Label or 'nil')..' with damage='..(oCurWeapon.Damage or 'nil')..' for unit '..oUnit.UnitId..'; Rateoffire='..(oCurWeapon.RateOfFire or 'nil')) end
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering weapon with range category='..(oCurWeapon.RangeCategory or 'nil')..'; weapon category='..(oCurWeapon.WeaponCategory or 'nil')..' and label='..(oCurWeapon.Label or 'nil')..' for unit '..oUnit.UnitId) end
                 if oCurWeapon.ManualFire then
@@ -2585,10 +2608,10 @@ function RecordUnitRange(oUnit, bReferenceIsATableWithUnitId)
                     M28Utilities.ErrorHandler('Unrecognised range category '..oCurWeapon.RangeCategory..' for unit '..oUnit.UnitId)
                 end
             end
-            if oCurWeapon.WeaponUnpacks and oCurWeapon.WeaponUnpackLocksMotion then bWeaponUnpacks = true
-            elseif oCurWeapon.SlavedToBody or oCurWeapon.SlavedToTurret then bWeaponIsFixed = true
+            if oCurWeapon and oCurWeapon.WeaponUnpacks and oCurWeapon.WeaponUnpackLocksMotion then bWeaponUnpacks = true
+            elseif oCurWeapon and (oCurWeapon.SlavedToBody or oCurWeapon.SlavedToTurret) then bWeaponIsFixed = true
             end
-            if bDebugMessages == true then
+            if bDebugMessages == true and oCurWeapon then
                 LOG(sFunctionRef..': just Considered weapon '..oCurWeapon.Label..'; oUnit[refiDFRange]='..(oUnit[refiDFRange] or 'nil')..'; Indirect='..(oUnit[refiIndirectRange] or 'nil')..'; Manual='..(oUnit[refiManualRange] or 'nil')..'; oCurWeapon.EnabledByEnhancement='..(oCurWeapon.EnabledByEnhancement or 'nil')..'; Weapon max radius='..(oCurWeapon.MaxRadius or 'nil'))
                 if oCurWeapon.EnabledByEnhancement then
                     LOG('Have enhancement='..tostring(oUnit:HasEnhancement(oCurWeapon.EnabledByEnhancement)))
@@ -2668,17 +2691,6 @@ function RecordUnitRange(oUnit, bReferenceIsATableWithUnitId)
             oUnit[refiIFMinRange] = math.max((oUnit[refiIFMinRange] or 0), oUnit[refiDFMinRange] or 0)
         end
         --LOG('Considering unitID '..(oUnit.UnitId or 'nil')..'; is unit valid='..tostring(IsUnitValid(oUnit)))
-    end
-    --LOUD - doesnt record whether weapons for ACU are enabled by enhancement or not.  As a very simplistic measure, if the unit has an enhancement count of 0 then treat its range as being 30, or 36 with 1 enhancement, or the max DF range otherwise
-    if (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and EntityCategoryContains(categories.COMMAND, oUnit.UnitId) then
-        local M28ACU = import('/mods/M28AI/lua/AI/M28ACU.lua')
-        if (oUnit[M28ACU.refiUpgradeCount] or 0) == 0 then
-            oUnit[refiDFRange] = math.min(30, (oUnit[refiDFRange] or 0))
-            if oUnit[refiAntiNavyRange] then oUnit[refiAntiNavyRange] = 0 end
-            if oUnit[refiIndirectRange] then oUnit[refiIndirectRange] = 0 end
-        elseif oUnit[M28ACU.refiUpgradeCount] == 1 then
-            oUnit[refiDFRange] = math.min(36, (oUnit[refiDFRange] or 0))
-        end
     end
     --Record unit best range
     oUnit[refiCombatRange] = math.max((oUnit[refiDFRange] or 0), (oUnit[refiIndirectRange] or 0), (oUnit[refiAntiNavyRange] or 0))

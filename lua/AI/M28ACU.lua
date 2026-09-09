@@ -4778,7 +4778,7 @@ function AttackNearestEnemyWithACU(iPlateau, iLandZone, tLZData, tLZTeamData, oA
                     local bOutrangeAllACUs = true
                     if M28Utilities.IsTableEmpty(tACUsNearby) == false and oACU[M28UnitInfo.refiDFRange] >= 28 then
                         for iEnemyACU, oEnemyACU in tACUsNearby do
-                            if oACU[M28UnitInfo.refiDFRange] >= oEnemyACU then
+                            if oACU[M28UnitInfo.refiDFRange] <= (oEnemyACU[M28UnitInfo.refiDFRange] or 0) then
                                 bOutrangeAllACUs = false
                                 break
                             end

@@ -1118,27 +1118,19 @@ function OnEnhancementComplete(oUnit, sEnhancement)
             if oUnit[M28ACU.refbWantsPriorityUpgrade] then oUnit[M28ACU.refbWantsPriorityUpgrade] = nil end
             oUnit[M28UnitInfo.reftiTimeOfLastEnhancementComplete][sEnhancement] = GetGameTimeSeconds()
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Enhancement completed for self='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by '..oUnit:GetAIBrain().Nickname..'; sEnhancement='..reprs(sEnhancement)..'; Has enhancement for this='..tostring(oUnit:HasEnhancement(sEnhancement))..'; Unit DF range pre upgrade='..(oUnit[M28UnitInfo.refiDFRange] or 'nil')) end
+            -- Enhancement callbacks can precede the commander's weapon reconfiguration thread.
+            if EntityCategoryContains(categories.COMMAND, oUnit.UnitId) then
+                WaitTicks(3)
+                if not(M28UnitInfo.IsUnitValid(oUnit)) then
+                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                    return
+                end
+            end
             M28UnitInfo.UpdateUnitCombatMassRatingForUpgrades(oUnit)
             local iDFRangePreUpgrade = (oUnit[M28UnitInfo.refiDFRange] or 0)
             M28UnitInfo.RecordUnitRange(oUnit) --Refresh the range incase enhancement has increased anything
             if (oUnit[M28UnitInfo.refiDFRange] or 0) > iDFRangePreUpgrade and oUnit[M28UnitInfo.refiDFRange] >= 30 and not(oUnit.Dead) and oUnit:GetAIBrain().M28AI then
                 M28Land.ConsiderPriorityLandScoutFlag(oUnit)
-            end
-            --LOUD specific - manually reflect weapon ranges for the basic gun upgrades as arent recorded against the blueprint
-            if (M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and (oUnit[M28UnitInfo.refiDFRange] or 0) < 30 then
-                local tsOtherUpgradeNames = {
-                    'EXRipperBooster',
-                    'EXZephyrBooster',
-                    'EXChronotronBooster',
-                    'EXDisruptorrBooster',
-                }
-                for iUpgrade, sUpgrade in tsOtherUpgradeNames do
-                    if oUnit:HasEnhancement(sUpgrade) then
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adjusting unit range for LOUD/QUIET enhancement, DFRange pre increase='..(oUnit[M28UnitInfo.refiDFRange] or 'nil')..'; iDFRangePreUpgrade='..iDFRangePreUpgrade) end
-                        oUnit[M28UnitInfo.refiDFRange] = (oUnit[M28UnitInfo.refiDFRange] or 0) + 5
-                        break
-                    end
-                end
             end
             if (oUnit[M28UnitInfo.refiDFRange] or 0) > iDFRangePreUpgrade then
                 M28Overseer.bLikelyGunUpgrade = true
