@@ -10600,7 +10600,8 @@ function UpdateScoutingShortlist(iTeam)
         if M28Utilities.IsTableEmpty(tPriorityRequests) == false then
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adding '..table.getn(tPriorityRequests)..' priority scout requests from army intel needs') end
             -- Add priority zones at the BEGINNING of shortlist for faster scouting
-            for iReq, tRequest in tPriorityRequests do
+            for iReq = table.getn(tPriorityRequests), 1, -1 do
+                local tRequest = tPriorityRequests[iReq]
                 -- Check if already in shortlist
                 local bAlreadyInList = false
                 for iEntry, tEntry in tShortlist do
@@ -10682,6 +10683,27 @@ local function GetAirScoutTargetMidpoint(iPlateauOrZero, iLZOrWZRef)
         return M28Map.tPondDetails[M28Map.tiPondByWaterZone[iLZOrWZRef]][M28Map.subrefPondWaterZones][iLZOrWZRef][M28Map.subrefMidpoint]
     end
     return M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iLZOrWZRef][M28Map.subrefMidpoint]
+end
+
+function GetAirScoutRequestPriorities(tRequests)
+    local tPriorities = {}
+    for _, tRequest in tRequests do
+        tPriorities[tRequest.iPlateau] = tPriorities[tRequest.iPlateau] or {}
+        tPriorities[tRequest.iPlateau][tRequest.iZone] = tRequest.iUrgency
+    end
+    return tPriorities
+end
+
+function SelectAirScoutTarget(tShortlist, tPosition, tPriorities)
+    local iBestEntry, iBestUrgency, iBestDistance = nil, -1, 100000
+    for iEntry, tTarget in tShortlist do
+        local iUrgency = (tPriorities[tTarget[1]] or {})[tTarget[2]] or 0
+        local iDistance = M28Utilities.GetDistanceBetweenPositions(GetAirScoutTargetMidpoint(tTarget[1], tTarget[2]), tPosition)
+        if iUrgency > iBestUrgency or (iUrgency == iBestUrgency and iDistance < iBestDistance) then
+            iBestEntry, iBestUrgency, iBestDistance = iEntry, iUrgency, iDistance
+        end
+    end
+    return iBestEntry, iBestDistance
 end
 
 function ManageAirScouts(iTeam, iAirSubteam)
@@ -10805,6 +10827,7 @@ function ManageAirScouts(iTeam, iAirSubteam)
             --Do we have locations available for scouting?
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Do we have locations available for scouting - is table empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftLandAndWaterZoneScoutingShortlist]))) end
             if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftLandAndWaterZoneScoutingShortlist]) == false then
+                local tRequestPriorities = GetAirScoutRequestPriorities(M28Intel.GetPriorityScoutZoneRequests(iTeam))
                 local tiScoutRefByDistance = {}
                 for iUnit, oUnit in tAvailableScouts do
                     tiScoutRefByDistance[iUnit] = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tRallyPoint)
@@ -10832,19 +10855,13 @@ function ManageAirScouts(iTeam, iAirSubteam)
                         end
 
                         if not(bKeptExistingTarget) then
-                            iClosestDist = 100000
-                            for iEntry, tPlateauAndZoneRef in M28Team.tTeamData[iTeam][M28Team.subreftLandAndWaterZoneScoutingShortlist] do
-                                local tMidpoint = GetAirScoutTargetMidpoint(tPlateauAndZoneRef[1], tPlateauAndZoneRef[2])
-                                iCurDist = M28Utilities.GetDistanceBetweenPositions(tMidpoint, tAvailableScouts[iUnit]:GetPosition())
-                                if iCurDist < iClosestDist then
-                                    iClosestDist = iCurDist
-                                    iClosestPlateauOrZero = tPlateauAndZoneRef[1]
-                                    iClosestLZOrWZRef = tPlateauAndZoneRef[2]
-                                    tClosestMidpoint = {tMidpoint[1], tMidpoint[2], tMidpoint[3]}
-                                    iClosestShortlistRef = iEntry
-                                end
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if P'..tPlateauAndZoneRef[1]..'Z'..tPlateauAndZoneRef[2]..' is closest to the scout from the scouting shortlist, iCurDist='..iCurDist..'; iClosestDist='..iClosestDist) end
-                            end
+                            iClosestShortlistRef, iClosestDist = SelectAirScoutTarget(
+                                M28Team.tTeamData[iTeam][M28Team.subreftLandAndWaterZoneScoutingShortlist],
+                                tAvailableScouts[iUnit]:GetPosition(), tRequestPriorities)
+                            local tTarget = M28Team.tTeamData[iTeam][M28Team.subreftLandAndWaterZoneScoutingShortlist][iClosestShortlistRef]
+                            iClosestPlateauOrZero, iClosestLZOrWZRef = tTarget[1], tTarget[2]
+                            local tMidpoint = GetAirScoutTargetMidpoint(tTarget[1], tTarget[2])
+                            tClosestMidpoint = {tMidpoint[1], tMidpoint[2], tMidpoint[3]}
                             M28Orders.IssueTrackedMove(tAvailableScouts[iUnit], tClosestMidpoint, 10, false, 'ASP'..iClosestPlateauOrZero..'Z'..iClosestLZOrWZRef, false)
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Telling scout to go to P'..iClosestPlateauOrZero..'Z'..iClosestLZOrWZRef..'; iClosestDist='..iClosestDist) end
                             --Update tracking

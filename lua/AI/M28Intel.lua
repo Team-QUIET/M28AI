@@ -395,6 +395,7 @@ end
 ---@param iTeam number Team index
 ---@param iUrgency number Urgency level (higher = more urgent)
 function RequestPriorityScoutingForZone(iPlateau, iLandOrWaterZone, iTeam, iUrgency)
+    iUrgency = iUrgency or 50
     local sFunctionRef = 'RequestPriorityScoutingForZone'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelIntel, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -415,11 +416,8 @@ function RequestPriorityScoutingForZone(iPlateau, iLandOrWaterZone, iTeam, iUrge
     local bAlreadyRequested = false
     for iEntry, tExisting in M28Team.tTeamData[iTeam][M28Team.reftPriorityScoutZones] do
         if tExisting.iPlateau == iPlateau and tExisting.iZone == iLandOrWaterZone then
-            -- Update urgency if higher
-            if iUrgency > tExisting.iUrgency then
-                tExisting.iUrgency = iUrgency
-                tExisting.iTimeRequested = GetGameTimeSeconds()
-            end
+            tExisting.iUrgency = math.max(iUrgency, tExisting.iUrgency)
+            tExisting.iTimeRequested = GetGameTimeSeconds()
             bAlreadyRequested = true
             break
         end
@@ -448,13 +446,26 @@ function GetPriorityScoutZoneRequests(iTeam)
     -- Remove stale requests (older than 30 seconds)
     local tValidRequests = {}
     for iEntry, tRequest in tRequests do
-        if iCurrentTime - tRequest.iTimeRequested < 30 then
+        local tZoneData, tZoneTeamData
+        if tRequest.iPlateau > 0 then
+            tZoneData = M28Map.tAllPlateaus[tRequest.iPlateau][M28Map.subrefPlateauLandZones][tRequest.iZone]
+            tZoneTeamData = tZoneData[M28Map.subrefLZTeamData][iTeam]
+        else
+            tZoneData = M28Map.tPondDetails[M28Map.tiPondByWaterZone[tRequest.iZone]][M28Map.subrefPondWaterZones][tRequest.iZone]
+            tZoneTeamData = tZoneData[M28Map.subrefWZTeamData][iTeam]
+        end
+        local iLastVisual = tZoneTeamData[M28Map.refiTimeLastHadVisual] or -100
+        if iCurrentTime - tRequest.iTimeRequested < 30 and iCurrentTime - iLastVisual > 10 then
             table.insert(tValidRequests, tRequest)
         end
     end
 
     -- Sort by urgency
-    table.sort(tValidRequests, function(a, b) return a.iUrgency > b.iUrgency end)
+    table.sort(tValidRequests, function(a, b)
+        if a.iUrgency ~= b.iUrgency then return a.iUrgency > b.iUrgency end
+        if a.iPlateau ~= b.iPlateau then return a.iPlateau < b.iPlateau end
+        return a.iZone < b.iZone
+    end)
 
     -- Store cleaned list back
     M28Team.tTeamData[iTeam][M28Team.reftPriorityScoutZones] = tValidRequests
