@@ -4368,6 +4368,52 @@ function GiveOverchargeOrderIfRelevant(tLZData, tLZTeamData, oACU, iPlateauOrZer
     return false
 end
 
+function IsACUAdvanceUnsupported(iFriendlyThreat, iEnemyThreat, iACUThreat, iHealth)
+    local iSoloThreatLimit = math.max(450, math.min(1000, iACUThreat * 0.35) * iHealth)
+    return iEnemyThreat >= iSoloThreatLimit and iFriendlyThreat < math.max(250, iEnemyThreat * 0.6)
+end
+
+function GetACUAdvanceSupport(oACU, oTarget, iPlateau, tLZData, tLZTeamData)
+    if iPlateau <= 0 or tLZTeamData[M28Map.subrefLZbCoreBase] or (tLZTeamData[M28Map.refiModDistancePercent] or 0) < 0.2 then return false, 0, 0 end
+    local aiBrain = oACU:GetAIBrain()
+    local tPosition = oACU:GetPosition()
+    local tTarget = oTarget:GetPosition()
+    local iDistance = M28Utilities.GetDistanceBetweenPositions(tPosition, tTarget)
+    local iStep = math.min(20, math.max(0, iDistance - (oACU[M28UnitInfo.refiDFRange] or 24) + 2))
+    local iScale = iStep / math.max(1, iDistance)
+    local tApproach = {tPosition[1] + (tTarget[1] - tPosition[1]) * iScale, tPosition[2], tPosition[3] + (tTarget[3] - tPosition[3]) * iScale}
+    local iCategory = categories.LAND * categories.MOBILE * (categories.DIRECTFIRE + categories.INDIRECTFIRE) - categories.COMMAND - categories.ENGINEER - categories.SCOUT
+    local tSupport = {}
+    -- Count troops that can support the next approach, rather than an entire zone's army.
+    for _, oUnit in aiBrain:GetUnitsAroundPoint(iCategory, tPosition, 40, 'Ally') or {} do
+        if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 and not(oUnit:IsUnitState('Attached'))
+                and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tApproach) <= 40 then
+            local sPathing = M28UnitInfo.GetUnitPathingType(oUnit)
+            local iLabel = NavUtils.GetTerrainLabel(sPathing, oUnit:GetPosition())
+            if iLabel and iLabel > 0 and iLabel == NavUtils.GetTerrainLabel(sPathing, tApproach) then table.insert(tSupport, oUnit) end
+        end
+    end
+    local tEnemies, tSeen = {}, {}
+    local function AddKnownEnemies(tZoneTeamData)
+        for _, oEnemy in tZoneTeamData[M28Map.subrefTEnemyUnits] or {} do
+            if not(tSeen[oEnemy]) and M28UnitInfo.IsUnitValid(oEnemy) and EntityCategoryContains(iCategory, oEnemy.UnitId)
+                    and M28UnitInfo.CanSeeUnit(aiBrain, oEnemy)
+                    and M28Utilities.GetDistanceBetweenPositions(oEnemy:GetPosition(), tApproach) <= math.max(55, math.min(80, (oEnemy[M28UnitInfo.refiCombatRange] or 0) + 15)) then
+                tSeen[oEnemy] = true
+                table.insert(tEnemies, oEnemy)
+            end
+        end
+    end
+    AddKnownEnemies(tLZTeamData)
+    for _, iAdjacent in tLZData[M28Map.subrefLZAdjacentLandZones] or {} do
+        AddKnownEnemies(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjacent][M28Map.subrefLZTeamData][aiBrain.M28Team])
+    end
+    local iFriendly = M28UnitInfo.GetCombatThreatRating(tSupport, false, false) or 0
+    local iEnemy = M28UnitInfo.GetCombatThreatRating(tEnemies, false, false) or 0
+    local iACU = oACU[M28UnitInfo.refiDFMassThreatOverride] or M28UnitInfo.GetCombatThreatRating({oACU}, false, false) or 0
+    return IsACUAdvanceUnsupported(iFriendly, iEnemy, iACU, M28UnitInfo.GetUnitHealthPercent(oACU)), iFriendly, iEnemy
+end
+
 function AttackNearestEnemyWithACU(iPlateau, iLandZone, tLZData, tLZTeamData, oACU, iOptionalDistThresholdOverride)
     --Attack move to the nearest enemy if we arent in range of it or retreat if we are in range of it
     local sFunctionRef = 'AttackNearestEnemyWithACU'
@@ -4614,6 +4660,14 @@ function AttackNearestEnemyWithACU(iPlateau, iLandZone, tLZData, tLZTeamData, oA
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oEnemyToTarget='..(oEnemyToTarget.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oEnemyToTarget) or 'nil')) end
             if oEnemyToTarget then
                 local iUnitPlateau, iUnitZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oEnemyToTarget:GetPosition())
+                local bUnsupported, iLocalSupport, iLocalEnemy = GetACUAdvanceSupport(oACU, oEnemyToTarget, iPlateau, tLZData, tLZTeamData)
+                if bUnsupported then
+                    oACU.M28ACURetreatUntil = math.max(oACU.M28ACURetreatUntil or 0, GetGameTimeSeconds() + 12)
+                    if bDebugMessages then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Regrouping with nearby army; support='..iLocalSupport..'; enemy='..iLocalEnemy) end
+                    IssueACURetreatOrder(oACU, iPlateau, iLandZone, tLZData, tLZTeamData, false, {bDisableMexesAndReclaim = true, bDisableAttackMove = true, sMoveOrderRef = 'ACURegroup'})
+                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                    return true
+                end
                 local iMaxDistToBeInRange = 5 --placeholder
                 if iUnitZone > 0 then
                     if not(oACU[refiLastPlateauAndZoneToAttackUnitIn]) then oACU[refiLastPlateauAndZoneToAttackUnitIn] = {} end
