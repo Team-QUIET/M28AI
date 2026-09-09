@@ -1127,7 +1127,7 @@ function GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryCondition, oFactor
         local iArmyIndex = aiBrain:GetArmyIndex()
         for _, sBlueprint in tBlueprints do
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to see if factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; can build blueprint '..(sBlueprint or 'nil')..'; CanBuild='..tostring(oFactory:CanBuild(sBlueprint))..'; iArmyIndex='..(iArmyIndex or 'nil')) end
-            if oFactory:CanBuild(sBlueprint) == true and not(M28UnitInfo.IsUnitRestricted(sBlueprint, iArmyIndex)) and (not(iMinMassCost) or (tAllBlueprints[sBlueprint].Economy.BuildCostMass or 0) >= iMinMassCost) and (not(iMaxMassCost) or (tAllBlueprints[sBlueprint].Economy.BuildCostMass or 0) <= iMaxMassCost)  then
+            if sBlueprint ~= 'xrl0302' and oFactory:CanBuild(sBlueprint) == true and not(M28UnitInfo.IsUnitRestricted(sBlueprint, iArmyIndex)) and (not(iMinMassCost) or (tAllBlueprints[sBlueprint].Economy.BuildCostMass or 0) >= iMinMassCost) and (not(iMaxMassCost) or (tAllBlueprints[sBlueprint].Economy.BuildCostMass or 0) <= iMaxMassCost)  then
                 --Check we can build the desired category
                 if not(iOptionalCategoryThatMustBeAbleToBuild) then bCanBuildRequiredCategory = true
                 else
@@ -6947,6 +6947,8 @@ local function CanReserveFighterRecoveryProduction(aiBrain, oFactory, sBlueprint
 end
 
 GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
+    -- Fire Beetles are excluded even when a saved plan requests them directly.
+    if sBlueprint and string.lower(sBlueprint) == 'xrl0302' then return false, 'DisabledMobileBomb' end
     if not(sBlueprint) or not(__blueprints[string.lower(sBlueprint)]) then
         return false, 'InvalidResourceProfile'
     elseif not(M28UnitInfo.IsUnitValid(oFactory)) then
@@ -7958,6 +7960,11 @@ function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
     local sFunctionRef = 'TryManageActiveFactoryBuildQueue'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelFactory, sFunctionRef)
     local tBuildPlan, iBuildOrders = SyncFactoryBuildPlanWithQueue(oFactory)
+    local tIssuedBlueprints = GetQueuedFactoryBlueprints(oFactory)
+    if tIssuedBlueprints and tIssuedBlueprints[1] == 'xrl0302' then
+        ClearFactoryProductionQueue(oFactory)
+        return false
+    end
     iBuildOrders = math.max(iBuildOrders, GetFactoryActualBuildOrderCount(oFactory) or 0)
     local bFactoryActivelyBuilding = IsFactoryActivelyBuilding(oFactory)
     local sPendingUpgradeBlueprint = GetPendingFactoryUpgradeBlueprint(oFactory)
@@ -8297,7 +8304,6 @@ function SetPriorityPreferredUnitsByCategory(aiBrain)
 
         --Engineers
         aiBrain[reftBlueprintPriorityOverride]['uel0208'] = 1 --T2 Engi (instead of sparky)
-        aiBrain[reftBlueprintPriorityOverride]['xrl0302'] = -1000 --fire beetle (so build wagners instead if going for fast units)
         aiBrain[reftBlueprintPriorityOverride]['srs0219'] = -1 --Engineer ship (can get built and used as naval scouts instead of frigate)
 
         --QUIET mod unit priorities
