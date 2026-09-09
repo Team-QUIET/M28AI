@@ -13242,6 +13242,37 @@ function RecordUnitAsReceivingLandZoneAssignment(oUnit, iPlateau, iLandZone)
     end
 end
 
+function GetCoordinatedGroundAttackTarget(oUnit, oPreferred)
+    local iDamage = oUnit[M28UnitInfo.refiStrikeDamage] or 0
+    if iDamage < 100 or not(EntityCategoryContains(categories.LAND * categories.MOBILE - categories.COMMAND - categories.ENGINEER, oUnit.UnitId))
+            or not(M28UnitInfo.IsUnitValid(oPreferred)) or EntityCategoryContains(categories.COMMAND, oPreferred.UnitId) then return oPreferred end
+    local aiBrain = oUnit:GetAIBrain()
+    local iRange = oUnit[M28UnitInfo.refiCombatRange] or 0
+    local iMinRange = math.max(oUnit[M28UnitInfo.refiDFMinRange] or 0, oUnit[M28UnitInfo.refiIFMinRange] or 0)
+    if not(aiBrain.M28AI) or not(M28UnitInfo.CanSeeUnit(aiBrain, oPreferred))
+            or M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oPreferred:GetPosition()) > iRange then return oPreferred end
+    local tExisting = oUnit.M28DamageReservation
+    if tExisting and not(tExisting.cancelled) and GetGameTimeSeconds() < tExisting.untilTime and tExisting.target == oPreferred then return oPreferred end
+    local tShields = M28Logic.IsTargetUnderShield(aiBrain, oPreferred, 0, false, false, false, false, true)
+    if M28UnitInfo.GetTargetDamageNeeded(oPreferred, aiBrain.M28Team, tShields) > 0 then return oPreferred, iDamage, tShields end
+    local oBest, tBestShields, iBestDistance
+    for _, oEnemy in aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryLandCombat + M28UnitInfo.refCategoryStructure + M28UnitInfo.refCategoryEngineer,
+            oUnit:GetPosition(), iRange, 'Enemy') do
+        if oEnemy ~= oPreferred and M28UnitInfo.IsUnitValid(oEnemy) and not(oEnemy:IsUnitState('Attached'))
+                and not(M28UnitInfo.IsUnitUnderwater(oEnemy)) and M28UnitInfo.CanSeeUnit(aiBrain, oEnemy) then
+            local iDistance = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oEnemy:GetPosition())
+            if iDistance >= iMinRange and iDistance <= iRange and (not(iBestDistance) or iDistance < iBestDistance) then
+                local tEnemyShields = M28Logic.IsTargetUnderShield(aiBrain, oEnemy, 0, false, false, false, false, true)
+                if M28UnitInfo.GetTargetDamageNeeded(oEnemy, aiBrain.M28Team, tEnemyShields) > 0 then
+                    oBest, tBestShields, iBestDistance = oEnemy, tEnemyShields, iDistance
+                end
+            end
+        end
+    end
+    if oBest then return oBest, iDamage, tBestShields end
+    return oPreferred
+end
+
 function SetLandCombatIntent(oUnit, iPlateau, iTargetLZ, iDurationSeconds, sOwner)
     local iCurTime = GetGameTimeSeconds()
     oUnit[refiLandCombatIntentUntil] = iCurTime + iDurationSeconds

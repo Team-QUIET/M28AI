@@ -1717,6 +1717,11 @@ function OnWeaponFired(oWeapon)
             local oParentBrain = oUnit:GetAIBrain()
             --M28 torp bomber micro (done here as want to make sure we pick up the last weapon event)
             if oParentBrain.M28AI then
+                local tDamageReservation = oUnit.M28DamageReservation
+                if tDamageReservation and not(tDamageReservation.fired) and EntityCategoryContains(categories.LAND - categories.COMMAND, oUnit.UnitId)
+                        and oWeapon:GetCurrentTarget() == tDamageReservation.target then
+                    M28UnitInfo.MarkDamageReservationFired(oUnit, 3)
+                end
                 if EntityCategoryContains(M28UnitInfo.refCategoryTorpBomber, oUnit.UnitId) and not(oUnit[M28UnitInfo.refbSpecialMicroActive]) then
                     --Micro torp bombers if this is the last shot and torp only has 1 rack
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by '..oUnit:GetAIBrain().Nickname..' has just fired a shot, Time='..GetGameTimeSeconds()..'; oWeapon[M28UnitInfo.refiLastWeaponEvent]='..(oWeapon[M28UnitInfo.refiLastWeaponEvent] or 'nil')..'; is salvo data nil='..tostring(oUnit.CurrentSalvoData == nil)..'; Unit state='..M28UnitInfo.GetUnitState(oUnit)..'; Is unit state attacking='..tostring(oUnit:IsUnitState('Attacking'))..'; reprs of Weapon salvo data='..reprs(oWeapon.CurrentSalvoData)..'; Weapon blueprint='..reprs((oWeapon.Blueprint or oWeapon.bp))..'; Is rack size highest value='..tostring((oWeapon.CurrentRackSalvoNumber or 0) >= ((oWeapon.Blueprint or oWeapon.bp).RackSalvoSize or 0))..'; Is salvo size highest value='..tostring((oWeapon.CurrentSalvoNumber or 0) >= ((oWeapon.Blueprint or oWeapon.bp).MuzzleSalvoSize or 0))..'; oWeapon.CurrentRackSalvoNumber='..(oWeapon.CurrentRackSalvoNumber or 'nil')..'; (oWeapon.Blueprint or oWeapon.bp).RackSalvoSize='..(oWeapon.Blueprint or oWeapon.bp).RackSalvoSize..';oWeapon.CurrentSalvoNumber='..(oWeapon.CurrentSalvoNumber or 'nil')..'; Muzzle salvo size='..((oWeapon.Blueprint or oWeapon.bp).MuzzleSalvoSize or 0)) end

@@ -57,6 +57,7 @@ refiMoveAndBuildStuckCount = 'M28OUMvB' --whenever give a move+build order, this
 
 local M28Utilities = import('/mods/M28AI/lua/AI/M28Utilities.lua')
 local M28UnitInfo = import('/mods/M28AI/lua/AI/M28UnitInfo.lua')
+local M28Land = import('/mods/M28AI/lua/AI/M28Land.lua')
 local M28Engineer = import('/mods/M28AI/lua/AI/M28Engineer.lua')
 local M28Config = import('/mods/M28AI/lua/M28Config.lua')
 local M28Map = import('/mods/M28AI/lua/AI/M28Map.lua')
@@ -572,6 +573,10 @@ end
 
 function IssueTrackedAttack(oUnit, oOrderTarget, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder)
     if bDontConsiderCombinedArmy or oUnit.M28Active then
+        local iAssignedDamage, tDamageShields
+        if not(bAddToExistingQueue) and not(oUnit[M28UnitInfo.refbSpecialMicroActive]) then
+            oOrderTarget, iAssignedDamage, tDamageShields = M28Land.GetCoordinatedGroundAttackTarget(oUnit, oOrderTarget)
+        end
         --if oUnit.UnitId == 'uaa0103' then M28Utilities.ErrorHandler('Tracked attack audit trail targeting unit '..oOrderTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oOrderTarget), true, true) end
         UpdateRecordedOrders(oUnit)
         --Issue order if we arent already trying to attack them
@@ -592,6 +597,7 @@ function IssueTrackedAttack(oUnit, oOrderTarget, bAddToExistingQueue, sOptionalO
             oUnit[refiOrderCount] = oUnit[refiOrderCount] + 1
             table.insert(oUnit[reftiLastOrders], {[subrefiOrderType] = refiOrderIssueAttack, [subrefoOrderUnitTarget] = oOrderTarget, [subrefsOrderDesc] = sOptionalOrderDesc})
             IssueAttack({oUnit}, oOrderTarget)
+            if iAssignedDamage then M28UnitInfo.ReserveTargetDamage(oUnit, oOrderTarget, iAssignedDamage, 2, tDamageShields) end
             --if oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit) == 'xra01051' and GetGameTimeSeconds() >= 360 then LOG('TEMPCODE Just issued attack order on oOrderTarget='..oOrderTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oOrderTarget)) end
         end
         if M28Config.M28ShowUnitNames then UpdateUnitNameForOrder(oUnit, sOptionalOrderDesc) end
