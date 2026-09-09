@@ -11266,6 +11266,7 @@ function GetEconomicZoneAACoverage(iTeam, iPlateau, tZoneData, tZoneTeamData)
 end
 
 function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iCurPriority, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrPond, iLandOrWaterZone, toAvailableEngineersByTech, toAssignedEngineers, bIsWaterZone, iSpecificFactionRequiredOverride, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
+    local iRequestedPowerTech = IsPowerBuildAction(iActionToAssign) and iMinTechWanted or 0
     --vOptionalVariable can be a table, nil or a value; used to pass info specific to the action if it needs it
     local sFunctionRef = 'ConsiderActionToAssign'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEngineer, sFunctionRef)
@@ -11610,7 +11611,10 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                 --Building a factory - change whether to search for assistance based on mass stored %; for mass storage instead base the check on how many locations we have as we may be trying to build a second storage
                 local iConstructionCountToIgnore = (tiIgnoreUnderConstructionThreshold[iActionToAssign] or 0)
                 --local bShouldIgnoreUnderConstruction = tbIgnoreUnderConstructionActions[iActionToAssign]
-                if iActionToAssign == refActionBuildLandFactory or iActionToAssign == refActionBuildAirFactory then
+                if iRequestedPowerTech >= 2 then
+                    -- Concentrate expensive power construction before opening another project in this zone.
+                    iConstructionCountToIgnore = 0
+                elseif iActionToAssign == refActionBuildLandFactory or iActionToAssign == refActionBuildAirFactory then
                     if M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 15 * M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] then iConstructionCountToIgnore = 1 end
                 elseif iActionToAssign == refActionBuildMassStorage and table.getn(tLZOrWZData[M28Map.subrefLZOrWZMassStorageLocationsAvailable]) >= 5 then iConstructionCountToIgnore = 1
                 elseif iConstructionCountToIgnore > 0 and iActionToAssign == refActionBuildSecondExperimental then
@@ -11620,10 +11624,16 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                 end
 
                 local oBuildingToAssist
+                local iAssistanceCategory = iCategoryWanted
+                if iRequestedPowerTech >= 2 then
+                    iAssistanceCategory = iCategoryWanted + M28UnitInfo.refCategoryT2Power + M28UnitInfo.refCategoryT3Power
+                end
                 if iConstructionCountToIgnore < 100 and not(iActionToAssign == refActionAssistNavalFactory) then --Dont want naval fac to assist an upgrading fac, but instead get the highest tech one
                     --We adjust power to only consider the min tech levle not higher ones (presumably so we can build t1/t2 power when we have access to t3, if we need more power to build t3); therefore need to take this into account here
                     local iUnderConstructionCategory
-                    if iActionToAssign == refActionBuildPower then
+                    if iRequestedPowerTech >= 2 then
+                        iUnderConstructionCategory = iAssistanceCategory
+                    elseif iActionToAssign == refActionBuildPower then
                         iUnderConstructionCategory = M28UnitInfo.refCategoryPower - M28UnitInfo.refCategoryHydro
                     else iUnderConstructionCategory = iCategoryWanted
                     end
@@ -11687,7 +11697,7 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                         --Has a building been queued for this land zone even if we havent found an engineer to assist? (e.g. rare cases where engineer queues order then briefly drops out of the land zone list of engineers)
                         if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subrefQueuedBuildings]) == false and iConstructionCountToIgnore == 0 and not(tbIgnoreEngineerAssistance[iActionToAssign]) then
                             for iEntry, tQueuedDetails in tLZOrWZTeamData[M28Map.subrefQueuedBuildings] do
-                                if EntityCategoryContains(iCategoryWanted, tQueuedDetails[M28Map.subrefBuildingID]) then
+                                if EntityCategoryContains(iAssistanceCategory, tQueuedDetails[M28Map.subrefBuildingID]) then
                                     local oQueuedPrimaryBuilder = tQueuedDetails[M28Map.subrefPrimaryBuilder]
                                     if M28UnitInfo.IsUnitValid(oQueuedPrimaryBuilder) and EngineerHasActiveStructureBuildIntent(oQueuedPrimaryBuilder) and not(DoesEngineerFocusBlockConstructionAssist(oQueuedPrimaryBuilder)) and not(oQueuedPrimaryBuilder[refiAssignedAction] == refActionSpecialShieldDefence) then
                                         oEngineerToAssist = oQueuedPrimaryBuilder
@@ -11714,7 +11724,7 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                         local bTransferOwnership
                         local oEngiToTransfer
                         local bEngiIsBuilding
-                        if sBlueprintToBuild and tOrderPosition and EntityCategoryContains(iCategoryWanted, sBlueprintToBuild) then
+                        if sBlueprintToBuild and tOrderPosition and EntityCategoryContains(iAssistanceCategory, sBlueprintToBuild) then
                             while iTotalBuildPowerWanted > 0 and iEngiCount > 0 do
                                 bTransferOwnership = false
                                 if tEngineersOfTechWanted[iEngiCount]:CanBuild(sBlueprintToBuild) then
