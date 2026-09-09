@@ -392,6 +392,34 @@ function GetSupportAssemblyScore(iFriendlyMobile, iEnemyThreat, iPDThreat, iTrav
     return math.min(1800, iFriendlyMobile) / (1 + iTravelDistance / 120) + math.max(0, 240 - iTargetDistance)
 end
 
+function GetLandWaitingWaveCenter(tZoneTeamData, tUnits, sRole)
+    local iNow = GetGameTimeSeconds()
+    local tCenters = tZoneTeamData.M28WaitingWaveCenters or {}
+    tZoneTeamData.M28WaitingWaveCenters = tCenters
+    local tPrevious = tCenters[sRole]
+    local iTotalX, iTotalZ, iCount = 0, 0, 0
+    local bNearPrevious = false
+    for _, oUnit in tUnits do
+        if M28UnitInfo.IsUnitValid(oUnit) then
+            local tPosition = oUnit:GetPosition()
+            iTotalX = iTotalX + tPosition[1]
+            iTotalZ = iTotalZ + tPosition[3]
+            iCount = iCount + 1
+            if tPrevious and M28Utilities.GetDistanceBetweenPositions(tPosition, tPrevious.position) <= 60 then bNearPrevious = true end
+        end
+    end
+    if iCount == 0 then tCenters[sRole] = nil return nil end
+    -- Keep an assembly point fixed while units spread around it; following their centroid creates perpetual drift.
+    if not(tPrevious) or iNow - tPrevious.last > 5 or not(bNearPrevious) then
+        local tPosition = {iTotalX / iCount, 0, iTotalZ / iCount}
+        tPosition[2] = GetSurfaceHeight(tPosition[1], tPosition[3])
+        tPrevious = {position = tPosition}
+        tCenters[sRole] = tPrevious
+    end
+    tPrevious.last = iNow
+    return tPrevious.position
+end
+
 function GetSupportAssemblyZone(tSourceData, iPlateau, iSourceZone, iTargetZone, iTeam)
     local tZones = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones]
     local tTargetData = tZones[iTargetZone]
@@ -11768,20 +11796,6 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 end
             end
 
-            local function GetSupportWaveCenter(tUnits)
-                local iTotalX = 0
-                local iTotalZ = 0
-                for iUnit, oUnit in tUnits do
-                    local tUnitPosition = oUnit:GetPosition()
-                    iTotalX = iTotalX + tUnitPosition[1]
-                    iTotalZ = iTotalZ + tUnitPosition[3]
-                end
-                local iUnitCount = table.getn(tUnits)
-                local tWaveCenter = {iTotalX / iUnitCount, 0, iTotalZ / iUnitCount}
-                tWaveCenter[2] = GetSurfaceHeight(tWaveCenter[1], tWaveCenter[3])
-                return tWaveCenter
-            end
-
             local function GetSupportWaveReadiness(tUnits, iTargetLZ)
                 local tTargetLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iTargetLZ]
                 local tTargetLZTeamData = tTargetLZData[M28Map.subrefLZTeamData][iTeam]
@@ -12811,6 +12825,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': DF support wave for LZ '..iDFLZToSupport..'; wave threat='..iDFWaveThreat..'; target ally threat='..iTargetAllyCombatThreat..'; enemy pressure='..iDFEnemyPressure..'; required ratio='..iDFReleaseRatio..'; ready='..tostring(bDFWaveReady)) end
 
                 if bDFWaveReady then
+                    if tLZTeamData.M28WaitingWaveCenters then tLZTeamData.M28WaitingWaveCenters.DF = nil end
                     RecordDFLandZoneTarget(iDFLZToSupport, M28Map.subrefiLZTMovingToOtherZone)
                     for iUnit, oUnit in tDFUnits do
                         if not(IgnoreOrderDueToStuckUnit(oUnit)) then
@@ -12820,7 +12835,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     end
                 else
                     RecordDFLandZoneTarget(nil)
-                    local tDFWaveCenter = GetSupportWaveCenter(tDFUnits)
+                    local tDFWaveCenter = GetLandWaitingWaveCenter(tLZTeamData, tDFUnits, 'DF')
                     local iAssemblyZone = GetSupportAssemblyZone(tLZData, iPlateau, iLandZone, iDFLZToSupport, iTeam)
                     if iAssemblyZone and iAssemblyZone ~= iLandZone then
                         tDFWaveCenter = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAssemblyZone][M28Map.subrefMidpoint]
@@ -12899,6 +12914,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': IF support wave for LZ '..iIndirectLZToSupport..'; wave threat='..iIFWaveThreat..'; target ally threat='..iIndirectTargetAllyCombatThreat..'; enemy pressure='..iIFEnemyPressure..'; required ratio='..iIFReleaseRatio..'; ready='..tostring(bIFWaveReady)) end
 
                 if bIFWaveReady then
+                    if tLZTeamData.M28WaitingWaveCenters then tLZTeamData.M28WaitingWaveCenters.IF = nil end
                     for iUnit, oUnit in tIndirectUnits do
                         if not(IgnoreOrderDueToStuckUnit(oUnit)) then
                             if bConsiderAttackMoveForNearbyUnits then UpdateLongRangeUnitToAttackInstead(oUnit) end
@@ -12911,7 +12927,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         end
                     end
                 else
-                    local tIFWaveCenter = GetSupportWaveCenter(tIndirectUnits)
+                    local tIFWaveCenter = GetLandWaitingWaveCenter(tLZTeamData, tIndirectUnits, 'IF')
                     local iAssemblyZone = GetSupportAssemblyZone(tLZData, iPlateau, iLandZone, iIndirectLZToSupport, iTeam)
                     if iAssemblyZone and iAssemblyZone ~= iLandZone then
                         tIFWaveCenter = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAssemblyZone][M28Map.subrefMidpoint]
