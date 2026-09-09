@@ -251,6 +251,32 @@ local function ShouldACUPreferBaseRetreatWhenArmiesClash(iPlateauOrZero, iLandOr
     return true
 end
 
+function UpdateACURetreatCommitment(oACU, bWantRun, bWantBase, tFriendlyBase)
+    local iNow = GetGameTimeSeconds()
+    local iHealth = M28UnitInfo.GetUnitHealthPercent(oACU)
+    local tSample = oACU.M28RetreatHealthSample
+    if not(tSample) or iNow - tSample.time > 15 or iHealth > tSample.health + 0.05 then
+        tSample = {time = iNow, health = iHealth, lossRate = 0}
+        oACU.M28RetreatHealthSample = tSample
+    elseif iNow - tSample.time >= 4 then
+        tSample.lossRate = math.max(0, (tSample.health - iHealth) / (iNow - tSample.time))
+        tSample.time, tSample.health = iNow, iHealth
+    end
+    local iEscapeSeconds = 20
+    if tFriendlyBase then
+        iEscapeSeconds = math.min(45, math.max(15, M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tFriendlyBase)
+                / math.max(1, oACU:GetBlueprint().Physics.MaxSpeed or 1)))
+    end
+    local bLosingEscapeMargin = iHealth < 0.9 and tSample.lossRate >= 0.006 and tSample.lossRate * iEscapeSeconds > iHealth * 0.45
+    if bWantRun or bWantBase or bLosingEscapeMargin then
+        oACU.M28ACURetreatUntil = iNow + 12
+        oACU.M28ACURetreatToBase = bWantBase or bLosingEscapeMargin or oACU.M28ACURetreatToBase
+    elseif iNow >= (oACU.M28ACURetreatUntil or 0) then
+        oACU.M28ACURetreatUntil, oACU.M28ACURetreatToBase = nil, nil
+    end
+    return iNow < (oACU.M28ACURetreatUntil or 0), oACU.M28ACURetreatToBase or false
+end
+
 local function GetACURetreatDecisionState(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
     local bWantCoreBase = DoesACUWantToReturnToCoreBase(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
     local bRawWantRun = DoesACUWantToRun(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
@@ -258,9 +284,11 @@ local function GetACURetreatDecisionState(iPlateauOrZero, iLandOrWaterZone, tLZO
     if not(bWantCoreBase) and bRawWantRun then
         bPreferBaseRetreat = ShouldACUPreferBaseRetreatWhenArmiesClash(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oACU)
     end
+    local bCommitted, bCommittedBase = UpdateACURetreatCommitment(oACU, bRawWantRun, bWantCoreBase or bPreferBaseRetreat, tLZOrWZTeamData[M28Map.reftClosestFriendlyBase])
+    bWantCoreBase = bWantCoreBase or bCommittedBase
     return {
         bWantCoreBase = bWantCoreBase or bPreferBaseRetreat,
-        bWantRun = bWantCoreBase or bRawWantRun,
+        bWantRun = bWantCoreBase or bRawWantRun or bCommitted,
         bRawWantRun = bRawWantRun,
         bPreferBaseRetreat = bPreferBaseRetreat,
     }
@@ -4826,6 +4854,9 @@ function AttackNearestEnemyWithACU(iPlateau, iLandZone, tLZData, tLZTeamData, oA
 
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oEnemyToTarget='..oEnemyToTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEnemyToTarget)..'; iClosestDist='..iClosestDist..'; iMaxDistToBeInRange='..iMaxDistToBeInRange..'; ACU DF range='..(oACU[M28UnitInfo.refiDFRange] or 0)..'; ACU position='..repru(oACU:GetPosition())..'; Enemy unit to target='..repru(oEnemyToTarget:GetPosition())..'; Dist betweeh tnem straight line='..M28Utilities.GetDistanceBetweenPositions(oEnemyToTarget:GetPosition(), oACU:GetPosition())..'; ACU health percent='..iOurACUHealthPercent..'; Enemy combat total based just on this zone='..tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal]..'; iNearbyMobileEnemyDFThreat='..iNearbyMobileEnemyDFThreat..'; bWantKitingRetreat='..tostring(bWantKitingRetreat)) end
                     if bWantKitingRetreat then
+                        if iOurACUHealthPercent < 0.85 then
+                            oACU.M28ACURetreatUntil = math.max(oACU.M28ACURetreatUntil or 0, GetGameTimeSeconds() + 8)
+                        end
                         --Retreat temporarily - if aren't in a core zone then retreat to rally point
                         local tRallyPoint
                         if tLZTeamData[M28Map.subrefLZbCoreBase] then
