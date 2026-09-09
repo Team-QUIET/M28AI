@@ -127,7 +127,8 @@ local function IsAirAAOperationalForLocalEscort(iAirSubteam, oAirAA, tFocusPoint
     if oAirAA[M28Orders.reftiLastOrders] and (oAirAA[M28Orders.refiOrderCount] or 0) > 0 then
         tLastOrder = oAirAA[M28Orders.reftiLastOrders][oAirAA[M28Orders.refiOrderCount]]
     end
-    if tLastOrder and tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderRefuel then
+    if tLastOrder and (tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderRefuel
+            or tLastOrder[M28Orders.subrefsOrderDesc] == 'WntStgn' or tLastOrder[M28Orders.subrefsOrderDesc] == 'UCWntStgn') then
         return false
     end
 
@@ -3662,6 +3663,12 @@ function GetAirStagingCapacity(oStaging)
     return tTransport.DockingSlots or tTransport.StorageSlots or 0
 end
 
+function GetDesiredAirStagingSlots(iAircraft, iSlots, iWaiting, iOldestWait)
+    if iWaiting < 2 or iOldestWait < 15 then return iSlots end
+    -- Add capacity in response to sustained demand, including the single-slot platforms.
+    return math.max(iSlots, math.min(math.ceil(iAircraft / 6), iSlots + math.ceil(iWaiting / 4)))
+end
+
 function GetUnitAirStagingSize(oUnit, oStaging)
     if oStaging then
         local tAircraft = oUnit:GetBlueprint().Transport or {}
@@ -3679,6 +3686,30 @@ function GetUnitAirStagingSize(oUnit, oStaging)
     end
 end
 
+local function GetAirRefuelPriority(oUnit)
+    local iFuel = oUnit.GetFuelRatio and oUnit:GetFuelRatio() or -1
+    local iHealth = M28UnitInfo.GetUnitHealthPercent(oUnit)
+    local iUrgency = 2
+    if iFuel >= 0 and iFuel <= 0.1 then iUrgency = 0
+    elseif iHealth <= 0.35 then iUrgency = 1 end
+    return iUrgency, math.min(iFuel >= 0 and iFuel or 1, iHealth)
+end
+
+local function SortAirRefuelQueue(tUnits)
+    table.sort(tUnits, function(oA, oB)
+        local iUrgencyA, iConditionA = GetAirRefuelPriority(oA)
+        local iUrgencyB, iConditionB = GetAirRefuelPriority(oB)
+        if iUrgencyA ~= iUrgencyB then return iUrgencyA < iUrgencyB end
+        if iConditionA ~= iConditionB then return iConditionA < iConditionB end
+        if oA.M28AirRefuelWaitSince ~= oB.M28AirRefuelWaitSince then
+            return (oA.M28AirRefuelWaitSince or GetGameTimeSeconds()) < (oB.M28AirRefuelWaitSince or GetGameTimeSeconds())
+        end
+        local iA, iB = oA.EntityId or oA.EntityID or 0, oB.EntityId or oB.EntityID or 0
+        if iA ~= iB then return iA < iB end
+        return oA.UnitId < oB.UnitId
+    end)
+end
+
 function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontReleaseHealedUnits)
     local sFunctionRef = 'OrderUnitsToRefuel'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
@@ -3691,9 +3722,36 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
     local subrefiCapacity = 2
     local iMaxCapacity, iCapacityInUse
     local tReservedRefuelingUnits = {}
-
-
-
+    local tAllAirStaging = {}
+    local tSubteam = M28Team.tAirSubteamData[iAirSubteam]
+    local tQueue = tSubteam.M28AirRefuelQueue or {}
+    local tRequested = {}
+    local iNow = GetGameTimeSeconds()
+    for _, oUnit in tUnitsForRefueling do
+        if M28UnitInfo.IsUnitValid(oUnit) then tRequested[oUnit] = true end
+    end
+    -- All air roles share the same waiting queue; enumeration order cannot starve another role.
+    for oUnit, _ in tQueue do
+        local bKeep = tRequested[oUnit]
+        if not(bKeep) and M28UnitInfo.IsUnitValid(oUnit) then
+            local tOrder = oUnit[M28Orders.reftiLastOrders] and oUnit[M28Orders.reftiLastOrders][oUnit[M28Orders.refiOrderCount] or 1]
+            local sOrder = tOrder and tOrder[M28Orders.subrefsOrderDesc]
+            local iFuel = oUnit.GetFuelRatio and oUnit:GetFuelRatio() or -1
+            bKeep = (sOrder == 'WntStgn' or sOrder == 'UCWntStgn')
+                    and (M28UnitInfo.GetUnitHealthPercent(oUnit) < 0.95 or (iFuel >= 0 and iFuel < 0.95))
+        end
+        if M28UnitInfo.IsUnitValid(oUnit) then
+            local oBrain = oUnit:GetAIBrain()
+            if not(oBrain and oBrain.M28AI) or (oBrain.M28AirSubteam and oBrain.M28AirSubteam ~= iAirSubteam)
+                    or oUnit[M28UnitInfo.refbSpecialMicroActive] then bKeep = false end
+        end
+        if bKeep then tRequested[oUnit] = true
+        else
+            tRequested[oUnit] = nil
+            tQueue[oUnit] = nil
+            if M28UnitInfo.IsUnitValid(oUnit) then oUnit.M28AirRefuelWaitSince = nil end
+        end
+    end
     for iBrain, oBrain in M28Team.tAirSubteamData[iAirSubteam][M28Team.subreftoFriendlyM28Brains] do
         local tCurBrainStaging = oBrain:GetListOfUnits(M28UnitInfo.refCategoryAirStaging, false, true)
         if M28Utilities.IsTableEmpty(tCurBrainStaging) == false then
@@ -3702,6 +3760,9 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
                 if M28UnitInfo.IsUnitValid(oAirStaging) and oAirStaging:GetFractionComplete() == 1 and (bDontCheckPlayableArea or M28Conditions.IsLocationInPlayableArea(oAirStaging:GetPosition())) then
                     --Does this have capacity?
                     iMaxCapacity = GetAirStagingCapacity(oAirStaging)
+                    if iMaxCapacity > 0 then table.insert(tAllAirStaging, oAirStaging) end
+                    oAirStaging.M28AirRefuelQueueCount = 0
+                    oAirStaging.M28AirRefuelOldestWait = 0
 
                     iCapacityInUse = 0
                     -- Release the group once every aircraft has recovered enough for service.
@@ -3773,10 +3834,14 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
     end
 
     local tPendingRefueling, tPendingSeen = {}, {}
-    for _, oUnit in tUnitsForRefueling do
+    for oUnit, _ in tRequested do
         if M28UnitInfo.IsUnitValid(oUnit) and not(oUnit:IsUnitState('Attached')) and not(tReservedRefuelingUnits[oUnit]) and not(tPendingSeen[oUnit]) then
             table.insert(tPendingRefueling, oUnit)
             tPendingSeen[oUnit] = true
+            oUnit.M28AirRefuelWaitSince = oUnit.M28AirRefuelWaitSince or iNow
+        else
+            tQueue[oUnit] = nil
+            if M28UnitInfo.IsUnitValid(oUnit) then oUnit.M28AirRefuelWaitSince = nil end
         end
     end
     tUnitsForRefueling = tPendingRefueling
@@ -3799,6 +3864,8 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
                 table.insert(tLowerPriorityUnitsForRefueling, oAirUnit)
             end
         end
+        SortAirRefuelQueue(tPriorityUnitsForRefueling)
+        SortAirRefuelQueue(tLowerPriorityUnitsForRefueling)
 
         local function SendUnitsToRefuelAtClosestAvailableAirStaging(tUnitsToSendForRefueling)
             if M28Utilities.IsTableEmpty(tUnitsToSendForRefueling) == false then
@@ -3852,6 +3919,8 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
                                 iCurSize = GetUnitAirStagingSize(oAirUnit, oClosestAirStaging)
                                 M28Orders.IssueTrackedRefuel(oAirUnit, oClosestAirStaging, false, 'Refuel', false)
                                 tReservedRefuelingUnits[oAirUnit] = true
+                                tQueue[oAirUnit] = nil
+                                oAirUnit.M28AirRefuelWaitSince = nil
                                 local bRecordRefuelingUnit = true
                                 if not(oClosestAirStaging[reftAssignedRefuelingUnits]) then oClosestAirStaging[reftAssignedRefuelingUnits] = {}
                                 else
@@ -3893,6 +3962,32 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
             end
         end
     end
+    tSubteam.M28AirRefuelQueue = tQueue
+    local function GetRefuelWaitingPosition(oUnit, tFallback)
+        if EntityCategoryContains(categories.CANNOTUSEAIRSTAGING + categories.EXPERIMENTAL, oUnit.UnitId) then
+            oUnit.M28AirRefuelWaitSince = nil
+            return tFallback
+        end
+        local oClosest, iClosestCost
+        for _, oStaging in tAllAirStaging do
+            if GetAirStagingCapacity(oStaging) >= GetUnitAirStagingSize(oUnit, oStaging) then
+                local _, tZone = M28Map.GetLandOrWaterZoneData(oStaging:GetPosition(), true, iTeam)
+                local iCost = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oStaging:GetPosition())
+                if not(tZone[M28Map.subrefLZbCoreBase]) then iCost = iCost + 250 end
+                if not(iClosestCost) or iCost < iClosestCost then oClosest, iClosestCost = oStaging, iCost end
+            end
+        end
+        tQueue[oUnit] = true
+        if oClosest then
+            oClosest.M28AirRefuelQueueCount = oClosest.M28AirRefuelQueueCount + 1
+            oClosest.M28AirRefuelOldestWait = math.max(oClosest.M28AirRefuelOldestWait, iNow - (oUnit.M28AirRefuelWaitSince or iNow))
+            local tPosition = oClosest:GetPosition()
+            -- Wait beside the pad so a newly free slot does not require another long base-to-pad flight.
+            local iOffset = 12 + math.mod(oUnit.EntityId or 0, 9)
+            return {tPosition[1] + iOffset, tPosition[2], tPosition[3]}
+        end
+        return tFallback
+    end
     --Send any units that couldnt be refueld to the closest friendly base air rally point
     if M28Utilities.IsTableEmpty(tUnitsUnableToRefuel) == false then
         local bWantMoreAirStaging = false
@@ -3920,7 +4015,7 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
                     ForkThread(M28Micro.MoveAndKillAirUnit,oUnit)
                     --M28Orders.IssueTrackedKillUnit(oUnit)
                 else
-                    M28Orders.IssueTrackedMove(oUnit, tRefuelBase, 10, false, 'UCWntStgn', false)
+                    M28Orders.IssueTrackedMove(oUnit, GetRefuelWaitingPosition(oUnit, tRefuelBase), 10, false, 'UCWntStgn', false)
                 end
             end
         else
@@ -3938,7 +4033,7 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
             end
             for iUnit, oUnit in tUnitsUnableToRefuel do
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Telling unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' to move to refuel location, special micro active='..tostring(oUnit[M28UnitInfo.refbSpecialMicroActive] or false)..'; Cur dist to tRefuelBase='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tRefuelBase)) end
-                M28Orders.IssueTrackedMove(oUnit, tRefuelBase, 10, false, 'WntStgn', false)
+                M28Orders.IssueTrackedMove(oUnit, GetRefuelWaitingPosition(oUnit, tRefuelBase), 10, false, 'WntStgn', false)
                 if bConsiderKillingUnits and oUnit:GetFuelRatio() <= 0.1 and oUnit:GetFuelRatio() >= 0 and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tRallyPoint) <= 10 and (not(oUnit[M28UnitInfo.refbCampaignTriggerAdded]) or not(M28Map.bIsCampaignMap)) and (not(EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId) or M28UnitInfo.GetUnitHealthPercent(oUnit) <= 0.2)) then --(experimental condition is a redundancy)
                     ForkThread(M28Micro.MoveAndKillAirUnit,oUnit)
                     --M28Orders.IssueTrackedKillUnit(oUnit)

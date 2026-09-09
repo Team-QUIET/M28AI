@@ -15578,9 +15578,10 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     iCurPriority = iCurPriority + 1
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to check if we need air staging for core zone, Time='..GetGameTimeSeconds()..'; Time of last shortage='..(M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastAirStagingShortage] or 'nil')..'; subrefbTeamIsStallingEnergy='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])..'; T2+T3 mec count='..tLZTeamData[M28Map.subrefMexCountByTech][3] + tLZTeamData[M28Map.subrefMexCountByTech][2]..'; subrefiTeamGrossEnergy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; subrefiTeamGrossMass='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass]) end
     if GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastAirStagingShortage] or 0) <= 1.1 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and (tLZTeamData[M28Map.subrefMexCountByTech][3] > 0 or tLZTeamData[M28Map.subrefMexCountByTech][2] >= 2 or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 60*M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or (GetGameTimeSeconds() >= 300 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 40*M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 2*M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount])) then
-        --Limit of 3 air staging in a LZ
+        -- Count usable docking slots and persistent queues before expanding recovery capacity.
         local tExistingAirStaging = EntityCategoryFilterDown(M28UnitInfo.refCategoryAirStaging, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
         local iExistingAirStaging = 0
+        local iStagingSlots, iStagingWaiting, iOldestStagingWait = 0, 0, 0
         local oExistingM28Brain
         local iAirStagingInThisZoneUnderConstruction = 0
         if M28Utilities.IsTableEmpty(tExistingAirStaging) == false then
@@ -15589,6 +15590,9 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                     if oStaging:GetFractionComplete() == 1 then
                         oExistingM28Brain = oStaging:GetAIBrain()
                         iExistingAirStaging = iExistingAirStaging + 1
+                        iStagingSlots = iStagingSlots + M28Air.GetAirStagingCapacity(oStaging)
+                        iStagingWaiting = iStagingWaiting + (oStaging.M28AirRefuelQueueCount or 0)
+                        iOldestStagingWait = math.max(iOldestStagingWait, oStaging.M28AirRefuelOldestWait or 0)
                     else
                         iAirStagingInThisZoneUnderConstruction = iAirStagingInThisZoneUnderConstruction + 1
                     end
@@ -15602,7 +15606,11 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
             iUnderConstructionInOtherZonesWithLowResources = M28Conditions.GetNumberOfUnderConstructionUnitsOfCategoryInOtherCoreZones(tLZTeamData, iTeam, M28UnitInfo.refCategoryAirStaging)
         end
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iExistingAirStaging='..iExistingAirStaging..'; bHaveLowMass='..tostring(bHaveLowMass)..'; iAirStagingInThisZoneUnderConstruction='..iAirStagingInThisZoneUnderConstruction..'; iUnderConstructionInOtherZonesWithLowResources='..iUnderConstructionInOtherZonesWithLowResources..'; bPrioritiseProduction='..tostring(bPrioritiseProduction)) end
-        if iUnderConstructionInOtherZonesWithLowResources == 0 and (iExistingAirStaging == 0 or (iExistingAirStaging == 1 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] > 1) or (iExistingAirStaging < 3 and not(bHaveLowMass)) or (iExistingAirStaging < 8 and oExistingM28Brain and oExistingM28Brain:GetCurrentUnits(M28UnitInfo.refCategoryAllNonExpAir) >= 50 * iExistingAirStaging)) and (iExistingAirStaging == 0 or (not(bPrioritiseProduction) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= (40 + 20 * iExistingAirStaging) *M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount])) then
+        local iAircraft = oExistingM28Brain and oExistingM28Brain:GetCurrentUnits(M28UnitInfo.refCategoryAllNonExpAir - categories.ENGINEER - categories.SCOUT) or 0
+        local bPersistentStagingQueue = M28Air.GetDesiredAirStagingSlots(iAircraft, iStagingSlots, iStagingWaiting, iOldestStagingWait) > iStagingSlots
+        if iAirStagingInThisZoneUnderConstruction == 0 and iUnderConstructionInOtherZonesWithLowResources == 0
+                and (iExistingAirStaging == 0 or (iExistingAirStaging == 1 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] > 1) or (iExistingAirStaging < 3 and not(bHaveLowMass)) or (iExistingAirStaging < 10 and bPersistentStagingQueue))
+                and (iExistingAirStaging == 0 or ((not(bPrioritiseProduction) or bPersistentStagingQueue) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= (40 + 20 * iExistingAirStaging) *M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount])) then
 
             iBPWanted = tiBPByTech[M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]]
             if not(bHaveLowMass) then iBPWanted = iBPWanted * 2 end
