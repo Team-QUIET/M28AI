@@ -3641,6 +3641,22 @@ function UpdateAirRallyAndSupportPoints(iTeam, iAirSubteam)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     end
 
+function ShouldWaitForStrikeWave(tAircraft, iAvailableThreat, iMinimumThreat)
+    if M28Utilities.IsTableEmpty(tAircraft) then return false end
+    local iNow = GetGameTimeSeconds()
+    if iAvailableThreat >= iMinimumThreat then
+        for _, oUnit in tAircraft do oUnit.M28StrikeWaveWaitStarted = nil end
+        return false
+    end
+    local bWait = true
+    for _, oUnit in tAircraft do
+        if not(oUnit.M28StrikeWaveWaitStarted) then oUnit.M28StrikeWaveWaitStarted = iNow end
+        if iNow - oUnit.M28StrikeWaveWaitStarted >= 30 then bWait = false end
+    end
+    -- An expired assembly wait permits normal target/route checks, not an unsafe strike.
+    return bWait
+end
+
 function GetUnitAirStagingSize(oUnit)
     --Manually confirmed - ambassador takes up 4 spaces, janus, inties and asf take up 1, broadswords and solace take up 2 spaces
     if EntityCategoryContains(categories.TECH3 * M28UnitInfo.refCategoryBomber, oUnit.UnitId) then
@@ -7243,7 +7259,7 @@ function ManageBombers(iTeam, iAirSubteam)
         end
     end
 
-    -- 4000 for T3 waves (~3-4 strats at 1200 mass), 500 for T1-T2 waves
+    -- Larger strategic bomber groups get a higher assembly threshold.
     local iBomberBaselineThreat = 800
     if iT3BomberCount >= 2 then iBomberBaselineThreat = 4000 end
     local iEnemyAirAA = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 0
@@ -7275,7 +7291,7 @@ function ManageBombers(iTeam, iAirSubteam)
     end
 
     -- If we don't have enough bomber threat to attack safely, regroup at the proactive air anchor.
-    if iAvailableBomberThreat < iBomberMinWaveThreat and not(M28Utilities.IsTableEmpty(tAvailableBombers)) then
+    if ShouldWaitForStrikeWave(tAvailableBombers, iAvailableBomberThreat, iBomberMinWaveThreat) then
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Insufficient Bomber Threat for Wave ('..iAvailableBomberThreat..' < '..iBomberMinWaveThreat..'). Regrouping at proactive air fallback. EnemyAirAA='..iEnemyAirAA..', PeakGroundAA='..iPeakEnemyGroundAA) end
 
         local tRallyPoint = GetProactiveAirFallbackPoint(iAirSubteam)
@@ -8714,7 +8730,7 @@ function ManageGunships(iTeam, iAirSubteam)
         return
     end
 
-    -- FORCE GROUPING LOGIC
+    -- Give new gunships time to assemble before ordinary target evaluation.
     local iAvailableGunshipThreat = M28UnitInfo.GetAirThreatLevel(tAvailableGunships, false, false, false, true, false, false)
     local iT3GunshipCount = 0
     if not(M28Utilities.IsTableEmpty(tAvailableGunships)) then
@@ -8738,7 +8754,7 @@ function ManageGunships(iTeam, iAirSubteam)
         iMinWaveThreat = 0
     end
 
-    if iAvailableGunshipThreat < iMinWaveThreat then
+    if ShouldWaitForStrikeWave(tAvailableGunships, iAvailableGunshipThreat, iMinWaveThreat) then
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Insufficient Gunship Threat for Wave ('..iAvailableGunshipThreat..' < '..iMinWaveThreat..'). Regrouping at proactive air fallback.') end
         
         local tRallyPoint = GetProactiveAirFallbackPoint(iAirSubteam)
