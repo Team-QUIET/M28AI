@@ -1775,6 +1775,9 @@ function WantToKeepLowerTechLandProduction(tLZTeamData, iTeam, iFactoryTechLevel
     local aiBrain = oOptionalBrainOverride or ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]
     if not(aiBrain) then return false end
 
+    -- Continue the opening only while the higher-tier unlock belongs to a teammate.
+    if (aiBrain[M28Economy.refiOurHighestLandFactoryTech] or iFactoryTechLevel) > iFactoryTechLevel then return false end
+
     local iHighestLandTech = M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] or 0
     local iTimeFirstHigherTech
     local iContinuationWindow

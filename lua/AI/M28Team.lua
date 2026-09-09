@@ -3398,9 +3398,9 @@ function ConsiderPriorityLandFactoryUpgrades(iM28Team, bIntentOnly)
     if bDebugMessages == true then
         LOG(sFunctionRef..': Highest land tech='..tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech]..'; Highest enemy tech='..tTeamData[iM28Team][subrefiHighestEnemyGroundTech]..'; Gross mass='..tTeamData[iM28Team][subrefiTeamGrossMass]..'; Mass stored='..tTeamData[iM28Team][subrefiTeamMassStored])
     end
-    if tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] > 0 and tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] < 3 and (tTeamData[iM28Team][subrefiHighestFriendlyLandFactoryTech] < 2 or not(tTeamData[iM28Team][refbFocusOnT1Spam])) then
-        --Use the lowest valid source tier so lagging T1 brains qualify independently and brains without land factories do not collapse the tier to zero.
-        local iTeamLandTech = GetLowestFriendlyHQSourceTech(iM28Team, M28UnitInfo.refCategoryLandFactory)
+    -- A teammate's HQ does not unlock another army's factories.
+    local iTeamLandTech = GetLowestFriendlyHQSourceTech(iM28Team, M28UnitInfo.refCategoryLandFactory)
+    if iTeamLandTech > 0 and iTeamLandTech < 3 and (iTeamLandTech < 2 or not(tTeamData[iM28Team][refbFocusOnT1Spam])) then
         local bWantLandHQUpgrade = false
         local bNearbyUpgradedEnemyACU = false
         local iTotalFriendlyMexCount = 0
