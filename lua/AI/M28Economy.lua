@@ -46,7 +46,8 @@ refbGoingSecondAir = 'M28EGo2ndA' --true if ACU will be going second air
 refoBrainRecordedForEconomy = 'M28EBrainRecordedUnit' --Stores the M28 brain that has factored in this unit's mass and energy income
 refiLastEnergyUsage = 'M28ELastEnergyUsage' --per tick energy usage of the unit (set when the unit is paused)
 refiLastMassUsage = 'M28ELastMassUsage' --per tick massu sage of the unit set when unit is paused
-refiStorageMassAdjacencyBonus = 'M28EMassStorAdj' --Adjacency bonus from a mass storage
+reftRecordedResourceIncome = 'M28ResourceIncome' --Native per-tick contribution credited to its owner
+reftoRecordedEconomyUnits = 'M28EconomyUnits' --Against brain, keyed by EntityId
 refbSpecialUpgradeMonitor = 'M28ESpecUM' --true if special upgrade monitor (used for hydros) is active
 refbTriedIgnoringCanBuildForUpgrade = 'M28ETrNlU' --true if CanBuild returns false but the unit is meant to be able to upgrade - will do a 1-off attempt at upgrading
 
@@ -1491,60 +1492,6 @@ function UpdateHighestFactoryTechLevelForDestroyedUnit(oUnitJustDestroyed)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function UpdateMassStorageAdjacencyValues(oStorage, bDestroyed)
-    --Updates gross income for the mass storage
-    local sFunctionRef = 'UpdateMassStorageAdjacencyValues'
-    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-
-    local iMassChange = -(oStorage[refiStorageMassAdjacencyBonus] or 0)
-    local aiBrain = oStorage:GetAIBrain()
-
-    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, Time='..GetGameTimeSeconds()..'; About to update for oStorage='..oStorage.UnitId..M28UnitInfo.GetUnitLifetimeCount(oStorage)..' owned by brain '..aiBrain.Nickname..'; bDestroyed='..tostring(bDestroyed or false)..'; oStorage[refiStorageMassAdjacencyBonus]='..(oStorage[refiStorageMassAdjacencyBonus] or 'nil')..'; aiBrain[refiGrossMassBaseIncome]='..(aiBrain[refiGrossMassBaseIncome] or 'nil')) end
-    if not(bDestroyed) then
-        oStorage[refiStorageMassAdjacencyBonus] = 0
-        if oStorage:GetFractionComplete() >= 1 then
-            local iBaseMassGen
-            local iAIxMod = 1
-            local iAdjacencyMassGen
-            local oGenBP
-            local iBPMassGen
-            local iGenUnitSize
-            local iStorageSize = M28UnitInfo.GetBuildingSize(oStorage.UnitId)
-            --Adjust for AIx
-            if aiBrain.CheatEnabled then
-                iAIxMod = tonumber(ScenarioInfo.Options.CheatMult or 1.5)
-            end
-            oStorage[refiStorageMassAdjacencyBonus] = 0
-            --Get all adjacent mexes
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iAIxMod='..iAIxMod..'; Is table of adjacent units empty='..tostring(M28Utilities.IsTableEmpty(oStorage.AdjacentUnits))) end
-            if M28Utilities.IsTableEmpty(oStorage.AdjacentUnits) == false then
-                --Cant use filterdown a doesnt work with .adjacentunits
-                for iMassGenUnit, oMassGenUnit in oStorage.AdjacentUnits do
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering oMassGenUnit='..oMassGenUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMassGenUnit)..' owned by '..oMassGenUnit:GetAIBrain().Nickname) end
-                    if EntityCategoryContains(M28UnitInfo.refCategoryMex + M28UnitInfo.refCategoryMassFab, oMassGenUnit.UnitId) and oMassGenUnit:GetAIBrain() == aiBrain and M28UnitInfo.IsUnitValid(oMassGenUnit) then --Wont get adjacency unless are on the same team
-                        oGenBP = oMassGenUnit:GetBlueprint()
-                        iBaseMassGen = (oGenBP.Economy.ProductionPerSecondMass or 0)
-                        if iBaseMassGen > 0 then
-                            iGenUnitSize = M28UnitInfo.GetBuildingSize(oMassGenUnit.UnitId)
-                            --Mass storage adjacency - if covers all of the resource generation on all 4 sides, gives a 50% boost, so is giving 12.5% boost for each side fully covered
-                            --Also want to measure in mass per tick not per second, so *0.0125
-                            iAdjacencyMassGen = iBaseMassGen * iAIxMod * 0.0125 * math.min(1, iStorageSize / iGenUnitSize)
-                            oStorage[refiStorageMassAdjacencyBonus] = oStorage[refiStorageMassAdjacencyBonus] + iAdjacencyMassGen
-                            iMassChange = iMassChange + iAdjacencyMassGen
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Are adjacent to oMassGenUnit='..(oMassGenUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMassGenUnit)..'; iAdjacencyMassGen for this unit='..(iAdjacencyMassGen or 'nil'))) end
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    aiBrain[refiGrossMassBaseIncome] = (aiBrain[refiGrossMassBaseIncome] or 0) + iMassChange
-    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': End of code, iMassChange='..iMassChange..'; aiBrain[refiGrossMassBaseIncome]='..aiBrain[refiGrossMassBaseIncome]) end
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-end
-
 function ConsiderHydroUpgradeLoop(oUnit)
     --Every 30s consider upgrading unit
     local sFunctionRef = 'ConsiderHydroUpgradeLoop'
@@ -1625,203 +1572,130 @@ function ConsiderHydroUpgradeLoop(oUnit)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function UpdateGrossIncomeForUnit(oUnit, bDestroyed, bIgnoreEnhancements, iOptionalResourceModAdjustmentOverride)
-    --iOptionalResourceModAdjustmentOverride - intended for use with AIX overwhelm where we have already recorded a unit but at the 'wrong' resource rate
-
-    --Logs are enabled below
-    if oUnit.GetAIBrain and EntityCategoryContains(M28UnitInfo.refCategoryResourceUnit + M28UnitInfo.refCategoryMassStorage, oUnit.UnitId) then
-        --Does the unit have an M28 aiBrain?
-        local aiBrain = oUnit:GetAIBrain()
-        if aiBrain.M28AI then
-            local sFunctionRef = 'UpdateGrossIncomeForUnit'
-            local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
-            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time='..GetGameTimeSeconds()..' oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; bDestroyed='..tostring(bDestroyed or false)..': Unit aiBrain='..oUnit:GetAIBrain().Nickname..'; Brain recorded for economy='..((oUnit[refoBrainRecordedForEconomy] or {'nil'}).Nickname or 'nil')..'; Fraction complete='..oUnit:GetFractionComplete()) end
-            if oUnit:GetFractionComplete() < 1 then M28Utilities.ErrorHandler('Trying to update income for unit whose fraction isnt complete') end
-
-            if (bDestroyed and oUnit[refoBrainRecordedForEconomy] == aiBrain) or (not(bDestroyed) and not(oUnit[refoBrainRecordedForEconomy] == aiBrain)) then
-                local iMassGen
-                local iEnergyGen
-                if not(M28Utilities.bLoudModActive or M28Utilities.bQuietModActive) and EntityCategoryContains(M28UnitInfo.refCategoryParagon, oUnit.UnitId) then
-                    iMassGen = 10000 * 0.1
-                    iEnergyGen = 1000000 * 0.1
-                    if iOptionalResourceModAdjustmentOverride then
-                        iMassGen = iMassGen * iOptionalResourceModAdjustmentOverride
-                        iEnergyGen = iEnergyGen * iOptionalResourceModAdjustmentOverride
-                    end
-                    local iTeam = oUnit:GetAIBrain().M28Team
-                    if bDestroyed then
-                        local bRemainingParagon = false
-                        for iBrain, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains] do
-                            local tParagon = oBrain:GetListOfUnits(M28UnitInfo.refCategoryParagon, false, true)
-                            if M28Utilities.IsTableEmpty(tParagon) == false then
-                                for iParagon, oParagon in tParagon do
-                                    if oParagon:GetFractionComplete() == 1 then
-                                        bRemainingParagon = true
-                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': we still have a contructed paragon for oBrain='..oBrain.Nickname..'; oParagon='..oParagon.UnitId..M28UnitInfo.GetUnitLifetimeCount(oParagon)) end
-                                        break
-                                    end
-                                end
-                            end
-                            if bRemainingParagon then break end
-                        end
-                        oUnit:GetAIBrain()[refbBuiltParagon] = bRemainingParagon
-                        M28Team.tTeamData[iTeam][M28Team.refbBuiltParagon] = bRemainingParagon
-                    else
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We have just built a paragon for brain '..oUnit:GetAIBrain().Nickname..'; oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
-                        oUnit:GetAIBrain()[refbBuiltParagon] = true
-                        M28Team.tTeamData[iTeam][M28Team.refbBuiltParagon] = true
-                    end
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We have a paragon that has been built or killed, setting mass gen and energy gen accordingly, iMassGen='..iMassGen) end
-                else
-                    local oBP = oUnit:GetBlueprint()
-                    iMassGen = math.max(oBP.Economy.ProductionPerSecondMass or 0) * 0.1
-                    iEnergyGen = math.max(oBP.Economy.ProductionPerSecondEnergy or 0) * 0.1
-                    --Adjust for RAS upgrade
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is this an ACU or SACU='..tostring(EntityCategoryContains(categories.COMMAND + categories.SUBCOMMANDER, oUnit.UnitId))) end
-                    if not(bIgnoreEnhancements) and EntityCategoryContains(categories.COMMAND + categories.SUBCOMMANDER, oUnit.UnitId) then
-                        local iUpgradeMassPerSec = 0
-                        local iUpgradeEnergyPerSec = 0
-
-                        local tPossibleUpgrades = oBP.Enhancements
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; is tPossibleUpgrades empty='..tostring(M28Utilities.IsTableEmpty(tPossibleUpgrades))) end
-                        if M28Utilities.IsTableEmpty(tPossibleUpgrades) == false and oUnit.HasEnhancement then
-                            local tbIncludedUpgrade = {}
-                            for sCurUpgrade, tUpgrade in tPossibleUpgrades do
-                                if oUnit:HasEnhancement(sCurUpgrade) then
-                                    tbIncludedUpgrade[sCurUpgrade] = true
-                                    iUpgradeMassPerSec = iUpgradeMassPerSec + (tUpgrade.ProductionPerSecondMass or 0)
-                                    iUpgradeEnergyPerSec = iUpgradeEnergyPerSec + (tUpgrade.ProductionPerSecondEnergy or 0)
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit has enhancement '..sCurUpgrade..'; tUpgrade.ProductionPerSecondMass='..(tUpgrade.ProductionPerSecondMass or 'nil')) end
-                                end
-                            end
-
-
-                            --Include built in enhancements (i.e. RAS presets) as there is a delay with onbuilt units showing as having active enhancements
-                            if oBP.EnhancementPresetAssigned.Enhancements then
-                                for iCurUpgrade, sCurUpgrade in oBP.EnhancementPresetAssigned.Enhancements do
-                                    if not(tbIncludedUpgrade[sCurUpgrade]) then
-                                        iUpgradeMassPerSec = iUpgradeMassPerSec + (tPossibleUpgrades[sCurUpgrade].ProductionPerSecondMass or 0)
-                                        iUpgradeEnergyPerSec = iUpgradeEnergyPerSec + (tPossibleUpgrades[sCurUpgrade].ProductionPerSecondEnergy or 0)
-                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit has preset enhancement '..sCurUpgrade..'; tUpgrade.ProductionPerSecondMass='..(tPossibleUpgrades[sCurUpgrade].ProductionPerSecondMass or 'nil')..'; reprs='..reprs(tPossibleUpgrades[sCurUpgrade])) end
-                                    end
-                                end
-                            end
-                            --[[local activeEnhancements = SimUnitEnhancements[oUnit.EntityId]
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is activeEnhancements nil='..tostring(activeEnhancements == nil)) end
-                            if activeEnhancements then
-                                local presetEnhancements = oBP.EnhancementPresetAssigned.Enhancements
-                                for _, enhName in activeEnhancements do
-                                    if not(tbIncludedUpgrade[enhName]) then
-                                        tbIncludedUpgrade[enhName] = true
-                                        local enh = tPossibleUpgrades[enhName]
-                                        iUpgradeMassPerSec = iUpgradeMassPerSec + (enh.ProductionPerSecondMass or 0)
-                                        iUpgradeEnergyPerSec = iUpgradeEnergyPerSec + (enh.ProductionPerSecondEnergy or 0)
-                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit has preset enhancement '..enhName..'; enh.ProductionPerSecondMass='..(enh.ProductionPerSecondMass or 'nil')) end
-                                    end
-                                end
-                            end--]]
-                        end
-                        iMassGen = iMassGen + iUpgradeMassPerSec * 0.1
-                        iEnergyGen = iEnergyGen + iUpgradeEnergyPerSec * 0.1
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iUpgradeMassPerSec='..iUpgradeMassPerSec..'; iMassGen per tick='..iMassGen) end
-                    end
-
-                    --Mass storage - assume we are adjacent to a T2 mex as a basic approximation
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering whether to check for mass storage, iMassGen='..iMassGen..'; iEnergyGen='..iEnergyGen..'; Does unit contain mass storage='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryMassStorage, oUnit.UnitId))) end
-                    if iMassGen == 0 and iEnergyGen == 0 and EntityCategoryContains(M28UnitInfo.refCategoryMassStorage, oUnit.UnitId) then
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dealing with mass storage so will update for adjacency value gained or lost') end
-                        UpdateMassStorageAdjacencyValues(oUnit, bDestroyed) --Will update mass income values as part of this function
-                    elseif iMassGen > 0 then
-                        --Update adjacency values for any nearby mass storage
-                        local tMexLocation = oUnit:GetPosition()
-                        local rSearchRectangle = M28Utilities.GetRectAroundLocation(tMexLocation, 2.749) --If changing this also change M28Events and M28Engineer similar value
-                        local tNearbyUnits = GetUnitsInRect(rSearchRectangle) --at 1.5 end up with storage thats not adjacent being gifted in some cases but not in others; at 1 none of it gets gifted; the mass storage should be exactly 2 from the mex; however even at 2.1, 2.25 and 2.499 had cases where the mex wasnt identified so will try 2.75 since distances can vary/be snapped to the nearest 0.5 I think
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if have any nearby units in a rectangle to this mex/mass fab, is tNearbyUnits empty='..tostring(M28Utilities.IsTableEmpty(tNearbyUnits))) end
-                        if M28Utilities.IsTableEmpty(tNearbyUnits) == false then
-                            local tNearbyStorage = EntityCategoryFilterDown(M28UnitInfo.refCategoryMassStorage, tNearbyUnits)
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is table of nearby storage empty='..tostring(M28Utilities.IsTableEmpty(tNearbyStorage))) end
-                            if M28Utilities.IsTableEmpty(tNearbyStorage) == false then
-                                for iStorage, oStorage in tNearbyStorage do
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have oStorage='..oStorage.UnitId..M28UnitInfo.GetUnitLifetimeCount(oStorage)..'; will update if it is close to here, distance='..M28Utilities.GetDistanceBetweenPositions(oStorage:GetPosition(), tMexLocation)) end
-                                    if M28Utilities.GetDistanceBetweenPositions(oStorage:GetPosition(), tMexLocation) <= 2.25 then
-                                        --Cant fork thread or else lose the aiBrain info if were just destroyed
-                                        UpdateMassStorageAdjacencyValues(oStorage, false)
-                                    end
-                                end
-                            end
-                        end
-                    end
-
-                    --Adjust for AIx
-                    if aiBrain.CheatEnabled then
-                        local iAIxMod = iOptionalResourceModAdjustmentOverride or tonumber(ScenarioInfo.Options.CheatMult or tostring(1.5))
-                        iMassGen = iMassGen * iAIxMod
-                        iEnergyGen = iEnergyGen * iAIxMod
-                    end
-                end
-                if bDestroyed then
-                    iMassGen = iMassGen * -1
-                    iEnergyGen = iEnergyGen * -1
-                    oUnit[refoBrainRecordedForEconomy] = nil
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit destroyed so will reduce mass gen') end
-                else
-                    oUnit[refoBrainRecordedForEconomy] = aiBrain
-                    --Set temporary flag that we have just built a lot of power (if we have)
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if should temporarily say we have enough power; iEnergyGen='..iEnergyGen..'; Gross energy='..(M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamGrossEnergy] or 'nil')..'; Net energy='..(M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamNetEnergy] or 'nil')..'; Flag for lots of power='..tostring(M28Team.tTeamData[aiBrain.M28Team][M28Team.refbJustBuiltLotsOfPower] or false)) end
-                    if iEnergyGen >= math.max(20, (M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamGrossEnergy] or 0) * 0.15, -(M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamNetEnergy] or 0)) and not(M28Team.tTeamData[aiBrain.M28Team][M28Team.refbJustBuiltLotsOfPower]) then
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Setting flag we have built lots of power, subrefiTeamNetEnergy='..(M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamNetEnergy] or 0)) end
-                        local iTeam = aiBrain.M28Team
-
-                        local iTimeToWait = 6
-                        if M28UnitInfo.GetUnitLifetimeCount(oUnit) <= 2 then
-                            local iUnitTechLevel = M28UnitInfo.GetUnitTechLevel(oUnit)
-                            if iUnitTechLevel > 1 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] or 0) >= iEnergyGen * 0.2 then
-                                iTimeToWait = math.max(6, math.min(30, M28Team.tTeamData[iTeam][M28Team.subrefiTeamEnergyStored] / math.max(0.1, M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored])))
-                            end
-                            if iTimeToWait < 10 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] or 0) >= iEnergyGen * 0.1 and (M28UnitInfo.GetUnitLifetimeCount(oUnit) == 1 or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] < -1 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] < -M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] * 0.3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.4)) then
-                                iTimeToWait = 10
-                            end
-                        end
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just built a lot of power so will temporarily say we dont need more power, iTimeToWait='..iTimeToWait..'; refiTimeEndingActiveCheckOfLotsOfPower='..(M28Team.tTeamData[iTeam][M28Team.refiTimeEndingActiveCheckOfLotsOfPower] or 'nil')) end
-                        if iTimeToWait <= 6 then
-                            if not(M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower]) then
-                                M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower] = true
-                                M28Utilities.DelayChangeVariable(M28Team.tTeamData[aiBrain.M28Team], M28Team.refbJustBuiltLotsOfPower, false, iTimeToWait)
-                            end
-                        else
-                            M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower] = true
-                            ForkThread(JustBuiltSignificantPowerMonitor, aiBrain.M28Team, iTimeToWait, iEnergyGen) --This includes a check if we are already acitvely monitoring
-                        end
-                    end
-                    --Update team eco values to factor in impact of this on any decisions made before the next team eco refresh
-                    M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamGrossMass] = math.max(0, (M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamGrossMass] or 0) + iMassGen)
-                    M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamNetMass] = (M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamNetMass] or 0) + iMassGen
-                    M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamGrossEnergy] = math.max(0, (M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamGrossEnergy] or 0) + iEnergyGen)
-                    M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamNetEnergy] = (M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamNetEnergy] or 0) + iEnergyGen
-                end
-                aiBrain[refiGrossEnergyBaseIncome] = math.max(0, (aiBrain[refiGrossEnergyBaseIncome] or 0) + iEnergyGen)
-                aiBrain[refiNetEnergyBaseIncome] = (aiBrain[refiNetEnergyBaseIncome] or 0) + iEnergyGen
-                aiBrain[refiGrossMassBaseIncome] = math.max(0, (aiBrain[refiGrossMassBaseIncome] or 0) + iMassGen)
-                aiBrain[refiNetMassBaseIncome] = (aiBrain[refiNetMassBaseIncome] or 0) + iMassGen
-
-                if iEnergyGen >= 25 then
-                    ForkThread(ConsiderReclaimingPower, aiBrain.M28Team, oUnit)
-                end
-
-                --Upgrading hydro
-                if not(bDestroyed) and EntityCategoryContains(M28UnitInfo.refCategoryHydro, oUnit.UnitId) then
-                    ForkThread(ConsiderHydroUpgradeLoop,oUnit)
-                end
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Updated gross and net resources for iMassGen='..iMassGen..'; iEnergyGen='..iEnergyGen..'; aiBrain[refiNetMassBaseIncome]='..aiBrain[refiNetMassBaseIncome]..'; aiBrain[refiGrossMassBaseIncome]='..aiBrain[refiGrossMassBaseIncome]) end
-            end
-
-
-            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-        end
+local function ApplyResourceIncomeChange(aiBrain, iMass, iEnergy)
+    aiBrain[refiGrossMassBaseIncome] = math.max(0, (aiBrain[refiGrossMassBaseIncome] or 0) + iMass)
+    aiBrain[refiGrossEnergyBaseIncome] = math.max(0, (aiBrain[refiGrossEnergyBaseIncome] or 0) + iEnergy)
+    aiBrain[refiNetMassBaseIncome] = (aiBrain[refiNetMassBaseIncome] or 0) + iMass
+    aiBrain[refiNetEnergyBaseIncome] = (aiBrain[refiNetEnergyBaseIncome] or 0) + iEnergy
+    local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
+    if tTeamData then
+        tTeamData[M28Team.subrefiTeamGrossMass] = math.max(0, (tTeamData[M28Team.subrefiTeamGrossMass] or 0) + iMass)
+        tTeamData[M28Team.subrefiTeamGrossEnergy] = math.max(0, (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) + iEnergy)
+        tTeamData[M28Team.subrefiTeamNetMass] = (tTeamData[M28Team.subrefiTeamNetMass] or 0) + iMass
+        tTeamData[M28Team.subrefiTeamNetEnergy] = (tTeamData[M28Team.subrefiTeamNetEnergy] or 0) + iEnergy
     end
 end
+
+local function RemoveRecordedResourceIncome(oUnit)
+    local tRecorded = oUnit[reftRecordedResourceIncome]
+    if not(tRecorded) then return end
+    ApplyResourceIncomeChange(tRecorded.brain, -tRecorded.mass, -tRecorded.energy)
+    local tUnits = tRecorded.brain[reftoRecordedEconomyUnits]
+    if tUnits then tUnits[oUnit.EntityId] = nil end
+    oUnit[reftRecordedResourceIncome] = nil
+    oUnit[refoBrainRecordedForEconomy] = nil
+end
+
+local function RefreshAdjacentResourceIncome(oUnit)
+    local tPosition = oUnit.M28EconomyAdjacencyPosition
+    if not(tPosition) and not(oUnit.Dead) then tPosition = oUnit:GetPosition() end
+    if not(tPosition) then return end
+    -- Adjacency buffs can settle after construction/destruction callbacks.
+    local tRect = M28Utilities.GetRectAroundLocation(tPosition, 12)
+    ForkThread(function()
+        WaitTicks(2)
+        local toNearby = GetUnitsInRect(tRect) or {}
+        table.sort(toNearby, function(a, b) return a.EntityId < b.EntityId end)
+        for _, oNearby in toNearby do
+            if M28UnitInfo.IsUnitValid(oNearby) and oNearby:GetFractionComplete() == 1
+                    and EntityCategoryContains(M28UnitInfo.refCategoryResourceUnit, oNearby.UnitId) then
+                UpdateGrossIncomeForUnit(oNearby)
+            end
+        end
+    end)
+end
+
+function UpdateGrossIncomeForUnit(oUnit, bDestroyed)
+    if not(oUnit) then return end
+    local tRecorded = oUnit[reftRecordedResourceIncome]
+    if bDestroyed then
+        RemoveRecordedResourceIncome(oUnit)
+        if oUnit.M28EconomyAdjacencyPosition then RefreshAdjacentResourceIncome(oUnit) end
+        return
+    end
+    if not(M28UnitInfo.IsUnitValid(oUnit)) or oUnit:GetFractionComplete() < 1 then return end
+    local aiBrain = oUnit:GetAIBrain()
+    if tRecorded and tRecorded.brain ~= aiBrain then
+        RemoveRecordedResourceIncome(oUnit)
+        tRecorded = nil
+    end
+    if not(aiBrain.M28AI) then return end
+    if EntityCategoryContains(M28UnitInfo.refCategoryMassStorage, oUnit.UnitId) then
+        if not(oUnit.M28EconomyAdjacencyPosition) then
+            oUnit.M28EconomyAdjacencyPosition = oUnit:GetPosition()
+            RefreshAdjacentResourceIncome(oUnit)
+        end
+        return
+    end
+    if not(EntityCategoryContains(M28UnitInfo.refCategoryResourceUnit, oUnit.UnitId)) then return end
+
+    -- Native rates already include active RAS/presets, resource multipliers and
+    -- storage adjacency. Credit a delta so repeats and replacements cannot add it twice.
+    local iMass = math.max(0, oUnit:GetProductionPerSecondMass()) * 0.1
+    local iEnergy = math.max(0, oUnit:GetProductionPerSecondEnergy()) * 0.1
+    local iMassChange = iMass - (tRecorded and tRecorded.mass or 0)
+    local iEnergyChange = iEnergy - (tRecorded and tRecorded.energy or 0)
+    ApplyResourceIncomeChange(aiBrain, iMassChange, iEnergyChange)
+    oUnit[reftRecordedResourceIncome] = {brain = aiBrain, mass = iMass, energy = iEnergy}
+    oUnit[refoBrainRecordedForEconomy] = aiBrain
+    aiBrain[reftoRecordedEconomyUnits] = aiBrain[reftoRecordedEconomyUnits] or {}
+    aiBrain[reftoRecordedEconomyUnits][oUnit.EntityId] = oUnit
+
+    if not(tRecorded) and EntityCategoryContains(categories.STRUCTURE, oUnit.UnitId) then
+        oUnit.M28EconomyAdjacencyPosition = oUnit:GetPosition()
+        RefreshAdjacentResourceIncome(oUnit)
+    end
+    local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
+    if iEnergyChange >= 20 and tTeamData then
+        local iEnergyGen = iEnergyChange
+        local sFunctionRef = 'UpdateGrossIncomeForUnit'
+        local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
+        -- Existing power-completion cooldown, now based on the actual income gained.
+        if iEnergyGen >= math.max(20, (M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamGrossEnergy] or 0) * 0.15, -(M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamNetEnergy] or 0)) and not(M28Team.tTeamData[aiBrain.M28Team][M28Team.refbJustBuiltLotsOfPower]) then
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Setting flag we have built lots of power, subrefiTeamNetEnergy='..(M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiTeamNetEnergy] or 0)) end
+            local iTeam = aiBrain.M28Team
+
+            local iTimeToWait = 6
+            if M28UnitInfo.GetUnitLifetimeCount(oUnit) <= 2 then
+                local iUnitTechLevel = M28UnitInfo.GetUnitTechLevel(oUnit)
+                if iUnitTechLevel > 1 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] or 0) >= iEnergyGen * 0.2 then
+                    iTimeToWait = math.max(6, math.min(30, M28Team.tTeamData[iTeam][M28Team.subrefiTeamEnergyStored] / math.max(0.1, M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored])))
+                end
+                if iTimeToWait < 10 and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] or 0) >= iEnergyGen * 0.1 and (M28UnitInfo.GetUnitLifetimeCount(oUnit) == 1 or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] < -1 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] < -M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] * 0.3 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] <= 0.4)) then
+                    iTimeToWait = 10
+                end
+            end
+            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just built a lot of power so will temporarily say we dont need more power, iTimeToWait='..iTimeToWait..'; refiTimeEndingActiveCheckOfLotsOfPower='..(M28Team.tTeamData[iTeam][M28Team.refiTimeEndingActiveCheckOfLotsOfPower] or 'nil')) end
+            if iTimeToWait <= 6 then
+                if not(M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower]) then
+                    M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower] = true
+                    M28Utilities.DelayChangeVariable(M28Team.tTeamData[aiBrain.M28Team], M28Team.refbJustBuiltLotsOfPower, false, iTimeToWait)
+                end
+            else
+                M28Team.tTeamData[iTeam][M28Team.refbJustBuiltLotsOfPower] = true
+                ForkThread(JustBuiltSignificantPowerMonitor, aiBrain.M28Team, iTimeToWait, iEnergyGen) --This includes a check if we are already acitvely monitoring
+            end
+        end
+
+    end
+    if not(tRecorded) and EntityCategoryContains(M28UnitInfo.refCategoryPower, oUnit.UnitId) and iEnergy >= 25 then
+        ForkThread(ConsiderReclaimingPower, aiBrain.M28Team, oUnit)
+    end
+    if not(tRecorded) and EntityCategoryContains(M28UnitInfo.refCategoryHydro, oUnit.UnitId) then
+        ForkThread(ConsiderHydroUpgradeLoop, oUnit)
+    end
+end
+
 
 function AdjustAIxOverwhelmRate()
     --Waits the indicated number of seconds and then adjusts the AIx overwhelm rate
@@ -1922,24 +1796,28 @@ function AdjustAIxOverwhelmRate()
 end
 
 function RefreshEconomyGrossValues(aiBrain)
-    --Updates recorded gross mass and energy for each unit
-    local sFunctionRef = 'RefreshEconomyGrossValues'
-    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEconomy, sFunctionRef)
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-
-    local tEconomyUnits = aiBrain:GetListOfUnits(M28UnitInfo.refCategoryResourceUnit, false, true)
-    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': refreshing gross income for every unit we own time='..GetGameTimeSeconds()..'; size of tEconomyUnits='..table.getn(tEconomyUnits)) end
-    for iUnit, oUnit in tEconomyUnits do
-        if oUnit:GetFractionComplete() == 1 then
-            UpdateGrossIncomeForUnit(oUnit) --Redundancy
+    local toRecorded = {}
+    for _, oUnit in aiBrain[reftoRecordedEconomyUnits] or {} do table.insert(toRecorded, oUnit) end
+    table.sort(toRecorded, function(a, b) return a.EntityId < b.EntityId end)
+    for _, oUnit in toRecorded do
+        if not(M28UnitInfo.IsUnitValid(oUnit)) or oUnit:GetAIBrain() ~= aiBrain then
+            RemoveRecordedResourceIncome(oUnit)
         end
     end
-
-    --Update storage capacity
+    local toUnits = aiBrain:GetListOfUnits(M28UnitInfo.refCategoryResourceUnit, false, true)
+    table.sort(toUnits, function(a, b) return a.EntityId < b.EntityId end)
+    local iMass, iEnergy = 0, 0
+    for _, oUnit in toUnits do
+        if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 and oUnit:GetAIBrain() == aiBrain then
+            UpdateGrossIncomeForUnit(oUnit)
+            local tRecorded = oUnit[reftRecordedResourceIncome]
+            if tRecorded then iMass = iMass + tRecorded.mass; iEnergy = iEnergy + tRecorded.energy end
+        end
+    end
+    -- Reconcile floating-point drift in the running totals without accumulating it.
+    ApplyResourceIncomeChange(aiBrain, iMass - (aiBrain[refiGrossMassBaseIncome] or 0), iEnergy - (aiBrain[refiGrossEnergyBaseIncome] or 0))
     GetMassStorageMaximum(aiBrain, true)
-
     GetEnergyStorageMaximum(aiBrain, true)
-
 end
 
 function RefreshEconomyData(aiBrain)

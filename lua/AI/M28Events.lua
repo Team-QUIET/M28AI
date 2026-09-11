@@ -1238,14 +1238,8 @@ function OnEnhancementComplete(oUnit, sEnhancement)
                 CloakedUnitIdentified(oUnit)
             end
             --Update eco for RAS
-            local tEnhancement = oUnit:GetBlueprint().Enhancements[sEnhancement]
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tEnhancement='..reprs(tEnhancement)) end
-            if tEnhancement then
-                if tEnhancement.ProductionPerSecondEnergy or tEnhancement.ProductionperSecondMass then
-                    --Remove existing entries for unit then create new ones
-                    M28Economy.UpdateGrossIncomeForUnit(oUnit, true, true)
-                    M28Economy.UpdateGrossIncomeForUnit(oUnit, false, false)
-                end
+            if EntityCategoryContains(categories.COMMAND + categories.SUBCOMMANDER, oUnit.UnitId) then
+                M28Economy.UpdateGrossIncomeForUnit(oUnit)
             end
 
             --Teleport details

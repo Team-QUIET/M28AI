@@ -1621,7 +1621,7 @@ function SetBuildAndResourceCheatModifiers(aiBrain, iBuildModifier, iResourceMod
                 FAFBuffs.RemoveBuff(oUnit, 'CheatBuildRate'..aiBrain:GetArmyIndex(), true)
                 FAFBuffs.ApplyBuff(oUnit, 'CheatBuildRate'..aiBrain:GetArmyIndex())--]]
                 if iOptionalRecordedUnitResourceAdjust then
-                    ForkThread(UpdateGrossIncomeForUnit, oUnit, false, false, iOptionalRecordedUnitResourceAdjust)
+                    ForkThread(M28Economy.UpdateGrossIncomeForUnit, oUnit)
                 end
             end
         end

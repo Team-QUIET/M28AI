@@ -197,7 +197,7 @@ refCategoryT1Mex = refCategoryMex * categories.TECH1
 refCategoryT2Mex = refCategoryMex * categories.TECH2
 refCategoryT3Mex = refCategoryMex * categories.TECH3
 refCategoryHydro = categories.HYDROCARBON - categories.NAVAL
-refCategoryResourceUnit = categories.MASSPRODUCTION + categories.MASSFABRICATION + categories.ENERGYPRODUCTION --i.e. includes SACU
+refCategoryResourceUnit = categories.MASSPRODUCTION + categories.MASSFABRICATION + categories.ENERGYPRODUCTION + categories.COMMAND + categories.SUBCOMMANDER
 refCategoryProductionUnit = categories.ENGINEER + categories.FACTORY + categories.STRUCTURE * (categories.TECH2 + categories.TECH1) + categories.REPAIR + categories.SILO --i.e. includes buildings that can upgrade; done so if fixing a modifier it can affect build rate
 if categories.urb4206 then refCategoryProductionUnit = refCategoryProductionUnit + categories.urb4206 end --ED4 shield
 
@@ -3686,6 +3686,11 @@ function FixUnitResourceCheatModifiers(oUnit)
         end
     end
 
+    if IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 and oUnit:GetAIBrain().M28AI
+            and EntityCategoryContains(refCategoryResourceUnit, oUnit.UnitId) then
+        -- Creation can be credited before the resource buff settles on the next tick.
+        import('/mods/M28AI/lua/AI/M28Economy.lua').UpdateGrossIncomeForUnit(oUnit)
+    end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
