@@ -627,6 +627,20 @@ function CanBuildOnHydroLocation(tHydroLocation)
 end
 
 
+function NeedsLandProductionBackup(aiBrain)
+    if M28Map.bIsCampaignMap or not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand])
+            or (aiBrain[M28Economy.refiOurHighestLandFactoryTech] or 1) < 2 then return false end
+    local iFactories = 0
+    for _, oFactory in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory, false, true) do
+        if M28UnitInfo.IsUnitValid(oFactory) then
+            -- Construction counts too; one replacement request must not spawn duplicates.
+            iFactories = iFactories + 1
+            if iFactories >= 2 then return false end
+        end
+    end
+    return true
+end
+
 function IsLandHQUpgradeUnderPressure(tLZTeamData)
     if not((tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ] or false)) then
         return false
@@ -1271,6 +1285,7 @@ function WantMorePower(iTeam)
     local bHoldOffFreshHighTechPower = iPendingHighTechPowerCount >= iPendingCountThreshold and bMeaningfulPendingHighTechPower and not(bHardEnergyEmergency)
     local iProjectedGrossEnergy = iTeamGrossEnergy + iPendingHighTechPowerIncome
     local iProjectedNetEnergy = iTeamNetEnergy + iPendingHighTechPowerIncome * 0.25
+    local iCombatEnergyDemand = M28Factory.GetCombatProductionEnergyDemand(iTeam)
     local bPowerStillTightAfterProjectedIncome = iProjectedNetEnergy < math.max(6 * iActiveBrains, iProjectedGrossEnergy * 0.08) or (iGrossEnergyWhenStalled > 0 and iProjectedGrossEnergy < iGrossEnergyWhenStalled * (iTeamAvgMassStored >= 0.5 and 1.25 or 1.1))
     local bEarlyT1PowerPush = GetGameTimeSeconds() <= 480 and ShouldKeepT1RecoveryPowerOpen(iTeam) and iHighestTeamTech <= 2 and (
             iProjectedGrossEnergy < 30 * iActiveBrains * iResourceMod
@@ -1290,6 +1305,8 @@ function WantMorePower(iTeam)
     end
     if M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 100000 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.5 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and (M28Team.tTeamData[iTeam][M28Team.refbBuiltParagon] or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.95)) then
         bWantMorePower = false
+    elseif iCombatEnergyDemand > 0 and iProjectedNetEnergy < iCombatEnergyDemand + math.max(6 * iActiveBrains, iTeamGrossEnergy * 0.08) then
+        bWantMorePower = true
     elseif M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < 1.25 * (M28Team.tTeamData[iTeam][M28Team.refiEnergyWhenAirFactoryLastUnableToBuildAir] or 0) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] < math.max(250, M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] * 0.25) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] < (M28Team.tTeamData[iTeam][M28Team.refiEnergyWhenAirFactoryLastUnableToBuildAir] or 0) + 150) then
         --No change - want more power
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want more given amount we had when unable to build air units') end
@@ -1958,6 +1975,10 @@ function WantMoreFactories(iTeam, iPlateau, iLandZone, bIgnoreMainEcoConditions)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local tiGrossMassWantedPerFactoryByTech, tLZData, tLZTeamData, aiBrain, iAverageCurAirAndLandFactories, iFactoriesWantedByMass, iCurIsland, iEnemyIsland = GetZoneFactoryMassBudgetState(iTeam, iPlateau, iLandZone)
+    if tLZTeamData[M28Map.subrefLZbCoreBase] and NeedsLandProductionBackup(aiBrain) then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return true
+    end
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished updating gross mass wanted per average facotry count, tiGrossMassWantedPerFactoryByTech='..repru(tiGrossMassWantedPerFactoryByTech)..'; refbBaseInSafePosition='..tostring((tLZTeamData[M28Map.refbBaseInSafePosition] or false))..'; iFactoriesWantedByMass='..(iFactoriesWantedByMass or 'nil')) end
     local iTeamCount = M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]
     local iFactoriesInZone --will change value from nil if needed
@@ -2577,6 +2598,10 @@ function DoWeWantAirFactoryInsteadOfLandFactory(iTeam, tLZData, tLZTeamData, oOp
     local sFunctionRef = 'DoWeWantAirFactoryInsteadOfLandFactory'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelConditions, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+    if tLZTeamData[M28Map.subrefLZbCoreBase] and NeedsLandProductionBackup(oOptionalBrainOverride or ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex]]) then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return false
+    end
 
     --Comprehensive air vs land factory logging with cooldown (every 30 seconds per team)
     local bLogFactoryChoice = false
