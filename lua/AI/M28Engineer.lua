@@ -2242,6 +2242,21 @@ function GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerAct
                 iPlateauOrZero = iPlateau
                 iLandOrWaterZone = iLandZone
             end
+            if M28Utilities.IsTableEmpty(tLZOrWZData) then
+                -- Zone edges can contain unmapped segments; retain zone IDs for queued-build checks.
+                local iClosestPlateau, iClosestZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tTargetLocation)
+                if (iClosestZone or 0) > 0 and iClosestPlateau ~= nil then
+                    iPlateauOrZero, iLandOrWaterZone = iClosestPlateau, iClosestZone
+                    if iClosestPlateau == 0 then
+                        iWaterZone = iClosestZone
+                        iPond = M28Map.tiPondByWaterZone[iWaterZone]
+                        if (iPond or 0) > 0 then tLZOrWZData = M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones][iWaterZone] end
+                    else
+                        iPlateau, iLandZone = iClosestPlateau, iClosestZone
+                        tLZOrWZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone]
+                    end
+                end
+            end
             local tResourceLocations
             if M28Utilities.IsTableEmpty(tLZOrWZData) then M28Utilities.ErrorHandler('Dont have valid water or land zone but are looking to build a resource')
             else
