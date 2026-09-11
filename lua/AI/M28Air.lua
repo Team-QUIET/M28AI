@@ -3911,6 +3911,8 @@ function SendUnitsForRefueling(tUnitsForRefueling, iTeam, iAirSubteam, bDontRele
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is table of tAirStagingUnitsAndCapacity empty='..tostring(M28Utilities.IsTableEmpty(tAirStagingUnitsAndCapacity))) end
     if M28Utilities.IsTableEmpty(tAirStagingUnitsAndCapacity) then
         tUnitsUnableToRefuel = tUnitsForRefueling
+        -- Unit-keyed queues need a stable command order when no staging slots are free.
+        SortAirRefuelQueue(tUnitsUnableToRefuel)
     else
         --Have air staging available for units to refuel, cycle through each air unit and find the closest air staging to it that has sufficient capacity to take it
         local iClosestAirStagingDist, iCurDist, iClosestAirStagingRef
