@@ -3179,6 +3179,13 @@ local function GetHQGrossMassPerBrain(iSourceTech, sMassBufferBypassReason, iFac
     local bUrgentBypass = sMassBufferBypassReason and sMassBufferBypassReason ~= 'None' and not(bProductionMaturity)
 
     if iSourceTech == 1 then
+        if iFactoryCategory == M28UnitInfo.refCategoryLandFactory then
+            -- Keep autonomous T2 progression below T3's income requirement.
+            local iMassPerSecond = 60
+            if bProductionMaturity then iMassPerSecond = 50
+            elseif bUrgentBypass then iMassPerSecond = 40 end
+            return iMassPerSecond * 0.1
+        end
         if bProductionMaturity then return 25 end
         if bUrgentBypass then return 4 end
         return 30
