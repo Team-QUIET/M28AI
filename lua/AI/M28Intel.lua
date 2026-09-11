@@ -394,7 +394,8 @@ end
 ---@param iLandOrWaterZone number Zone number
 ---@param iTeam number Team index
 ---@param iUrgency number Urgency level (higher = more urgent)
-function RequestPriorityScoutingForZone(iPlateau, iLandOrWaterZone, iTeam, iUrgency)
+---@param bUseExistingScoutsOnly boolean Optional; route scouts without requesting additional production
+function RequestPriorityScoutingForZone(iPlateau, iLandOrWaterZone, iTeam, iUrgency, bUseExistingScoutsOnly)
     iUrgency = iUrgency or 50
     local sFunctionRef = 'RequestPriorityScoutingForZone'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelIntel, sFunctionRef)
@@ -409,7 +410,8 @@ function RequestPriorityScoutingForZone(iPlateau, iLandOrWaterZone, iTeam, iUrge
         iPlateau = iPlateau,
         iZone = iLandOrWaterZone,
         iUrgency = iUrgency or 50,
-        iTimeRequested = GetGameTimeSeconds()
+        iTimeRequested = GetGameTimeSeconds(),
+        bUseExistingScoutsOnly = bUseExistingScoutsOnly == true
     }
 
     -- Check if already in list
@@ -418,6 +420,7 @@ function RequestPriorityScoutingForZone(iPlateau, iLandOrWaterZone, iTeam, iUrge
         if tExisting.iPlateau == iPlateau and tExisting.iZone == iLandOrWaterZone then
             tExisting.iUrgency = math.max(iUrgency, tExisting.iUrgency)
             tExisting.iTimeRequested = GetGameTimeSeconds()
+            tExisting.bUseExistingScoutsOnly = tExisting.bUseExistingScoutsOnly and bUseExistingScoutsOnly == true
             bAlreadyRequested = true
             break
         end
@@ -833,7 +836,10 @@ function GetZonesNeedingScoutingCount(iTeam)
     -- Count priority scout requests
     local tRequests = M28Team.tTeamData[iTeam][M28Team.reftPriorityScoutZones]
     if tRequests then
-        iPriorityZoneCount = table.getn(tRequests)
+        for _, tRequest in tRequests do
+            -- Routine coverage redirects scouts; combat requests can also fund replacements.
+            if not(tRequest.bUseExistingScoutsOnly) then iPriorityZoneCount = iPriorityZoneCount + 1 end
+        end
     end
 
     -- Count land zones with low intel confidence

@@ -4375,6 +4375,37 @@ function RecordClosestAllyAndEnemyBaseForEachLandZone(iTeam, bOnlyCheckIfEnemyBa
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+function GetLandZoneEconomicExposure(tZone, tTeamZone, iPlateau, iTeam)
+    if tZone[subrefbPacifistArea] then return 0 end
+    local iValue = tTeamZone[subrefLZSValue] or 0
+    local tZones = tAllPlateaus[iPlateau][subrefPlateauLandZones]
+    for _, iAdjacent in tZone[subrefLZAdjacentLandZones] or {} do
+        local tAdjacent = tZones[iAdjacent]
+        if tZone[subrefLZIslandRef] and tAdjacent[subrefLZIslandRef] == tZone[subrefLZIslandRef]
+                and not(tAdjacent[subrefbPacifistArea]) then
+            -- An empty approach matters because of what can be reached through it.
+            iValue = math.max(iValue, (tAdjacent[subrefLZTeamData][iTeam][subrefLZSValue] or 0) * 0.5)
+        end
+    end
+    return iValue
+end
+
+function GetLandZoneDefensePriority(tZone, tTeamZone, iPlateau, iTeam)
+    local iRaidThreat = (tTeamZone[subrefLZThreatEnemyMobileDFTotal] or 0)
+        + (tTeamZone[subrefLZThreatEnemyMobileIndirectTotal] or 0)
+    if iRaidThreat <= 0 then return 0 end
+    local iDefenders = tTeamZone[subrefLZTThreatAllyCombatTotal] or 0
+    local iShortfall = math.max(0, 1 - iDefenders / (iRaidThreat * 1.25))
+    if iShortfall == 0 then return 0 end
+    local iExposure = GetLandZoneEconomicExposure(tZone, tTeamZone, iPlateau, iTeam)
+    if iExposure < 120 then return 0 end
+    return math.min(4000, 500 + iExposure * 0.4, iRaidThreat * 2) * iShortfall
+end
+
+function GetLandZoneSupportValue(tZone, tTeamZone, iPlateau, iTeam)
+    return (tTeamZone[subrefLZTValue] or 0) + GetLandZoneDefensePriority(tZone, tTeamZone, iPlateau, iTeam)
+end
+
 function CalculateZoneValue(iPlateau, iLandZone, iTeam, iAvailableMass, iZoneCombatMass)
     --Calculates dynamic zone value based on economic value, threat ratio, distance, and force concentration
     --Returns zone value score used for unit prioritization
