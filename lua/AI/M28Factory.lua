@@ -88,6 +88,7 @@ local GetMaxT1MAACount
 local GetPreferredLandMAACategory
 local GetPreferredLowTechGunshipResponseMAACategory
 local GetFactoryProductionAdmission
+local GetEngineerProductionAllocation
 local GetLandSupportFactoryTransition
 local GetEconomyAdmittedFactoryProductionBlueprint
 
@@ -5442,7 +5443,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             end
         end
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': iCurrentConditionToTry=' .. iCurrentConditionToTry .. '; about to consider getting engineers, do we have low mass=' .. tostring(bHaveLowMass) .. '; Highest team tech level=' .. M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] .. '; bHaveHighestLZTech=' .. tostring(bHaveHighestLZTech) .. '; bNeedCurTech=' .. tostring(bNeedCurTech) .. '; iFactoryTechLevel=' .. iFactoryTechLevel .. '; Lowest % mass stored=' .. M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored]) end
-        if bNeedCurTech and not (bHaveLowMass) and (tLZTeamData[M28Map.subrefLZbCoreBase] or aiBrain:GetEconomyStoredRatio('MASS') >= 0.15) and (iFactoryTechLevel >= M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] or M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5) then
+        if bNeedCurTech and (tLZTeamData[M28Map.subrefTBuildPowerByTechWanted][iFactoryTechLevel] or 0) > 0 and not (bHaveLowMass) and (tLZTeamData[M28Map.subrefLZbCoreBase] or aiBrain:GetEconomyStoredRatio('MASS') >= 0.15) and (iFactoryTechLevel >= M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] or M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.5) then
             --Minor zone - if already have 10+ engineers in this zone and factory has built 4+ units then dont get more
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will consider more engineers unless this is a minor zone that already has lots') end
             if tLZTeamData[M28Map.subrefLZbCoreBase] or oFactory[refiTotalBuildCount] < 5 or GetEngiCountInZone() < 10 or aiBrain:GetEconomyStoredRatio('MASS') >= 0.95 then
@@ -6864,6 +6865,97 @@ local function GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iMassDrain, i
         iEnergyDrain + 0.1 * tEconomy.BuildCostEnergy * iAssistRate / tEconomy.BuildTime
 end
 
+GetEngineerProductionAllocation = function(aiBrain, oFactory, sBlueprint, iMassDrain, iEnergyDrain)
+    local iTech = M28UnitInfo.GetBlueprintTechLevel(sBlueprint)
+    local iWorkers, iTechWorkers, iPendingWorkers, iPendingTechWorkers = 0, 0, 0, 0
+    for _, oEngineer in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryEngineer, false, true) do
+        if M28UnitInfo.IsUnitValid(oEngineer) and oEngineer:GetFractionComplete() == 1 then
+            iWorkers = iWorkers + 1
+            if M28UnitInfo.GetUnitTechLevel(oEngineer) >= iTech then iTechWorkers = iTechWorkers + 1 end
+        end
+    end
+    local iPlateau, iZone, tZone
+    if EntityCategoryContains(M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryAirFactory, oFactory.UnitId) then
+        iPlateau, iZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oFactory:GetPosition(), true, oFactory)
+        local tPlateau = M28Map.tAllPlateaus[iPlateau]
+        tZone = tPlateau and tPlateau[M28Map.subrefPlateauLandZones][iZone]
+    end
+    local tZoneTeam = tZone and tZone[M28Map.subrefLZTeamData][aiBrain.M28Team]
+    local iPendingBuildPower = 0
+    local iTotalMass, iTotalEnergy = GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iMassDrain, iEnergyDrain)
+    for _, oOther in GetTeamManagedFactories(aiBrain, aiBrain.M28Team) do
+        if oOther ~= oFactory then
+            local tQueue = GetQueuedFactoryBlueprints(oOther) or {}
+            local oFocus = oOther:GetFocusUnit()
+            local sFirst = tQueue[1]
+            if M28UnitInfo.IsUnitValid(oFocus) and oFocus:GetFractionComplete() < 1 then sFirst = oFocus.UnitId end
+            if sFirst and EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sFirst) then
+                local iMass, iEnergy = GetFactoryBlueprintResourceProfile(oOther, sFirst)
+                if not(iMass) then return false, 'InvalidEngineerProfile' end
+                iMass, iEnergy = GetFactoryAssistedCombatDrain(oOther, sFirst, iMass, iEnergy)
+                iTotalMass, iTotalEnergy = iTotalMass + iMass, iTotalEnergy + iEnergy
+            end
+            -- Count the active worker once, then the rest of its issued queue.
+            local tPending = {}
+            if sFirst then table.insert(tPending, sFirst) end
+            for i = 2, table.getn(tQueue) do table.insert(tPending, tQueue[i]) end
+            local bSameZone = false
+            if tZoneTeam then
+                local iOtherPlateau, iOtherZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oOther:GetPosition(), true, oOther)
+                bSameZone = iPlateau == iOtherPlateau and iZone == iOtherZone
+            end
+            for _, sPending in tPending do
+                if EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sPending) then
+                    local iPendingTech = M28UnitInfo.GetBlueprintTechLevel(sPending)
+                    if oOther:GetAIBrain() == aiBrain then
+                        iPendingWorkers = iPendingWorkers + 1
+                        if iPendingTech >= iTech then iPendingTechWorkers = iPendingTechWorkers + 1 end
+                    end
+                    if bSameZone and iPendingTech >= iTech then
+                        iPendingBuildPower = iPendingBuildPower + (__blueprints[sPending].Economy.BuildRate or 0)
+                    end
+                end
+            end
+        end
+    end
+    -- A lost workforce or a newly unlocked tech needs a builder to restore income and power.
+    if iWorkers + iPendingWorkers < 6 or iTechWorkers + iPendingTechWorkers == 0 then
+        return true, 'EngineerRecovery', true
+    end
+    if tZoneTeam then
+        if iTech >= 2 and ((tZoneTeam[M28Map.subrefTBuildPowerByTechWanted] or {})[iTech] or 0) > 0 and iPendingBuildPower == 0 then
+            local bHaveLocalBuilder = false
+            for _, tBuilders in {tZoneTeam[M28Map.subreftoLZOrWZAlliedUnits] or {}, tZoneTeam[M28Map.subrefTEngineersTravelingHere] or {}} do
+                for _, oBuilder in tBuilders do
+                    if M28UnitInfo.IsUnitValid(oBuilder) and oBuilder:GetFractionComplete() == 1
+                            and oBuilder:GetAIBrain().M28AI and EntityCategoryContains(M28UnitInfo.refCategoryEngineer, oBuilder.UnitId)
+                            and M28UnitInfo.GetUnitTechLevel(oBuilder) >= iTech then
+                        bHaveLocalBuilder = true
+                        break
+                    end
+                end
+                if bHaveLocalBuilder then break end
+            end
+            -- A builder elsewhere cannot construct this base's missing power or income yet.
+            if not(bHaveLocalBuilder) then return true, 'EngineerLocalRecovery', true end
+        end
+        local iWanted = 0
+        for i = 1, iTech do
+            iWanted = iWanted + math.max(0, (tZoneTeam[M28Map.subrefTBuildPowerByTechWanted] or {})[i] or 0)
+        end
+        if tZoneTeam[M28Map.refbAdjZonesWantEngiForUnbuiltMex] then
+            iWanted = math.max(iWanted, (__blueprints[sBlueprint].Economy.BuildRate or 0) * 2)
+        end
+        if iWanted <= iPendingBuildPower then return false, 'EngineerWorkCovered' end
+    end
+    local tTeam = M28Team.tTeamData[aiBrain.M28Team]
+    if iTotalMass > (tTeam[M28Team.subrefiTeamGrossMass] or 0) * 0.2
+            or iTotalEnergy > (tTeam[M28Team.subrefiTeamGrossEnergy] or 0) * 0.25 then
+        return false, 'EngineerBudgetCommitted'
+    end
+    return true, 'EngineerWorkReserve', false
+end
+
 GetLandSupportFactoryTransition = function(aiBrain, oFactory)
     if M28Map.bIsCampaignMap or not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand])
             or GetLandProductionTech(oFactory) <= M28UnitInfo.GetUnitTechLevel(oFactory) then return nil end
@@ -6932,7 +7024,6 @@ local function CanReserveContinuousLandProduction(aiBrain, oFactory, sBlueprint,
             or not(EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oFactory.UnitId))
             or not(EntityCategoryContains(iCombatCategory, sBlueprint))
             or (GetIntermediateLandUnitCategories(sBlueprint) and (not(EntityCategoryContains(categories.TECH3, sBlueprint)) or (GetIntermediateLandBuildAllowance(oFactory, sBlueprint, true, true) or 0) < 1))
-            or M28UnitInfo.GetBlueprintTechLevel(sBlueprint) < 2
             or aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer) < 8 then return false end
     local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
     if (tTeamData[M28Team.subrefiTeamAverageEnergyPercentStored] or 0) < 0.5 then return false end
@@ -6956,9 +7047,10 @@ local function CanReserveContinuousLandProduction(aiBrain, oFactory, sBlueprint,
             iMassDrain, iEnergyDrain = iMassDrain + iOtherMass, iEnergyDrain + iOtherEnergy
         end
     end
-    -- Fund upgraded combat alongside construction without enlarging the opening T1 budget.
-    return iMassDrain <= (tTeamData[M28Team.subrefiTeamGrossMass] or 0) * 0.35
-        and iEnergyDrain <= (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * 0.4
+    -- Keep a bounded combat stream alongside workers and income upgrades at the unlocked tech.
+    local bT1 = M28UnitInfo.GetBlueprintTechLevel(sBlueprint) == 1
+    return iMassDrain <= (tTeamData[M28Team.subrefiTeamGrossMass] or 0) * (bT1 and 0.2 or 0.35)
+        and iEnergyDrain <= (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * (bT1 and 0.3 or 0.4)
 end
 
 local function CanReserveInitialT3CombatProduction(aiBrain, oFactory, sBlueprint, iMassDrain, iEnergyDrain)
@@ -7089,16 +7181,19 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
     end
     tDetails.iCandidateMassDrain = iCandidateMassDrain
     tDetails.iCandidateEnergyDrain = iCandidateEnergyDrain
+    local bEngineerReserve, sEngineerReason, bRecoveryEngineer
     if EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBlueprint) then
-        return FinishAdmission(true, 'EngineerEconomyBypass')
+        bEngineerReserve, sEngineerReason, bRecoveryEngineer = GetEngineerProductionAllocation(aiBrain, oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain)
+        if not(bEngineerReserve) then return FinishAdmission(false, sEngineerReason) end
+        if bRecoveryEngineer then return FinishAdmission(true, sEngineerReason) end
     end
     local bInitialT3CombatReserve = CanReserveInitialT3CombatProduction(aiBrain, oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain)
     local bFighterRecoveryReserve = CanReserveFighterRecoveryProduction(aiBrain, oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain)
     local bContinuousLandReserve = CanReserveContinuousLandProduction(aiBrain, oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain)
-    if tFactoryEco.bStallingEnergy and not(bInitialT3CombatReserve or bFighterRecoveryReserve or bContinuousLandReserve) then
+    if tFactoryEco.bStallingEnergy and not(bEngineerReserve or bInitialT3CombatReserve or bFighterRecoveryReserve or bContinuousLandReserve) then
         return FinishAdmission(false, 'EnergyStall')
     end
-    if tFactoryEco.bStallingMass and not(bInitialT3CombatReserve or bFighterRecoveryReserve or bContinuousLandReserve) then
+    if tFactoryEco.bStallingMass and not(bEngineerReserve or bInitialT3CombatReserve or bFighterRecoveryReserve or bContinuousLandReserve) then
         return FinishAdmission(false, 'MassStall')
     end
     tDetails.iCurrentMassDrain, tDetails.iCurrentEnergyDrain = GetFactoryCurrentProductionResourceDrain(oFactory)
@@ -7120,7 +7215,7 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
         tDetails.iActiveBrains,
         iResourceMultiplier
     )
-    if not(bMassAllowed) and not(bInitialT3CombatReserve or bFighterRecoveryReserve or bContinuousLandReserve) then
+    if not(bMassAllowed) and not(bEngineerReserve or bInitialT3CombatReserve or bFighterRecoveryReserve or bContinuousLandReserve) then
         return FinishAdmission(false, 'ProjectedMassShortfall')
     end
 
@@ -7140,7 +7235,7 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
     )
     if bEnergyAllowed then
         oFactory.M28CombatEnergyDemand = nil
-        return FinishAdmission(true, bMassAllowed and not(tFactoryEco.bStallingMass) and 'ProjectedAffordable'
+        return FinishAdmission(true, bEngineerReserve and sEngineerReason or bMassAllowed and not(tFactoryEco.bStallingMass) and 'ProjectedAffordable'
             or (bFighterRecoveryReserve and 'FighterRecoveryReserve' or bInitialT3CombatReserve and 'InitialT3CombatReserve' or 'ContinuousLandReserve'))
     end
 
@@ -7178,9 +7273,17 @@ GetEconomyAdmittedFactoryProductionBlueprint = function(aiBrain, oFactory, sBlue
         if iTech >= 2 and M28UnitInfo.GetUnitTechLevel(oFactory) == iTech
                 and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer * M28UnitInfo.ConvertTechLevelToCategory(iTech)) >= (iTech == 3 and 1 or 2)
                 and oFactory[refsLastBlueprintBuilt] and EntityCategoryContains(M28UnitInfo.refCategoryEngineer, oFactory[refsLastBlueprintBuilt]) then
-            local sCombat = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryMobileDFLand * M28UnitInfo.ConvertTechLevelToCategory(iTech)
-                - M28UnitInfo.refCategorySkirmisher - categories.ENGINEER - categories.COMMAND, oFactory)
-            if sCombat then sBlueprint = sCombat end
+            local iMass, iEnergy = GetFactoryBlueprintResourceProfile(oFactory, sBlueprint)
+            local bRecovery = false
+            if iMass then
+                local _, _, bNeedsRecovery = GetEngineerProductionAllocation(aiBrain, oFactory, sBlueprint, iMass, iEnergy)
+                bRecovery = bNeedsRecovery
+            end
+            if not(bRecovery) then
+                local sCombat = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryMobileDFLand * M28UnitInfo.ConvertTechLevelToCategory(iTech)
+                    - M28UnitInfo.refCategorySkirmisher - categories.ENGINEER - categories.COMMAND, oFactory)
+                if sCombat then sBlueprint = sCombat end
+            end
         end
     end
     local bAllowed, sAdmissionReason = GetFactoryProductionAdmission(aiBrain, oFactory, sBlueprint)
@@ -7188,15 +7291,15 @@ GetEconomyAdmittedFactoryProductionBlueprint = function(aiBrain, oFactory, sBlue
         return sBlueprint, sAdmissionReason
     end
 
-    if sBlueprint and EntityCategoryContains(categories.LAND * categories.MOBILE * (categories.DIRECTFIRE + categories.INDIRECTFIRE)
-                - categories.ENGINEER - categories.SCOUT - categories.ANTIAIR - categories.EXPERIMENTAL, sBlueprint)
+    if sBlueprint and EntityCategoryContains((categories.LAND * categories.MOBILE * (categories.DIRECTFIRE + categories.INDIRECTFIRE)
+                - categories.SCOUT - categories.ANTIAIR - categories.EXPERIMENTAL) + M28UnitInfo.refCategoryEngineer, sBlueprint)
             and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oFactory.UnitId) then
         local iRegularCategory = M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher
             - M28UnitInfo.refCategoryT15Units - M28UnitInfo.refCategoryT25Units - M28UnitInfo.refCategoryT35Units
             - categories.ENGINEER - categories.COMMAND
         local iTech = GetLandProductionTech(oFactory)
         local sFallback
-        if iTech >= 2 then
+        if iTech >= 1 then
             sFallback = GetBlueprintThatCanBuildOfCategory(aiBrain, iRegularCategory * M28UnitInfo.ConvertTechLevelToCategory(iTech), oFactory, nil, nil, true, nil, false)
         end
         if sFallback and sFallback ~= sBlueprint then
@@ -7240,6 +7343,11 @@ function CanIssueFactoryBlueprintToQueue(oFactory, sBlueprint, bAddToExistingQue
 
     if not(bAddToExistingQueue) then
         return true
+    end
+
+    -- Re-evaluate worker demand after each completion instead of reserving a train of workers.
+    if EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBlueprint) then
+        return GetFactoryIssuedQueueCountByCategory(oFactory, M28UnitInfo.refCategoryEngineer) == 0
     end
 
     local iCapCategory = GetFactoryLiveQueueCapCategory(sBlueprint)

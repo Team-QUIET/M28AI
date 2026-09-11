@@ -22551,7 +22551,7 @@ function ConsiderLandOrWaterZoneEngineerAssignment(tLZOrWZData, tLZOrWZTeamData,
                 if tLZOrWZTeamData[M28Map.subrefTBuildPowerByTechWanted][iTech] > iBPCap then
                     tLZOrWZTeamData[M28Map.subrefTBuildPowerByTechWanted][iTech] = iBPCap
                     if iTech > 1 then
-                        for iAltTech = iTech, 1, -1 do
+                        for iAltTech = iTech - 1, 1, -1 do
                             tLZOrWZTeamData[M28Map.subrefTBuildPowerByTechWanted][iAltTech] = 0
                         end
                     end
