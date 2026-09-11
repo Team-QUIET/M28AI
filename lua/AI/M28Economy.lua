@@ -623,6 +623,26 @@ local function GetSafeUnclaimedMexCountInCandidateLandZone(oMex, iTeam)
     return table.getn(tLZData[M28Map.subrefMexUnbuiltLocations])
 end
 
+local function GetMexUpgradeEnergyDrain(oMex)
+    local sUpgrade = M28UnitInfo.GetUnitUpgradeBlueprint(oMex, true)
+    local tEconomy = sUpgrade and __blueprints[sUpgrade] and __blueprints[sUpgrade].Economy
+    if not(tEconomy) or (tEconomy.BuildTime or 0) <= 0 then return 0 end
+    local iBuildRate = oMex:GetEconomyBuildRate()
+    local tSeen = {}
+    for _, oGuard in oMex:GetGuards() or {} do
+        if M28UnitInfo.IsUnitValid(oGuard) and not(tSeen[oGuard]) and not(oGuard:IsUnitState('Attached')) then
+            tSeen[oGuard] = true
+            iBuildRate = iBuildRate + oGuard:GetEconomyBuildRate()
+        end
+    end
+    return 0.1 * (tEconomy.BuildCostEnergy or 0) * iBuildRate / tEconomy.BuildTime
+end
+
+local function IsMexUpgradeEnergyBudgetLimited(tTeam)
+    return (tTeam[M28Team.subrefiTeamAverageEnergyPercentStored] or 0) < 0.35
+        and (tTeam[M28Team.subrefiTeamNetEnergy] or 0) < 0
+end
+
 function CanTeamStartMexUpgradeNow(iTeam, oCandidateMex, bConsumeSlot)
     local tCurTeamData = M28Team.tTeamData[iTeam]
     if not(tCurTeamData) then return true end
@@ -631,6 +651,16 @@ function CanTeamStartMexUpgradeNow(iTeam, oCandidateMex, bConsumeSlot)
         local iSafeUnclaimedMexCount = GetSafeUnclaimedMexCountInCandidateLandZone(oCandidateMex, iTeam)
         if iSafeUnclaimedMexCount > 0 then
             return false, 'unclaimed_local_mex', iSafeUnclaimedMexCount
+        end
+        if IsMexUpgradeEnergyBudgetLimited(tCurTeamData) then
+            local iUpgradeEnergy = GetMexUpgradeEnergyDrain(oCandidateMex)
+            for _, oMex in tCurTeamData[M28Team.subreftTeamUpgradingMexes] or {} do
+                if oMex ~= oCandidateMex and M28UnitInfo.IsUnitValid(oMex) and not(oMex:IsPaused()) then
+                    iUpgradeEnergy = iUpgradeEnergy + GetMexUpgradeEnergyDrain(oMex)
+                end
+            end
+            local iEnergyBudget = (tCurTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * 0.35
+            if iUpgradeEnergy > iEnergyBudget then return false, 'upgrade_energy_budget', iEnergyBudget end
         end
     end
 
@@ -719,39 +749,34 @@ local function GetMassStallMexUpgradeKeepCount(iTeam, iExistingMexesOfTech)
 end
 
 local function GetEnergyStallMexUpgradeKeepCount(iTeam)
-    local tTeamData = M28Team.tTeamData[iTeam]
-    if not(tTeamData) then return 0 end
-
-    local iActiveMexUpgrades = 0
-    if M28Conditions.IsTableOfUnitsStillValid(tTeamData[M28Team.subreftTeamUpgradingMexes]) then
-        iActiveMexUpgrades = table.getn(tTeamData[M28Team.subreftTeamUpgradingMexes])
-    end
-    -- Don't pause mex upgrades for ordinary energy stalls; only treat it as a mex-pause case once storage is effectively empty.
-    if (tTeamData[M28Team.subrefiTeamEnergyStored] or 0) > 1 or (tTeamData[M28Team.subrefiTeamAverageEnergyPercentStored] or 0) > 0.001 then
-        return iActiveMexUpgrades
-    end
-    if IsTeamInCatastrophicMexUpgradeCrash(iTeam) then
-        if (tTeamData[M28Team.subrefiTeamGrossMass] or 0) <= 0.5 * math.max(1, tTeamData[M28Team.subrefiActiveM28BrainCount] or 1)
-                or (tTeamData[M28Team.subrefbTeamIsStallingMass] or false) then
-            return 0
+    local tTeam = M28Team.tTeamData[iTeam]
+    if not(tTeam) then return 0 end
+    local tUpgrades, iPaused = {}, 0
+    for _, oMex in tTeam[M28Team.subreftTeamUpgradingMexes] or {} do
+        if M28UnitInfo.IsUnitValid(oMex) then
+            if oMex:IsPaused() then iPaused = iPaused + 1
+            else table.insert(tUpgrades, oMex) end
         end
-        return 1
     end
-
-    local iActiveBrains = math.max(1, tTeamData[M28Team.subrefiActiveM28BrainCount] or 1)
-    local iGrossEnergy = tTeamData[M28Team.subrefiTeamGrossEnergy] or 0
-    local iKeepCount = 0
-
-    if iGrossEnergy >= 150 * iActiveBrains then
-        iKeepCount = iActiveBrains + 1
-    elseif iGrossEnergy > 35 * iActiveBrains then
-        iKeepCount = iActiveBrains
+    if not(IsMexUpgradeEnergyBudgetLimited(tTeam)) then return iPaused + table.getn(tUpgrades) end
+    table.sort(tUpgrades, function(a, b)
+        local iA, iB = a:GetWorkProgress(), b:GetWorkProgress()
+        if iA == iB then return a.EntityId < b.EntityId end
+        return iA > iB
+    end)
+    local iBudget = (tTeam[M28Team.subrefiTeamGrossEnergy] or 0) * 0.35
+    local iKeep, iCommitted = 0, 0
+    for _, oMex in tUpgrades do
+        local iDrain = GetMexUpgradeEnergyDrain(oMex)
+        -- Finish nearly complete income first; the stall manager pauses the least advanced upgrades.
+        if oMex:GetWorkProgress() >= 0.85 or iCommitted + iDrain <= iBudget then
+            iKeep = iKeep + 1
+            iCommitted = iCommitted + iDrain
+        else
+            break
+        end
     end
-    if DoesTeamHaveBufferedMexUpgradeEco(iTeam) and iGrossEnergy >= 50 * iActiveBrains then
-        iKeepCount = math.max(iKeepCount, iActiveBrains + 1)
-    end
-
-    return iKeepCount
+    return iPaused + iKeep
 end
 
 function ShouldAllowMexRecoveryUpgradeStart(iTeam, iLocalActiveMexUpgrades, oOptionalCandidateMex)
@@ -3068,7 +3093,7 @@ function ManageEnergyStalls(iTeam)
                                     tRelevantUnits = nil
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have built paragon for brain '..oBrain.Nickname..' so wont pause units unless really low on energy for this brain') end
                                 elseif iCategoryRef == iSpecialSurplusUpgradeCategory then
-                                    --Pause all but 1 upgrade per brain, pausing the lowest progress first, if we have multiple upgrades
+                                    -- Preserve funded income upgrades and pause the least advanced surplus first.
                                     tRelevantUnits = {}
                                     if M28Conditions.IsTableOfUnitsStillValid(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) then
                                         local iMexesToPause = math.max(0, table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) - GetEnergyStallMexUpgradeKeepCount(iTeam))
