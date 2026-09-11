@@ -550,6 +550,7 @@ end
 
 function IssueTrackedAttackMove(oUnit, tOrderPosition, iDistanceToReissueOrder, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder)
     if bDontConsiderCombinedArmy or oUnit.M28Active then
+        if not(bOverrideMicroOrder or bAddToExistingQueue) and M28Land.ShouldPreserveArtilleryEngagement(oUnit) then return end
         UpdateRecordedOrders(oUnit)
         --If we are close enough then issue the order again
         local tLastOrder
@@ -573,6 +574,7 @@ end
 
 function IssueTrackedAttack(oUnit, oOrderTarget, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder)
     if bDontConsiderCombinedArmy or oUnit.M28Active then
+        if not(bOverrideMicroOrder or bAddToExistingQueue) and M28Land.ShouldPreserveArtilleryEngagement(oUnit) then return end
         local iAssignedDamage, tDamageShields
         if not(bAddToExistingQueue) and not(oUnit[M28UnitInfo.refbSpecialMicroActive]) then
             oOrderTarget, iAssignedDamage, tDamageShields = M28Land.GetCoordinatedGroundAttackTarget(oUnit, oOrderTarget)

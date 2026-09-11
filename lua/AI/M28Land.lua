@@ -13248,6 +13248,43 @@ function RecordUnitAsReceivingLandZoneAssignment(oUnit, iPlateau, iLandZone)
     end
 end
 
+function ShouldPreserveArtilleryEngagement(oUnit)
+    if not(EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, oUnit.UnitId)) then return false end
+    local iNow = GetGameTimeSeconds()
+    local tOrders = oUnit[M28Orders.reftiLastOrders]
+    local iOrderType = tOrders and tOrders[1] and tOrders[1][M28Orders.subrefiOrderType]
+    if (iOrderType ~= M28Orders.refiOrderIssueAggressiveMove and iOrderType ~= M28Orders.refiOrderIssueAttack)
+            or oUnit:IsUnitState('Attached') or iNow - (oUnit[M28UnitInfo.refiTimeLastDamaged] or -100) < 2 then
+        oUnit.M28ArtilleryDeployStarted = nil
+        return false
+    end
+    local oTarget
+    for iWeapon = 1, oUnit:GetWeaponCount() do
+        local oWeapon = oUnit:GetWeapon(iWeapon)
+        local oCandidate = oWeapon:GetCurrentTarget()
+        if M28UnitInfo.IsUnitValid(oCandidate) and M28UnitInfo.CanSeeUnit(oUnit:GetAIBrain(), oCandidate) then
+            local iDistance = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oCandidate:GetPosition())
+            if iDistance >= (oUnit[M28UnitInfo.refiIFMinRange] or 0) + 2 and iDistance < (oUnit[M28UnitInfo.refiIndirectRange] or 0) - 2
+                    and iDistance > (oCandidate[M28UnitInfo.refiDFRange] or 0) + 8 then oTarget = oCandidate break end
+        end
+    end
+    if not(oTarget) then
+        oUnit.M28ArtilleryDeployStarted = nil
+        return false
+    end
+    if iNow < (oUnit.M28ArtilleryRetryAfter or -1) then return false end
+    local iWindow = math.min(15, math.max(4, (oUnit[M28UnitInfo.refiTimeBetweenIFShots] or 8.5) + 3))
+    if not(oUnit.M28ArtilleryDeployStarted) then oUnit.M28ArtilleryDeployStarted = iNow end
+    local iLastProgress = math.max(oUnit.M28ArtilleryDeployStarted, oUnit[M28UnitInfo.refiLastWeaponEvent] or -100)
+    if iNow - iLastProgress > iWindow then
+        -- An obstructed weapon must be free to reposition after one deployment window.
+        oUnit.M28ArtilleryDeployStarted = nil
+        oUnit.M28ArtilleryRetryAfter = iNow + 3
+        return false
+    end
+    return true
+end
+
 function GetCoordinatedGroundAttackTarget(oUnit, oPreferred)
     local iDamage = oUnit[M28UnitInfo.refiStrikeDamage] or 0
     if iDamage < 100 or not(EntityCategoryContains(categories.LAND * categories.MOBILE - categories.COMMAND - categories.ENGINEER, oUnit.UnitId))
@@ -13280,6 +13317,9 @@ function GetCoordinatedGroundAttackTarget(oUnit, oPreferred)
 end
 
 function SetLandCombatIntent(oUnit, iPlateau, iTargetLZ, iDurationSeconds, sOwner)
+    -- Micro or artillery deployment can reject the following move. Record a
+    -- travelling unit only when its movement order can take ownership.
+    if oUnit[M28UnitInfo.refbSpecialMicroActive] or ShouldPreserveArtilleryEngagement(oUnit) then return false end
     local iCurTime = GetGameTimeSeconds()
     if sOwner == 'DFFwd' or sOwner == 'IFFwd' or sOwner == 'DFGather' then
         local tTarget = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iTargetLZ][M28Map.subrefMidpoint]
@@ -13293,6 +13333,7 @@ function SetLandCombatIntent(oUnit, iPlateau, iTargetLZ, iDurationSeconds, sOwne
     oUnit[refiLandCombatIntentPlateau] = iPlateau
     oUnit[refiLandCombatIntentTargetLZ] = iTargetLZ
     oUnit[refsLandCombatIntentOwner] = sOwner
+    return true
 end
 
 function ClearLandCombatIntent(oUnit)
