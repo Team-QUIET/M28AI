@@ -1,6 +1,6 @@
 name = "M28AI"
 uid = "fnewm028quiet-v1-55b4-92b6-64398e7ge43f"
-version = 292.23
+version = 292.24
 copyright = "CC BY-NC-SA 4.0 Deed"
 description = "Maudlin28 M28 AI designed & maintained by QUIET Team"
 author = "maudlin27 & QUIET Team"
