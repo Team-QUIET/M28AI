@@ -13337,6 +13337,16 @@ end
 
 function RecordUnitAsReceivingLandZoneAssignment(oUnit, iPlateau, iLandZone)
     oUnit[refiCurrentAssignmentPlateauAndLZ] = {iPlateau, iLandZone}
+    local tPosition = oUnit:GetPosition()
+    if GetTerrainHeight(tPosition[1],tPosition[3]) >= GetSurfaceHeight(tPosition[1],tPosition[3])-1 then
+        oUnit.M28WaterTransit = nil
+        oUnit.M28WaterBlockedExit = nil
+        oUnit.M28WaterWaitSince = nil
+        oUnit.M28WaterRegroupAnchor = nil
+        oUnit.M28WaterRegroupDestination = nil
+        oUnit.M28WaterRegroupProgress = nil
+        oUnit.M28WaterOwner = nil
+    end
     if oUnit[M28Navy.refiCurrentWZAssignmentValue] then
         oUnit[M28Navy.refiCurrentWZAssignmentValue] = nil
         oUnit[M28Navy.refiCurrentAssignmentWaterZone] = nil
