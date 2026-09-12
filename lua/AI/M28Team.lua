@@ -5203,7 +5203,7 @@ end
 
 function TransferUnitsToPlayer(tUnits, iArmyIndex, bCaptured)
     if M28Orders.bDontConsiderCombinedArmy then
-        import('/lua/SimUtils.lua').TransferUnitsOwnership(tUnits, iArmyIndex, bCaptured)
+        return import('/lua/SimUtils.lua').TransferUnitsOwnership(tUnits, iArmyIndex, bCaptured)
     else
         local tUnitsToTransfer = {}
         for iUnit, oUnit in tUnits do
@@ -5212,7 +5212,7 @@ function TransferUnitsToPlayer(tUnits, iArmyIndex, bCaptured)
             end
         end
         if M28Utilities.IsTableEmpty(tUnitsToTransfer) == false then
-            import('/lua/SimUtils.lua').TransferUnitsOwnership(tUnitsToTransfer, iArmyIndex, bCaptured)
+            return import('/lua/SimUtils.lua').TransferUnitsOwnership(tUnitsToTransfer, iArmyIndex, bCaptured)
         end
     end
 end
@@ -5782,6 +5782,48 @@ function GetEnemyMainCampaignBase(iTeam)
     end
     return tTeamData[iTeam][reftEnemyCampaignMainBase]
 
+end
+
+function GetSupportFactoryOwnerWithMatchingHQ(oFactory)
+    if not(M28UnitInfo.IsUnitValid(oFactory)) or (oFactory.BeenDestroyed and oFactory:BeenDestroyed())
+            or not(EntityCategoryContains(categories.SUPPORTFACTORY + M28UnitInfo.refCategoryLandFactory * categories.TECH1, oFactory.UnitId)) then return nil end
+    local aiBrain = oFactory:GetAIBrain()
+    local iLayer = M28UnitInfo.refCategoryLandFactory
+    if EntityCategoryContains(M28UnitInfo.refCategoryAirFactory, oFactory.UnitId) then iLayer = M28UnitInfo.refCategoryAirFactory
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryNavalFactory, oFactory.UnitId) then iLayer = M28UnitInfo.refCategoryNavalFactory end
+    local iHQCategory = iLayer * M28UnitInfo.refCategoryAllHQFactories * M28UnitInfo.ConvertFactionToCategory(M28UnitInfo.GetUnitFaction(oFactory))
+    local function GetHQTech(oBrain)
+        local iTech = 1
+        for _, oHQ in oBrain:GetListOfUnits(iHQCategory, false, true) do
+            if M28UnitInfo.IsUnitValid(oHQ) and oHQ:GetFractionComplete() == 1 then iTech = math.max(iTech, M28UnitInfo.GetUnitTechLevel(oHQ)) end
+        end
+        return iTech
+    end
+    local iCurrentTech = GetHQTech(aiBrain)
+    local iBestTech, oBest = iCurrentTech, nil
+    for _, oBrain in tTeamData[aiBrain.M28Team][subreftoFriendlyActiveM28Brains] or {} do
+        if oBrain ~= aiBrain and oBrain.M28AI and not(oBrain.M28IsDefeated) then
+            local iTech = GetHQTech(oBrain)
+            if iTech > iCurrentTech and iTech >= M28UnitInfo.GetUnitTechLevel(oFactory)
+                    and (iTech > iBestTech or (iTech == iBestTech and oBest and oBrain:GetArmyIndex() < oBest:GetArmyIndex())) then
+                iBestTech, oBest = iTech, oBrain
+            end
+        end
+    end
+    return oBest
+end
+
+function TryTransferSupportFactoryToMatchingHQ(oFactory)
+    if not(M28UnitInfo.IsUnitValid(oFactory)) or (oFactory.BeenDestroyed and oFactory:BeenDestroyed())
+            or not(EntityCategoryContains(categories.SUPPORTFACTORY + M28UnitInfo.refCategoryLandFactory * categories.TECH1, oFactory.UnitId)) or oFactory:IsUnitState('Upgrading')
+            or GetGameTimeSeconds() - (oFactory.M28MatchingHQCheck or -100) < 10 then return false end
+    if IsFactoryHQUpgradeBlueprint(oFactory[M28Factory.refsPendingFactoryUpgradeBlueprint]) then return false end
+    oFactory.M28MatchingHQCheck = GetGameTimeSeconds()
+    local oOwner = GetSupportFactoryOwnerWithMatchingHQ(oFactory)
+    if not(oOwner) then return false end
+    -- Unlocks are faction- and owner-specific; another faction's HQ cannot advance this factory.
+    local tTransferred = TransferUnitsToPlayer({oFactory}, oOwner:GetArmyIndex(), false)
+    return not(M28Utilities.IsTableEmpty(tTransferred)), tTransferred
 end
 
 function ConsiderGiftingSupportFactoriesToTeammateWithBetterHQ(aiBrain, sHQJustDiedOrSupportFacID)

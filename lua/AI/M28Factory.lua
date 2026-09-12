@@ -8819,7 +8819,8 @@ function IdleFactoryMonitor(aiBrain)
         local iTeam
         if M28Utilities.IsTableEmpty(tOurFactories) == false then
             for iFactory, oFactory in tOurFactories do
-                if M28UnitInfo.IsUnitValid(oFactory) and oFactory:GetFractionComplete() == 1 then
+                if M28UnitInfo.IsUnitValid(oFactory) and oFactory:GetAIBrain() == aiBrain and oFactory:GetFractionComplete() == 1
+                        and not(M28Team.TryTransferSupportFactoryToMatchingHQ(oFactory)) then
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering factory'..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..' at time '..GetGameTimeSeconds()..'; Is factory ready to build='..tostring(IsFactoryReadyToBuild(oFactory))..'; oFactory[M28UnitInfo.refbPaused]='..tostring(oFactory[M28UnitInfo.refbPaused] or false)..'; oFactory:IsPaused()='..tostring(oFactory:IsPaused())..'; Time since last order='..(GetGameTimeSeconds() - (oFactory[refiTimeSinceLastOrderCheck] or 0))) end
                     if IsFactoryReadyToBuild(oFactory) and GetGameTimeSeconds() - (oFactory[refiTimeSinceLastOrderCheck] or 0) >= 5 then
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..'; more than 5s since we have checked for an order, will consider self destruct') end
