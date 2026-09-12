@@ -2556,10 +2556,11 @@ GetPreferredLandMAACategory = function(oFactory, iTeam, bPreferT2Flak, bAllowT1M
     if iFactoryTechLevel >= 3 then
         bPreferT3MAA = M28Conditions.WantT3MAAInsteadOfT2(oFactory, iTeam)
             or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3 and M28Conditions.TeamIsFarBehindOnAir(iTeam))
+            or (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0) >= 1500
     end
 
     if bPreferT3MAA then
-        return M28UnitInfo.refCategoryMAA, true
+        return M28UnitInfo.refCategoryMAA * categories.TECH3, true
     elseif iFactoryTechLevel <= 1 then
         return M28UnitInfo.refCategoryMAA * categories.TECH1, false
     elseif bPreferT2Flak then
@@ -3130,11 +3131,13 @@ function GetLandArmyMAAFloorCategory(oFactory)
             or aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer) < 4 then return nil end
     local iFactoryTech = M28UnitInfo.GetUnitTechLevel(oFactory)
     local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
+    local iCategoryWanted, bPreferT3 = GetPreferredLandMAACategory(oFactory, aiBrain.M28Team, true, false)
     local iMAACategory = M28UnitInfo.refCategoryMAA
     if (tTeamData[M28Team.subrefiHighestFriendlyLandFactoryTech] or 1) >= 2 then
         if iFactoryTech < 2 then return nil end
         iMAACategory = iMAACategory - categories.TECH1
     end
+    if bPreferT3 then iMAACategory = iMAACategory * categories.TECH3 end
     local iCombat, iExperimentals, iMAA, iCombatMass = 0, 0, 0, 0
     for _, oUnit in aiBrain:GetListOfUnits(categories.LAND * categories.MOBILE - categories.ENGINEER - categories.COMMAND, false, true) do
         if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 then
@@ -3148,7 +3151,6 @@ function GetLandArmyMAAFloorCategory(oFactory)
         end
     end
     if iCombat < 8 and iExperimentals == 0 then return nil end
-    local iCategoryWanted = GetPreferredLandMAACategory(oFactory, aiBrain.M28Team, true, false)
     local sBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryWanted, oFactory)
     if not(sBlueprint) then return nil end
     local iEscortMass = __blueprints[sBlueprint].Economy.BuildCostMass or 1
@@ -7076,8 +7078,10 @@ local function CanReserveFighterRecoveryProduction(aiBrain, oFactory, sBlueprint
     if not(EntityCategoryContains(iAirAAProductionCategory, sBlueprint)) then return false end
     local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
     local tAirData = M28Team.tAirSubteamData[aiBrain.M28AirSubteam]
-    if not(tAirData) or (tTeamData[M28Team.refiEnemyAirAAThreat] or 0) <= 0
-            or (tAirData[M28Team.subrefiOurAirAAThreat] or 0) >= tTeamData[M28Team.refiEnemyAirAAThreat] * 1.15
+    local iThreatWanted = math.max((tTeamData[M28Team.refiEnemyAirAAThreat] or 0) * 1.15,
+        (tTeamData[M28Team.refiEnemyAirToGroundThreat] or 0) * 0.55)
+    if not(tAirData) or iThreatWanted <= 0
+            or (tAirData[M28Team.subrefiOurAirAAThreat] or 0) >= iThreatWanted
             or (tTeamData[M28Team.subrefiTeamAverageEnergyPercentStored] or 0) < 0.6 then return false end
     if not(IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iMassDrain, iEnergyDrain)) then return false end
     iMassDrain, iEnergyDrain = GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iMassDrain, iEnergyDrain)
@@ -8783,7 +8787,7 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
     
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Emergency fighter check - iOurAirAA='..iOurAirAA..'; iEnemyAirAA='..iEnemyAirAA..'; iEnemyAirToGround='..iEnemyAirToGround..'; bZoneUnderAirAttack='..tostring(bZoneUnderAirAttack)..'; bHaveLowPower='..tostring(bHaveLowPower)) end
     
-    if not(bHaveLowPower) and iEnemyAirToGround >= 500 and iOurAirAA < iEnemyAirAA * 0.9 and (bZoneUnderAirAttack or tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) then
+    if not(bHaveLowPower) and iEnemyAirToGround >= 500 and iOurAirAA < math.max(iEnemyAirAA * 0.9, iEnemyAirToGround * 0.55) and (bZoneUnderAirAttack or tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) then
         sProductionDecisionReason = 'Emergency fighter production - under air attack with AirAA deficit'
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Severe air deficit, prioritizing AirAA over other units') end
         if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirAA) then return sBPIDToBuild end
@@ -8792,7 +8796,8 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
     -- Ratio-based fighter production when air disparity is growing too large
     -- Even if not under immediate attack, prevent enemy from gaining overwhelming air superiority
     iCurrentConditionToTry = iCurrentConditionToTry + 1
-    if FactoryEcoAllowsHighTechProduction(tFactoryEco) and iEnemyAirAA >= 500 and iOurAirAA < iEnemyAirAA * 1.1 and iEnemyAirToGround >= 300 then
+    if not(bHaveLowPower) and (iEnemyAirAA >= 500 or iEnemyAirToGround >= 1000)
+            and iOurAirAA < math.max(iEnemyAirAA * 1.1, iEnemyAirToGround * 0.55) then
         sProductionDecisionReason = 'Proactive fighter production - preventing air disparity'
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Proactive fighter production to prevent air disparity from growing. Ratio='..string.format('%.2f', iOurAirAA / math.max(1, iEnemyAirAA))) end
         if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirAA) then return sBPIDToBuild end

@@ -13518,7 +13518,7 @@ function AssignNearbyExperimentalMAAGuard(oMAA)
     oMAA.M28NextExperimentalGuardSearch = GetGameTimeSeconds() + 5
     local sPathing = EntityCategoryContains(M28UnitInfo.refCategoryAmphibious + categories.HOVER, oMAA.UnitId) and M28Map.refPathingTypeHover or M28Map.refPathingTypeLand
     local oBest, iBestScore
-    for _, oExperimental in oMAA:GetAIBrain():GetUnitsAroundPoint(M28UnitInfo.refCategoryLandExperimental, oMAA:GetPosition(), 100, 'Ally') do
+    for _, oExperimental in oMAA:GetAIBrain():GetUnitsAroundPoint(M28UnitInfo.refCategoryLandExperimental + M28UnitInfo.refCategoryT3MobileArtillery, oMAA:GetPosition(), 100, 'Ally') do
         if M28UnitInfo.IsUnitValid(oExperimental) and oExperimental:GetAIBrain().M28AI and oExperimental:GetFractionComplete() == 1
                 and (not(M28UnitInfo.IsUnitUnderwater(oExperimental)) or EntityCategoryContains(M28UnitInfo.refCategoryAmphibious + categories.HOVER, oMAA.UnitId)) then
             local tGuards = oExperimental[reftoAssignedMAAGuards] or {}
@@ -13527,6 +13527,7 @@ function AssignNearbyExperimentalMAAGuard(oMAA)
                 if not(M28UnitInfo.IsUnitValid(tGuards[iGuard])) or tGuards[iGuard][refoAssignedUnitToGuard] ~= oExperimental then table.remove(tGuards, iGuard) end
             end
             local iWanted = EntityCategoryContains(M28UnitInfo.refCategoryFatboy, oExperimental.UnitId) and iFatboyBaseMAACount or 3
+            if EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, oExperimental.UnitId) then iWanted = 1 end
             if table.getn(tGuards) < iWanted and NavUtils.CanPathTo(sPathing, oMAA:GetPosition(), oExperimental:GetPosition()) then
                 local iScore = table.getn(tGuards) * 100 + M28Utilities.GetDistanceBetweenPositions(oMAA:GetPosition(), oExperimental:GetPosition())
                 if not(iBestScore) or iScore < iBestScore then oBest, iBestScore = oExperimental, iScore end
