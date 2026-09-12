@@ -9727,7 +9727,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                             if oUnit[M28UnitInfo.refiWeaponScanRange] and oUnit[M28UnitInfo.refiWeaponScanRange] + 5 < oUnit[M28UnitInfo.refiCombatRange] then
                                                                 ConsiderManualAttackInsteadOfAttackMove(oUnit, oUnit[refoSREnemyTarget], oUnit[refoSREnemyTarget][M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, 'SRDFA')
                                                             else
-                                                                M28Orders.IssueSmartMove(oUnit, oUnit[refoSREnemyTarget][M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, false, 'SRDFA'..iLandZone)
+                                                                IssueLandTacticalMove(oUnit, oUnit[refoSREnemyTarget][M28UnitInfo.reftLastKnownPositionByTeam][iTeam], (oUnit[M28UnitInfo.refiDFRange] or oUnit[M28UnitInfo.refiIndirectRange]) * 0.5, 'SRDFA'..iLandZone, false, tFixedDFSpreadAvoidanceAreaTables, oUnit[refoSREnemyTarget])
                                                             end
                                                         end
                                                     end
@@ -13466,7 +13466,7 @@ function GetLandSupportAttackPosition(oUnit, oEnemy, iPlateau, iLandZone)
     local tPosition, tEnemyPosition = oUnit:GetPosition(), oEnemy:GetPosition()
     local iDistance = M28Utilities.GetDistanceBetweenPositions(tPosition, tEnemyPosition)
     local iRange = oUnit[M28UnitInfo.refiDFRange] or 0
-    if iRange <= 0 or iDistance <= iRange * 0.85 or iDistance > 90 then return nil end
+    if iRange <= 0 or iDistance > 90 then return nil end
     local tZones = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones]
     local tZone = tZones[iLandZone]
     local tTeamData = tZone[M28Map.subrefLZTeamData][iTeam]
@@ -13504,13 +13504,15 @@ function GetLandSupportAttackPosition(oUnit, oEnemy, iPlateau, iLandZone)
         for _, tEnemy in tEnemies do
             if M28Utilities.GetDistanceBetweenPositions(tEnemy.position, tEnemyPosition) <= 90 then table.insert(tLocalEnemies, tEnemy.unit) end
         end
-        tContact = {enemy=oEnemy, time=iNow, firing=iFiring, allies=M28UnitInfo.GetCombatThreatRating(tAllies),
+        tContact = {enemy=oEnemy, time=iNow, firing=iFiring, ready=table.getn(tAllies), allies=M28UnitInfo.GetCombatThreatRating(tAllies),
             enemies=M28UnitInfo.GetCombatThreatRating(tLocalEnemies, true), risks=tEnemies}
         tTeamData.M28SupportFireContact = tContact
     end
-    -- Reinforce a nearby fight already in progress; distant zone totals cannot authorize this step.
-    if tContact.firing < 3 or tContact.allies < math.max(400, tContact.enemies * 1.5) then return nil end
-    local tApproach = M28Utilities.MoveInDirection(tPosition, M28Utilities.GetAngleFromAToB(tPosition, tEnemyPosition), math.min(20, iDistance - iRange * 0.85), true, false, true)
+    -- A concentrated local force can start a fight as well as reinforce one.
+    -- Requiring shots first leaves an entire outranged army waiting behind itself.
+    local bReadyForce = (tContact.ready or 0) >= 5 and tContact.allies >= math.max(800,tContact.enemies*1.75)
+    if not(bReadyForce) and (tContact.firing < 3 or tContact.allies < math.max(400, tContact.enemies * 1.5)) then return nil end
+    local tApproach = M28Utilities.MoveInDirection(tPosition, M28Utilities.GetAngleFromAToB(tPosition, tEnemyPosition), math.max(0,math.min(20, iDistance - iRange * 0.85)), true, false, true)
     for _, tRisk in tContact.risks do
         local oRisk = tRisk.unit
         if EntityCategoryContains(categories.STRUCTURE + categories.COMMAND + categories.EXPERIMENTAL, oRisk.UnitId)
@@ -13557,7 +13559,11 @@ function IssueLandTacticalMove(oUnit, tPosition, iReissueDistance, sDescription,
     end
     -- Keep the original expiry when the same intent is refreshed.
     local iStarted = tPrevious and tPrevious.support == bSupport and iNow - tPrevious.time < 8 and tPrevious.time or iNow
-    M28Orders.IssueSmartMove(oUnit, tPosition, iReissueDistance, false, sDescription, false, bSupport, tAvoidance)
+    if not(bSupport) and M28UnitInfo.IsUnitValid(oEnemy) and M28Utilities.GetDistanceBetweenPositions(tPositionNow,tPosition) < 1 then
+        M28Orders.IssueTrackedAttack(oUnit,oEnemy,false,sDescription,false)
+    else
+        M28Orders.IssueSmartMove(oUnit, tPosition, iReissueDistance, false, sDescription, false, bSupport, tAvoidance)
+    end
     oUnit.M28LandTacticalMove = {position = {tPosition[1], tPosition[2], tPosition[3]}, time = iStarted, health = iHealth, support = bSupport}
     return true
 end
