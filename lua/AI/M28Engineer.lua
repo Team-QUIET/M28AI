@@ -1026,6 +1026,20 @@ function ShouldHoldFreshRadarStart(iAction, tZoneTeamData)
         and (tZoneTeamData[M28Intel.refiPlannedRadarCoverage] or 0) >= 60
 end
 
+function PutCapableConstructionEngineerLast(tEngineers, iCategory)
+    local tBlueprints = EntityCategoryGetUnitList(iCategory)
+    for i = table.getn(tEngineers), 1, -1 do
+        local oEngineer = tEngineers[i]
+        for _, sBlueprint in tBlueprints do
+            if oEngineer:CanBuild(sBlueprint) then
+                tEngineers[i],tEngineers[table.getn(tEngineers)] = tEngineers[table.getn(tEngineers)],oEngineer
+                return true
+            end
+        end
+    end
+    return false
+end
+
 function DoesZoneQualifyForStrategicRadar(tLZTeamData)
     --Keep higher-tech radar ownership focused on core, frontline, or scout-relevant zones.
     if tLZTeamData[M28Map.subrefLZbCoreBase] then
@@ -11903,6 +11917,11 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                             --Do we need a specific faction? If so then filter available engineers to just these
                             if iOptionalFactionRequired then tEngineersOfTechWanted, iEngiCount = FilterEngineersOfTechAndEngiCountForFaction(iOptionalFactionRequired, tEngineersOfTechWanted) end
 
+                            if iEngiCount > 0 and tiActionOrder[iActionToAssign] == M28Orders.refiOrderIssueBuild
+                                    and not(PutCapableConstructionEngineerLast(tEngineersOfTechWanted,iCategoryWanted)) then
+                                -- Assistance eligibility does not authorize a fresh higher-tech build.
+                                iEngiCount = 0
+                            end
                             if iEngiCount > 0 then
                                 local oFirstEngineer = tEngineersOfTechWanted[iEngiCount]
                                 local sBlueprint, tBuildLocation
@@ -11995,10 +12014,16 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                                 elseif sBlueprint then
                                     local tMoveLocation
                                     local oPowerBuildPrimary
+                                    local oConstructionPrimary
                                     while iTotalBuildPowerWanted > 0 and iEngiCount > 0 do
                                         local oCurEngineer = tEngineersOfTechWanted[iEngiCount]
                                         local bOrderIssued
-                                        if oPowerBuildPrimary and IsPowerBuildAction(iActionToAssign) then
+                                        if oConstructionPrimary and not(oCurEngineer:CanBuild(sBlueprint)) then
+                                            M28Orders.IssueTrackedGuard(oCurEngineer,oConstructionPrimary,false,sOrderRef..'A')
+                                            TrackEngineerAction(oCurEngineer,iActionToAssign,false,iCurPriority,nil,nil,bMarkAsSpare)
+                                            UpdateBPTracking()
+                                            bOrderIssued = true
+                                        elseif oPowerBuildPrimary and IsPowerBuildAction(iActionToAssign) then
                                             if ShouldSpreadPowerBuildsAcrossSeparateLocations(iActionToAssign, sBlueprint) then
                                                 local sNextBlueprint, tNextBuildLocation = GetBlueprintAndLocationToBuild(aiBrain, oCurEngineer, iActionToAssign, iCategoryWanted, iMaxSearchRange, iAdjacencyCategory, nil, false, nil, nil, bGetCheapest, tLZOrWZData, tLZOrWZTeamData, nil, nil, nil, iMinExpMassCost, iMaxExpMassCost)
                                                 if M28Utilities.IsTableEmpty(tNextBuildLocation) == false and M28Utilities.GetDistanceBetweenPositions(tNextBuildLocation, tBuildLocation) > 0.5 then
@@ -12031,6 +12056,7 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                                                     M28Orders.IssueTrackedBuild(oCurEngineer, tBuildLocation, sBlueprint, false, sOrderRef)
                                                 end
                                                 TrackEngineerAction(oCurEngineer, iActionToAssign, true, iCurPriority, nil, nil, bMarkAsSpare)
+                                                oConstructionPrimary = oCurEngineer
                                                 if IsPowerBuildAction(iActionToAssign) then
                                                     oPowerBuildPrimary = oCurEngineer
                                                 end
