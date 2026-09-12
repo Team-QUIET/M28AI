@@ -3205,6 +3205,14 @@ function DoesACUWantToRun(iPlateau, iLandZone, tLZData, tLZTeamData, oACU)
     local iTeam = oACU:GetAIBrain().M28Team
     local bWantToRun = false
 
+    -- Recheck the accompanying army during combat, including advances made by other ACU actions.
+    local bUnsupported = GetACUAdvanceSupport(oACU, nil, iPlateau, tLZData, tLZTeamData)
+    if bUnsupported then
+        oACU.M28ACURetreatUntil = math.max(oACU.M28ACURetreatUntil or 0, GetGameTimeSeconds() + 12)
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return true
+    end
+
     --Dont run if in core base unless low health or close to the rally point
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code for brain '..oACU:GetAIBrain().Nickname..'; Is ACU in core base='..tostring(tLZTeamData[M28Map.subrefLZbCoreBase])..' iPlateau='..(iPlateau or 'nil')..'; iLandZone='..(iLandZone or 'nil')..'; oACU='..oACU.UnitId..M28UnitInfo.GetUnitLifetimeCount(oACU)..'; M28Team.tTeamData[aiBrain.M28Team][M28Team.refbDangerousForACUs]='..tostring(M28Team.tTeamData[oACU:GetAIBrain().M28Team][M28Team.refbDangerousForACUs] or false)..'; Does enemy have sub? count='..(M28Team.tTeamData[oACU:GetAIBrain().M28Team][M28Team.refiEnemySubCount] or 0)..'; Dist to midpoint='..M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tLZData[M28Map.subrefMidpoint])) end
     --Adjacent water zone with destroyers - run even if are in core base if ACU health low
@@ -4382,10 +4390,13 @@ function IsACUAdvanceUnsupported(iFriendlyThreat, iEnemyThreat, iACUThreat, iHea
 end
 
 function GetACUAdvanceSupport(oACU, oTarget, iPlateau, tLZData, tLZTeamData)
-    if iPlateau <= 0 or tLZTeamData[M28Map.subrefLZbCoreBase] or (tLZTeamData[M28Map.refiModDistancePercent] or 0) < 0.2 then return false, 0, 0 end
+    if iPlateau <= 0 then return false, 0, 0 end
     local aiBrain = oACU:GetAIBrain()
     local tPosition = oACU:GetPosition()
-    local tTarget = oTarget:GetPosition()
+    local tBase = tLZTeamData[M28Map.reftClosestFriendlyBase]
+    if tBase and M28Utilities.GetDistanceBetweenPositions(tPosition, tBase) <= 35
+            and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.7 then return false, 0, 0 end
+    local tTarget = oTarget and oTarget:GetPosition() or tPosition
     local iDistance = M28Utilities.GetDistanceBetweenPositions(tPosition, tTarget)
     local iStep = math.min(20, math.max(0, iDistance - (oACU[M28UnitInfo.refiDFRange] or 24) + 2))
     local iScale = iStep / math.max(1, iDistance)
@@ -4402,9 +4413,10 @@ function GetACUAdvanceSupport(oACU, oTarget, iPlateau, tLZData, tLZTeamData)
         end
     end
     local tEnemies, tSeen = {}, {}
+    local iEnemyCategory = iCategory + M28UnitInfo.refCategoryPD
     local function AddKnownEnemies(tZoneTeamData)
         for _, oEnemy in tZoneTeamData[M28Map.subrefTEnemyUnits] or {} do
-            if not(tSeen[oEnemy]) and M28UnitInfo.IsUnitValid(oEnemy) and EntityCategoryContains(iCategory, oEnemy.UnitId)
+            if not(tSeen[oEnemy]) and M28UnitInfo.IsUnitValid(oEnemy) and EntityCategoryContains(iEnemyCategory, oEnemy.UnitId)
                     and M28UnitInfo.CanSeeUnit(aiBrain, oEnemy)
                     and M28Utilities.GetDistanceBetweenPositions(oEnemy:GetPosition(), tApproach) <= math.max(55, math.min(80, (oEnemy[M28UnitInfo.refiCombatRange] or 0) + 15)) then
                 tSeen[oEnemy] = true
@@ -4413,6 +4425,7 @@ function GetACUAdvanceSupport(oACU, oTarget, iPlateau, tLZData, tLZTeamData)
         end
     end
     AddKnownEnemies(tLZTeamData)
+    AddKnownEnemies({[M28Map.subrefTEnemyUnits] = aiBrain:GetUnitsAroundPoint(iEnemyCategory, tApproach, 80, 'Enemy')})
     for _, iAdjacent in tLZData[M28Map.subrefLZAdjacentLandZones] or {} do
         AddKnownEnemies(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjacent][M28Map.subrefLZTeamData][aiBrain.M28Team])
     end
