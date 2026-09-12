@@ -134,9 +134,9 @@ local function IsAirAAOperationalForLocalEscort(iAirSubteam, oAirAA, tFocusPoint
 
     local oCurrentTarget = oAirAA[refoAirAACurTarget]
     if M28UnitInfo.IsUnitValid(oCurrentTarget) and EntityCategoryContains(refCategoryAirAAPriorityRetainedTarget, oCurrentTarget.UnitId)
-            and M28Utilities.IsTableEmpty(tFocusPoint) == false
-            and M28Utilities.GetDistanceBetweenPositions(oCurrentTarget:GetPosition(), tFocusPoint) > iUrgentEscortExtendedFocusDistance then
-        return false
+            and M28Utilities.IsTableEmpty(tFocusPoint) == false then
+        local tKnownTarget = M28Intel.GetKnownThreatPosition(aiBrain,oCurrentTarget,12)
+        if tKnownTarget and M28Utilities.GetDistanceBetweenPositions(tKnownTarget,tFocusPoint) > iUrgentEscortExtendedFocusDistance then return false end
     end
     return true
 end
@@ -1692,7 +1692,7 @@ local function CanFighterReachStrikeIntercept(oFighter, tIntercept, iInterceptTi
     if math.max(0, iDistance - (oFighter[M28UnitInfo.refiAARange] or 20)) / iSpeed > iInterceptTime + iStrikeFighterReactionAllowance then return false end
     local tOrder = (oFighter[M28Orders.reftiLastOrders] or {})[1] or {}
     local oTarget = tOrder[M28Orders.subrefoOrderUnitTarget]
-    local tDestination = M28UnitInfo.IsUnitValid(oTarget) and oTarget:GetPosition() or tOrder[M28Orders.subreftOrderPosition]
+    local tDestination = M28UnitInfo.IsUnitValid(oTarget) and M28Intel.GetKnownThreatPosition(oFighter:GetAIBrain(),oTarget,12) or tOrder[M28Orders.subreftOrderPosition]
     if tDestination and iDistance > 20 then
         -- Nearby fighters heading back to base are not yet an escort for an outgoing strike.
         local iDot = (tDestination[1] - tPosition[1]) * (tIntercept[1] - tPosition[1])
@@ -1741,9 +1741,11 @@ local function GetStrikeAircraftFighterInterceptionRisk(iTeam, iAirSubteam, tAir
     local tInterceptPoint
     local iEarliestCohortInterceptTime = 100000
 
+    local aiIntelBrain = M28Team.GetFirstActiveM28Brain(iTeam)
     for iEnemy, oEnemyAirAA in M28Team.tTeamData[iTeam][M28Team.reftoEnemyAirAA] do
         if M28UnitInfo.IsUnitValid(oEnemyAirAA) and oEnemyAirAA:GetFractionComplete() >= 1 and not(oEnemyAirAA:IsUnitState('Attached')) then
-            local tEnemyPosition = oEnemyAirAA:GetPosition()
+            local tEnemyPosition, _, iContactAge = M28Intel.GetKnownThreatPosition(aiIntelBrain, oEnemyAirAA, 20)
+            if tEnemyPosition then
             local iProjection = 0
             if iProjectedLengthSquared > 0.01 then
                 iProjection = ((tEnemyPosition[1] - tCentroid[1]) * iProjectedX + (tEnemyPosition[3] - tCentroid[3]) * iProjectedZ) / iProjectedLengthSquared
@@ -1757,13 +1759,14 @@ local function GetStrikeAircraftFighterInterceptionRisk(iTeam, iAirSubteam, tAir
             local iCohortInterceptTime = iProjectedLength * iProjection / iCohortSpeed
             local oEnemyBlueprint = oEnemyAirAA:GetBlueprint()
             local iEnemySpeed = (oEnemyBlueprint.Air and oEnemyBlueprint.Air.MaxAirspeed) or (oEnemyBlueprint.Physics and oEnemyBlueprint.Physics.MaxSpeed) or 1
-            local iEnemyInterceptTime = iEnemyDistance / math.max(1, iEnemySpeed)
+            local iEnemyInterceptTime = math.max(0, iEnemyDistance - iEnemySpeed * math.min(3, iContactAge)) / math.max(1, iEnemySpeed)
             if iEnemyInterceptTime <= iCohortInterceptTime + iStrikeFighterReactionAllowance then
                 table.insert(tRelevantEnemyAirAA, oEnemyAirAA)
                 if iCohortInterceptTime < iEarliestCohortInterceptTime then
                     iEarliestCohortInterceptTime = iCohortInterceptTime
                     tInterceptPoint = {iClosestX, tCentroid[2], iClosestZ}
                 end
+            end
             end
         end
     end
@@ -1890,18 +1893,34 @@ local function AbortCommittedStrikeAircraftForFighterRisk(iTeam, iAirSubteam, tU
     return true
 end
 
-local function GetLatchedAirAAIdleAnchor(iAirSubteam, tAnchorCandidate)
+local function GetLatchedAirAAIdleAnchor(iAirSubteam, tAnchorCandidate, tAircraft)
     local tAirSubteamData = M28Team.tAirSubteamData[iAirSubteam]
     local tCurrentAnchor = tAirSubteamData[M28Team.reftAirAAIdleAnchor]
     if M28Utilities.IsTableEmpty(tAnchorCandidate) then return tCurrentAnchor end
 
     local iCurTime = GetGameTimeSeconds()
-    if M28Utilities.IsTableEmpty(tCurrentAnchor) or iCurTime - (tAirSubteamData[M28Team.refiAirAAIdleAnchorTime] or -100) >= iAirAAIdleAnchorLockSeconds then
+    local iAge = iCurTime - (tAirSubteamData[M28Team.refiAirAAIdleAnchorTime] or -100)
+    local bArrived = true
+    if tCurrentAnchor and tAircraft then
+        local tCenter = GetStrikeAircraftCohortData(tAircraft)
+        bArrived = tCenter and M28Utilities.GetDistanceBetweenPositions(tCenter,tCurrentAnchor) <= 60
+    end
+    if M28Utilities.IsTableEmpty(tCurrentAnchor) or iAge >= iAirAAIdleAnchorLockSeconds and (bArrived or iAge >= 20) then
         tCurrentAnchor = {tAnchorCandidate[1], tAnchorCandidate[2], tAnchorCandidate[3]}
         tAirSubteamData[M28Team.reftAirAAIdleAnchor] = tCurrentAnchor
         tAirSubteamData[M28Team.refiAirAAIdleAnchorTime] = iCurTime
     end
     return tCurrentAnchor
+end
+
+function IsBomberActiveForEscort(oBomber)
+    if not(M28UnitInfo.IsUnitValid(oBomber)) or oBomber:GetFractionComplete()<1 or oBomber:IsUnitState('Attached') then return false end
+    local tOrders = oBomber[M28Orders.reftiLastOrders]
+    local tOrder = tOrders and tOrders[oBomber[M28Orders.refiOrderCount] or 1]
+    if not(tOrder) then return false end
+    local iType = tOrder[M28Orders.subrefiOrderType]
+    -- A retained target on a refuelling, retreating or idle bomber is not a strike.
+    return iType == M28Orders.refiOrderIssueAttack or iType == M28Orders.refiOrderIssueGroundAttack
 end
 
 function IsThereAAInZone(tLZOrWZTeamData, bIgnoreAirAA, iGroundAAThreatThreshold, iAirAAThreatThreshold, bAddEnemyGroundAAToAirAAThreat, tOptionalDetailedGroundAAPositionCheck, iIncludeForDetailedIfWithinThisDistOfBeingInRange, oOptionalAirUnitForGroundAAThreat)
@@ -3701,24 +3720,91 @@ function UpdateAirRallyAndSupportPoints(iTeam, iAirSubteam)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     end
 
-function GetStrikeRouteGroundAAThreat(oAircraft, tStart, tEnd, iMargin)
+function GetStrikeRouteGroundAAThreat(oAircraft, tStart, tEnd, iMargin, bAllowEscape)
     local tMidpoint = {(tStart[1] + tEnd[1]) * 0.5, 0, (tStart[3] + tEnd[3]) * 0.5}
     local iDX, iDZ = tEnd[1] - tStart[1], tEnd[3] - tStart[3]
     local iLengthSquared = iDX * iDX + iDZ * iDZ
     local iThreat = 0
-    for _, oAA in oAircraft:GetAIBrain():GetUnitsAroundPoint(M28UnitInfo.refCategoryGroundAA, tMidpoint, math.sqrt(iLengthSquared) * 0.5 + 160, 'Enemy') do
-        if M28UnitInfo.IsUnitValid(oAA) and M28UnitInfo.CanSeeUnit(oAircraft:GetAIBrain(), oAA) and oAA:GetFractionComplete() >= 0.8 then
+    local aiBrain = oAircraft:GetAIBrain()
+    local tCandidates, tAdded = {}, {}
+    local function AddCandidate(oAA)
+        if M28UnitInfo.IsUnitValid(oAA) and not(tAdded[oAA]) then
+            tAdded[oAA] = true
+            table.insert(tCandidates, oAA)
+        end
+    end
+    for _, oAA in aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryGroundAA, tMidpoint, math.sqrt(iLengthSquared) * 0.5 + 160, 'Enemy') do
+        if M28UnitInfo.CanSeeUnit(aiBrain, oAA) then AddCandidate(oAA) end
+    end
+    for _, oAA in M28Intel.GetKnownGroundAA(aiBrain) do AddCandidate(oAA) end
+    table.sort(tCandidates, function(a,b) return a.EntityId < b.EntityId end)
+    for _, oAA in tCandidates do
+        local tAA, _, iContactAge = M28Intel.GetKnownThreatPosition(aiBrain, oAA, 45)
+        if tAA and oAA:GetFractionComplete() >= 0.8 then
             if not(oAA[M28UnitInfo.refiAARange]) then M28UnitInfo.RecordUnitRange(oAA) end
-            local tAA = oAA:GetPosition()
             local iProjection = iLengthSquared > 0 and math.max(0, math.min(1, ((tAA[1] - tStart[1]) * iDX + (tAA[3] - tStart[3]) * iDZ) / iLengthSquared)) or 0
             local iX, iZ = tAA[1] - tStart[1] - iProjection * iDX, tAA[3] - tStart[3] - iProjection * iDZ
             local iRange = (oAA[M28UnitInfo.refiAARange] or 0) + (iMargin or 10)
-            if iX * iX + iZ * iZ <= iRange * iRange then
+            if not(EntityCategoryContains(categories.STRUCTURE, oAA.UnitId)) then iRange = iRange + math.min(20, iContactAge * 2) end
+            local iAwayX, iAwayZ = tStart[1]-tAA[1], tStart[3]-tAA[3]
+            local bEscaping = bAllowEscape and iAwayX*iDX+iAwayZ*iDZ >= 0
+                and M28Utilities.GetDistanceBetweenPositions(tEnd,tAA) > iRange
+            if not(bEscaping) and iX * iX + iZ * iZ <= iRange * iRange then
                 iThreat = iThreat + GetAirUnitAdjustedGroundAAThreatForUnit(oAircraft, oAA)
             end
         end
     end
     return iThreat
+end
+
+function GetLocalAirAAFightStrength(oFighter, tPosition)
+    local aiBrain = oFighter:GetAIBrain()
+    local tOwnPosition = oFighter:GetPosition()
+    local tFriendly, tEnemy = {}, {}
+    for _, oAlly in aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryAirAA, tOwnPosition, 100, 'Ally') do
+        if IsAirAAOperationalForLocalEscort(aiBrain.M28AirSubteam, oAlly, tPosition)
+                and M28Utilities.GetDistanceBetweenPositions(oAlly:GetPosition(),tPosition) <= 160 then table.insert(tFriendly,oAlly) end
+    end
+    for _, oEnemy in M28Team.tTeamData[aiBrain.M28Team][M28Team.reftoEnemyAirAA] or {} do
+        local tKnown, _, iAge = M28Intel.GetKnownThreatPosition(aiBrain,oEnemy,20)
+        if tKnown and M28Utilities.GetDistanceBetweenPositions(tKnown,tPosition) <= 100 + math.min(50,iAge*10) then
+            table.insert(tEnemy,oEnemy)
+        end
+    end
+    return M28UnitInfo.GetAirThreatLevel(tFriendly,false,true,false,false,false,false),
+        M28UnitInfo.GetAirThreatLevel(tEnemy,true,true,false,false,false,false)
+end
+
+function GetSafeAirAAStagingPoint(tAircraft, iAirSubteam, tCandidate)
+    if M28Utilities.IsTableEmpty(tAircraft) or M28Utilities.IsTableEmpty(tCandidate) then return tCandidate end
+    local tCenter, _, oFighter = GetStrikeAircraftCohortData(tAircraft)
+    if not(oFighter) then return tCandidate end
+    local tRear = M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint]
+    if M28Utilities.IsTableEmpty(tRear) then tRear = M28Map.GetPlayerStartPosition(oFighter:GetAIBrain()) end
+    local iDistance = M28Utilities.GetDistanceBetweenPositions(tCandidate,tRear)
+    local iAngle = M28Utilities.GetAngleFromAToB(tCandidate,tRear)
+    local tBest, iBestRisk
+    for iStep=0,8 do
+        local tPoint = M28Utilities.MoveInDirection(tCandidate,iAngle,iStep==8 and iDistance or math.min(iDistance,iStep*45),true,false,M28Map.bIsCampaignMap)
+        local iGroundRisk = GetStrikeRouteGroundAAThreat(oFighter,tPoint,tPoint,20)
+        local iRouteRisk = GetStrikeRouteGroundAAThreat(oFighter,tCenter,tPoint,10,true)
+        local iOwn, iEnemy = GetLocalAirAAFightStrength(oFighter,tPoint)
+        local iRisk = iGroundRisk*4+iRouteRisk+math.max(0,iEnemy*1.15-iOwn)
+        if not(iBestRisk) or iRisk < iBestRisk then tBest,iBestRisk=tPoint,iRisk end
+        if iRisk==0 then break end
+    end
+    return tBest or tRear
+end
+
+function ShouldAvoidAirAAPursuit(oFighter, oTarget, tTargetPosition)
+    local iOwn, iEnemy = GetLocalAirAAFightStrength(oFighter,tTargetPosition)
+    local iGroundRisk = GetStrikeRouteGroundAAThreat(oFighter,oFighter:GetPosition(),tTargetPosition,15)
+    local iAllowance = math.max(120,iOwn*0.1)
+    local tSubteam = M28Team.tAirSubteamData[oFighter:GetAIBrain().M28AirSubteam]
+    local oProtected = tSubteam[refoUrgentEscortProtectedUnit]
+    if M28UnitInfo.IsUnitValid(oProtected) and M28Utilities.GetDistanceBetweenPositions(oProtected:GetPosition(),tTargetPosition)<=90
+            and IsAttackAirApproachingProtectedUnit(oTarget,oProtected) then iAllowance=math.max(iAllowance,iOwn*0.35) end
+    return iGroundRisk > iAllowance or iEnemy > math.max(250,iOwn*1.2)
 end
 
 function GetLocalGunshipOpportunity(tAircraft, iTeam, iAirSubteam)
@@ -4156,14 +4242,32 @@ function TargetUnitWithAirAA(oAirAA, oEnemyUnit, iOptionalClosestDist)
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    if M28Conditions.IsLocationInPlayableArea(oEnemyUnit:GetPosition()) then
-        local iClosestUnitDist = iOptionalClosestDist or M28Utilities.GetDistanceBetweenPositions(oAirAA:GetPosition(), oEnemyUnit:GetPosition())
+    local aiBrain = oAirAA:GetAIBrain()
+    local tEnemyPosition, _, iContactAge = M28Intel.GetKnownThreatPosition(aiBrain,oEnemyUnit,12)
+    local bExperimentalThreat = EntityCategoryContains(categories.EXPERIMENTAL,oEnemyUnit.UnitId)
+    if not(tEnemyPosition) or (not(bExperimentalThreat) and ShouldAvoidAirAAPursuit(oAirAA,oEnemyUnit,tEnemyPosition)) then
+        local tFallback = GetSafeAirAAStagingPoint({oAirAA},aiBrain.M28AirSubteam,
+            M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.reftAirSubSupportPoint])
+        oAirAA[refoAirAACurTarget] = nil
+        if tFallback then M28Orders.IssueTrackedMove(oAirAA,tFallback,20,false,'AAReform',false) end
+        M28Profiler.FunctionProfiler(sFunctionRef,M28Profiler.refProfilerEnd)
+        return false
+    end
+    if iContactAge > 0 then
+        M28Orders.IssueTrackedMove(oAirAA,tEnemyPosition,20,false,'AAContact',false)
+        oAirAA[refoAirAACurTarget] = oEnemyUnit
+        M28Profiler.FunctionProfiler(sFunctionRef,M28Profiler.refProfilerEnd)
+        return true
+    end
+
+    if M28Conditions.IsLocationInPlayableArea(tEnemyPosition) then
+        local iClosestUnitDist = iOptionalClosestDist or M28Utilities.GetDistanceBetweenPositions(oAirAA:GetPosition(), tEnemyPosition)
         --Suicide asf into enemy czar or experimental bomber once relatively close; alternativley issua manual attack order when getting close as wehn doing move ended up losing 60 asfs and not even breaking the shield; also manual attack order on exp bomber
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oAirAA='..(oAirAA.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oAirAA) or 'nil')..'; .Dead='..tostring(oAirAA.Dead or false)..'; Is unit valid='..tostring(M28UnitInfo.IsUnitValid(oAirAA))..'; oEnemyUnit='..(oEnemyUnit.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oEnemyUnit) or 'nil')..'; Is oEnemyUnit valid='..tostring(M28UnitInfo.IsUnitValid(oEnemyUnit))..'; iClosestUnitDist='..iClosestUnitDist..'; oAirAA[M28UnitInfo.refiAARange]='..(oAirAA[M28UnitInfo.refiAARange] or 'nil')) end
         if iClosestUnitDist <= 70 and EntityCategoryContains(M28UnitInfo.refCategoryCzar + M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL, oEnemyUnit.UnitId) then
             ForkThread(SuicideASFIntoStrat, oEnemyUnit, oAirAA, true) --Must call via fork thread due to waitticks)
             --If enemy on ground then issue attack
-        elseif oEnemyUnit:GetCurrentLayer() == 'Land' or oEnemyUnit:GetPosition()[2] - GetSurfaceHeight(oEnemyUnit:GetPosition()[1], oEnemyUnit:GetPosition()[3]) <= 5 then
+        elseif oEnemyUnit:GetCurrentLayer() == 'Land' or tEnemyPosition[2] - GetSurfaceHeight(tEnemyPosition[1], tEnemyPosition[3]) <= 5 then
             M28Orders.IssueTrackedAttack(oAirAA, oEnemyUnit, false, 'AAGrnd', false)
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': issued attack on grounded unit') end
         elseif EntityCategoryContains(refCategoryAirAAPriorityRetainedTarget, oEnemyUnit.UnitId) then
@@ -4172,7 +4276,7 @@ function TargetUnitWithAirAA(oAirAA, oEnemyUnit, iOptionalClosestDist)
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': issued retained direct attack on priority air target') end
             --Penetration fighters
         elseif oAirAA[refbUseAirAAAggressiveMove] then
-            M28Orders.IssueTrackedAggressiveMove(oAirAA, oEnemyUnit:GetPosition(), 10, false, 'AAAtM', false)
+            M28Orders.IssueTrackedAggressiveMove(oAirAA, tEnemyPosition, 10, false, 'AAAtM', false)
         else
             local bInterceptingDestination = false
             local iOurSpeed = (oAirAA:GetBlueprint().Air.MaxAirspeed or 0)
@@ -4191,7 +4295,7 @@ function TargetUnitWithAirAA(oAirAA, oEnemyUnit, iOptionalClosestDist)
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iOurSpeed='..iOurSpeed..'; iEnemySpeed='..iEnemySpeed) end
                 if iOurSpeed < 8 + iEnemySpeed then
                     --If enemy has better speed than us then dont consider intercepting unless angles are signif dif
-                    local iAngleFromEnemyToUs = M28Utilities.GetAngleFromAToB(oEnemyUnit:GetPosition(), oAirAA:GetPosition())
+                    local iAngleFromEnemyToUs = M28Utilities.GetAngleFromAToB(tEnemyPosition, oAirAA:GetPosition())
                     local iEnemyDirection = M28UnitInfo.GetUnitFacingAngle(oEnemyUnit)
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iAngleFromEnemyToUs='..iAngleFromEnemyToUs..'; iEnemyDirection='..iEnemyDirection..'; Dif='..M28Utilities.GetAngleDifference(iAngleFromEnemyToUs, iEnemyDirection)) end
                     if iOurSpeed > iEnemySpeed or M28Utilities.GetAngleDifference(iAngleFromEnemyToUs, iEnemyDirection) < 170 then --If 180 then it means we are in the opposite direction to the way the enemy air unit is facing
@@ -4202,7 +4306,7 @@ function TargetUnitWithAirAA(oAirAA, oEnemyUnit, iOptionalClosestDist)
                             iDistToTravel = (iClosestUnitDist - iOurAARange) * iEnemySpeed / iOurSpeed
                         end
                         --This isnt precise, but hopefully will be close enough that I dont have to figure out the complicated maths:
-                        local tInterceptTarget = M28Utilities.MoveInDirection(oEnemyUnit:GetPosition(), iEnemyDirection, iDistToTravel, true, false, M28Map.bIsCampaignMap)
+                        local tInterceptTarget = M28Utilities.MoveInDirection(tEnemyPosition, iEnemyDirection, iDistToTravel, true, false, M28Map.bIsCampaignMap)
                         M28Orders.IssueTrackedMove(oAirAA, tInterceptTarget, 3, false, 'InterC', false)
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will try and intercept target nearer to its destination') end
                         bInterceptingDestination = true
@@ -4216,7 +4320,7 @@ function TargetUnitWithAirAA(oAirAA, oEnemyUnit, iOptionalClosestDist)
                     M28Orders.IssueTrackedAttack(oAirAA, oEnemyUnit, false, 'AAAA', false)
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': issued tracked attack') end
                 else
-                    M28Orders.IssueTrackedMove(oAirAA, oEnemyUnit:GetPosition(), iAirAAMoveTargetReissueDistance, false, 'AAAM', false)
+                    M28Orders.IssueTrackedMove(oAirAA, tEnemyPosition, iAirAAMoveTargetReissueDistance, false, 'AAAM', false)
                     if oAirAA[M28Orders.reftiLastOrders][oAirAA[M28Orders.refiOrderCount]] then --if human player with M28 not enabled on the unit this will cause an error otherwise
                         oAirAA[M28Orders.reftiLastOrders][oAirAA[M28Orders.refiOrderCount]][M28Orders.subrefoOrderUnitTarget] = oEnemyUnit
                     end
@@ -4229,8 +4333,8 @@ function TargetUnitWithAirAA(oAirAA, oEnemyUnit, iOptionalClosestDist)
         --If the air unit has a target that is in the playable area then target that
         --local bInterceptTargetFound = false
         --GetNavigator is too unreliable in campaign, so will just ignore and target enemy air unit (moving towards it if it is off-map) - if want the old code using this, refer to v79 and earlier which had it commented out
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Wanted to target unit at position '..repru(oEnemyUnit:GetPosition())) end
-        local iAngleToTarget = M28Utilities.GetAngleFromAToB(oAirAA:GetPosition(), oEnemyUnit:GetPosition())
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Wanted to target unit at position '..repru(tEnemyPosition)) end
+        local iAngleToTarget = M28Utilities.GetAngleFromAToB(oAirAA:GetPosition(), tEnemyPosition)
         local tViaPoint = M28Utilities.MoveInDirection(oAirAA:GetPosition(), iAngleToTarget, 40, true, false, true)
         if M28Conditions.IsLocationInPlayableArea(tViaPoint) then
             M28Orders.IssueTrackedMove(oAirAA, tViaPoint, 10, false, 'AAPAV', false)
@@ -4241,6 +4345,7 @@ function TargetUnitWithAirAA(oAirAA, oEnemyUnit, iOptionalClosestDist)
     end
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': FInished targeting code for oAirAA='..oAirAA.UnitId..M28UnitInfo.GetUnitLifetimeCount(oAirAA)) end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return true
 end
 
 function UpdateOrdersForExistingAirAATargets(tInCombatUnits, bReturnTableOfAssignedThreat)
@@ -4258,7 +4363,7 @@ function UpdateOrdersForExistingAirAATargets(tInCombatUnits, bReturnTableOfAssig
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will call logic to target enemy unit '..oAirAA[refoAirAACurTarget].UnitId..M28UnitInfo.GetUnitLifetimeCount(oAirAA[refoAirAACurTarget])..' with oAirAA='..oAirAA.UnitId..M28UnitInfo.GetUnitLifetimeCount(oAirAA)..' at time='..GetGameTimeSeconds()) end
             TargetUnitWithAirAA(oAirAA, oAirAA[refoAirAACurTarget])
 
-            if bReturnTableOfAssignedThreat then
+            if bReturnTableOfAssignedThreat and M28UnitInfo.IsUnitValid(oAirAA[refoAirAACurTarget]) then
                 --Update assigned threat values
                 sUnitRef = oAirAA[refoAirAACurTarget].EntityId
                 if sUnitRef then
@@ -4341,8 +4446,10 @@ function AssignAirAATargets(tAvailableAirAA, tEnemyTargets, iTeam, iAirSubteam, 
             if not(oClosestUnit.Dead) then --redundancy
                 TargetUnitWithAirAA(oClosestUnit, oEnemyUnit, iClosestUnitDist)
             end
-            iCurValueAssigned = iCurValueAssigned + M28UnitInfo.GetAirThreatLevel({ oClosestUnit }, false, true, false, true, true, true)
-            tExistingThreatAssignedByUnitRef[oEnemyUnit.EntityId] = iCurValueAssigned
+            if oClosestUnit[refoAirAACurTarget] == oEnemyUnit then
+                iCurValueAssigned = iCurValueAssigned + M28UnitInfo.GetAirThreatLevel({ oClosestUnit }, false, true, false, true, true, true)
+                tExistingThreatAssignedByUnitRef[oEnemyUnit.EntityId] = iCurValueAssigned
+            end
             table.remove(tAvailableAirAA, iClosestAARef)
             if M28Utilities.IsTableEmpty(tAvailableAirAA) then break end
         end
@@ -4658,12 +4765,14 @@ function DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOr
                         local iCurRangeInclAdjustment
                         for iUnit, oUnit in tEnemyAAUnits do
                             if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() >= 0.8 and (oUnit[M28UnitInfo.refiAARange] or 0) > 0 then
+                                local tKnownAA = M28Intel.GetKnownThreatPosition(M28Team.GetFirstActiveM28Brain(iTeam),oUnit,45)
+                                if not(tKnownAA) then continue end
                                 --IsLineFromAToBInRangeOfCircleAtC(iDistFromAToB, iDistFromAToC, iDistFromBToC, iAngleFromAToB, iAngleFromAToC, iCircleRadius)
                                 --C is oUnit, B is destination zone midpoint, A is start zone midpoint
-                                iDistToUnit = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tStartZoneMidpoint)
-                                iAngleToUnit = M28Utilities.GetAngleFromAToB(tStartZoneMidpoint, oUnit:GetPosition())
-                                iDistFromUnitToTarget = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tDestinationMidpoint)
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..'; Considering if will be in range of enemy unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Is in range='..tostring(M28Utilities.IsLineFromAToBInRangeOfCircleAtC(iDistanceToDestination, iDistToUnit, iDistFromUnitToTarget, iAngleToDestination, iAngleToUnit, oUnit[M28UnitInfo.refiAARange] + 35))..'; Unit position='..repru(oUnit:GetPosition())..'; tDestinationMidpoint='..repru(tDestinationMidpoint)..'; tStartZoneMidpoint='..repru(tStartZoneMidpoint)..'; iDistToUnit from start zone midpoint='..iDistToUnit..'; iDistFromUnitToTarget, being destination midpoint='..iDistFromUnitToTarget..'; iAngleToUnit='..iAngleToUnit) end
+                                iDistToUnit = M28Utilities.GetDistanceBetweenPositions(tKnownAA, tStartZoneMidpoint)
+                                iAngleToUnit = M28Utilities.GetAngleFromAToB(tStartZoneMidpoint, tKnownAA)
+                                iDistFromUnitToTarget = M28Utilities.GetDistanceBetweenPositions(tKnownAA, tDestinationMidpoint)
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..'; Considering if will be in range of enemy unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; Is in range='..tostring(M28Utilities.IsLineFromAToBInRangeOfCircleAtC(iDistanceToDestination, iDistToUnit, iDistFromUnitToTarget, iAngleToDestination, iAngleToUnit, oUnit[M28UnitInfo.refiAARange] + 35))..'; Unit position='..repru(tKnownAA)..'; tDestinationMidpoint='..repru(tDestinationMidpoint)..'; tStartZoneMidpoint='..repru(tStartZoneMidpoint)..'; iDistToUnit from start zone midpoint='..iDistToUnit..'; iDistFromUnitToTarget, being destination midpoint='..iDistFromUnitToTarget..'; iAngleToUnit='..iAngleToUnit) end
                                 iCurRangeInclAdjustment = oUnit[M28UnitInfo.refiAARange] + 26
                                 if EntityCategoryContains(categories.MOBILE, oUnit.UnitId) then iCurRangeInclAdjustment = iCurRangeInclAdjustment + iMobileAdjustment end
                                 if M28Utilities.IsLineFromAToBInRangeOfCircleAtC(iDistanceToDestination, iDistToUnit, iDistFromUnitToTarget, iAngleToDestination, iAngleToUnit, iCurRangeInclAdjustment) then
@@ -4896,7 +5005,7 @@ function AddEnemyAirUnitsAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWater
     local iCurPlateau, iCurZone
     if M28Utilities.IsTableEmpty(tBasePathingTable[subreftPlateauAndLandZonesInPath]) == false then
         for iEntry, tPlateauAndLandZone in tBasePathingTable[subreftPlateauAndLandZonesInPath] do
-            if not(tbAlongPathPlateauAndZonesAlreadyAdded[tPlateauAndLandZone[1]][tPlateauAndLandZone[2]]) then
+            if not(tbAlongPathPlateauAndZonesAlreadyAdded[tPlateauAndLandZone[1]] and tbAlongPathPlateauAndZonesAlreadyAdded[tPlateauAndLandZone[1]][tPlateauAndLandZone[2]]) then
                 iCurPlateau = tPlateauAndLandZone[1]
                 iCurZone = tPlateauAndLandZone[2]
                 if not(tbAlongPathPlateauAndZonesAlreadyAdded[iCurPlateau]) then tbAlongPathPlateauAndZonesAlreadyAdded[iCurPlateau] = {} end
@@ -4945,16 +5054,19 @@ function AddEnemyAirUnitsAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWater
                     --If in LOUD and unit on ground dont add as a target unless enemy has no groundAA here as airaa cant target landed air units in LOUD
                     if M28Utilities.bLoudModActive and (tLZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) > 0 then bIncludeEvenIfOnGround = false end
                     for iUnit, oUnit in tLZTeamData[M28Map.reftLZEnemyAirUnits] do
-                        if M28UnitInfo.IsUnitValid(oUnit) and not(oUnit:IsUnitState('Attached')) and (bIncludeEvenIfOnGround or oUnit:IsUnitState('Moving') or oUnit:IsUnitState('Attacking') or oUnit:GetPosition()[2] - GetSurfaceHeight(oUnit:GetPosition()[1], oUnit:GetPosition()[3]) > 1) then
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adding enemy unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' as an enemy air target, dist to LZMidpoint='..M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], oUnit:GetPosition())..'; Unit position='..repru(oUnit:GetPosition())..'; iMinDistToEnemyBase='..(iMinDistToEnemyBase or 'nil')..'; Dist to closest enemy base='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tLZTeamData[M28Map.reftClosestEnemyBase])..'; Dist to tStartMidpoint='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tStartMidpoint)..'; iMaxDistFromStartToConsider='..iMaxDistFromStartToConsider) end
-                            if (not(iMinDistToEnemyBase) or M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tLZTeamData[M28Map.reftClosestEnemyBase]) >= iMinDistToEnemyBase)
-                            and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tStartMidpoint) <= iMaxDistFromStartToConsider then
+                        local tKnownAir = M28Intel.GetKnownThreatPosition(M28Team.GetFirstActiveM28Brain(iTeam),oUnit,12)
+                        if not(tKnownAir) then continue end
+                        if M28UnitInfo.IsUnitValid(oUnit) and not(oUnit:IsUnitState('Attached')) and (bIncludeEvenIfOnGround or oUnit:IsUnitState('Moving') or oUnit:IsUnitState('Attacking') or tKnownAir[2] - GetSurfaceHeight(tKnownAir[1], tKnownAir[3]) > 1) then
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adding enemy unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' as an enemy air target, dist to LZMidpoint='..M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], tKnownAir)..'; Unit position='..repru(tKnownAir)..'; iMinDistToEnemyBase='..(iMinDistToEnemyBase or 'nil')..'; Dist to closest enemy base='..M28Utilities.GetDistanceBetweenPositions(tKnownAir, tLZTeamData[M28Map.reftClosestEnemyBase])..'; Dist to tStartMidpoint='..M28Utilities.GetDistanceBetweenPositions(tKnownAir, tStartMidpoint)..'; iMaxDistFromStartToConsider='..iMaxDistFromStartToConsider) end
+                            if (not(iMinDistToEnemyBase) or M28Utilities.GetDistanceBetweenPositions(tKnownAir, tLZTeamData[M28Map.reftClosestEnemyBase]) >= iMinDistToEnemyBase)
+                            and M28Utilities.GetDistanceBetweenPositions(tKnownAir, tStartMidpoint) <= iMaxDistFromStartToConsider then
                                 if not(toGroundAAInOtherZones) then
                                     table.insert(tEnemyAirTargets, oUnit)
                                 else
                                     bCurUnitInRangeOfAdjacentAA = false
                                     for iAA, oAA in toGroundAAInOtherZones do
-                                        if M28Utilities.GetDistanceBetweenPositions(oAA:GetPosition(), oUnit:GetPosition()) - 30 <= oAA[M28UnitInfo.refiAARange] then
+                                        local tKnownAA = M28Intel.GetKnownThreatPosition(M28Team.GetFirstActiveM28Brain(iTeam),oAA,45)
+                                        if tKnownAA and M28Utilities.GetDistanceBetweenPositions(tKnownAA, tKnownAir) - 30 <= oAA[M28UnitInfo.refiAARange] then
                                             bCurUnitInRangeOfAdjacentAA = true
                                             break
                                         end
@@ -4973,7 +5085,7 @@ function AddEnemyAirUnitsAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWater
     end
     if M28Utilities.IsTableEmpty(tBasePathingTable[subreftWaterZonesInPath]) == false then
         for iEntry, iWaterZone in tBasePathingTable[subreftWaterZonesInPath] do
-            if not(tbAlongPathPlateauAndZonesAlreadyAdded[0][iWaterZone]) then
+            if not(tbAlongPathPlateauAndZonesAlreadyAdded[0] and tbAlongPathPlateauAndZonesAlreadyAdded[0][iWaterZone]) then
                 if not(tbAlongPathPlateauAndZonesAlreadyAdded[0]) then tbAlongPathPlateauAndZonesAlreadyAdded[0] = {} end
                 tbAlongPathPlateauAndZonesAlreadyAdded[0][iWaterZone] = true
 
@@ -4981,7 +5093,10 @@ function AddEnemyAirUnitsAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWater
                 local tWZTeamData = tWZData[M28Map.subrefWZTeamData][iTeam]
 
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering entry '..iEntry..'; iWaterZone='..iWaterZone..'; subrefiThreatEnemyGroundAA='..(tWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0)) end
-                if M28Utilities.IsTableEmpty(tWZTeamData[M28Map.reftLZEnemyAirUnits]) == false and (tWZTeamData[M28Map.refiEnemyAirAAThreat] >= 20 and (tWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) <= iGroundAAThreshold) then
+                if M28Utilities.IsTableEmpty(tWZTeamData[M28Map.reftLZEnemyAirUnits]) == false
+                        and (tWZTeamData[M28Map.refiEnemyAirAAThreat] or 0) <= iAirAAThreshold
+                        and (tWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) <= iGroundAAThreshold
+                        and (tWZTeamData[M28Map.refiModDistancePercent] or 0) <= iMaxModDistPercent then
                     --Get nearby enemy groundAA units in adjacent land and water zones with a high AA threshold
                     local toGroundAAInOtherZones = {}
                     if M28Utilities.IsTableEmpty(tWZData[M28Map.subrefWZAdjacentWaterZones]) == false then
@@ -5021,16 +5136,19 @@ function AddEnemyAirUnitsAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWater
                     --If in LOUD and unit on ground dont add as a target unless enemy has no groundAA here as airaa cant target landed air units in LOUD
                     if M28Utilities.bLoudModActive and (tWZTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) > 0 then bIncludeEvenIfOnGround = false end
                     for iUnit, oUnit in tWZTeamData[M28Map.reftLZEnemyAirUnits] do
-                        if M28UnitInfo.IsUnitValid(oUnit) and not(oUnit:IsUnitState('Attached')) and oUnit[M28UnitInfo.refiAARange] and (bIncludeEvenIfOnGround or oUnit:IsUnitState('Moving') or oUnit:IsUnitState('Attacking') or oUnit:GetPosition()[2] - GetSurfaceHeight(oUnit:GetPosition()[1], oUnit:GetPosition()[3]) > 1) then
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adding enemy unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' as an enemy air target, iMinDistToEnemyBase='..(iMinDistToEnemyBase or 'nil')..'; Dist to enemy base='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tWZTeamData[M28Map.reftClosestEnemyBase])..'; Dist to tStartMidpoint='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tStartMidpoint)..'; iMaxDistFromStartToConsider='..iMaxDistFromStartToConsider) end
-                            if (not(iMinDistToEnemyBase) or M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tWZTeamData[M28Map.reftClosestEnemyBase]) >= iMinDistToEnemyBase)
-                                    and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tStartMidpoint) <= iMaxDistFromStartToConsider then
+                        local tKnownAir = M28Intel.GetKnownThreatPosition(M28Team.GetFirstActiveM28Brain(iTeam),oUnit,12)
+                        if not(tKnownAir) then continue end
+                        if M28UnitInfo.IsUnitValid(oUnit) and not(oUnit:IsUnitState('Attached')) and (bIncludeEvenIfOnGround or oUnit:IsUnitState('Moving') or oUnit:IsUnitState('Attacking') or tKnownAir[2] - GetSurfaceHeight(tKnownAir[1], tKnownAir[3]) > 1) then
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adding enemy unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' as an enemy air target, iMinDistToEnemyBase='..(iMinDistToEnemyBase or 'nil')..'; Dist to enemy base='..M28Utilities.GetDistanceBetweenPositions(tKnownAir, tWZTeamData[M28Map.reftClosestEnemyBase])..'; Dist to tStartMidpoint='..M28Utilities.GetDistanceBetweenPositions(tKnownAir, tStartMidpoint)..'; iMaxDistFromStartToConsider='..iMaxDistFromStartToConsider) end
+                            if (not(iMinDistToEnemyBase) or M28Utilities.GetDistanceBetweenPositions(tKnownAir, tWZTeamData[M28Map.reftClosestEnemyBase]) >= iMinDistToEnemyBase)
+                                    and M28Utilities.GetDistanceBetweenPositions(tKnownAir, tStartMidpoint) <= iMaxDistFromStartToConsider then
                                 if not(toGroundAAInOtherZones) then
                                     table.insert(tEnemyAirTargets, oUnit)
                                 else
                                     bCurUnitInRangeOfAdjacentAA = false
                                     for iAA, oAA in toGroundAAInOtherZones do
-                                        if M28Utilities.GetDistanceBetweenPositions(oAA:GetPosition(), oUnit:GetPosition()) - 30 <= oAA[M28UnitInfo.refiAARange] then
+                                        local tKnownAA = M28Intel.GetKnownThreatPosition(M28Team.GetFirstActiveM28Brain(iTeam),oAA,45)
+                                        if tKnownAA and M28Utilities.GetDistanceBetweenPositions(tKnownAA, tKnownAir) - 30 <= oAA[M28UnitInfo.refiAARange] then
                                             bCurUnitInRangeOfAdjacentAA = true
                                             break
                                         end
@@ -5238,7 +5356,8 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
             end
             tBomberEscortPoint = false
             oEscortBomber = M28Team.tAirSubteamData[iAirSubteam][M28Team.toFrontT3Bomber]
-            if not(M28UnitInfo.IsUnitValid(oEscortBomber)) then
+            if not(IsBomberActiveForEscort(oEscortBomber)) then
+                oEscortBomber = nil
                 local tBombersInFlight = {}
                 local tCurBombers
                 for iBrain, oBrain in M28Team.tAirSubteamData[iAirSubteam][M28Team.subreftoFriendlyM28Brains] do
@@ -5246,8 +5365,7 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                         tCurBombers = oBrain:GetListOfUnits(M28UnitInfo.refCategoryBomber - categories.EXPERIMENTAL, false, true)
                         if M28Utilities.IsTableEmpty(tCurBombers) == false then
                             for iBomber, oBomber in tCurBombers do
-                                if M28UnitInfo.IsUnitValid(oBomber)
-                                        and not(oBomber:IsUnitState('Attached'))
+                                if IsBomberActiveForEscort(oBomber)
                                         and (M28UnitInfo.IsUnitValid(oBomber[refoStrikeDamageAssigned]) or oBomber[refbBomberUsingMexHunterLogic] or (oBomber[M28UnitInfo.refiLastBombFired] and GetGameTimeSeconds() - oBomber[M28UnitInfo.refiLastBombFired] <= 20)) then
                                     table.insert(tBombersInFlight, oBomber)
                                 end
@@ -5270,7 +5388,8 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                 return nil, oEscortBomber, oEscortTarget
             end
             local tBomberPos = oEscortBomber:GetPosition()
-            local tTargetPos = oEscortTarget:GetPosition()
+            local tTargetPos = M28Intel.GetKnownThreatPosition(oEscortBomber:GetAIBrain(),oEscortTarget,20)
+            if not(tTargetPos) then return nil end
             local iEscortDist = math.max(15, math.min(80, M28Utilities.GetDistanceBetweenPositions(tBomberPos, tTargetPos) * 0.35))
             local iAngleToTarget = M28Utilities.GetAngleFromAToB(tBomberPos, tTargetPos)
             local tEscortPoint = M28Utilities.MoveInDirection(tBomberPos, iAngleToTarget, iEscortDist, true, false, M28Map.bIsCampaignMap)
@@ -6482,13 +6601,8 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                                     local tEscortIdlePoint = GetActiveBomberEscortPoint()
                                     local tMovePoint
                                     local iIdleMoveReissueDistance = iAirAAIdleReissueDistance
-                                    if M28Utilities.IsTableEmpty(tEscortIdlePoint) == false then
-                                        --An active bomber is a moving escort focus: keep one shared point, but do not hold it behind the general eight-second standby latch.
-                                        tMovePoint = {tEscortIdlePoint[1], tEscortIdlePoint[2], tEscortIdlePoint[3]}
-                                        iIdleMoveReissueDistance = iAirAAMoveTargetReissueDistance
-                                    else
-                                        tMovePoint = GetLatchedAirAAIdleAnchor(iAirSubteam, tIdleAnchorCandidate)
-                                    end
+                                    if M28Utilities.IsTableEmpty(tEscortIdlePoint) == false then tIdleAnchorCandidate=tEscortIdlePoint end
+                                    tMovePoint = GetLatchedAirAAIdleAnchor(iAirSubteam, tIdleAnchorCandidate, tAvailableAirAA)
                                     if M28Utilities.IsTableEmpty(tMovePoint) then
                                         if M28Utilities.IsTableEmpty(M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint]) == false then tMovePoint = {M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint][1],M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint][2],M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint][3]} end
                                         if M28Utilities.IsTableEmpty(tMovePoint) then
@@ -6496,6 +6610,9 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
                                             tMovePoint = M28Map.GetPlayerStartPosition(M28Team.GetFirstActiveM28Brain(iTeam), false)
                                         end
                                     end
+
+                                    local tSafeMovePoint = GetSafeAirAAStagingPoint(tAvailableAirAA,iAirSubteam,tMovePoint)
+                                    if tSafeMovePoint then tMovePoint=tSafeMovePoint end
 
                                     local bConsiderCtrlK = false
                                     if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] >= 3 and iAvailableAndInCombatAirAAThreat >= 1750 and M28Conditions.TeamHasLowMass(iTeam) and M28Utilities.IsTableEmpty(tMovePoint) == false and (not(M28Map.bIsCampaignMap) or M28Conditions.IsLocationInPlayableArea(tMovePoint)) then
@@ -6646,7 +6763,8 @@ ConsiderSharedAirAAPreTurn = function(tManagedAirAA, iAirSubteam)
             local bHasCentralTargetOrder = tLastOrder and (tLastOrder[M28Orders.subrefoOrderUnitTarget] == oEnemyUnit
                     or (tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueAggressiveMove and oAirAA[refbUseAirAAAggressiveMove]))
             if bHasCentralTargetOrder and EntityCategoryContains(M28UnitInfo.refCategoryAirAA, oAirAA.UnitId)
-                    and M28UnitInfo.IsUnitValid(oEnemyUnit) and EntityCategoryContains(M28UnitInfo.refCategoryAirAA, oEnemyUnit.UnitId) then
+                    and M28UnitInfo.IsUnitValid(oEnemyUnit) and M28UnitInfo.CanSeeUnit(oAirAA:GetAIBrain(),oEnemyUnit)
+                    and EntityCategoryContains(M28UnitInfo.refCategoryAirAA, oEnemyUnit.UnitId) then
                 table.insert(tFriendlyCohort, oAirAA)
                 if not(tbEnemyAdded[oEnemyUnit.EntityId]) then
                     tbEnemyAdded[oEnemyUnit.EntityId] = true
