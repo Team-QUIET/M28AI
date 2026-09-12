@@ -6945,6 +6945,103 @@ local function GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iMassDrain, i
         iEnergyDrain + 0.1 * tEconomy.BuildCostEnergy * iAssistRate / tEconomy.BuildTime
 end
 
+function HasLandArmyInvestmentDeficit(aiBrain)
+    if M28Map.bIsCampaignMap or not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]) then return false end
+    local tPrevious = aiBrain.M28LandInvestmentCheck
+    if tPrevious and GetGameTimeSeconds() - tPrevious.time < 1 then return tPrevious.deficit end
+    local iMass = 0
+    local iCategory = categories.LAND * categories.MOBILE * (categories.DIRECTFIRE + categories.INDIRECTFIRE)
+        - categories.ENGINEER - categories.COMMAND - categories.SCOUT - categories.EXPERIMENTAL
+    for _, oUnit in aiBrain:GetListOfUnits(iCategory, false, true) do
+        if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 then
+            iMass = iMass + M28UnitInfo.GetUnitMassCost(oUnit)
+        end
+    end
+    local bDeficit = iMass < math.max(400, (aiBrain[M28Economy.refiGrossMassBaseIncome] or 0) * 450)
+    aiBrain.M28LandInvestmentCheck = {time = GetGameTimeSeconds(), deficit = bDeficit}
+    return bDeficit
+end
+
+function GetLandFactoryUpgradeDrain(oFactory, sUpgrade, oAdditionalEngineer)
+    local aiBrain = oFactory:GetAIBrain()
+    local iMass, iEnergy, iBaseMass = 0, 0, 0
+    local tSeenEngineers = {}
+    for _, oOther in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory, false, true) do
+        if M28UnitInfo.IsUnitValid(oOther) and oOther:GetFractionComplete() == 1 then
+            local sOther = oOther == oFactory and sUpgrade or oOther[refsPendingFactoryUpgradeBlueprint]
+            if not(sOther) and (oOther:IsUnitState('Upgrading') or oOther:IsUnitState('BeingUpgraded')) then
+                sOther = M28UnitInfo.GetUnitUpgradeBlueprint(oOther, true)
+            end
+            if sOther and __blueprints[sOther] then
+                local tEco = __blueprints[sOther].Economy
+                local iRate = oOther:GetEconomyBuildRate()
+                iBaseMass = iBaseMass + 0.1 * tEco.BuildCostMass * iRate / tEco.BuildTime
+                local tAssistTargets = {oOther}
+                local oFocus = oOther:GetFocusUnit()
+                if M28UnitInfo.IsUnitValid(oFocus) and oFocus.UnitId == sOther then table.insert(tAssistTargets, oFocus) end
+                for _, oTarget in tAssistTargets do
+                    -- Include issued helpers while travelling, without counting stale assignments.
+                    for iGroup, tGuards in {oTarget:GetGuards() or {}, oTarget[M28UnitInfo.reftoUnitsAssistingThis] or {}} do
+                        for _, oGuard in tGuards do
+                            if oGuard ~= oOther and M28UnitInfo.IsUnitValid(oGuard) and not(tSeenEngineers[oGuard])
+                                    and not(oGuard:IsUnitState('Attached')) and oGuard:GetFractionComplete() == 1 then
+                                local tOrder = (oGuard[M28Orders.reftiLastOrders] or {})[1]
+                                if iGroup == 1 or (tOrder and tOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueGuard
+                                        and tOrder[M28Orders.subrefoOrderUnitTarget] == oTarget) then
+                                    tSeenEngineers[oGuard] = true
+                                    iRate = iRate + oGuard:GetEconomyBuildRate()
+                                end
+                            end
+                        end
+                    end
+                end
+                if oOther == oFactory and oAdditionalEngineer and not(tSeenEngineers[oAdditionalEngineer]) then
+                    tSeenEngineers[oAdditionalEngineer] = true
+                    iRate = iRate + oAdditionalEngineer:GetEconomyBuildRate()
+                end
+                iMass = iMass + 0.1 * tEco.BuildCostMass * iRate / tEco.BuildTime
+                iEnergy = iEnergy + 0.1 * tEco.BuildCostEnergy * iRate / tEco.BuildTime
+            end
+        end
+    end
+    return iMass, iEnergy, iBaseMass
+end
+
+function CanFundLandFactoryUpgrade(oFactory, sUpgrade, oAdditionalEngineer)
+    if M28Map.bIsCampaignMap or not(EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oFactory.UnitId)) then return true end
+    local aiBrain = oFactory:GetAIBrain()
+    local iMass, iEnergy, iBaseMass = GetLandFactoryUpgradeDrain(oFactory, sUpgrade, oAdditionalEngineer)
+    local iShare = HasLandArmyInvestmentDeficit(aiBrain) and 0.25 or 0.35
+    local iIncome = math.max(aiBrain:GetEconomyIncome('MASS'), aiBrain[M28Economy.refiGrossMassBaseIncome] or 0)
+    -- Banked mass can fund a short transition after retaining twenty seconds of general spending.
+    local iMassBudget = iIncome * iShare + math.max(0, aiBrain:GetEconomyStored('MASS') - iIncome * 200) / 600
+    -- An admitted HQ can finish at its own rate; optional helpers cannot take the combat reserve.
+    if oAdditionalEngineer then iMassBudget = math.max(iMassBudget, iBaseMass) end
+    return iMass <= iMassBudget and iEnergy <= aiBrain:GetEconomyIncome('ENERGY') * 0.3
+end
+
+function CanAssistLandFactoryUpgrade(oFactory, oEngineer)
+    if not(EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oFactory.UnitId)) then return true end
+    local sUpgrade = M28UnitInfo.GetUnitUpgradeBlueprint(oFactory, true)
+    -- The reserved HQ unlock is serialized already; restrain parallel support conversions.
+    if M28Team.IsFactoryHQUpgradeBlueprint(sUpgrade) then return true end
+    return sUpgrade and CanFundLandFactoryUpgrade(oFactory, sUpgrade, oEngineer) or false
+end
+
+function CanKeepProducingDuringLandHQUpgrade(oFactory, sUpgrade)
+    if M28Map.bIsCampaignMap or not(EntityCategoryContains(M28UnitInfo.refCategoryLandFactory * categories.TECH2, oFactory.UnitId))
+            or not(M28Team.IsFactoryHQUpgradeBlueprint(sUpgrade)) then return true end
+    local aiBrain = oFactory:GetAIBrain()
+    if not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]) then return true end
+    -- Leave a completed production line at this tech while its HQ is unavailable.
+    for _, oOther in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory - categories.TECH1, false, true) do
+        if oOther ~= oFactory and M28UnitInfo.IsUnitValid(oOther) and oOther:GetFractionComplete() == 1
+                and not(oOther:IsUnitState('Upgrading')) and not(oOther:IsUnitState('BeingUpgraded'))
+                and not(oOther[refsPendingFactoryUpgradeBlueprint]) then return true end
+    end
+    return false
+end
+
 GetEngineerProductionAllocation = function(aiBrain, oFactory, sBlueprint, iMassDrain, iEnergyDrain)
     local iTech = M28UnitInfo.GetBlueprintTechLevel(sBlueprint)
     local iWorkers, iTechWorkers, iPendingWorkers, iPendingTechWorkers = 0, 0, 0, 0
@@ -7029,6 +7126,9 @@ GetEngineerProductionAllocation = function(aiBrain, oFactory, sBlueprint, iMassD
         if iWanted <= iPendingBuildPower then return false, 'EngineerWorkCovered' end
     end
     local tTeam = M28Team.tTeamData[aiBrain.M28Team]
+    if EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oFactory.UnitId) and iTech < GetLandProductionTech(oFactory) then
+        return false, 'EngineerAwaitingFactoryTransition'
+    end
     if iTotalMass > (tTeam[M28Team.subrefiTeamGrossMass] or 0) * 0.2
             or iTotalEnergy > (tTeam[M28Team.subrefiTeamGrossEnergy] or 0) * 0.25 then
         return false, 'EngineerBudgetCommitted'

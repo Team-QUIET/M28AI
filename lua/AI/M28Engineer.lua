@@ -12252,6 +12252,7 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is oBestProgress valid='..tostring(M28UnitInfo.IsUnitValid(oBestProgress))..'; Best progress ID='..(oBestProgress.UnitId or 'nil')..'; iTotalBuildPowerWanted='..iTotalBuildPowerWanted..'; iEngiCount='..iEngiCount) end
                         if oBestProgress then
                             while iTotalBuildPowerWanted > 0 and iEngiCount > 0 do
+                                if not(M28Factory.CanAssistLandFactoryUpgrade(oBestProgress, tEngineersOfTechWanted[iEngiCount])) then break end
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to tell engineer '..tEngineersOfTechWanted[iEngiCount].UnitId..M28UnitInfo.GetUnitLifetimeCount(tEngineersOfTechWanted[iEngiCount])..' to assist unit '..oBestProgress.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBestProgress)) end
                                 M28Orders.IssueTrackedGuard(tEngineersOfTechWanted[iEngiCount], oBestProgress, false, sOrderRef)
                                 TrackEngineerAction(tEngineersOfTechWanted[iEngiCount], iActionToAssign, false, iCurPriority, nil, nil, bMarkAsSpare)

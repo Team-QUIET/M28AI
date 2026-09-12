@@ -852,6 +852,10 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
             if not(oUnitToUpgrade:IsUnitState('BeingUpgraded')) then
                 if EntityCategoryContains(M28UnitInfo.refCategoryFactory, oUnitToUpgrade.UnitId) then
                     if M28Team.IsFactoryHQUpgradeBlueprint(sUpgradeID) then
+                        if not(M28Factory.CanKeepProducingDuringLandHQUpgrade(oUnitToUpgrade, sUpgradeID)) then
+                            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                            return false
+                        end
                         if not(M28Team.TryClaimFactoryHQUpgrade(aiBrain, oUnitToUpgrade, sUpgradeID, sReasonRef or sFunctionRef)) then
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Rejecting factory HQ upgrade because another factory owns this layer or the target HQ already exists; Factory='..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..'; UpgradeBlueprint='..sUpgradeID..'; Reason='..(sReasonRef or 'nil')) end
                             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
