@@ -437,6 +437,7 @@ function RefreshWaterRallyPoints(iTeam, iPond)
 end
 
 function UpdateUnitPositionsAndWaterZone(aiBrain, tUnits, iTeam, iRecordedWaterZone, bUseLastKnownPosition, bAreAirUnits, tWZTeamData, bUpdateTimeOfLastEnemyPositionCheck, bAreEnemyUnits)
+    bUseLastKnownPosition = bUseLastKnownPosition or bAreEnemyUnits
     --Similar to UpdateUnitPositionsAndLandZone
     local sFunctionRef = 'UpdateUnitPositionsAndWaterZone'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelNavy, sFunctionRef)
@@ -448,7 +449,7 @@ function UpdateUnitPositionsAndWaterZone(aiBrain, tUnits, iTeam, iRecordedWaterZ
     local iUnitSegmentX, iUnitSegmentZ
     local UpdateUnitLastKnownPosition = M28Team.UpdateUnitLastKnownPosition
     local bUseActualPositionIfEnemy = false
-    if not(bUseLastKnownPosition) or (tWZTeamData[M28Map.refiRadarCoverage] or 0) >= 100 then bUseActualPositionIfEnemy = true end
+    if not(bUseLastKnownPosition) and not(bAreEnemyUnits) then bUseActualPositionIfEnemy = true end
     if bUpdateTimeOfLastEnemyPositionCheck and not(bUseLastKnownPosition) then tWZTeamData[M28Map.subrefiTimeOfLastEnemyUnitPosUpdate] = GetGameTimeSeconds() end
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Near start of code, time='..GetGameTimeSeconds()..'; iRecordedWaterZone='..iRecordedWaterZone..'; iTableSize='..iTableSize) end
     for iOrigIndex=1, iTableSize do
@@ -534,7 +535,7 @@ function RemoveUnitFromAnyExistingLandOrWaterZoneItWasPreviouslyTravelingTo(oUni
     local tiExistingPlateauAndLZ = oUnit[M28Land.reftiPlateauAndLZToMoveTo]
     local iTeam = oUnit:GetAIBrain().M28Team
     if iExistingWZ then
-        local tExistingWZTeamData = M28Map.tPondDetails[iExistingWZ][M28Map.subrefPondWaterZones][iExistingWZ][M28Map.subrefWZTeamData][iTeam]
+        local tExistingWZTeamData = M28Map.tPondDetails[M28Map.tiPondByWaterZone[iExistingWZ]][M28Map.subrefPondWaterZones][iExistingWZ][M28Map.subrefWZTeamData][iTeam]
         if M28Utilities.IsTableEmpty(tExistingWZTeamData[sRefForTableOfTravelingUnits]) == false then
             for iExistingUnit, oExistingUnit in tExistingWZTeamData[sRefForTableOfTravelingUnits] do
                 if oExistingUnit == oUnit then
@@ -5854,7 +5855,9 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
 
         --Update if had visula of WZ recently
         if M28Utilities.IsTableEmpty(tAvailableCombatUnits) == false then
-            tWZTeamData[M28Map.refiTimeLastHadVisual] = GetGameTimeSeconds()
+            for _, oUnit in tAvailableCombatUnits do
+                if M28Intel.RecordZoneVisualFromUnit(oUnit,tWZData,tWZTeamData) then break end
+            end
         end
 
 
@@ -7009,119 +7012,11 @@ function GetWaterZoneToRunTo(iTeam, iPond, iCurWaterZone, sPathing, tOptionalSta
 end
 
 function UpdateSonarCoverageForDestroyedSonar(oSonar)
-    --Only track for water zones
-    if M28Utilities.IsTableEmpty(oSonar[reftiSonarWaterZonesCoveredByTeam]) == false then
-        for iTeam, tSonarData in oSonar[reftiSonarWaterZonesCoveredByTeam] do
-            --local aiBrain = oSonar:GetAIBrain()
-            --local iTeam = aiBrain.M28Team
-            local aiBrain = M28Team.GetFirstActiveM28Brain(iTeam)
-            if aiBrain then
-                local iPond
-                for iEntry, iWaterZone in tSonarData do
-                    iPond = M28Map.tiPondByWaterZone[iWaterZone]
-                    local tWZData = M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones][iWaterZone]
-                    local tWZTeamData = tWZData[M28Map.subrefWZTeamData][iTeam]
-                    if tWZTeamData[M28Map.refoBestSonar] == oSonar then
-                        tWZTeamData[M28Map.refoBestSonar] = nil
-                        if M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision] then
-                            tWZTeamData[M28Map.refiSonarCoverage] = 5000
-                        else
-                            tWZTeamData[M28Map.refiSonarCoverage] = 0
-                        end
-                        local tNearbySonar = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategorySonar, tWZData[M28Map.subrefMidpoint], 600, 'Ally')
-                        local iCurIntelRange
-                        local iBestIntelRange = 0
-                        local oBestSonar
-                        local iCurDist
-                        local oBP
-                        if M28Utilities.IsTableEmpty(tNearbySonar) == false then
-                            for iUnit, oUnit in tNearbySonar do
-                                oBP = oUnit:GetBlueprint()
-                                iCurDist = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tWZData[M28Map.subrefMidpoint])
-                                iCurIntelRange = (oBP.Intel.SonarRadius or 0) - iCurDist
-                                if iCurIntelRange > iBestIntelRange then
-                                    iBestIntelRange = iCurIntelRange
-                                    oBestSonar = oUnit
-                                end
-                            end
-                        end
-                        if oBestSonar then
-                            tWZTeamData[M28Map.refoBestSonar] = oBestSonar
-                            if M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision] then
-                                tWZTeamData[M28Map.refiSonarCoverage] = 5000
-                            else
-                                tWZTeamData[M28Map.refiSonarCoverage] = iBestIntelRange
-                            end
-                            if not(oBestSonar[reftiSonarWaterZonesCoveredByTeam]) then oBestSonar[reftiSonarWaterZonesCoveredByTeam] = {} end
-                            if not(oBestSonar[reftiSonarWaterZonesCoveredByTeam][iTeam]) then oBestSonar[reftiSonarWaterZonesCoveredByTeam][iTeam] = {} end
-                            table.insert(oBestSonar[reftiSonarWaterZonesCoveredByTeam][iTeam], iWaterZone)
-                        end
-                    end
-                end
-            end
-        end
-    end
+    M28Intel.InvalidateIntelSource(oSonar)
 end
 
 function UpdateZoneIntelForSonar(oSonar)
-    --If just built Sonar then want to update all land zones for the team to indicate the intel coverage
-    local sFunctionRef = 'UpdateZoneIntelForSonar'
-    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelNavy, sFunctionRef)
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-
-
-    local iTeam = oSonar:GetAIBrain().M28Team
-    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just built Sonar '..oSonar.UnitId..M28UnitInfo.GetUnitLifetimeCount(oSonar)..' owned by '..oSonar:GetAIBrain().Nickname..' with M28Team '..iTeam..'; is the table of active m28 brains for this team empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]))) end
-    if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]) == false then
-        if not(oSonar['M28UpdatedIntel']) then
-            oSonar['M28UpdatedIntel'] = true
-            local oBP = oSonar:GetBlueprint()
-            local iIntelRange = (oBP.Intel.SonarRadius or 0)
-            local iCurIntelRange
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Sonar intel range='..iIntelRange) end
-            if iIntelRange > 0 then
-                --Update water zones
-                for iPond, tPondSubtable in M28Map.tPondDetails do
-                    if M28Utilities.IsTableEmpty(tPondSubtable[M28Map.subrefPondWaterZones]) == false then
-                        for iWaterZone, tWZData in tPondSubtable[M28Map.subrefPondWaterZones] do
-
-                            local tWZTeamData = tWZData[M28Map.subrefWZTeamData][iTeam]
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering ater zone '..iWaterZone..' with sonar coverage='..tWZTeamData[M28Map.refiSonarCoverage]..'; iIntelRange='..iIntelRange) end
-                            if tWZTeamData[M28Map.refiSonarCoverage] < iIntelRange then
-                                iCurIntelRange = iIntelRange - M28Utilities.GetDistanceBetweenPositions(tWZData[M28Map.subrefMidpoint], oSonar:GetPosition())
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering iPond '..iPond..' Water zone '..iWaterZone..'; iCurIntelRange factoring in distance='..iCurIntelRange..'; Distance='..M28Utilities.GetDistanceBetweenPositions(tWZData[M28Map.subrefMidpoint], oSonar:GetPosition())..'; WZ current Sonar coverage='..tWZData[M28Map.subrefWZTeamData][iTeam][M28Map.refiSonarCoverage]) end
-                                if iCurIntelRange > tWZData[M28Map.subrefWZTeamData][iTeam][M28Map.refiSonarCoverage] then
-                                    --First remove this WZ from the existing (worse) Sonar if there was one
-                                    if M28UnitInfo.IsUnitValid(tWZTeamData[M28Map.refoBestSonar]) then
-                                        if M28Utilities.IsTableEmpty(tWZTeamData[M28Map.refoBestSonar][reftiSonarWaterZonesCoveredByTeam][iTeam]) == false then
-                                            for iEntry, iRecordedWaterZone in tWZTeamData[M28Map.refoBestSonar][reftiSonarWaterZonesCoveredByTeam][iTeam] do
-                                                if iRecordedWaterZone == iWaterZone then
-                                                    table.remove(tWZTeamData[M28Map.refoBestSonar][reftiSonarWaterZonesCoveredByTeam][iTeam], iEntry)
-                                                    break
-                                                end
-                                            end
-                                        end
-                                    end
-                                    --Now assign this WZ to this Sonar as providing the best coverage
-                                    if M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision] then
-                                        tWZTeamData[M28Map.refiSonarCoverage] = 5000
-                                    else
-                                        tWZTeamData[M28Map.refiSonarCoverage] = iCurIntelRange
-                                    end
-                                    tWZTeamData[M28Map.refoBestSonar] = oSonar
-                                    if not(oSonar[reftiSonarWaterZonesCoveredByTeam]) then oSonar[reftiSonarWaterZonesCoveredByTeam] = {} end
-                                    if not(oSonar[reftiSonarWaterZonesCoveredByTeam][iTeam]) then oSonar[reftiSonarWaterZonesCoveredByTeam][iTeam] = {} end
-                                    table.insert(oSonar[reftiSonarWaterZonesCoveredByTeam][iTeam], iWaterZone)
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished udpating for the new intel range, iWaterZone='..iWaterZone..'; tWZTeamData[M28Map.refiSonarCoverage]='..tWZTeamData[M28Map.refiSonarCoverage]) end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    M28Intel.RegisterIntelSource(oSonar)
 end
 
 

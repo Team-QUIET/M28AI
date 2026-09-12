@@ -801,6 +801,7 @@ function GetUnitToTravelToLandZone(oUnit, iTargetPlateau, iTargetLandZone, subre
 end
 
 function UpdateUnitPositionsAndLandZone(aiBrain, tUnits, iTeam, iRecordedPlateau, iRecordedLandZone, bUseLastKnownPosition, bAreAirUnits, tLZTeamData, bUpdateTimeOfLastEnemyPositionCheck, bAreEnemyUnits)
+    bUseLastKnownPosition = bUseLastKnownPosition or bAreEnemyUnits
     --Similar to UpdateUnitPositionsAndWaterZone; Based on RemoveEntriesFromArrayAndAddToNewTableBasedOnCondition, but more complex as dont always want to add unit to a table
     --bUpdateTimeOfLastEnemyPositionCheck - if bUseLastKnownPosition is false and this is true, then updates subrefiTimeOfLastEnemyUnitPosUpdate
     local sFunctionRef = 'UpdateUnitPositionsAndLandZone'
@@ -816,7 +817,7 @@ function UpdateUnitPositionsAndLandZone(aiBrain, tUnits, iTeam, iRecordedPlateau
     local bUseActualPositionIfEnemy = false
     local bUnitIsAttached
     if bUpdateTimeOfLastEnemyPositionCheck and not(bUseLastKnownPosition) then tLZTeamData[M28Map.subrefiTimeOfLastEnemyUnitPosUpdate] = GetGameTimeSeconds() end
-    if not(bUseLastKnownPosition) or (bUseLastKnownPosition and (tLZTeamData[M28Map.refiRadarCoverage] or 0) >= 70) then bUseActualPositionIfEnemy = true end
+    if not(bUseLastKnownPosition) and not(bAreEnemyUnits) then bUseActualPositionIfEnemy = true end
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code for iRecordedPlateau='..iRecordedPlateau..' iRecordedLandZone='..iRecordedLandZone..'; bAreAirUnits='..tostring(bAreAirUnits or false)..'; bUseLastKnownPosition='..tostring(bUseLastKnownPosition or false)..'; iTableSize='..iTableSize..'; refiRadarCoverage='..(tLZTeamData[M28Map.refiRadarCoverage] or 0)) end
 
     for iOrigIndex=1, iTableSize do
@@ -825,17 +826,22 @@ function UpdateUnitPositionsAndLandZone(aiBrain, tUnits, iTeam, iRecordedPlateau
             tUnits[iOrigIndex] = nil
         else
             --Air units - first check inside the map area (to avoid too big a load on CPU trying to locate nearby valid zones and false error messages)
-            if not(bAreAirUnits) or M28Conditions.IsLocationInMap(tUnits[iOrigIndex]:GetPosition()) then
+            if not(bAreAirUnits) or bAreEnemyUnits or M28Conditions.IsLocationInMap(tUnits[iOrigIndex]:GetPosition()) then
                 --Unit still valid, does it have the right plateau and land zone?
                 bUnitIsAttached = tUnits[iOrigIndex]:IsUnitState('Attached')
                 if bAreEnemyUnits or bUseLastKnownPosition then
                     UpdateUnitLastKnownPosition(aiBrain, tUnits[iOrigIndex], bUseActualPositionIfEnemy)
                 end
                 if bUseLastKnownPosition then
+                    -- A live-unit pathing override would inspect where this contact moved after it was lost.
+                    local tKnownPosition = tUnits[iOrigIndex][M28UnitInfo.reftLastKnownPositionByTeam][iTeam]
                     if bAreAirUnits or bUnitIsAttached then
-                        iActualPlateau, iActualLandZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition( tUnits[iOrigIndex][M28UnitInfo.reftLastKnownPositionByTeam][iTeam])
+                        iActualPlateau, iActualLandZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tKnownPosition)
                     else
-                        iActualPlateau, iActualLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(tUnits[iOrigIndex][M28UnitInfo.reftLastKnownPositionByTeam][iTeam], true, tUnits[iOrigIndex])
+                        iActualPlateau, iActualLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(tKnownPosition)
+                        if (iActualPlateau or 0) <= 0 or (iActualLandZone or 0) <= 0 then
+                            iActualPlateau, iActualLandZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tKnownPosition)
+                        end
                     end
                     --if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Are using last known position, iOrigIndex='..iOrigIndex..'; iActualPlateau='..(iActualPlateau or 'nil')..'; iActualLandZone='..(iActualLandZone or 'nil')..'; Unit='..tUnits[iOrigIndex].UnitId..M28UnitInfo.GetUnitLifetimeCount(tUnits[iOrigIndex])..'; bUnitIsAttached='..tostring(bUnitIsAttached)..'; bAreAirUnits='..tostring(bAreAirUnits or false)..'; Unit brain owner='..tUnits[iOrigIndex]:GetAIBrain().Nickname..'; Unit position='..repru(tUnits[iOrigIndex]:GetPosition())) end
                 else
@@ -869,12 +875,7 @@ function UpdateUnitPositionsAndLandZone(aiBrain, tUnits, iTeam, iRecordedPlateau
                     LOG('Updating unit position for unit '..tUnits[iOrigIndex].UnitId..M28UnitInfo.GetUnitLifetimeCount(tUnits[iOrigIndex])..'; iRecordedPlateau='..iRecordedPlateau..'; iActualPlateau='..(iActualPlateau or 'nil')..';  iRecordedLandZone='..(iRecordedLandZone or 'nil')..'; iActualLandZone='..(iActualLandZone or 'nil')..'; Unit actual position='..repru(tUnits[iOrigIndex]:GetPosition())..'; Plateau ref using navutils of actual position='..(NavUtils.GetLabel(M28Map.refPathingTypeLand, tUnits[iOrigIndex]:GetPosition()) or 'nil')..'; Last known position='..repru(tUnits[iOrigIndex][M28UnitInfo.reftLastKnownPositionByTeam][iTeam])..'; Hover nav utils of unit position='..(NavUtils.GetLabel(M28Map.refPathingTypeHover, tUnits[iOrigIndex]:GetPosition()) or 'nil'))
                     M28Utilities.DrawLocation(tUnits[iOrigIndex]:GetPosition())
                 end
-                --If the plateau has changed, and the new one has no valid location, then update the position to the actual position (due to issue with e.g. air units where if they fly over a cliff at the point intel is lost then it causes an error when trying to add them to another zone)
-                if not(iRecordedPlateau == iActualPlateau) and bUseLastKnownPosition and (iActualLandZone or 0) > 0 then
-                    local tRevisedPosition = tUnits[iOrigIndex]:GetPosition()
-                    tUnits[iOrigIndex][M28UnitInfo.reftLastKnownPositionByTeam][iTeam] = {tRevisedPosition[1], tRevisedPosition[2], tRevisedPosition[3]}
-                    iActualPlateau = NavUtils.GetLabel(M28Map.refPathingTypeHover, tRevisedPosition)
-                end
+                -- Keep the observed position when contacts cross a plateau boundary.
             else
                 --Air unit is outside the map bounds - treat the actual plateau as the recorded plateau - i.e. just keep the air unit against this zone until it comes back inside the map
                 iActualPlateau = iRecordedPlateau
@@ -890,6 +891,7 @@ function UpdateUnitPositionsAndLandZone(aiBrain, tUnits, iTeam, iRecordedPlateau
                 iRevisedIndex = iRevisedIndex + 1
             else
                 local oUnitToAdd = tUnits[iOrigIndex]
+                local tAssignedPosition = bUseLastKnownPosition and oUnitToAdd[M28UnitInfo.reftLastKnownPositionByTeam][iTeam] or oUnitToAdd:GetPosition()
                 --Want to remove the entry from this table, but then add it to the correct table
                 oUnitToAdd[M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam] = nil --Done here so we dont try and go through this table again when removing later on
                 if iActualPlateau > 0 and iActualLandZone > 0 then
@@ -899,7 +901,7 @@ function UpdateUnitPositionsAndLandZone(aiBrain, tUnits, iTeam, iRecordedPlateau
                 else
                     local iWaterZone
                     if iActualPlateau > 0 then
-                        local iSegmentX, iSegmentZ = M28Map.GetPathingSegmentFromPosition(oUnitToAdd:GetPosition())
+                        local iSegmentX, iSegmentZ = M28Map.GetPathingSegmentFromPosition(tAssignedPosition)
                         iWaterZone = M28Map.tWaterZoneBySegment[iSegmentX][iSegmentZ]
                     end
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, 'Unit water zone='..(iWaterZone or 'nil')) end
@@ -908,7 +910,7 @@ function UpdateUnitPositionsAndLandZone(aiBrain, tUnits, iTeam, iRecordedPlateau
                     else
                         if bAreAirUnits then
                             --Get revised plateau/LZ
-                            iActualPlateau, iActualLandZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnitToAdd:GetPosition())
+                            iActualPlateau, iActualLandZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tAssignedPosition)
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Air unit will record in either water or land zone, iActualPlateau='..(iActualPlateau or 'nil')..'; iActualLandZone='..(iActualLandZone or 'nil')) end
                             if iActualPlateau == 0 then
                                 --Water zone
@@ -1609,7 +1611,9 @@ function ManageLandZoneScouts(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, 
 
     --Do we have any land scouts that are available? if so then assign to an adjacent land zone if the adjacent zone wants scouts (exception if we have LC1 scout which we want to assign to enemy base zone if its available)
     if M28Utilities.IsTableEmpty(tScouts) == false then
-        tLZTeamData[M28Map.refiTimeLastHadVisual] = GetGameTimeSeconds()
+        for _, oScout in tScouts do
+            if M28Intel.RecordZoneVisualFromUnit(oScout,tLZData,tLZTeamData) then break end
+        end
         local tAvailableScouts = {}
         local bCheckForEnemies = false
         local tEnemyUnitTablesToConsider = {}
@@ -14904,406 +14908,17 @@ function DrawReclaimSegmentsInLandZone(iPlateau, iLandZone, bIncludeMassValues)
 end
 
 function UpdateRecordedAllPlayerOmni(oRadar, bDestroyed)
-    local oBP = oRadar:GetBlueprint()
-    local iRadarOmni =  (oBP.Intel.OmniRadius or 0)
-
-    if iRadarOmni > 0 then
-        local iMaxZoneDistance = iRadarOmni + 50
-
-        local iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oRadar:GetPosition())
-        if iPlateau and iLandZone then
-            local tLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone]
-            if tLZData then
-                function UpdateOmniCoverageForZone(iCurPlateauOrPond, iCurLZOrWZ, bIsWaterZone)
-                    local tCurLZOrWZData
-                    if bIsWaterZone then
-                        tCurLZOrWZData = M28Map.tPondDetails[iCurPlateauOrPond][M28Map.subrefPondWaterZones][iCurLZOrWZ]
-                    else tCurLZOrWZData = M28Map.tAllPlateaus[iCurPlateauOrPond][M28Map.subrefPlateauLandZones][iCurLZOrWZ]
-                    end
-
-                    --Remove oRadar from the table of omni in this zone
-                    if bDestroyed then
-                        if M28Utilities.IsTableEmpty(tCurLZOrWZData[M28Map.reftoAllOmniRadar]) == false then
-                            --Update the table
-                            local iEntryCount = table.getn(tCurLZOrWZData[M28Map.reftoAllOmniRadar])
-                            for iCurEntry = iEntryCount, 1, -1 do
-                                local oUnit = tCurLZOrWZData[M28Map.reftoAllOmniRadar][iCurEntry]
-                                if not(M28UnitInfo.IsUnitValid(oUnit)) or oUnit == oRadar then
-                                    table.remove(tCurLZOrWZData[M28Map.reftoAllOmniRadar], iCurEntry)
-                                end
-                            end
-                        end
-                    else
-                        local bAddToTable = true
-                        if not(tCurLZOrWZData[M28Map.reftoAllOmniRadar]) then tCurLZOrWZData[M28Map.reftoAllOmniRadar] = {}
-                        else
-                            for iUnit, oUnit in tCurLZOrWZData[M28Map.reftoAllOmniRadar] do
-                                if oUnit == oRadar then bAddToTable = false break end
-                            end
-                        end
-                        if bAddToTable and iRadarOmni - M28Utilities.GetDistanceBetweenPositions(oRadar:GetPosition(), tCurLZOrWZData[M28Map.subrefMidpoint]) > 0 then
-                            table.insert(tCurLZOrWZData[M28Map.reftoAllOmniRadar], oRadar)
-                        end
-                    end
-
-                    local iBestOmniCoverage = 0
-                    if M28Utilities.IsTableEmpty(tCurLZOrWZData[M28Map.reftoAllOmniRadar]) == false then
-                        local iCurOmniCoverage
-                        for iUnit, oUnit in tCurLZOrWZData[M28Map.reftoAllOmniRadar] do
-                            iCurOmniCoverage = (oUnit:GetBlueprint().Intel.OmniRadius or 0)
-                            if iCurOmniCoverage > iBestOmniCoverage  then
-                                iCurOmniCoverage = math.max(0, iCurOmniCoverage - M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tCurLZOrWZData[M28Map.subrefMidpoint]))
-                                if iCurOmniCoverage > iBestOmniCoverage then
-                                    iBestOmniCoverage = iCurOmniCoverage
-                                end
-                            end
-                        end
-
-                    end
-                    tCurLZOrWZData[M28Map.refiAllOmniCoverage] = iBestOmniCoverage
-                end
-
-                UpdateOmniCoverageForZone(iPlateau, iLandZone, false)
-                M28Air.RecordOtherLandAndWaterZonesByDistance(tLZData)
-                if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefOtherLandAndWaterZonesByDistance]) == false then
-                    for iEntry, tSubtable in tLZData[M28Map.subrefOtherLandAndWaterZonesByDistance] do
-                        if tSubtable[M28Map.subrefiDistance] > iMaxZoneDistance then break end
-                        UpdateOmniCoverageForZone(tSubtable[M28Map.subrefiPlateauOrPond], tSubtable[M28Map.subrefiLandOrWaterZoneRef], tSubtable[M28Map.subrefbIsWaterZone])
-                    end
-                end
-            end
-        end
-    end
+    if bDestroyed then M28Intel.InvalidateIntelSource(oRadar)
+    else M28Intel.RegisterIntelSource(oRadar) end
 end
 
 function UpdateRadarCoverageForDestroyedRadar(oRadar)
-
-    local sFunctionRef = 'UpdateRadarCoverageForDestroyedRadar'
-    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLand, sFunctionRef)
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-
-
-
-    --First update land zones
-    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oRadar has been destroyed, oRadar='..oRadar.UnitId..M28UnitInfo.GetUnitLifetimeCount(oRadar)..'; Time='..GetGameTimeSeconds()..'; Is table of zones covered by team empty='..tostring(M28Utilities.IsTableEmpty(oRadar[reftiRadarPlateauAndLandZonesCoveredByTeam]))) end
-    if M28Utilities.IsTableEmpty(oRadar[reftiRadarPlateauAndLandZonesCoveredByTeam]) == false then
-        for iTeam, tRadarData in oRadar[reftiRadarPlateauAndLandZonesCoveredByTeam] do
-            --local aiBrain = oRadar:GetAIBrain()
-            --local iTeam = aiBrain.M28Team
-            local aiBrain = M28Team.GetFirstActiveM28Brain(iTeam)
-            if aiBrain then
-                for iEntry, tiPlateauAndLZ in tRadarData do
-                    local tLZData = M28Map.tAllPlateaus[tiPlateauAndLZ[1]][M28Map.subrefPlateauLandZones][tiPlateauAndLZ[2]]
-                    if tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refoBestRadar] == oRadar then
-                        tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refoBestRadar] = nil
-                        if M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision] then
-                            tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiRadarCoverage] = 5000
-                            tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiOmniCoverage] = 5000
-                        else
-                            tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiRadarCoverage] = 0
-                            tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiOmniCoverage] = 0
-                        end
-
-                        local tNearbyRadar = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryRadar, tLZData[M28Map.subrefMidpoint], 600, 'Ally')
-                        local iCurIntelRange
-                        local iBestIntelRange = 0
-                        local oBestRadar
-                        local iCurDist
-                        local oBP
-                        local iCurOmniRange
-                        local iBestOmniRange = 0
-                        if M28Utilities.IsTableEmpty(tNearbyRadar) == false then
-                            for iUnit, oUnit in tNearbyRadar do
-                                oBP = oUnit:GetBlueprint()
-                                iCurDist = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tLZData[M28Map.subrefMidpoint])
-                                iCurIntelRange = (oBP.Intel.RadarRadius or 0) - iCurDist
-                                iCurOmniRange = (oBP.Intel.OmniRadius or 0) - iCurDist
-                                if iCurIntelRange > iBestIntelRange then
-                                    iBestIntelRange = iCurIntelRange
-                                    oBestRadar = oUnit
-                                end
-                                if iCurOmniRange > iBestOmniRange then
-                                    iBestOmniRange = iCurOmniRange
-                                end
-                            end
-                        end
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering nearby radar units for P='..tiPlateauAndLZ[1]..'Z'..tiPlateauAndLZ[2]..'; Is table of nearby radar empty='..tostring(M28Utilities.IsTableEmpty(tNearbyRadar))..'; oBestRadar='..(oBestRadar.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oBestRadar) or 'nil')) end
-                        if oBestRadar then
-                            tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refoBestRadar] = oBestRadar
-                            if M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision] then
-                                tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiRadarCoverage] = 5000
-                                tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiOmniCoverage] = 5000
-                            else
-                                tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiRadarCoverage] = iBestIntelRange
-                                tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiOmniCoverage] = iBestOmniRange
-                            end
-                            if not(oBestRadar[reftiRadarPlateauAndLandZonesCoveredByTeam]) then oBestRadar[reftiRadarPlateauAndLandZonesCoveredByTeam] = {} end
-                            if not(oBestRadar[reftiRadarPlateauAndLandZonesCoveredByTeam][iTeam]) then oBestRadar[reftiRadarPlateauAndLandZonesCoveredByTeam][iTeam] = {} end
-                            table.insert(oBestRadar[reftiRadarPlateauAndLandZonesCoveredByTeam][iTeam], {tiPlateauAndLZ[1], tiPlateauAndLZ[2]})
-                        end
-                    end
-                end
-            end
-        end
-    end
-    --Then update water zones:
-    if M28Utilities.IsTableEmpty(oRadar[M28Navy.reftiRadarWaterZonesCoveredByTeam]) == false then
-        for iTeam, tRadarData in oRadar[M28Navy.reftiRadarWaterZonesCoveredByTeam] do
-            --local aiBrain = oRadar:GetAIBrain()
-            --local iTeam = aiBrain.M28Team
-
-            local aiBrain = M28Team.GetFirstActiveM28Brain(iTeam)
-            if aiBrain then
-                local iPond
-                for iEntry, iWaterZone in tRadarData do
-                    iPond = M28Map.tiPondByWaterZone[iWaterZone]
-                    local tWZData = M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones][iWaterZone]
-                    local tWZTeamData = tWZData[M28Map.subrefWZTeamData][iTeam]
-                    if tWZTeamData[M28Map.refoBestRadar] == oRadar then
-                        tWZTeamData[M28Map.refoBestRadar] = nil
-                        if M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision] then
-                            tWZTeamData[M28Map.refiRadarCoverage] = 5000
-                            tWZTeamData[M28Map.refiOmniCoverage] = 5000
-                        else
-                            tWZTeamData[M28Map.refiRadarCoverage] = 0
-                            tWZTeamData[M28Map.refiOmniCoverage] = 0
-                        end
-                        local tNearbyRadar = aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryRadar, tWZData[M28Map.subrefMidpoint], 600, 'Ally')
-                        local iCurIntelRange
-                        local iBestIntelRange = 0
-                        local oBestRadar
-                        local iCurDist
-                        local oBP
-                        local iCurOmniRange
-                        local iBestOmniRange = 0
-                        if M28Utilities.IsTableEmpty(tNearbyRadar) == false then
-                            for iUnit, oUnit in tNearbyRadar do
-                                oBP = oUnit:GetBlueprint()
-                                iCurDist = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tWZData[M28Map.subrefMidpoint])
-                                iCurIntelRange = (oBP.Intel.RadarRadius or 0) - iCurDist
-                                if iCurIntelRange > iBestIntelRange then
-                                    iBestIntelRange = iCurIntelRange
-                                    oBestRadar = oUnit
-                                end
-                                iCurOmniRange = (oBP.Intel.OmniRadius or 0) - iCurDist
-                                if iCurOmniRange > iBestOmniRange then
-                                    iBestOmniRange = iCurOmniRange
-                                end
-                            end
-                        end
-                        if oBestRadar then
-                            tWZTeamData[M28Map.refoBestRadar] = oBestRadar
-                            if M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision] then
-                                tWZTeamData[M28Map.refiRadarCoverage] = 5000
-                                tWZTeamData[M28Map.refiOmniCoverage] = 5000
-                            else
-                                tWZTeamData[M28Map.refiRadarCoverage] = iBestIntelRange
-                                tWZTeamData[M28Map.refiOmniCoverage] = iBestOmniRange
-                            end
-                            if not(oBestRadar[M28Navy.reftiRadarWaterZonesCoveredByTeam]) then oBestRadar[M28Navy.reftiRadarWaterZonesCoveredByTeam] = {} end
-                            if not(oBestRadar[M28Navy.reftiRadarWaterZonesCoveredByTeam][iTeam]) then oBestRadar[M28Navy.reftiRadarWaterZonesCoveredByTeam][iTeam] = {} end
-                            table.insert(oBestRadar[M28Navy.reftiRadarWaterZonesCoveredByTeam][iTeam], iWaterZone)
-                        end
-                    end
-                end
-            end
-        end
-    end
-    --Then update enemy recorded omni range
-    UpdateRecordedAllPlayerOmni(oRadar, true)
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    M28Intel.InvalidateIntelSource(oRadar)
 end
 
 function UpdateZoneIntelForRadar(oRadar)
-    --If just built radar then want to update all land zones for the team to indicate the intel coverage
-    local sFunctionRef = 'UpdateZoneIntelForRadar'
-    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLand, sFunctionRef)
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-
-
-
-    local iTeam = oRadar:GetAIBrain().M28Team
-    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just built radar '..oRadar.UnitId..M28UnitInfo.GetUnitLifetimeCount(oRadar)..' owned by '..oRadar:GetAIBrain().Nickname..' with M28Team '..iTeam..'; is the table of active m28 brains for this team empty='..tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]))..'; Time='..GetGameTimeSeconds()) end
-    if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains]) == false then
-        if not(oRadar['M28UpdatedIntel']) then
-            oRadar['M28UpdatedIntel'] = true
-            local oBP = oRadar:GetBlueprint()
-            local iIntelRange = (oBP.Intel.RadarRadius or 0)
-            local iCurIntelRange
-            local iOmniRange = (oBP.Intel.OmniRadius or 0)
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Radar intel range='..iIntelRange) end
-            if iIntelRange > 0 or iOmniRange > 0 then
-                --Update land zones:
-                local iBasePlateau, iBaseZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oRadar:GetPosition())
-                local bImprovedIntelCoverageOfZone = false
-                local tPotentiallyObsoleteRadar = {}
-                for iPlateau, tPlateauSubtable in M28Map.tAllPlateaus do
-                    for iLandZone, tLZData in tPlateauSubtable[M28Map.subrefPlateauLandZones] do
-                        if tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiRadarCoverage] < iIntelRange then
-                            iCurIntelRange = iIntelRange - M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], oRadar:GetPosition())
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering iPlateau '..iPlateau..' Land zone '..iLandZone..'; iCurIntelRange factoring in distance='..iCurIntelRange..'; Distance='..M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], oRadar:GetPosition())..'; LZ current radar coverage='..tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiRadarCoverage]..'; tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refoBestRadar]='..(tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refoBestRadar].UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refoBestRadar]) or 'nil')) end
-                            if iCurIntelRange > tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiRadarCoverage] then
-                                if iCurIntelRange > iIntelThresholdForPriorityScout then bImprovedIntelCoverageOfZone = true end
-                                --First remove this plateau and LZ from the existing radar if there was one
-                                if M28UnitInfo.IsUnitValid(tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refoBestRadar]) then
-                                    if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refoBestRadar][reftiRadarPlateauAndLandZonesCoveredByTeam][iTeam]) == false then
-                                        for iEntry, tiPlateauAndLZ in tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refoBestRadar][reftiRadarPlateauAndLandZonesCoveredByTeam][iTeam] do
-                                            if tiPlateauAndLZ[1] == iPlateau and tiPlateauAndLZ[2] == iLandZone then
-                                                table.remove(tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refoBestRadar][reftiRadarPlateauAndLandZonesCoveredByTeam][iTeam], iEntry)
-                                                break
-                                            end
-                                        end
-                                    end
-                                    if not(tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refoBestRadar]:IsUnitState('Upgrading')) then
-                                        table.insert(tPotentiallyObsoleteRadar, tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refoBestRadar])
-                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Added radar '..tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refoBestRadar].UnitId..M28UnitInfo.GetUnitLifetimeCount(tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refoBestRadar])..' to potentially obsolete table') end
-                                    end
-                                end
-                                if M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision] then
-                                    tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiRadarCoverage] = 5000
-                                    tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiOmniCoverage] = 5000
-                                else
-                                    tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiRadarCoverage] = iCurIntelRange
-                                    tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refoBestRadar] = oRadar
-                                end
-                                if not(oRadar[reftiRadarPlateauAndLandZonesCoveredByTeam]) then oRadar[reftiRadarPlateauAndLandZonesCoveredByTeam] = {} end
-                                if not(oRadar[reftiRadarPlateauAndLandZonesCoveredByTeam][iTeam]) then oRadar[reftiRadarPlateauAndLandZonesCoveredByTeam][iTeam] = {} end
-                                table.insert(oRadar[reftiRadarPlateauAndLandZonesCoveredByTeam][iTeam], {iPlateau, iLandZone})
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished udpating for the new intel range, tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiRadarCoverage]='..tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiRadarCoverage]) end
-                            end
-                        end
-                        if iOmniRange > (tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiOmniCoverage] or 0) then
-                            tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiOmniCoverage] = math.max((tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiOmniCoverage] or 0), iOmniRange - M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], oRadar:GetPosition()))
-                        end
-                    end
-                end
-                --Update any units wanting priority land scouts in cae they now have good enough coverage
-                local tiLandSubteams = {}
-                for iBrain, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains] do
-                    tiLandSubteams[oBrain.M28LandSubteam] = true
-                end
-
-                for iLandSubteam, _ in tiLandSubteams do
-                    if M28Conditions.IsTableOfUnitsStillValid(M28Team.tLandSubteamData[iLandSubteam][M28Team.reftoPriorityUnitsWantingLandScout]) then
-                        for iCurEntry = table.getn(M28Team.tLandSubteamData[iLandSubteam][M28Team.reftoPriorityUnitsWantingLandScout]), 1, -1 do
-                            local oRecorded =  M28Team.tLandSubteamData[iLandSubteam][M28Team.reftoPriorityUnitsWantingLandScout][iCurEntry]
-                            if oRecorded[refiCurrentAssignmentPlateauAndLZ][2] then
-                                local tCurLZTeamData = M28Map.tAllPlateaus[oRecorded[refiCurrentAssignmentPlateauAndLZ][1]][M28Map.subrefPlateauLandZones][oRecorded[refiCurrentAssignmentPlateauAndLZ][2]][M28Map.subrefLZTeamData][iTeam]
-                                if tCurLZTeamData[M28Map.refiRadarCoverage] >= iIntelThresholdForPriorityScout then
-                                    oRecorded[refbFlaggedForPriorityScout] = nil
-                                    oRecorded[refiTimeLastBuiltLandScoutForUnit] = nil
-                                    table.remove(M28Team.tLandSubteamData[iLandSubteam][M28Team.reftoPriorityUnitsWantingLandScout], iCurEntry)
-                                end
-                            end
-                        end
-                    end
-                end
-
-                --Update water zones
-                for iPond, tPondSubtable in M28Map.tPondDetails do
-                    if M28Utilities.IsTableEmpty(tPondSubtable[M28Map.subrefPondWaterZones]) == false then
-                        for iWaterZone, tWZData in tPondSubtable[M28Map.subrefPondWaterZones] do
-                            local tWZTeamData = tWZData[M28Map.subrefWZTeamData][iTeam]
-                            if tWZTeamData[M28Map.refiRadarCoverage] < iIntelRange then
-                                iCurIntelRange = iIntelRange - M28Utilities.GetDistanceBetweenPositions(tWZData[M28Map.subrefMidpoint], oRadar:GetPosition())
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering iPond '..iPond..' Water zone '..iWaterZone..'; iCurIntelRange factoring in distance='..iCurIntelRange..'; Distance='..M28Utilities.GetDistanceBetweenPositions(tWZData[M28Map.subrefMidpoint], oRadar:GetPosition())..'; WZ current radar coverage='..tWZData[M28Map.subrefWZTeamData][iTeam][M28Map.refiRadarCoverage]) end
-                                if iCurIntelRange > tWZData[M28Map.subrefWZTeamData][iTeam][M28Map.refiRadarCoverage] then
-                                    --First remove this WZ from the existing (worse) radar if there was one
-                                    if M28UnitInfo.IsUnitValid(tWZTeamData[M28Map.refoBestRadar]) then
-                                        if M28Utilities.IsTableEmpty(tWZTeamData[M28Map.refoBestRadar][M28Navy.reftiRadarWaterZonesCoveredByTeam][iTeam]) == false then
-                                            for iEntry, iRecordedWaterZone in tWZTeamData[M28Map.refoBestRadar][M28Navy.reftiRadarWaterZonesCoveredByTeam][iTeam] do
-                                                if iRecordedWaterZone == iWaterZone then
-                                                    table.remove(tWZTeamData[M28Map.refoBestRadar][M28Navy.reftiRadarWaterZonesCoveredByTeam][iTeam], iEntry)
-                                                    break
-                                                end
-                                            end
-                                        end
-                                    end
-                                    --Now assign this WZ to this radar as providing the best coverage
-                                    if M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision] then
-                                        tWZTeamData[M28Map.refiRadarCoverage] = 5000
-                                        tWZTeamData[M28Map.refiOmniCoverage] = 5000
-                                    else
-                                        tWZTeamData[M28Map.refiRadarCoverage] = iCurIntelRange
-                                    end
-                                    tWZTeamData[M28Map.refoBestRadar] = oRadar
-                                    if not(oRadar[M28Navy.reftiRadarWaterZonesCoveredByTeam]) then oRadar[M28Navy.reftiRadarWaterZonesCoveredByTeam] = {} end
-                                    if not(oRadar[M28Navy.reftiRadarWaterZonesCoveredByTeam][iTeam]) then oRadar[M28Navy.reftiRadarWaterZonesCoveredByTeam][iTeam] = {} end
-                                    table.insert(oRadar[M28Navy.reftiRadarWaterZonesCoveredByTeam][iTeam], iWaterZone)
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished udpating for the new intel range, iWaterZone='..iWaterZone..'; tWZTeamData[M28Map.refiRadarCoverage]='..tWZTeamData[M28Map.refiRadarCoverage]) end
-                                    table.insert(tPotentiallyObsoleteRadar, tWZData[M28Map.subrefLZTeamData][iTeam][M28Map.refoBestRadar])
-                                end
-                            end
-                            if iOmniRange > (tWZData[M28Map.subrefWZTeamData][iTeam][M28Map.refiOmniCoverage] or 0) then
-                                tWZData[M28Map.subrefWZTeamData][iTeam][M28Map.refiOmniCoverage] = math.max((tWZData[M28Map.subrefWZTeamData][iTeam][M28Map.refiOmniCoverage] or 0), iOmniRange - M28Utilities.GetDistanceBetweenPositions(tWZData[M28Map.subrefMidpoint], oRadar:GetPosition()))
-                            end
-                        end
-                    end
-                end
-
-                --Filter to obsolete radar and ctrl-K these (or record against the best radar if the best radar isn't constructed yet)
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished cycling through zones, is table of obsolete radar empty='..tostring(M28Utilities.IsTableEmpty(tPotentiallyObsoleteRadar))) end
-                oRadar[reftoUnitsToKillOnCompletion] = nil
-                if M28Utilities.IsTableEmpty(tPotentiallyObsoleteRadar) == false then
-                    local tUniqueList = {}
-                    local iUnitRef
-                    local oBrain
-                    for iUnit, oUnit in tPotentiallyObsoleteRadar do
-                        oBrain = oUnit:GetAIBrain()
-                        if oBrain.M28AI then
-                            iUnitRef = oBrain:GetArmyIndex()..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will add unit with ref incl ai index of '..iUnitRef..' to tUniqueList') end
-                            if not(tUniqueList[iUnitRef]) then
-                                tUniqueList[iUnitRef] = oUnit
-                            end
-                        end
-                    end
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is tUniqueList empty='..tostring( M28Utilities.IsTableEmpty(tUniqueList))) end
-                    if M28Utilities.IsTableEmpty(tUniqueList) == false then
-                        local tUnitsToKill = {}
-                        for iUnit, oUnit in tUniqueList do
-                            local oBP = oUnit:GetBlueprint()
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' with radar radius '..(oBP.Intel.RadarRadius or 0)..' vs iIntelRange='..iIntelRange..'; Unit state='..M28UnitInfo.GetUnitState(oUnit)) end
-                            if (oBP.Intel.RadarRadius or 0) < math.max(1, iIntelRange) and (oBP.Intel.OmniRadius or 0) < math.max(1, iOmniRange) then
-                                if (not(oUnit[M28UnitInfo.refbCampaignTriggerAdded]) or not(M28Map.bIsCampaignMap)) and (not(oUnit:IsUnitState('Upgrading')) or (M28UnitInfo.GetUnitTechLevel(oRadar) >= 3 and EntityCategoryContains(categories.TECH1, oUnit.UnitId))) then
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adding unit to list of units to kill on completeion') end
-                                    table.insert(tUnitsToKill, oUnit)
-                                end
-                            end
-                        end
-                        if M28Utilities.IsTableEmpty(tUnitsToKill) == false then
-                            if oRadar:GetFractionComplete() < 1 then
-                                oRadar[reftoUnitsToKillOnCompletion] = tUnitsToKill
-                            else
-                                local iTotalCount = table.getn(tUnitsToKill)
-                                for iEntry = iTotalCount, 1, -1 do
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Radar '..tUnitsToKill[iEntry].UnitId..M28UnitInfo.GetUnitLifetimeCount(tUnitsToKill[iEntry])..' has radar range of '..(tUnitsToKill[iEntry]:GetBlueprint().Intel.RadarRadius or 0)..' and is obsolete by oRadar '..oRadar.UnitId..M28UnitInfo.GetUnitLifetimeCount(oRadar)..'; with iIntelRange='..iIntelRange) end
-                                    M28Orders.IssueTrackedKillUnit(tUnitsToKill[iEntry])
-                                end
-                            end
-                        end
-                    end
-                end
-                local tBaseLZTeamData = M28Map.tAllPlateaus[iBasePlateau][M28Map.subrefPlateauLandZones][iBaseZone][M28Map.subrefLZTeamData][iTeam]
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iBasePlateau='..iBasePlateau..'; iBaseZone='..iBaseZone..'; tBaseLZTeamData radar coverage='..tBaseLZTeamData[M28Map.refiRadarCoverage]) end
-                --Backup - have the zone the radar is in have a minimum level of coverage so we dont massively overbuild
-                local iRadarThreshold = math.max(iIntelRange * 0.6, iIntelRange - 80)
-                if tBaseLZTeamData[M28Map.refiRadarCoverage] < iRadarThreshold then
-                    tBaseLZTeamData[M28Map.refiRadarCoverage] = iRadarThreshold
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Setting radar range equal to 60% of the units, iRadarThreshold='..iRadarThreshold) end
-                end
-
-                --Remove priority land scout flag on any ACUs if we have just built omni
-                if iIntelRange > M28UnitInfo.iT2RadarSize and M28Conditions.IsTableOfUnitsStillValid(M28Team.tTeamData[iTeam][M28Team.reftM28ACUs]) then
-                    for iACU, oACU in M28Team.tTeamData[iTeam][M28Team.reftM28ACUs] do
-                        RemoveUnitFromPriorityLandScoutFlagTable(oACU)
-                    end
-                end
-            end
-            UpdateRecordedAllPlayerOmni(oRadar, false)
-        end
-    end
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    -- Construction reserves a site; only operational sensors provide tactical coverage.
+    M28Intel.RegisterIntelSource(oRadar)
 end
 
 function TrackWallSegment(oWall, bJustBuilt)

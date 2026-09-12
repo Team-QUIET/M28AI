@@ -11,6 +11,205 @@ local M28Map = import('/mods/M28AI/lua/AI/M28Map.lua')
 local M28Team = import('/mods/M28AI/lua/AI/M28Team.lua')
 local M28UnitInfo = import('/mods/M28AI/lua/AI/M28UnitInfo.lua')
 
+refiPlannedRadarCoverage = 'M28PlannedRadarCoverage'
+refiPlannedSonarCoverage = 'M28PlannedSonarCoverage'
+refoPlannedRadar = 'M28PlannedRadar'
+refoPlannedSonar = 'M28PlannedSonar'
+local tIntelSources = {}
+local tIntelSourceStates = {}
+local tCoverageOmniTeams = {}
+local bCoverageMonitorRunning = false
+local bCoverageDirty = false
+
+function GetOperationalIntelRadius(oUnit, sIntel)
+    if not(M28UnitInfo.IsUnitValid(oUnit)) or oUnit:GetFractionComplete() < 1 or oUnit:IsUnitState('Attached')
+            or not(oUnit:IsIntelEnabled(sIntel)) then return 0 end
+    return math.max(0, oUnit:GetIntelRadius(sIntel) or 0)
+end
+
+function GetPlannedRadarCoverage(tZoneTeamData)
+    return math.max(tZoneTeamData[M28Map.refiRadarCoverage] or 0, tZoneTeamData[refiPlannedRadarCoverage] or 0)
+end
+
+function RecordZoneVisualFromUnit(oUnit, tZone, tZoneTeamData)
+    if not(M28UnitInfo.IsUnitValid(oUnit)) or oUnit:GetFractionComplete()<1 or oUnit:IsUnitState('Attached') then return false end
+    local sLayer = oUnit:GetCurrentLayer()
+    local sVision = (sLayer=='Sub' or sLayer=='Seabed') and 'WaterVision' or 'Vision'
+    local iRadius = GetOperationalIntelRadius(oUnit,sVision)
+    if iRadius>0 and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(),tZone[M28Map.subrefMidpoint]) <= iRadius then
+        tZoneTeamData[M28Map.refiTimeLastHadVisual] = GetGameTimeSeconds()
+        tZoneTeamData[refiTimeLastIntelUpdate] = nil
+        return true
+    end
+    return false
+end
+
+function GetKnownThreatPosition(aiBrain, oUnit, iMaxAge)
+    if not(aiBrain) or not(M28UnitInfo.IsUnitValid(oUnit)) then return nil, 0, 0 end
+    if M28UnitInfo.CanSeeUnit(aiBrain, oUnit) then
+        M28Team.UpdateUnitLastKnownPosition(aiBrain, oUnit, true)
+        return oUnit:GetPosition(), 1, 0
+    end
+    local tPositions = oUnit[M28UnitInfo.reftLastKnownPositionByTeam]
+    local tTimes = oUnit[M28UnitInfo.reftLastContactTimeByTeam]
+    local iTeam = aiBrain.M28Team
+    local tPosition = tPositions and tPositions[iTeam]
+    local iSeen = tTimes and tTimes[iTeam]
+    if not(tPosition) or not(iSeen) then return nil, 0, 0 end
+    local iAge = math.max(0, GetGameTimeSeconds() - iSeen)
+    if EntityCategoryContains(categories.STRUCTURE, oUnit.UnitId) then return tPosition, 1, iAge end
+    iMaxAge = iMaxAge or 60
+    if iAge >= iMaxAge then return nil, 0, iAge end
+    -- Keep a recent army dangerous while its possible position becomes less precise.
+    local iConfidence = math.max(0, math.min(1, (iMaxAge-iAge) / (iMaxAge*0.6)))
+    return tPosition, iConfidence, iAge
+end
+
+function GetKnownGroundAA(aiBrain)
+    local tKnown = M28Team.tTeamData[aiBrain.M28Team][M28Team.reftoKnownGroundAA] or {}
+    local tResult = {}
+    for iId, oUnit in tKnown do
+        if not(M28UnitInfo.IsUnitValid(oUnit)) or not(IsEnemy(aiBrain:GetArmyIndex(), oUnit:GetArmy())) then
+            tKnown[iId] = nil
+        else
+            table.insert(tResult, oUnit)
+        end
+    end
+    table.sort(tResult, function(a,b) return a.EntityId < b.EntityId end)
+    return tResult
+end
+
+function WantsForwardRadar(tZoneTeamData)
+    return not(tZoneTeamData[M28Map.subrefLZbCoreBase])
+        and not(tZoneTeamData[M28Map.subrefbDangerousEnemiesInThisLZ])
+        and (tZoneTeamData[M28Map.refiRadarCoverage] or 0) < 60
+        and (tZoneTeamData[M28Map.refiOmniCoverage] or 0) < 60
+        and (tZoneTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0) >= 300
+end
+
+local function IntelSourceStateChanged(tOld, tNew)
+    if not(tOld) then return true end
+    for _, sKey in {'team', 'army', 'x', 'z', 'radar', 'omni', 'sonar', 'plannedRadar', 'plannedSonar'} do
+        if tOld[sKey] ~= tNew[sKey] then return true end
+    end
+    return false
+end
+
+function RefreshOperationalIntelCoverage(bForce)
+    if not(M28Map.bMapLandSetupComplete) or not(M28Map.bWaterZoneInitialCreation) then return end
+    local bChanged = bForce or bCoverageDirty
+    local tSources, tTeams = {}, {}
+    for oUnit, _ in tIntelSources do
+        if M28UnitInfo.IsUnitValid(oUnit) then
+            table.insert(tSources, oUnit)
+        else
+            tIntelSources[oUnit] = nil
+            tIntelSourceStates[oUnit] = nil
+            bChanged = true
+        end
+    end
+    table.sort(tSources, function(a,b) return a.EntityId < b.EntityId end)
+    for _, oUnit in tSources do
+        local oBrain = oUnit:GetAIBrain()
+        local tPosition = oUnit:GetPosition()
+        local tIntel = oUnit:GetBlueprint().Intel or {}
+        local bUnfinished = oUnit:GetFractionComplete() < 1
+        local tState = {team=oBrain.M28Team, army=oBrain:GetArmyIndex(), x=tPosition[1], z=tPosition[3],
+            radar=GetOperationalIntelRadius(oUnit, 'Radar'), omni=GetOperationalIntelRadius(oUnit, 'Omni'),
+            sonar=GetOperationalIntelRadius(oUnit, 'Sonar'),
+            plannedRadar=bUnfinished and (tIntel.RadarRadius or 0) or 0,
+            plannedSonar=bUnfinished and (tIntel.SonarRadius or 0) or 0}
+        if IntelSourceStateChanged(tIntelSourceStates[oUnit], tState) then bChanged = true end
+        tIntelSourceStates[oUnit] = tState
+    end
+    for iTeam, tTeam in M28Team.tTeamData do
+        if (tTeam[M28Team.subrefiActiveM28BrainCount] or 0) > 0 then
+            table.insert(tTeams, iTeam)
+            local bOmni = tTeam[M28Team.subrefbTeamHasOmniVision] or false
+            if tCoverageOmniTeams[iTeam] ~= bOmni then bChanged = true end
+            tCoverageOmniTeams[iTeam] = bOmni
+        end
+    end
+    if not(bChanged) then return end
+    table.sort(tTeams)
+    bCoverageDirty = false
+    local function RefreshZone(tZone, sTeamData, bWater)
+        local tMidpoint = tZone[M28Map.subrefMidpoint]
+        local tAllOmni, iAllOmni = {}, 0
+        for _, oUnit in tSources do
+            local tState = tIntelSourceStates[oUnit]
+            local iDistance = math.sqrt((tState.x-tMidpoint[1]) * (tState.x-tMidpoint[1]) + (tState.z-tMidpoint[3]) * (tState.z-tMidpoint[3]))
+            if tState.omni > iDistance then
+                table.insert(tAllOmni, oUnit)
+                iAllOmni = math.max(iAllOmni, tState.omni-iDistance)
+            end
+        end
+        tZone[M28Map.reftoAllOmniRadar] = tAllOmni
+        tZone[M28Map.refiAllOmniCoverage] = iAllOmni
+        for _, iTeam in tTeams do
+            local tData = tZone[sTeamData] and tZone[sTeamData][iTeam]
+            if tData then
+                local tValues = {radar=0, omni=0, sonar=0, plannedRadar=0, plannedSonar=0}
+                local tBest = {}
+                for _, oUnit in tSources do
+                    local tState = tIntelSourceStates[oUnit]
+                    if tState.team == iTeam then
+                        local iDistance = math.sqrt((tState.x-tMidpoint[1]) * (tState.x-tMidpoint[1]) + (tState.z-tMidpoint[3]) * (tState.z-tMidpoint[3]))
+                        for _, sKind in {'radar', 'omni', 'sonar', 'plannedRadar', 'plannedSonar'} do
+                            local iCoverage = tState[sKind] - iDistance
+                            if iCoverage > tValues[sKind] then tValues[sKind] = iCoverage; tBest[sKind] = oUnit end
+                        end
+                    end
+                end
+                local bOmni = tCoverageOmniTeams[iTeam]
+                tData[M28Map.refiRadarCoverage] = bOmni and 5000 or tValues.radar
+                tData[M28Map.refiOmniCoverage] = bOmni and 5000 or tValues.omni
+                tData[M28Map.refoBestRadar] = tBest.radar
+                tData[refiPlannedRadarCoverage] = tValues.plannedRadar
+                tData[refoPlannedRadar] = tBest.plannedRadar
+                if bWater then
+                    tData[M28Map.refiSonarCoverage] = bOmni and 5000 or tValues.sonar
+                    tData[M28Map.refoBestSonar] = tBest.sonar
+                    tData[refiPlannedSonarCoverage] = tValues.plannedSonar
+                    tData[refoPlannedSonar] = tBest.plannedSonar
+                end
+                tData[refiTimeLastIntelUpdate] = nil
+            end
+        end
+    end
+    for _, tPlateau in M28Map.tAllPlateaus do
+        for _, tZone in tPlateau[M28Map.subrefPlateauLandZones] or {} do RefreshZone(tZone, M28Map.subrefLZTeamData, false) end
+    end
+    for _, tPond in M28Map.tPondDetails do
+        for _, tZone in tPond[M28Map.subrefPondWaterZones] or {} do RefreshZone(tZone, M28Map.subrefWZTeamData, true) end
+    end
+end
+
+local function MonitorOperationalIntelCoverage()
+    while true do
+        RefreshOperationalIntelCoverage(false)
+        if M28Utilities.IsTableEmpty(tIntelSources) then break end
+        WaitTicks(21)
+    end
+    bCoverageMonitorRunning = false
+end
+
+function RegisterIntelSource(oUnit)
+    if M28UnitInfo.IsUnitValid(oUnit) then tIntelSources[oUnit] = true end
+    bCoverageDirty = true
+    if not(bCoverageMonitorRunning) then
+        bCoverageMonitorRunning = true
+        ForkThread(MonitorOperationalIntelCoverage)
+    end
+end
+
+function InvalidateIntelSource(oUnit)
+    tIntelSources[oUnit] = nil
+    tIntelSourceStates[oUnit] = nil
+    bCoverageDirty = true
+    RefreshOperationalIntelCoverage(true)
+end
+
 --===========================================
 -- INTEL CONFIDENCE CONFIGURATION
 --===========================================
@@ -75,6 +274,7 @@ refiLastKnownNavalSubmersibleThreat = 'IntSubThr' -- Submarine-specific threat t
 refiTimeLastThreatUpdate = 'IntThrUpd'
 refbIntelSurpriseDetected = 'IntSurp'
 refiSurpriseThreatAmount = 'IntSurpAmt'
+refiTimeLastIntelSurprise = 'IntSurpTm'
 
 --===========================================
 -- CORE INTEL CONFIDENCE FUNCTIONS
@@ -100,6 +300,11 @@ end
 ---@param tLZOrWZTeamData table Zone team data containing intel tracking values
 ---@param iTeam number Team index
 ---@return number Intel confidence score (0-100)
+function GetCoverageConfidence(iCoverage)
+    -- Coverage is the distance from a zone midpoint to a sensor's edge.
+    return math.max(0, math.min(100, (iCoverage or 0) * 2))
+end
+
 function CalculateIntelConfidence(tLZOrWZTeamData, iTeam)
     local sFunctionRef = 'CalculateIntelConfidence'
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -107,13 +312,13 @@ function CalculateIntelConfidence(tLZOrWZTeamData, iTeam)
     local iCurrentTime = GetGameTimeSeconds()
     
     -- Get time since last visual
-    local iTimeLastVisual = tLZOrWZTeamData[M28Map.refiTimeLastHadVisual] or 0
-    local iTimeSinceVisual = iCurrentTime - iTimeLastVisual
+    local iTimeLastVisual = tLZOrWZTeamData[M28Map.refiTimeLastHadVisual]
+    local iTimeSinceVisual = iTimeLastVisual and iCurrentTime - iTimeLastVisual or iVisualZeroConfidenceTime
     local iVisualScore = GetVisualConfidenceScore(iTimeSinceVisual)
     
-    -- Get radar and omni coverage (already 0-100 scale)
-    local iRadarScore = tLZOrWZTeamData[M28Map.refiRadarCoverage] or 0
-    local iOmniScore = tLZOrWZTeamData[M28Map.refiOmniCoverage] or 0
+    -- Convert operational coverage distances to bounded confidence scores.
+    local iRadarScore = GetCoverageConfidence(tLZOrWZTeamData[M28Map.refiRadarCoverage])
+    local iOmniScore = GetCoverageConfidence(tLZOrWZTeamData[M28Map.refiOmniCoverage])
     
     -- Calculate weighted confidence
     local iConfidence = (iVisualScore * iVisualWeight) + 
@@ -121,7 +326,7 @@ function CalculateIntelConfidence(tLZOrWZTeamData, iTeam)
                         (iOmniScore * iOmniWeight)
     
     -- Clamp to 0-100 range
-    iConfidence = math.max(0, math.min(100, iConfidence))
+    iConfidence = math.max(iOmniScore, math.min(100, iConfidence))
     
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     return iConfidence
@@ -557,21 +762,21 @@ end
 ---@return number Intel confidence adjusted for that threat type's mobility
 function GetThreatTypeIntelConfidence(tLZOrWZTeamData, iTeam, iThreatType)
     local iCurrentTime = GetGameTimeSeconds()
-    local iTimeLastVisual = tLZOrWZTeamData[M28Map.refiTimeLastHadVisual] or 0
-    local iTimeSinceVisual = iCurrentTime - iTimeLastVisual
+    local iTimeLastVisual = tLZOrWZTeamData[M28Map.refiTimeLastHadVisual]
+    local iTimeSinceVisual = iTimeLastVisual and iCurrentTime - iTimeLastVisual or iVisualZeroConfidenceTime
 
     -- Get mobility-adjusted visual score
     local iVisualScore = GetMobilityAdjustedVisualConfidence(iTimeSinceVisual, iThreatType)
 
     -- Radar and omni remain the same
-    local iRadarScore = tLZOrWZTeamData[M28Map.refiRadarCoverage] or 0
-    local iOmniScore = tLZOrWZTeamData[M28Map.refiOmniCoverage] or 0
+    local iRadarScore = GetCoverageConfidence(tLZOrWZTeamData[M28Map.refiRadarCoverage])
+    local iOmniScore = GetCoverageConfidence(tLZOrWZTeamData[M28Map.refiOmniCoverage])
 
     local iConfidence = (iVisualScore * iVisualWeight) +
                         (iRadarScore * iRadarWeight) +
                         (iOmniScore * iOmniWeight)
 
-    return math.max(0, math.min(100, iConfidence))
+    return math.max(iOmniScore, math.min(100, iConfidence))
 end
 
 --===========================================
@@ -598,6 +803,7 @@ function DetectIntelSurprise(tLZOrWZTeamData, iTeam, iActualThreat, iPreviousKno
     if iThreatDifference >= iSurpriseThreatThreshold and iConfidence >= iSurpriseConfidenceThreshold then
         tLZOrWZTeamData[refbIntelSurpriseDetected] = true
         tLZOrWZTeamData[refiSurpriseThreatAmount] = iThreatDifference
+        tLZOrWZTeamData[refiTimeLastIntelSurprise] = iCurrentTime
 
         if bDebugMessages == true then
             LOG(sFunctionRef..': INTEL SURPRISE! Expected threat='..(iPreviousKnownThreat or 0)..
@@ -607,9 +813,10 @@ function DetectIntelSurprise(tLZOrWZTeamData, iTeam, iActualThreat, iPreviousKno
         return true
     end
 
-    -- Clear surprise flag if not currently surprised
-    tLZOrWZTeamData[refbIntelSurpriseDetected] = false
-    tLZOrWZTeamData[refiSurpriseThreatAmount] = 0
+    if iCurrentTime - (tLZOrWZTeamData[refiTimeLastIntelSurprise] or -100) > iSurpriseRecencySeconds then
+        tLZOrWZTeamData[refbIntelSurpriseDetected] = false
+        tLZOrWZTeamData[refiSurpriseThreatAmount] = 0
+    end
     return false
 end
 
@@ -618,6 +825,7 @@ end
 ---@return boolean True if zone had recent intel surprise
 function HadRecentIntelSurprise(tLZOrWZTeamData)
     return tLZOrWZTeamData[refbIntelSurpriseDetected] == true
+        and GetGameTimeSeconds() - (tLZOrWZTeamData[refiTimeLastIntelSurprise] or -100) <= iSurpriseRecencySeconds
 end
 
 ---Get the amount of surprise threat that appeared
@@ -656,7 +864,9 @@ function UpdatePeakThreatTracking(tLZOrWZTeamData, iCurrentEnemyThreat)
     -- Decay peak threat over time if no new peak (prevents stale peaks)
     elseif iCurrentTime - (tLZOrWZTeamData[refiTimePeakThreat] or 0) > 60 then
         -- Decay peak by 10% per minute
-        tLZOrWZTeamData[refiPeakEnemyThreat] = iPeakThreat * 0.9
+        local iElapsed = iCurrentTime - (tLZOrWZTeamData[refiTimePeakThreat] or 0)
+        tLZOrWZTeamData[refiPeakEnemyThreat] = iPeakThreat * math.pow(0.9, iElapsed / 60)
+        tLZOrWZTeamData[refiTimePeakThreat] = iCurrentTime
     end
 end
 
@@ -674,7 +884,15 @@ function DetectBattleConcluded(tLZOrWZTeamData, iCurrentEnemyThreat)
     -- Update peak tracking
     UpdatePeakThreatTracking(tLZOrWZTeamData, iCurrentEnemyThreat)
 
-    -- Check if battle concluded (significant threat drop from peak)
+    -- Losing contacts is not evidence that the opposing army was destroyed.
+    local iLastVisual = tLZOrWZTeamData[M28Map.refiTimeLastHadVisual] or -100
+    local bCovered = (tLZOrWZTeamData[M28Map.refiRadarCoverage] or 0) >= 50
+        or (tLZOrWZTeamData[M28Map.refiOmniCoverage] or 0) >= 50
+        or iCurrentTime - iLastVisual <= 5
+    if not(bCovered) then
+        tLZOrWZTeamData[refbBattleConcluded] = false
+        return false
+    end
     if iPeakThreat >= iBattleConcludedMinPeakThreat then
         local iThreatRatio = iCurrentEnemyThreat / iPeakThreat
         if iThreatRatio <= iBattleConcludedThreatDropPercent then
@@ -834,7 +1052,7 @@ function GetZonesNeedingScoutingCount(iTeam)
     local iLowIntelWaterZones = 0
 
     -- Count priority scout requests
-    local tRequests = M28Team.tTeamData[iTeam][M28Team.reftPriorityScoutZones]
+    local tRequests = GetPriorityScoutZoneRequests(iTeam)
     if tRequests then
         for _, tRequest in tRequests do
             -- Routine coverage redirects scouts; combat requests can also fund replacements.
@@ -849,7 +1067,8 @@ function GetZonesNeedingScoutingCount(iTeam)
                 local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
                 if tLZTeamData then
                     local iConfidence = GetZoneIntelConfidence(tLZTeamData, iTeam, 5)
-                    if GetIntelConfidenceLevel(iConfidence) == refiIntelLow then
+                    if GetIntelConfidenceLevel(iConfidence) == refiIntelLow and
+                            ((tLZTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0) > 0 or tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) then
                         iLowIntelLandZones = iLowIntelLandZones + 1
                     end
                 end
@@ -864,7 +1083,8 @@ function GetZonesNeedingScoutingCount(iTeam)
                 local tWZTeamData = tWZData[M28Map.subrefWZTeamData][iTeam]
                 if tWZTeamData then
                     local iConfidence = GetZoneIntelConfidence(tWZTeamData, iTeam, 5)
-                    if GetIntelConfidenceLevel(iConfidence) == refiIntelLow then
+                    if GetIntelConfidenceLevel(iConfidence) == refiIntelLow and
+                            ((tWZTeamData[M28Map.subrefWZTThreatAllyCombatTotal] or 0) > 0 or tWZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentWZ]) then
                         iLowIntelWaterZones = iLowIntelWaterZones + 1
                     end
                 end

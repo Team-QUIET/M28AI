@@ -57,6 +57,7 @@ refiLastBombFired = 'M28LastBmb' --Gametimeseconds that last fired a bomb
 refiBombMissedCount = 'M28BmbMis' --increases by 1 when fire a bomb at the unit, resets to 0 when bomber damages unit
 refiLastDodgeBombEvent = 'M28LastDodB' --gametimeseconds that last triggered the onbombfired logic
 reftLastKnownPositionByTeam = 'M28UnitLastPos' --[x] is the M28 team ref, returns the last known position of the unit
+reftLastContactTimeByTeam = 'M28UnitContactTime'
 reftRecentUnitPositions = 'M28RcUnP' --[x] = 1, 2, 3; based on previous recorded positions; used for TML targeting logic; note that this isnt by team to reduce tables required, since if have multiple M28 then only the first one will try and record this in MonitorUnitRecentPositions
 reftAssignedPlateauAndLandZoneByTeam = 'M28UnitPlateauAndZone' --[x] is the M28 team ref, returns a table {iPlateau, iLandZoneRef}
 reftRecentPlateauAndZoneByTeam = 'M28UnitPrvPlatZ' --[x] is the preceding entry, returns {iPlateauOrZero, iLandOrWaterZoneRef}; will keep track of the last 8 changes (used to realise if a unit is stuck alternating between the same 2 zones)
@@ -3697,7 +3698,7 @@ end
 
 function CanSeeUnit(aiBrain, oUnit, bRequireVisualNotJustBlipToReturnTrue)
     --returns true if aiBrain can see oUnit
-    --bRequireVisualNotJustBlipToReturnTrue - returns true if can see a blip
+    -- Visual-only queries require current sight, not a previously identified blip.
     if bRequireVisualNotJustBlipToReturnTrue == nil then bRequireVisualNotJustBlipToReturnTrue = false end
     local iUnitBrain = oUnit:GetAIBrain()
     if iUnitBrain == aiBrain then return true
@@ -3711,7 +3712,7 @@ function CanSeeUnit(aiBrain, oUnit, bRequireVisualNotJustBlipToReturnTrue)
                 local oBlip = oUnit:GetBlip(iArmyIndex)
                 if oBlip then
                     if not(bRequireVisualNotJustBlipToReturnTrue) then return true
-                    elseif oBlip:IsSeenEver(iArmyIndex) then return true end
+                    elseif oBlip:IsSeenNow(iArmyIndex) then return true end
                 end
             end
         end

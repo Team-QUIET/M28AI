@@ -10914,13 +10914,14 @@ function ManageAirScouts(iTeam, iAirSubteam)
                     if (iCurLZOrWZ or 0) == 0 then
                         iCurLZOrWZ = M28Map.GetWaterZoneFromPosition(oUnit:GetPosition())
                         if (iCurLZOrWZ or 0) > 0 then
-                            iCurPlateauOrZero = -1
+                            iCurPlateauOrZero = 0
                         end
                     end
                     if (iCurLZOrWZ or 0) > 0 then
                         if iCurPlateauOrZero == 0 then
                             --Water zone
-                            M28Map.tPondDetails[M28Map.tiPondByWaterZone[iCurLZOrWZ]][M28Map.subrefPondWaterZones][iCurLZOrWZ][M28Map.subrefWZTeamData][iTeam][M28Map.refiTimeLastHadVisual] = GetGameTimeSeconds()
+                            local tWaterZone = M28Map.tPondDetails[M28Map.tiPondByWaterZone[iCurLZOrWZ]][M28Map.subrefPondWaterZones][iCurLZOrWZ]
+                            M28Intel.RecordZoneVisualFromUnit(oUnit,tWaterZone,tWaterZone[M28Map.subrefWZTeamData][iTeam])
                         else
                             --Land zone
                             local tScoutLZTeamData = M28Map.tAllPlateaus[iCurPlateauOrZero][M28Map.subrefPlateauLandZones][iCurLZOrWZ][M28Map.subrefLZTeamData][iTeam]
@@ -10937,7 +10938,7 @@ function ManageAirScouts(iTeam, iAirSubteam)
                                 end
                             end
                             if tScoutLZTeamData then
-                                tScoutLZTeamData[M28Map.refiTimeLastHadVisual] = GetGameTimeSeconds()
+                                M28Intel.RecordZoneVisualFromUnit(oUnit,M28Map.tAllPlateaus[iCurPlateauOrZero][M28Map.subrefPlateauLandZones][iCurLZOrWZ],tScoutLZTeamData)
                             end
                         end
                     end

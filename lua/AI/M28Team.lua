@@ -249,6 +249,7 @@ tTeamData = {} --[x] is the aiBrain.M28Team number - stores certain team-wide in
     --Air related
     reftoAllEnemyAir = 'M28TeamEnemyAirAll'
     reftoEnemyAirAA = 'M28TeamEnemyAirAAUnits' --Table of enemy AirAA units
+    reftoKnownGroundAA = 'M28KnownGroundAA'
     reftoEnemyAirToGround = 'M28TeamEnemyAirToGroundUnits' --Table of enemy air to ground units
     reftoEnemyTorpBombers = 'M28TeamEnemyTorpUnits' --table of enemy units that are torpedo bombers
     reftoEnemyAirOther = 'M28TeamEnemyAirOtherUnits' --AIr scouts and transports
@@ -1466,47 +1467,22 @@ function AddUnitToWaterZoneForBrain(aiBrain, oUnit, iWaterZone, bIsEnemyAirUnit)
 end
 
 function UpdateUnitLastKnownPosition(aiBrain, oUnit, bDontCheckIfCanSeeUnit, bInWaterZone)
-    --Only updates the position if the unit isnt on the same team as us (to save space), since we can use :GetPosition() for allied units
-    --Checks if the unti needs reassigning if it is a land or naval unit
-    local sFunctionRef = 'UpdateUnitLastKnownPosition'
-    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelTeam, sFunctionRef)
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-
+    if not(M28UnitInfo.IsUnitValid(oUnit)) then return end
     local oUnitBrain = oUnit:GetAIBrain()
-    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, considering whether to update last known position, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by '..oUnit:GetAIBrain().Nickname..' for iTeam='..aiBrain.M28Team..'; bDontCheckIfCanSeeUnit='..tostring(bDontCheckIfCanSeeUnit or false)..'; Cur dif in unit position and lastknownposition='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oUnit[M28UnitInfo.reftLastKnownPositionByTeam][aiBrain.M28Team])..'; Time='..GetGameTimeSeconds()) end
-    if not(oUnitBrain == aiBrain or IsAlly(aiBrain:GetArmyIndex(), oUnitBrain:GetArmyIndex())) then
-        if bDontCheckIfCanSeeUnit or M28UnitInfo.CanSeeUnit(aiBrain, oUnit) then
-            if not(oUnit[M28UnitInfo.reftLastKnownPositionByTeam]) then oUnit[M28UnitInfo.reftLastKnownPositionByTeam] = {} end
-            local tCurPosition = oUnit:GetPosition()
-            oUnit[M28UnitInfo.reftLastKnownPositionByTeam][aiBrain.M28Team] = {tCurPosition[1], tCurPosition[2], tCurPosition[3]} --Do a copy of table as :GetPosition() means it will always update for the unit's latest position even when we lack intel of it
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We can see the unit or we are ignoring if we can see unit, so updating last known position') end
-        else
-            --Below to try and approximate scenarios where enemy retreats temporarily with the unit and we end up with units thinking the enemy is right infront of them (even though they can see the location it used to be to confirm it isnt there); will approximate by saying if we have friendly units in the same land zone as the last known position, and that position has changed by more than 10, then we can refresh its position
-            if not(bInWaterZone) then
-                local iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oUnit[M28UnitInfo.reftLastKnownPositionByTeam][aiBrain.M28Team])
-                if M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][aiBrain.M28Team][M28Map.subreftoLZOrWZAlliedUnits]) == false
-                    --Require unit to have moved significnatly from last known position as want to limit use of this to get balance between AI recognising enemy no longer where it thinks it was, vs AI knowing where enemy actually is
-                        and (M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(),oUnit[M28UnitInfo.reftLastKnownPositionByTeam][aiBrain.M28Team]) >= 10)  then
-                    local tCurPosition = oUnit:GetPosition()
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Updating unit last known position to actual since it has moved significantly further away and we have a unit in the same zone') end
-                    oUnit[M28UnitInfo.reftLastKnownPositionByTeam][aiBrain.M28Team] = {tCurPosition[1], tCurPosition[2], tCurPosition[3]}
-                end
-            else
-                local iLastSegmentX, iLastSegmentZ = M28Map.GetPathingSegmentFromPosition(oUnit[M28UnitInfo.reftLastKnownPositionByTeam][aiBrain.M28Team])
-                local iWaterZone = M28Map.tWaterZoneBySegment[iLastSegmentX][iLastSegmentZ]
-                if iWaterZone then
-                    local iPond = M28Map.tiPondByWaterZone[iWaterZone]
-                    if M28Utilities.IsTableEmpty(M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones][iWaterZone][M28Map.subrefLZTeamData][aiBrain.M28Team][M28Map.subreftoLZOrWZAlliedUnits]) == false
-                            and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(),oUnit[M28UnitInfo.reftLastKnownPositionByTeam][aiBrain.M28Team]) >= 10 then
-                        local tCurPosition = oUnit:GetPosition()
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Updating unit last known position to actual since it has moved significantly further away and we have a unit in the same water zone') end
-                        oUnit[M28UnitInfo.reftLastKnownPositionByTeam][aiBrain.M28Team] = {tCurPosition[1], tCurPosition[2], tCurPosition[3]}
-                    end
-                end
-            end
+    if oUnitBrain == aiBrain or IsAlly(aiBrain:GetArmyIndex(), oUnitBrain:GetArmyIndex()) then return end
+    if bDontCheckIfCanSeeUnit or M28UnitInfo.CanSeeUnit(aiBrain, oUnit) then
+        local iTeam = aiBrain.M28Team
+        local tPosition = oUnit:GetPosition()
+        oUnit[M28UnitInfo.reftLastKnownPositionByTeam] = oUnit[M28UnitInfo.reftLastKnownPositionByTeam] or {}
+        oUnit[M28UnitInfo.reftLastContactTimeByTeam] = oUnit[M28UnitInfo.reftLastContactTimeByTeam] or {}
+        oUnit[M28UnitInfo.reftLastKnownPositionByTeam][iTeam] = {tPosition[1], tPosition[2], tPosition[3]}
+        oUnit[M28UnitInfo.reftLastContactTimeByTeam][iTeam] = GetGameTimeSeconds()
+        if EntityCategoryContains(M28UnitInfo.refCategoryGroundAA, oUnit.UnitId) then
+            tTeamData[iTeam][reftoKnownGroundAA] = tTeamData[iTeam][reftoKnownGroundAA] or {}
+            tTeamData[iTeam][reftoKnownGroundAA][oUnit.EntityId] = oUnit
         end
     end
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    -- Friendly units in the same zone cannot reveal where an unseen enemy moved.
 end
 
 function DelayedUnitAssignmentForTeamSetup(aiBrain, oUnit)
@@ -2073,10 +2049,22 @@ function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAl
 
 
     if M28UnitInfo.IsUnitValid(oUnit) then
+        local tAssignmentPosition
+        if IsEnemy(aiBrain:GetArmyIndex(),oUnit:GetArmy()) then
+            UpdateUnitLastKnownPosition(aiBrain,oUnit,false)
+            tAssignmentPosition = (oUnit[M28UnitInfo.reftLastKnownPositionByTeam] or {})[aiBrain.M28Team]
+            if not(tAssignmentPosition) then
+                M28Profiler.FunctionProfiler(sFunctionRef,M28Profiler.refProfilerEnd)
+                return
+            end
+            bAlreadyUpdatedPosition = true
+        else
+            tAssignmentPosition = oUnit:GetPosition()
+        end
         --Campaign specific - dont include units flagged as not being killable
         if not(oUnit.CanBeKilled == false) or not(oUnit.CanTakeDamage == false) or not(EntityCategoryContains(categories.CIVILIAN * categories.STRUCTURE, oUnit.UnitId) or not(M28Map.bIsCampaignMap)) then
 
-            local bPreviouslyConsidered = (oUnit[M28UnitInfo.reftbConsideredForAssignmentByTeam][aiBrain.M28Team] or false)
+            local bPreviouslyConsidered = ((oUnit[M28UnitInfo.reftbConsideredForAssignmentByTeam] or {})[aiBrain.M28Team] or false)
             local bIgnore = false
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by brain '..oUnit:GetAIBrain().Nickname..' - are considering the unit from aiBrain perspective of '..aiBrain.Nickname..' at time '..GetGameTimeSeconds()..'; Have we already considered this unit='..tostring(oUnit[M28UnitInfo.reftbConsideredForAssignmentByTeam][aiBrain.M28Team] or false)..'; bIgnoreIfAssignedAlready='..tostring(bIgnoreIfAssignedAlready or false)..'; Is enemy='..tostring(IsEnemy(aiBrain:GetArmyIndex(), oUnit:GetAIBrain():GetArmyIndex()))) end
             if not(oUnit[M28UnitInfo.reftbConsideredForAssignmentByTeam]) then oUnit[M28UnitInfo.reftbConsideredForAssignmentByTeam] = {} end
@@ -2210,13 +2198,13 @@ function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAl
 
                             --Track potential TML targets and TMD for decision on whether to build TML (TML target selection uses more precise approach
                             if EntityCategoryContains(M28UnitInfo.refCategoryTMD * categories.STRUCTURE, oUnit.UnitId) then
-                                local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnit:GetPosition())
+                                local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tAssignmentPosition)
                                 if iPlateauOrZero > 0 and iLandOrWaterZone > 0 then
                                     local tLZTeamData = M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iLandOrWaterZone][M28Map.subrefLZTeamData][aiBrain.M28Team]
                                     table.insert(tLZTeamData[M28Map.subreftoEnemyTMD], oUnit)
                                 end
                             elseif EntityCategoryContains(M28UnitInfo.refCategoryProtectFromTML * categories.STRUCTURE, oUnit.UnitId) then
-                                local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnit:GetPosition())
+                                local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tAssignmentPosition)
                                 if iPlateauOrZero > 0 and iLandOrWaterZone > 0 then
                                     local tLZTeamData = M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iLandOrWaterZone][M28Map.subrefLZTeamData][aiBrain.M28Team]
                                     if not(tLZTeamData[M28Map.subreftoEnemyPotentialTMLTargets]) then tLZTeamData[M28Map.subreftoEnemyPotentialTMLTargets] = {} end
@@ -2243,7 +2231,7 @@ function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAl
                             end
 
                             --best enemy df range
-                            local iPlateau = NavUtils.GetLabel(M28Map.refPathingTypeHover, oUnit:GetPosition())
+                            local iPlateau = NavUtils.GetLabel(M28Map.refPathingTypeHover, tAssignmentPosition)
                             if iPlateau then
                                 local iTeam = aiBrain.M28Team
                                 if not(tTeamData[iTeam][refiHighestEnemyDFRangeByPlateau]) then tTeamData[iTeam][refiHighestEnemyDFRangeByPlateau] = {} end
@@ -2289,7 +2277,7 @@ function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAl
                                 end
                                 --Track non-M28 teammate units
                                 if EntityCategoryContains(M28UnitInfo.refCategoryFactory + M28UnitInfo.refCategoryMex, oUnit.UnitId) then
-                                    local tLZOrWZData, tLZOrWZTeamData = M28Map.GetLandOrWaterZoneData(oUnit:GetPosition(), true, aiBrain.M28Team)
+                                    local tLZOrWZData, tLZOrWZTeamData = M28Map.GetLandOrWaterZoneData(tAssignmentPosition, true, aiBrain.M28Team)
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Is tLZOrWZTeamData nil='..tostring(tLZOrWZTeamData == nil)..'; refiNonM28TeammateMexCount='..(tLZOrWZTeamData[M28Map.refiNonM28TeammateMexCount] or 'nil')) end
                                     if tLZOrWZTeamData then
                                         if not(oUnit[M28UnitInfo.reftiTeamsRecordedAsNonM28Ally]) then oUnit[M28UnitInfo.reftiTeamsRecordedAsNonM28Ally] = {} end
@@ -2300,17 +2288,17 @@ function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAl
                                             tLZOrWZTeamData[M28Map.refiNonM28TeammateMexCount] = (tLZOrWZTeamData[M28Map.refiNonM28TeammateMexCount] or 0) + 1
 
                                             if bDebugMessages == true then
-                                                local iPlateau, iZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnit:GetPosition())
+                                                local iPlateau, iZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tAssignmentPosition)
                                                 LOG(sFunctionRef..': Recorded teammate as having a mex in this LZ, tLZTeamData[M28Map.refiNonM28TeammateMexCount] after update='..tLZOrWZTeamData[M28Map.refiNonM28TeammateMexCount]..'; iPlateau='..iPlateau..'; iZone='..iZone)
                                             end
                                         end
                                     end
                                 elseif EntityCategoryContains(M28UnitInfo.refCategoryPD, oUnit.UnitId) then
-                                    local tLZOrWZData, tLZOrWZTeamData = M28Map.GetLandOrWaterZoneData(oUnit:GetPosition(), true, aiBrain.M28Team)
+                                    local tLZOrWZData, tLZOrWZTeamData = M28Map.GetLandOrWaterZoneData(tAssignmentPosition, true, aiBrain.M28Team)
                                     if not(tLZOrWZTeamData[M28Map.subreftoTeammateFixedDF]) then tLZOrWZTeamData[M28Map.subreftoTeammateFixedDF] = {} end
                                     table.insert(tLZOrWZTeamData[M28Map.subreftoTeammateFixedDF], oUnit)
                                 elseif EntityCategoryContains(M28UnitInfo.refCategoryStructureAA, oUnit.UnitId) then
-                                    local tLZOrWZData, tLZOrWZTeamData = M28Map.GetLandOrWaterZoneData(oUnit:GetPosition(), true, aiBrain.M28Team)
+                                    local tLZOrWZData, tLZOrWZTeamData = M28Map.GetLandOrWaterZoneData(tAssignmentPosition, true, aiBrain.M28Team)
                                     if not(tLZOrWZTeamData[M28Map.subreftoTeammateFixedAA]) then tLZOrWZTeamData[M28Map.subreftoTeammateFixedAA] = {} end
                                     table.insert(tLZOrWZTeamData[M28Map.subreftoTeammateFixedAA], oUnit)
                                 elseif EntityCategoryContains(M28UnitInfo.refCategoryExperimentalLevel + categories.TECH3 * M28UnitInfo.refCategoryNavalSurface, oUnit.UnitId) then
@@ -2337,7 +2325,7 @@ function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAl
                                     local iTeam = oUnit:GetAIBrain().M28Team
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Building air staging, and dont ahve T3 air, brain count='..tTeamData[iTeam][subrefiActiveM28BrainCount]..'; iTeam='..iTeam) end
                                     if tTeamData[iTeam][subrefiActiveM28BrainCount] > 1 then
-                                        local tLZData, tLZTeamData = M28Map.GetLandOrWaterZoneData(oUnit:GetPosition(), true, iTeam)
+                                        local tLZData, tLZTeamData = M28Map.GetLandOrWaterZoneData(tAssignmentPosition, true, iTeam)
                                         for iBrain, oBrain in tTeamData[iTeam][subreftoFriendlyActiveM28Brains] do
                                             local tStartLZData, tStartLZTeamData = M28Map.GetLandOrWaterZoneData(M28Map.GetPlayerStartPosition(oBrain), true, iTeam)
                                             if not(tStartLZTeamData == tLZTeamData) then
@@ -2410,7 +2398,7 @@ function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAl
                     --Civilian units hopefully show up here - consider adding to table of units to reclaim; owever dont reclaim if can build from a factory as we might want to capture it instead
                     if M28Conditions.IsCivilianBrain(oUnit:GetAIBrain()) and EntityCategoryContains(categories.RECLAIMABLE + categories.SELECTABLE - categories.BUILTBYTIER3FACTORY, oUnit.UnitId) and (oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit)) >= 25 then
                         if not(M28Map.bIsCampaignMap) or (not(tTeamData[aiBrain.M28Team][rebTeamOnlyHasCampaignAI]) and not(oUnit[M28UnitInfo.refbIsReclaimTarget] == false)) then
-                            local tUnitLZData, tUnitLZTeamData = M28Map.GetLandOrWaterZoneData(oUnit:GetPosition(), true, aiBrain.M28Team)
+                            local tUnitLZData, tUnitLZTeamData = M28Map.GetLandOrWaterZoneData(tAssignmentPosition, true, aiBrain.M28Team)
                             local bIncluded = false
                             if not(tUnitLZTeamData[M28Map.subreftoUnitsToReclaim]) then tUnitLZTeamData[M28Map.subreftoUnitsToReclaim] = {}
                             else
@@ -2430,9 +2418,9 @@ function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAl
                             if not(bIncluded) then
                                 --If this is mass storage then capture, if either underwater or low mod dist
                                 if EntityCategoryContains(M28UnitInfo.refCategoryMassStorage, oUnit.UnitId) and (tUnitLZTeamData[M28Map.refiModDistancePercent] <= 0.4 or M28UnitInfo.IsUnitUnderwater(oUnit)) then
-                                    local iUnitPlateau, iUnitZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnit:GetPosition())
+                                    local iUnitPlateau, iUnitZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tAssignmentPosition)
                                     M28Overseer.RecordUnitAsCaptureTarget(oUnit, iUnitPlateau, iUnitZone)
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Recording in table of units to capture instead, P'..iUnitPlateau..'Z'..iUnitZone..'; Is unit underwater='..tostring(M28UnitInfo.IsUnitUnderwater(oUnit))..'; Position='..repru(oUnit:GetPosition())) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Recording in table of units to capture instead, P'..iUnitPlateau..'Z'..iUnitZone..'; Is unit underwater='..tostring(M28UnitInfo.IsUnitUnderwater(oUnit))..'; Position='..repru(tAssignmentPosition)) end
                                 else
                                     table.insert(tUnitLZTeamData[M28Map.subreftoUnitsToReclaim], oUnit)
                                     local bTeamRecorded = false
@@ -2471,7 +2459,7 @@ function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAl
                         if bAlreadyUpdatedPosition then
                             --Re-check the plateau and land/water zone
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by '..oUnit:GetAIBrain().Nickname) end
-                            local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnit:GetPosition())
+                            local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tAssignmentPosition)
                             local bIsEnemyAirUnit
                             if aiBrain.M28Team == oUnit:GetAIBrain().M28Team then bIsEnemyAirUnit = false else bIsEnemyAirUnit = true end
                             if  (iLandOrWaterZone or 0) > 0 then
@@ -2484,7 +2472,7 @@ function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAl
 
                                 --Presumably air unit has fallen out of a land zone - add to table of enemy air without a LZ
                             else
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Failed to find a plateau or zone to position '..repru(oUnit:GetPosition())..' for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
+                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Failed to find a plateau or zone to position '..repru(tAssignmentPosition)..' for unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)) end
                                 if not(aiBrain.M28Team == oUnit:GetAIBrain().M28Team) then --redundancy, - hopefully shouldnt get to this point if this isnt the case
                                     M28Utilities.ErrorHandler('Obsolete code, wasnt expecting it to be used, unless fighting RNG and they have offmap units or torp bomber fighting at edge of map')
                                     M28Air.RecordEnemyAirUnitWithNoZone(aiBrain.M28Team, oUnit)
@@ -2498,38 +2486,43 @@ function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAl
                             ForkThread(DelayedUnitPlateauAssignment, aiBrain, oUnit, 5, bAlreadyUpdatedPosition, true)
                         else
                             --Amphibious, hover and naval surface units = check if in water before checking if in land
-                            local iSegmentX, iSegmentZ = M28Map.GetPathingSegmentFromPosition(oUnit:GetPosition())
+                            local iSegmentX, iSegmentZ = M28Map.GetPathingSegmentFromPosition(tAssignmentPosition)
                             local iWaterZone = M28Map.tWaterZoneBySegment[iSegmentX][iSegmentZ]
                             if iWaterZone > 0 and EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oUnit.UnitId) then
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will add unit to water zone') end
                                 AddUnitToWaterZoneForBrain(aiBrain, oUnit, iWaterZone)
                             else
                                 local iPlateau, iLandZone
-                                if EntityCategoryContains(categories.LAND * categories.MOBILE, oUnit.UnitId) then
-                                    iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oUnit:GetPosition(), true, oUnit)
+                                if IsEnemy(aiBrain:GetArmyIndex(), oUnit:GetArmy()) then
+                                    iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(tAssignmentPosition)
+                                    if (iPlateau or 0) <= 0 or (iLandZone or 0) <= 0 then
+                                        iPlateau, iLandZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tAssignmentPosition)
+                                    end
+                                elseif EntityCategoryContains(categories.LAND * categories.MOBILE, oUnit.UnitId) then
+                                    iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(tAssignmentPosition, true, oUnit)
                                 else
-                                    iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oUnit:GetPosition())
+                                    iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(tAssignmentPosition)
                                 end
                                 if bDebugMessages == true then
                                     LOG(sFunctionRef..': Unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by brain '..oUnit:GetAIBrain().Nickname..' has iPlateau='..(iPlateau or 'nil')..'; iLandZone='..(iLandZone or 'nil')..'; Will draw unit position if it has no plateau or zone. Unit state='..M28UnitInfo.GetUnitState(oUnit)..'; iWaterZone='..(iWaterZone or 'nil'))
                                     if not(iPlateau) then
-                                        M28Utilities.DrawLocation(oUnit:GetPosition())
+                                        M28Utilities.DrawLocation(tAssignmentPosition)
                                     end
                                 end
                                 if (iLandZone or 0) > 0 then
                                     --Unit is in a land zone so assign it to a land zone instead of a pond
                                     if not(iPlateau) then
                                         local iAltLandZone
-                                        iPlateau, iAltLandZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnit:GetPosition())
+                                        iPlateau, iAltLandZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tAssignmentPosition)
                                         if (iAltLandZone or 0) > 0 then iLandZone = iAltLandZone end
                                     end
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adding unit to iLandZone '..iLandZone..' for plateau '..iPlateau..' and team '..aiBrain.M28Team) end
                                     AddUnitToLandZoneForBrain(aiBrain, oUnit, iPlateau, iLandZone)
                                 elseif iPlateau > 0 then
                                     --Is the unit in a water zone (or a unit that can move in water and is on a beach/right by the water zone start)?
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iWaterZone='..(iWaterZone or 'nil')..'; Unit terrain height='..GetTerrainHeight(oUnit:GetPosition()[1], oUnit:GetPosition()[3])..'; iMapWaterHeight='..M28Map.iMapWaterHeight) end
-                                    if not(iWaterZone) and EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oUnit.UnitId) and M28Map.iMapWaterHeight > GetTerrainHeight(oUnit:GetPosition()[1], oUnit:GetPosition()[3]) then
-                                        local iPotentialPlateauOrZero, iPotentialLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnit:GetPosition())
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iWaterZone='..(iWaterZone or 'nil')..'; Unit terrain height='..GetTerrainHeight(tAssignmentPosition[1], tAssignmentPosition[3])..'; iMapWaterHeight='..M28Map.iMapWaterHeight) end
+                                    if not(iWaterZone) and EntityCategoryContains(M28UnitInfo.refCategoryAllAmphibiousAndNavy, oUnit.UnitId) and M28Map.iMapWaterHeight > GetTerrainHeight(tAssignmentPosition[1], tAssignmentPosition[3]) then
+                                        local iPotentialPlateauOrZero, iPotentialLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tAssignmentPosition)
                                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dont have valid WZ based on segments, so considering WZ based on position, iPotentialPlateauOrZero='..(iPotentialPlateauOrZero or 'nil')..'; iPotentialLandOrWaterZone='..(iPotentialLandOrWaterZone or 'nil')) end
                                         if iPotentialLandOrWaterZone then
                                             if iPotentialPlateauOrZero == 0 then
@@ -2537,8 +2530,8 @@ function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAl
                                             else
                                                 --Based on the position we think it is a land zone, but it is in water - if we move 5 towards the land zone are we on land? if not, if we move 5 towards an adjacent water zone to that LZ, are we on water?
                                                 local tPotentialLZData = M28Map.tAllPlateaus[iPotentialPlateauOrZero][M28Map.subrefPlateauLandZones][iPotentialLandOrWaterZone]
-                                                local iAngleToLZ = M28Utilities.GetAngleFromAToB(oUnit:GetPosition(), tPotentialLZData[M28Map.subrefMidpoint])
-                                                local tMoveTowardsLZ = M28Utilities.MoveInDirection(oUnit:GetPosition(), iAngleToLZ, 5)
+                                                local iAngleToLZ = M28Utilities.GetAngleFromAToB(tAssignmentPosition, tPotentialLZData[M28Map.subrefMidpoint])
+                                                local tMoveTowardsLZ = M28Utilities.MoveInDirection(tAssignmentPosition, iAngleToLZ, 5)
                                                 local iMoveTowardsSegmentX, iMoveTowardsSegmentZ = M28Map.GetPathingSegmentFromPosition(tMoveTowardsLZ)
                                                 if M28Map.tLandZoneBySegment[iMoveTowardsSegmentX][iMoveTowardsSegmentZ] == iPotentialLandOrWaterZone then
                                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will add the unit to the land zone it is right by, iPotentialPlateauOrZero='..iPotentialPlateauOrZero..'; iPotentialLandOrWaterZone='..iPotentialLandOrWaterZone) end
@@ -2556,10 +2549,10 @@ function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAl
                                         --Presumably already added from above
                                     else
                                         --Does the unit already have orders, and is a non-naval unit? If so then wait and try to reassign it in a bit, as e.g. may be a land unit that can path across water so has taken a shortcut
-                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit doesnt have al and or water zone, is this a non amphibious or hover naval unit='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryAllNavy - M28UnitInfo.refCategoryAmphibious - categories.HOVER, oUnit.UnitId))..'; Nav utils naval label for unit position='..(NavUtils.GetLabel(M28Map.refPathingTypeNavy, oUnit:GetPosition()) or 'nil')) end
-                                        if EntityCategoryContains(M28UnitInfo.refCategoryAllNavy, oUnit.UnitId) and (EntityCategoryContains(M28UnitInfo.refCategoryAllNavy - M28UnitInfo.refCategoryAmphibious - categories.HOVER, oUnit.UnitId) or (NavUtils.GetLabel(M28Map.refPathingTypeNavy, oUnit:GetPosition()) or 0) > 0) then
-                                            local iCurPond = NavUtils.GetLabel(M28Map.refPathingTypeNavy, oUnit:GetPosition())
-                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit pond at cur position='..(NavUtils.GetLabel(M28Map.refPathingTypeNavy, oUnit:GetPosition()) or 'nil')) end
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit doesnt have al and or water zone, is this a non amphibious or hover naval unit='..tostring(EntityCategoryContains(M28UnitInfo.refCategoryAllNavy - M28UnitInfo.refCategoryAmphibious - categories.HOVER, oUnit.UnitId))..'; Nav utils naval label for unit position='..(NavUtils.GetLabel(M28Map.refPathingTypeNavy, tAssignmentPosition) or 'nil')) end
+                                        if EntityCategoryContains(M28UnitInfo.refCategoryAllNavy, oUnit.UnitId) and (EntityCategoryContains(M28UnitInfo.refCategoryAllNavy - M28UnitInfo.refCategoryAmphibious - categories.HOVER, oUnit.UnitId) or (NavUtils.GetLabel(M28Map.refPathingTypeNavy, tAssignmentPosition) or 0) > 0) then
+                                            local iCurPond = NavUtils.GetLabel(M28Map.refPathingTypeNavy, tAssignmentPosition)
+                                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Unit pond at cur position='..(NavUtils.GetLabel(M28Map.refPathingTypeNavy, tAssignmentPosition) or 'nil')) end
                                             if (iCurPond or 0) > 0 then
                                                 --Are in valid pond, find nearest valid water zone and add this segment to that water zone
                                                 iWaterZone = nil --redundancy
@@ -2627,7 +2620,7 @@ function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAl
                                                     local iNearestDist = 100000
                                                     local iCurDist
                                                     for iLandZone, tLZData in M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones] do
-                                                        iCurDist = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tLZData[M28Map.subrefMidpoint])
+                                                        iCurDist = M28Utilities.GetDistanceBetweenPositions(tAssignmentPosition, tLZData[M28Map.subrefMidpoint])
                                                         if iCurDist < iNearestDist then
                                                             iNearestDist = iCurDist
                                                             iNearestLandZone = iLandZone
@@ -6783,30 +6776,7 @@ end
 
 function TeamHasLostAIxOmniVision(iTeam)
     tTeamData[iTeam][subrefbTeamHasOmniVision] = false
-    --Go through every land and water zone and reset radar and omni values
-    function ResetLandOrWaterZone(tCurLZOrWZTeamData)
-        tCurLZOrWZTeamData[M28Map.refiRadarCoverage] = 0
-        tCurLZOrWZTeamData[M28Map.refiOmniCoverage] = 0
-        if tCurLZOrWZTeamData[M28Map.refiSonarCoverage] then tCurLZOrWZTeamData[M28Map.refiSonarCoverage] = 0 end
-        if tCurLZOrWZTeamData[M28Map.refoBestSonar] then
-            tCurLZOrWZTeamData[M28Map.refoBestSonar]['M28UpdatedIntel'] = nil
-            M28Map.UpdateZoneIntelForSonar(tCurLZOrWZTeamData[M28Map.refoBestSonar])
-        end
-        if tCurLZOrWZTeamData[M28Map.refoBestRadar] then
-            tCurLZOrWZTeamData[M28Map.refoBestRadar]['M28UpdatedIntel'] = nil
-            M28Map.UpdateZoneIntelForRadar(tCurLZOrWZTeamData[M28Map.refoBestRadar])
-        end
-    end
-    for iPlateau, tPlateauData in M28Map.tAllPlateaus do
-        for iLZ, tLZData in tPlateauData[M28Map.subrefPlateauLandZones] do
-            ResetLandOrWaterZone(tLZData[M28Map.subrefLZTeamData][iTeam])
-        end
-    end
-    for iPond, tPondSubtable in M28Map.tPondDetails do
-        for iWaterZone, tWZData in tPondSubtable[M28Map.subrefPondWaterZones] do
-            ResetLandOrWaterZone(tWZData[M28Map.subrefWZTeamData][iTeam])
-        end
-    end
+    import('/mods/M28AI/lua/AI/M28Intel.lua').RefreshOperationalIntelCoverage(true)
 end
 
 function ConsiderHostileCivilianZoneFlagForDetectedUnit(oUnit, iTeam, bUnitDied)

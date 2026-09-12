@@ -1012,6 +1012,20 @@ function GetEngineerUniqueCount(oEngineer)
     return iUniqueRef
 end
 
+function ShouldHoldFreshRadarStart(iAction, tZoneTeamData)
+    local iTech = iAction == refActionBuildT1Radar and 1 or iAction == refActionBuildT2Radar and 2 or iAction == refActionBuildT3Radar and 3
+    if not(iTech) then return false end
+    local oPlanned = tZoneTeamData[M28Intel.refoPlannedRadar]
+    if not(M28UnitInfo.IsUnitValid(oPlanned)) then return false end
+    for _, oUnit in tZoneTeamData[M28Map.subreftoLZOrWZAlliedUnits] or {} do
+        if oUnit == oPlanned then return false end
+    end
+    -- Keep construction reservations separate from usable intel. A cheap T1 can
+    -- still provide immediate coverage while a higher-tech radar is unfinished.
+    return M28UnitInfo.GetUnitTechLevel(oPlanned) == iTech
+        and (tZoneTeamData[M28Intel.refiPlannedRadarCoverage] or 0) >= 60
+end
+
 function DoesZoneQualifyForStrategicRadar(tLZTeamData)
     --Keep higher-tech radar ownership focused on core, frontline, or scout-relevant zones.
     if tLZTeamData[M28Map.subrefLZbCoreBase] then
@@ -14284,6 +14298,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
         --Done as subfunction for convenience so can just note the key values for the action in question and add on the others that wont change
         --vOptionalVariable can be used for action specific information to save having to recalculate the same thing - could be a table, nil, or a value
         if M28Utilities.bLoudModActive and (bHaveLowMass or bHaveLowPower) then iBuildPowerWanted = iBuildPowerWanted * 0.8 end
+        if ShouldHoldFreshRadarStart(iActionToAssign, tLZTeamData) then return end
         if ShouldHoldOffFreshHighTechPowerStart(iActionToAssign, iMinTechLevelWanted, iTeam, iPlateau, iLandZone, tLZTeamData, false) then
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Holding off starting a fresh high-tech power action in P'..iPlateau..'Z'..iLandZone..' as the team already has enough pending high-tech power elsewhere, iActionToAssign='..iActionToAssign..'; iMinTechLevelWanted='..iMinTechLevelWanted) end
             return
@@ -16542,12 +16557,12 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     --High priority T1 radar if we have T2 arti but poor radar coverage
     iCurPriority = iCurPriority + 1
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurPriority='..iCurPriority..'; Radar coverage='..tLZTeamData[M28Map.refiRadarCoverage]..'; Gross energy='..M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy]..'; M28UnitInfo.iT3RadarSize='..M28UnitInfo.iT3RadarSize) end
-    if (not(bHaveLowPower) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 100 * M28Team.tTeamData[iTeam][M28Team.subrefiOrigM28BrainCount]) and (tLZTeamData[M28Map.refiRadarCoverage] <= 100 or (M28UnitInfo.IsUnitValid(tLZTeamData[M28Map.refoBestRadar]) and tLZTeamData[M28Map.refoBestRadar]:GetFractionComplete() < 1)) then
+    if (not(bHaveLowPower) or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 100 * M28Team.tTeamData[iTeam][M28Team.subrefiOrigM28BrainCount]) and (tLZTeamData[M28Map.refiRadarCoverage] <= 100 or (M28UnitInfo.IsUnitValid(tLZTeamData[M28Intel.refoPlannedRadar]) and tLZTeamData[M28Intel.refoPlannedRadar]:GetFractionComplete() < 1)) then
         --Do we have T2 arti in this zone, or T2 PD with poor radar, or lots of mexes
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': T3 mex count='..tLZTeamData[M28Map.subrefMexCountByTech][3]..'; Is table of T2 arti empty='..tostring(M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryFixedT2Arti, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])))) end
         if tLZTeamData[M28Map.subrefMexCountByTech][3] > 0 or M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryFixedT2Arti, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])) == false or (tLZTeamData[M28Map.refiRadarCoverage] <= 50 and M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryT2PlusPD, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])) == false) then
             local bWantT1DueToRadarUnderConstruction = false
-            if M28UnitInfo.IsUnitValid(tLZTeamData[M28Map.refoBestRadar]) and tLZTeamData[M28Map.refoBestRadar]:GetFractionComplete() < 1 then
+            if M28UnitInfo.IsUnitValid(tLZTeamData[M28Intel.refoPlannedRadar]) and tLZTeamData[M28Intel.refoPlannedRadar]:GetFractionComplete() < 1 then
                 local tRadarInZone = EntityCategoryFilterDown(M28UnitInfo.refCategoryRadar, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
                 bWantT1DueToRadarUnderConstruction = true
                 if M28Utilities.IsTableEmpty(tRadarInZone) == false then
@@ -17447,13 +17462,13 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                 end
             end
         end
-    elseif M28UnitInfo.IsUnitValid(tLZTeamData[M28Map.refoBestRadar]) and tLZTeamData[M28Map.refoBestRadar]:GetFractionComplete() < 1 and aiBrain[M28Overseer.refbBuiltLongRangeLandUnit] then
+    elseif M28UnitInfo.IsUnitValid(tLZTeamData[M28Intel.refoPlannedRadar]) and tLZTeamData[M28Intel.refoPlannedRadar]:GetFractionComplete() < 1 and aiBrain[M28Overseer.refbBuiltLongRangeLandUnit] then
         if not(bHaveLowPower) then
             iBPWanted = 60
             if bHaveLowMass and M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] then iBPWanted = 30 end
         else iBPWanted = 30
         end
-        HaveActionToAssign(refActionRepairUnit, 1, iBPWanted, tLZTeamData[M28Map.refoBestRadar])
+        HaveActionToAssign(refActionRepairUnit, 1, iBPWanted, tLZTeamData[M28Intel.refoPlannedRadar])
     end
 
     --Focus on building our own experimental if we have one already under construction and enemy has any non fatboy experimentals, and we have at least 1 T3 mex
@@ -18674,6 +18689,7 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
 
     function HaveActionToAssign(iActionToAssign, iMinTechLevelWanted, iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iOptionalSpecificFactionWanted, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
         --Done as subfunction for convenience so can just note the key values for the action in question and add on the others that wont change
+        if ShouldHoldFreshRadarStart(iActionToAssign, tLZTeamData) then return end
         if ShouldHoldOffFreshHighTechPowerStart(iActionToAssign, iMinTechLevelWanted, iTeam, iPlateau, iLandZone, tLZTeamData, false) then
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Holding off starting a fresh minor-zone high-tech power action in P'..iPlateau..'Z'..iLandZone..' as the team already has enough pending high-tech power elsewhere, iActionToAssign='..iActionToAssign..'; iMinTechLevelWanted='..iMinTechLevelWanted) end
             return
@@ -18745,6 +18761,18 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
     if ShouldAssignBackgroundReclaimer(tLZData, tLZTeamData, bEngineersRecentlyRunFromEnemy) and not(HasActiveMapReclaimer(toAssignedEngineers)) then
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Assigning background reclaimer, total reclaim='..tLZData[M28Map.subrefTotalMassReclaim]) end
         HaveActionToAssign(refActionReclaimArea, 1, 5, {false, nil})
+    end
+
+    -- Give committed land forces working reconnaissance before buying longer-range weapons.
+    iCurPriority = iCurPriority + 1
+    if M28Intel.WantsForwardRadar(tLZTeamData) and not(bEngineersRecentlyRunFromEnemy)
+            and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])
+            and aiBrain[M28Economy.refiGrossMassBaseIncome] >= 2.5 then
+        if M28UnitInfo.IsUnitValid(tLZTeamData[M28Intel.refoPlannedRadar]) then
+            HaveActionToAssign(refActionRepairUnit, 1, 10, tLZTeamData[M28Intel.refoPlannedRadar])
+        elseif M28Utilities.IsTableEmpty(EntityCategoryFilterDown(M28UnitInfo.refCategoryRadar, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])) then
+            HaveActionToAssign(refActionBuildT1Radar, 1, 5)
+        end
     end
 
     --Active gameender template - want to always have 1 engi on duty as highest priority to avoid having orders cancelled
@@ -20654,7 +20682,7 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
     --Get PD and SAM if have built an omni here
     iCurPriority = iCurPriority + 1
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering if we want to build pd to protect omni in minor zone, tLZTeamData[M28Map.subrefLZSValue]='..tLZTeamData[M28Map.subrefLZSValue]..'; tLZTeamData[M28Map.refoBestRadar]='..(tLZTeamData[M28Map.refoBestRadar].UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(tLZTeamData[M28Map.refoBestRadar]) or 'nil')..' assigned to P'..(tLZTeamData[M28Map.refoBestRadar][M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][1] or 'nil')..'Z'..(tLZTeamData[M28Map.refoBestRadar][M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2] or 'nil')..'; tLZTeamData[M28Map.refiRadarCoverage]='..(tLZTeamData[M28Map.refiRadarCoverage] or 'nil')..'; T2 radar normal coverage='..(M28UnitInfo.iT2RadarSize or 'nil')..'; bHaveLowPower='..tostring(bHaveLowPower)..'; Stalling mass='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or false)) end
-    if tLZTeamData[M28Map.subrefLZSValue] >= 3000 and tLZTeamData[M28Map.refoBestRadar][M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2] == iLandZone and tLZTeamData[M28Map.refoBestRadar][M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][1] == iPlateau and tLZTeamData[M28Map.refiRadarCoverage] > M28UnitInfo.iT2RadarSize and not(bHaveLowPower) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and (tLZTeamData[M28Map.refoBestRadar]:GetFractionComplete() >= 0.6 or not(bHaveLowMass)) then
+    if M28UnitInfo.IsUnitValid(tLZTeamData[M28Map.refoBestRadar]) and tLZTeamData[M28Map.subrefLZSValue] >= 3000 and tLZTeamData[M28Map.refoBestRadar][M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][2] == iLandZone and tLZTeamData[M28Map.refoBestRadar][M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam][1] == iPlateau and tLZTeamData[M28Map.refiRadarCoverage] > M28UnitInfo.iT2RadarSize and not(bHaveLowPower) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and (tLZTeamData[M28Map.refoBestRadar]:GetFractionComplete() >= 0.6 or not(bHaveLowMass)) then
         iBPWanted = 20
         if not(bHaveLowMass) then iBPWanted = 40 end
         local iApproachMultiplier = GetEnemyApproachMultiplier(tLZData, tLZTeamData, iPlateau, iTeam, iLandZone)
@@ -21014,6 +21042,7 @@ function ConsiderWaterZoneEngineerAssignment(tWZTeamData, iTeam, iPond, iWaterZo
 
     function HaveActionToAssign(iActionToAssign, iMinTechLevelWanted, iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iOptionalSpecificFactionWanted, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
         --Done as subfunction for convenience so can just note the key values for the action in question and add on the others that wont change
+        if ShouldHoldFreshRadarStart(iActionToAssign, tWZTeamData) then return end
         if ShouldHoldOffFreshHighTechPowerStart(iActionToAssign, iMinTechLevelWanted, iTeam, iPond, iWaterZone, tWZTeamData, true) then
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Holding off starting a fresh water-zone high-tech power action in Pond'..iPond..' WZ'..iWaterZone..' as the team already has enough pending high-tech power elsewhere, iActionToAssign='..iActionToAssign..'; iMinTechLevelWanted='..iMinTechLevelWanted) end
             return
