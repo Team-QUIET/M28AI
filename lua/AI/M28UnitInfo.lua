@@ -1967,7 +1967,7 @@ function CalculateBlueprintThreatsByType()
             ['210010'] = { true, false, false, true, false}, --Air excluding air to ground (i.e. excluding torp bombers as well)
             ['200011'] = { false, false, false, true, true}, --Used to get non-AA non-Air to ground (excl torp bomber) air, e.g. intended for land zones to determine 'other'/less important air
             ['200010'] = { false, false, false, true, false}, --Used to get non-AA non-Air to ground air, e.g. intended for water zones to determine 'other'/less important air
-            --['211000'] = { true, true, false, false, false} --GroundAA and AirAA combined - was thinking of using this for recording IMAP air version but decided to stick to just airaa
+            ['211000'] = { true, true, false, false, false }, --Combined fighter and ground-AA cover
         }
 
         for iRef, tValue in tiLandAndNavyThreatTypes do
