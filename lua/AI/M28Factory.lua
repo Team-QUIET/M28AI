@@ -7033,11 +7033,18 @@ function CanKeepProducingDuringLandHQUpgrade(oFactory, sUpgrade)
             or not(M28Team.IsFactoryHQUpgradeBlueprint(sUpgrade)) then return true end
     local aiBrain = oFactory:GetAIBrain()
     if not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand]) then return true end
-    -- Leave a completed production line at this tech while its HQ is unavailable.
+    local bNeedCombat = HasLandArmyInvestmentDeficit(aiBrain)
+    -- A worker-only or stalled support factory cannot replace the HQ's combat output.
     for _, oOther in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory - categories.TECH1, false, true) do
         if oOther ~= oFactory and M28UnitInfo.IsUnitValid(oOther) and oOther:GetFractionComplete() == 1
                 and not(oOther:IsUnitState('Upgrading')) and not(oOther:IsUnitState('BeingUpgraded'))
-                and not(oOther[refsPendingFactoryUpgradeBlueprint]) then return true end
+                and not(oOther[refsPendingFactoryUpgradeBlueprint]) then
+            if not(bNeedCombat) then return true end
+            local oFocus = oOther:GetFocusUnit()
+            local sBlueprint = M28UnitInfo.IsUnitValid(oFocus) and oFocus.UnitId or (GetQueuedFactoryBlueprints(oOther) or {})[1]
+            if sBlueprint and IsLandAttackerBlueprint(oOther,sBlueprint) and M28UnitInfo.GetBlueprintTechLevel(sBlueprint)>=2
+                    and not(oOther:IsPaused()) and GetFactoryProductionAdmission(aiBrain,oOther,sBlueprint) then return true end
+        end
     end
     return false
 end
