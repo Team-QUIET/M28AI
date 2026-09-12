@@ -208,10 +208,8 @@ function UpdateUnitCategories()
         if M28Utilities.bQuietModActive then
             --(QUIET removes the base exclusion of certain unit categories from lAB/addition to indirect fire, due to these being considered T0.5 units)
             M28UnitInfo.refCategoryIndirect = categories.LAND * categories.MOBILE * categories.INDIRECTFIRE - categories.DIRECTFIRE - M28UnitInfo.refCategoryLandExperimental - M28UnitInfo.refCategoryScathis - categories.UNSELECTABLE - categories.UNTARGETABLE
-            M28UnitInfo.refCategoryLightAttackBot = categories.LAND * categories.DIRECTFIRE * categories.TECH1 * categories.MOBILE
-            if categories.uel0106 and categories.url0106 and categories.ual0106 then
-                refCategoryLightAttackBot = categories.uel0106 + categories.url0106 + categories.ual0106
-            end
+            -- Keep the blueprint-specific LAB category initialized by M28UnitInfo.
+            -- Ordinary T1 tanks must remain eligible for main combat production.
         end
     end
 end

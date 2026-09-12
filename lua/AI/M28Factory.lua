@@ -307,11 +307,54 @@ local function GetIntermediateLandUnitCategories(sBlueprint)
         iSpecialCategory, iTech = M28UnitInfo.refCategoryT35Units, 3
     else return nil end
     local iRegularCategory = (M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher
-        - iSpecialCategory - categories.ENGINEER - categories.COMMAND) * M28UnitInfo.ConvertTechLevelToCategory(iTech)
+        - iSpecialCategory - M28UnitInfo.refCategoryLightAttackBot - M28UnitInfo.refCategoryProtectorBot
+        - categories.ENGINEER - categories.COMMAND) * M28UnitInfo.ConvertTechLevelToCategory(iTech)
     return iSpecialCategory, iRegularCategory
 end
 
+local function GetLandSpecialistBuildAllowance(oFactory, sBlueprint, bIssuedOnly, bReplaceQueue)
+    if not(sBlueprint) or ScenarioInfo.Options.M28PrioritiseBPs == 2 then return nil end
+    local bLAB = EntityCategoryContains(M28UnitInfo.refCategoryLightAttackBot, sBlueprint)
+    if not(bLAB or EntityCategoryContains(M28UnitInfo.refCategoryProtectorBot, sBlueprint)) then return nil end
+    local aiBrain = oFactory:GetAIBrain()
+    local iTech = M28UnitInfo.GetBlueprintTechLevel(sBlueprint)
+    local iTechCategory = M28UnitInfo.ConvertTechLevelToCategory(iTech)
+    local iSpecialCategory = bLAB and M28UnitInfo.refCategoryLightAttackBot or M28UnitInfo.refCategoryProtectorBot * iTechCategory
+    local iArmyCategory = M28UnitInfo.refCategoryMobileDFLand * iTechCategory - M28UnitInfo.refCategorySkirmisher
+        - M28UnitInfo.refCategoryLightAttackBot - M28UnitInfo.refCategoryProtectorBot
+        - categories.ENGINEER - categories.COMMAND
+    local iRegularCategory = iArmyCategory - M28UnitInfo.refCategoryT15Units - M28UnitInfo.refCategoryT25Units - M28UnitInfo.refCategoryT35Units
+    local iPending = 0
+    for _, oOther in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory, false, true) do
+        if M28UnitInfo.IsUnitValid(oOther) and not(bReplaceQueue and oOther == oFactory) then
+            if bIssuedOnly and oOther == oFactory then
+                iPending = iPending + (GetFactoryActualBuildOrderCount(oOther, iSpecialCategory) or 0)
+            else
+                iPending = iPending + GetFactoryPendingBuildCountByCategory(oOther, iSpecialCategory)
+            end
+        end
+    end
+    -- The scouting opening is shared across factories, including orders not yet completed.
+    if bLAB then
+        return math.max(0, 2 - M28Conditions.GetLifetimeBuildCount(aiBrain, iSpecialCategory) - iPending), iRegularCategory
+    end
+    local iRegularMass, iSpecialMass, iRegularCount = 0, 0, 0
+    for _, oUnit in aiBrain:GetListOfUnits(iArmyCategory + iSpecialCategory, false, true) do
+        if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 then
+            local iMass = __blueprints[oUnit.UnitId].Economy.BuildCostMass
+            if EntityCategoryContains(iSpecialCategory, oUnit.UnitId) then iSpecialMass = iSpecialMass + iMass
+            else iRegularMass, iRegularCount = iRegularMass + iMass, iRegularCount + 1 end
+        end
+    end
+    -- Protectors absorb fire for a standing army; they must not become that army.
+    if iRegularCount < 4 then return 0, iRegularCategory end
+    local iAllowance = math.floor((iRegularMass * 0.25 - iSpecialMass) / __blueprints[sBlueprint].Economy.BuildCostMass)
+    return math.max(0, iAllowance - iPending), iRegularCategory
+end
+
 function GetIntermediateLandBuildAllowance(oFactory, sBlueprint, bIssuedOnly, bReplaceQueue)
+    local iSupportAllowance, iSupportRegularCategory = GetLandSpecialistBuildAllowance(oFactory, sBlueprint, bIssuedOnly, bReplaceQueue)
+    if iSupportAllowance then return iSupportAllowance, iSupportRegularCategory end
     local iSpecialCategory, iRegularCategory = GetIntermediateLandUnitCategories(sBlueprint)
     if not(iSpecialCategory) then return nil end
     if EntityCategoryContains(categories.TECH3, sBlueprint) then
@@ -336,11 +379,11 @@ function GetIntermediateLandBuildAllowance(oFactory, sBlueprint, bIssuedOnly, bR
                 end
             end
         end
-        if iRegularCount < 5 then return 0, iRegularCategory end
-        local iHeavyShare = 0.2
-        if iRegularMass >= 6000 and (aiBrain[M28Economy.refiGrossMassBaseIncome] or 0) >= 15 then iHeavyShare = 0.35 end
+        if iRegularCount < 5 then return 0, iRegularCategory, 0 end
+        local iHeavyShare = 0.35
+        if iRegularMass >= 4000 and (aiBrain[M28Economy.refiGrossMassBaseIncome] or 0) >= 10 then iHeavyShare = 0.5 end
         local iMassAllowance = iRegularMass * iHeavyShare / (1 - iHeavyShare) - iHeavyMass
-        return math.max(0, math.floor(iMassAllowance / __blueprints[sBlueprint].Economy.BuildCostMass)), iRegularCategory
+        return math.max(0, math.floor(iMassAllowance / __blueprints[sBlueprint].Economy.BuildCostMass)), iRegularCategory, iMassAllowance
     end
     local iRegular = M28Conditions.GetFactoryLifetimeCount(oFactory, iRegularCategory)
     local iSpecial = M28Conditions.GetFactoryLifetimeCount(oFactory, iSpecialCategory)
@@ -352,6 +395,7 @@ function GetIntermediateLandBuildAllowance(oFactory, sBlueprint, bIssuedOnly, bR
 end
 
 local function AdjustIntermediateLandBlueprint(aiBrain, oFactory, sBlueprint)
+    if not(sBlueprint) or ScenarioInfo.Options.M28PrioritiseBPs == 2 then return sBlueprint end
     local iAllowance, iRegularCategory = GetIntermediateLandBuildAllowance(oFactory, sBlueprint)
     if iAllowance and iAllowance < 1 then
         local sFallback = GetBlueprintThatCanBuildOfCategory(aiBrain, iRegularCategory, oFactory)
@@ -359,7 +403,41 @@ local function AdjustIntermediateLandBlueprint(aiBrain, oFactory, sBlueprint)
             M28Diagnostics.Record('Factory', aiBrain:GetArmyIndex(), 'quota:'..oFactory.EntityId, 'intermediate-combat-quota',
                 {blueprint = sBlueprint, replacement = sFallback, allowance = iAllowance})
         end
-        return sFallback
+        sBlueprint = sFallback
+    end
+    if not(sBlueprint) or not(EntityCategoryContains(M28UnitInfo.refCategoryMobileDFLand
+            - M28UnitInfo.refCategorySkirmisher - M28UnitInfo.refCategoryLightAttackBot
+            - M28UnitInfo.refCategoryProtectorBot - categories.ENGINEER - categories.COMMAND, sBlueprint)) then return sBlueprint end
+
+    -- Request missing support as well as limiting excess; caps alone never create a mix.
+    if EntityCategoryContains(categories.SERAPHIM, sBlueprint) then
+        local iTechCategory = M28UnitInfo.ConvertTechLevelToCategory(M28UnitInfo.GetBlueprintTechLevel(sBlueprint))
+        local sProtector
+        for _, sCandidate in EntityCategoryGetUnitList(M28UnitInfo.refCategoryProtectorBot * iTechCategory) do
+            if (not(sProtector) or sCandidate < sProtector) and oFactory:CanBuild(sCandidate)
+                    and not(M28UnitInfo.IsUnitRestricted(sCandidate, aiBrain:GetArmyIndex())) then sProtector = sCandidate end
+        end
+        if sProtector and (GetIntermediateLandBuildAllowance(oFactory, sProtector) or 0) >= 1 then return sProtector end
+    end
+    if EntityCategoryContains(categories.TECH3 - M28UnitInfo.refCategoryT35Units, sBlueprint) then
+        local iHeavyCategory = M28UnitInfo.refCategoryT35Units * M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher
+        local iEligibleCategory, sBudgetBlueprint
+        for _, sCandidate in EntityCategoryGetUnitList(iHeavyCategory) do
+            if (aiBrain[reftBlueprintPriorityOverride][sCandidate] or 0) >= 0 and oFactory:CanBuild(sCandidate)
+                    and not(M28UnitInfo.IsUnitRestricted(sCandidate, aiBrain:GetArmyIndex())) then
+                iEligibleCategory = iEligibleCategory and iEligibleCategory + categories[sCandidate] or categories[sCandidate]
+                if not(sBudgetBlueprint) or sCandidate < sBudgetBlueprint then sBudgetBlueprint = sCandidate end
+            end
+        end
+        if sBudgetBlueprint then
+            -- Eligibility checks must not consume a random choice or select a cheap
+            -- discouraged unit before the requested heavy mix is affordable.
+            local _, _, iMassBudget = GetIntermediateLandBuildAllowance(oFactory, sBudgetBlueprint)
+            if iMassBudget and iMassBudget > 0 then
+                local sHeavy = GetBlueprintThatCanBuildOfCategory(aiBrain, iEligibleCategory, oFactory, nil, nil, nil, nil, false, nil, nil, nil, iMassBudget)
+                if sHeavy then sBlueprint = sHeavy end
+            end
+        end
     end
     return sBlueprint
 end
@@ -7300,6 +7378,7 @@ GetEconomyAdmittedFactoryProductionBlueprint = function(aiBrain, oFactory, sBlue
             and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oFactory.UnitId) then
         local iRegularCategory = M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher
             - M28UnitInfo.refCategoryT15Units - M28UnitInfo.refCategoryT25Units - M28UnitInfo.refCategoryT35Units
+            - M28UnitInfo.refCategoryLightAttackBot - M28UnitInfo.refCategoryProtectorBot
             - categories.ENGINEER - categories.COMMAND
         local iTech = GetLandProductionTech(oFactory)
         local sFallback
@@ -7973,10 +8052,11 @@ end
 local function GetFactoryBuildPlanRunLength(oFactory, sBlueprint, iRemainingPlanDepth)
     if not(sBlueprint) then
         return 0
-    elseif EntityCategoryContains(categories.SUBCOMMANDER + categories.EXPERIMENTAL + M28UnitInfo.refCategoryFactory, sBlueprint) then
+    end
+    local iAllowance = GetIntermediateLandBuildAllowance(oFactory, sBlueprint)
+    if EntityCategoryContains(categories.SUBCOMMANDER + categories.EXPERIMENTAL + M28UnitInfo.refCategoryFactory, sBlueprint) then
         return 1
-    elseif GetIntermediateLandUnitCategories(sBlueprint) then
-        local iAllowance = GetIntermediateLandBuildAllowance(oFactory, sBlueprint)
+    elseif iAllowance then
         return math.min(iRemainingPlanDepth, 1, iAllowance)
     elseif GetGameTimeSeconds() <= 360 and oFactory:GetAIBrain()[M28Map.refbCanPathToEnemyBaseWithLand]
             and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory * categories.TECH1, oFactory.UnitId)

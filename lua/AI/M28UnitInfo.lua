@@ -288,7 +288,7 @@ refCategoryEngineerStation = refCategoryRover + refCategoryHive + refCategoryKen
 refCategoryAntiAir = categories.ANTIAIR --used so we can identify units with decent AA threat
 refCategoryMAA = categories.LAND * categories.MOBILE * categories.ANTIAIR - categories.EXPERIMENTAL
 refCategoryIndirect = categories.LAND * categories.MOBILE * categories.INDIRECTFIRE - categories.DIRECTFIRE - refCategoryLandExperimental - refCategoryScathis - categories.UNSELECTABLE - categories.UNTARGETABLE
-refCategoryLightAttackBot = categories.LAND * categories.DIRECTFIRE * categories.TECH1 * categories.MOBILE --Adjusted further in QUIET (see M28OtherLOUDCompatibility)
+refCategoryLightAttackBot = categories.LAND * categories.DIRECTFIRE * categories.TECH1 * categories.MOBILE
 if categories.uel0106 and categories.url0106 and categories.ual0106 then
     refCategoryLightAttackBot = categories.uel0106 + categories.url0106 + categories.ual0106
 else
@@ -306,6 +306,7 @@ else
         refCategoryLightAttackBot = refCategoryLightAttackBot - categories.brpt1exm1
     end
 end
+refCategoryProtectorBot = categories.bsl0106 + categories.bsl0206 + categories.bsl0306
 refCategoryT15Units = categories.brmt1exm1 + categories.brot1exm1 + categories.brpt1exm1 + categories.uel0108
 refCategoryT25Units = categories.brmt2medm + categories.wel0304 + categories.brot2asb + categories.brpt2btbot
 refCategoryT35Units = categories.xrl0305 + categories.brl0307 + categories.wrl0301 + categories.brmt3bm2 + categories.xel0305 + categories.xel0307 + categories.bel0307 + categories.wel0305 + categories.sal0311 + categories.bal0310 + categories.brot3hm + categories.xsl0303 + categories.bsl0310 + categories.brpt3bot
