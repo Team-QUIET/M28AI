@@ -9,6 +9,7 @@ local M28Economy = import('/mods/M28AI/lua/AI/M28Economy.lua')
 local M28Map = import('/mods/M28AI/lua/AI/M28Map.lua')
 local M28Orders = import('/mods/M28AI/lua/AI/M28Orders.lua')
 local M28Profiler = import('/mods/M28AI/lua/AI/M28Profiler.lua')
+local M28Intel = import('/mods/M28AI/lua/AI/M28Intel.lua')
 local M28Engineer = import('/mods/M28AI/lua/AI/M28Engineer.lua')
 local M28Team = import('/mods/M28AI/lua/AI/M28Team.lua')
 local M28Conditions = import('/mods/M28AI/lua/AI/M28Conditions.lua')
@@ -4413,14 +4414,18 @@ function GetACUAdvanceSupport(oACU, oTarget, iPlateau, tLZData, tLZTeamData)
         end
     end
     local tEnemies, tSeen = {}, {}
+    local iRememberedThreat = 0
     local iEnemyCategory = iCategory + M28UnitInfo.refCategoryPD
     local function AddKnownEnemies(tZoneTeamData)
         for _, oEnemy in tZoneTeamData[M28Map.subrefTEnemyUnits] or {} do
-            if not(tSeen[oEnemy]) and M28UnitInfo.IsUnitValid(oEnemy) and EntityCategoryContains(iEnemyCategory, oEnemy.UnitId)
-                    and M28UnitInfo.CanSeeUnit(aiBrain, oEnemy)
-                    and M28Utilities.GetDistanceBetweenPositions(oEnemy:GetPosition(), tApproach) <= math.max(55, math.min(80, (oEnemy[M28UnitInfo.refiCombatRange] or 0) + 15)) then
-                tSeen[oEnemy] = true
-                table.insert(tEnemies, oEnemy)
+            if not(tSeen[oEnemy]) and M28UnitInfo.IsUnitValid(oEnemy) and EntityCategoryContains(iEnemyCategory, oEnemy.UnitId) then
+                local tKnown, iConfidence, iAge = M28Intel.GetKnownThreatPosition(aiBrain, oEnemy, 60)
+                local iReach = math.max(55, math.min(80, (oEnemy[M28UnitInfo.refiCombatRange] or 0) + 15))
+                if tKnown and M28Utilities.GetDistanceBetweenPositions(tKnown, tApproach) <= iReach + math.min(30, iAge * 2) then
+                    tSeen[oEnemy] = true
+                    if iAge == 0 then table.insert(tEnemies, oEnemy)
+                    else iRememberedThreat = iRememberedThreat + M28UnitInfo.GetCombatThreatRating({oEnemy}, false, false) * iConfidence end
+                end
             end
         end
     end
@@ -4430,7 +4435,11 @@ function GetACUAdvanceSupport(oACU, oTarget, iPlateau, tLZData, tLZTeamData)
         AddKnownEnemies(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjacent][M28Map.subrefLZTeamData][aiBrain.M28Team])
     end
     local iFriendly = M28UnitInfo.GetCombatThreatRating(tSupport, false, false) or 0
-    local iEnemy = M28UnitInfo.GetCombatThreatRating(tEnemies, false, false) or 0
+    local iEnemy = (M28UnitInfo.GetCombatThreatRating(tEnemies, false, false) or 0) + iRememberedThreat
+    if iRememberedThreat >= 250 then
+        local iTargetPlateau, iTargetZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tApproach)
+        M28Intel.RequestPriorityScoutingForZone(iTargetPlateau, iTargetZone, aiBrain.M28Team, 100)
+    end
     local iACU = oACU[M28UnitInfo.refiDFMassThreatOverride] or M28UnitInfo.GetCombatThreatRating({oACU}, false, false) or 0
     return IsACUAdvanceUnsupported(iFriendly, iEnemy, iACU, M28UnitInfo.GetUnitHealthPercent(oACU)), iFriendly, iEnemy
 end
