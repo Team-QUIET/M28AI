@@ -7193,8 +7193,8 @@ local function IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iM
         end
     end
     local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
-    return iMassDrain <= (tTeamData[M28Team.subrefiTeamGrossMass] or 0) * 0.45
-        and iEnergyDrain <= (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * 0.55
+    local bMassAvailable = iMassDrain <= (tTeamData[M28Team.subrefiTeamGrossMass] or 0) * 0.45
+    return bMassAvailable and iEnergyDrain <= (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * 0.55, bMassAvailable
 end
 
 local function CanReserveContinuousLandProduction(aiBrain, oFactory, sBlueprint, iMassDrain, iEnergyDrain)
@@ -7206,8 +7206,8 @@ local function CanReserveContinuousLandProduction(aiBrain, oFactory, sBlueprint,
             or (GetIntermediateLandUnitCategories(sBlueprint) and (not(EntityCategoryContains(categories.TECH3, sBlueprint)) or (GetIntermediateLandBuildAllowance(oFactory, sBlueprint, true, true) or 0) < 1))
             or aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer) < 8 then return false end
     local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
-    if (tTeamData[M28Team.subrefiTeamAverageEnergyPercentStored] or 0) < 0.5 then return false end
-    if not(IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iMassDrain, iEnergyDrain)) then return false end
+    local bCombinedAvailable, bCombinedMassAvailable = IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iMassDrain, iEnergyDrain)
+    if not(bCombinedMassAvailable) then return false end
     iMassDrain, iEnergyDrain = GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iMassDrain, iEnergyDrain)
     for _, oOtherFactory in GetTeamManagedFactories(aiBrain, aiBrain.M28Team) do
         if oOtherFactory ~= oFactory then
@@ -7229,8 +7229,11 @@ local function CanReserveContinuousLandProduction(aiBrain, oFactory, sBlueprint,
     end
     -- Keep a bounded combat stream alongside workers and income upgrades at the unlocked tech.
     local bT1 = M28UnitInfo.GetBlueprintTechLevel(sBlueprint) == 1
-    return iMassDrain <= (tTeamData[M28Team.subrefiTeamGrossMass] or 0) * (bT1 and 0.2 or 0.35)
-        and iEnergyDrain <= (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * (bT1 and 0.3 or 0.4)
+    local bMassAvailable = iMassDrain <= (tTeamData[M28Team.subrefiTeamGrossMass] or 0) * (bT1 and 0.2 or 0.35)
+    -- Expose funded mass demand even when power prevents starting the queue.
+    return bMassAvailable and bCombinedAvailable
+        and (tTeamData[M28Team.subrefiTeamAverageEnergyPercentStored] or 0) >= 0.5
+        and iEnergyDrain <= (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * (bT1 and 0.3 or 0.4), bMassAvailable
 end
 
 local function CanReserveInitialT3CombatProduction(aiBrain, oFactory, sBlueprint, iMassDrain, iEnergyDrain)
@@ -7371,8 +7374,15 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
     end
     local bInitialT3CombatReserve = CanReserveInitialT3CombatProduction(aiBrain, oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain)
     local bFighterRecoveryReserve = CanReserveFighterRecoveryProduction(aiBrain, oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain)
-    local bContinuousLandReserve = CanReserveContinuousLandProduction(aiBrain, oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain)
+    local bContinuousLandReserve, bContinuousLandMassAvailable = CanReserveContinuousLandProduction(aiBrain, oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain)
+    local function RecordCombatEnergyDemand()
+        if bInitialT3CombatReserve or bFighterRecoveryReserve or bContinuousLandMassAvailable then
+            local _, iEnergy = GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain)
+            oFactory.M28CombatEnergyDemand = {time = GetGameTimeSeconds(), energy = iEnergy}
+        end
+    end
     if tFactoryEco.bStallingEnergy and not(bEngineerReserve or bInitialT3CombatReserve or bFighterRecoveryReserve or bContinuousLandReserve) then
+        RecordCombatEnergyDemand()
         return FinishAdmission(false, 'EnergyStall')
     end
     if tFactoryEco.bStallingMass and not(bEngineerReserve or bInitialT3CombatReserve or bFighterRecoveryReserve or bContinuousLandReserve) then
@@ -7421,11 +7431,7 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
             or (bFighterRecoveryReserve and 'FighterRecoveryReserve' or bInitialT3CombatReserve and 'InitialT3CombatReserve' or 'ContinuousLandReserve'))
     end
 
-    if bInitialT3CombatReserve or bFighterRecoveryReserve or bContinuousLandReserve then
-        -- Idle factories hide their future demand from current consumption. Ask the
-        -- power planner to supply this affordable queue before admitting its drain.
-        oFactory.M28CombatEnergyDemand = {time = GetGameTimeSeconds(), energy = iCandidateEnergyDrain}
-    end
+    RecordCombatEnergyDemand()
 
     if EntityCategoryContains(iAirAAProductionCategory, sBlueprint) then
         local sAirPriorityReason = GetAirQueuePriorityState(aiBrain)
