@@ -389,9 +389,73 @@ function GetSupportOpportunityBonus(iAvailableThreat, iEnemyThreat, iPDThreat, i
 end
 
 function GetSupportAssemblyScore(iFriendlyMobile, iEnemyThreat, iPDThreat, iTravelDistance, iTargetDistance, iSourceTargetDistance, bDangerous)
-    if bDangerous or iEnemyThreat > 0 or iPDThreat > 0 or iFriendlyMobile < 80 or iTravelDistance > 300
-            or iTargetDistance > 240 or iTargetDistance > iSourceTargetDistance + 20 then return nil end
-    return math.min(1800, iFriendlyMobile) / (1 + iTravelDistance / 120) + math.max(0, 240 - iTargetDistance)
+    if bDangerous or iEnemyThreat > 0 or iPDThreat > 0 or iFriendlyMobile < 80 or iTravelDistance > 600
+            or iTargetDistance > iSourceTargetDistance + 120 then return nil end
+    -- Rear reinforcements must be able to meet before any of them can reach the front.
+    return math.min(6000, iFriendlyMobile) / (1 + iTravelDistance / 300)
+        + math.max(-600, iSourceTargetDistance - iTargetDistance) * 3
+end
+
+function IssueLandAssemblyOrder(oUnit, tPosition, sDescription, bTravelling, tAvoidance)
+    local tPrevious = oUnit.M28AssemblyOrder
+    local iNow = GetGameTimeSeconds()
+    local iDistance = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tPosition)
+    local tLast = (oUnit[M28Orders.reftiLastOrders] or {})[1]
+    if tPrevious and tPrevious.description == sDescription and tLast and tLast[M28Orders.subrefsOrderDesc] == tPrevious.engineDescription
+            and M28Utilities.GetDistanceBetweenPositions(tPrevious.position, tPosition) <= 6
+            and (iDistance <= 18 or (iNow - tPrevious.time < 12 and not(oUnit:IsIdleState()))) then return false end
+    if not(bTravelling) and iDistance <= 12 and oUnit:IsIdleState() then return false end
+    M28Orders.IssueSmartMove(oUnit, tPosition, 6, false, sDescription, false, not(bTravelling), tAvoidance)
+    tLast = (oUnit[M28Orders.reftiLastOrders] or {})[1]
+    local sEngineDescription = tLast and tLast[M28Orders.subrefsOrderDesc]
+    -- A firing hold or another micro owner can reject the move without replacing its order.
+    if not(sEngineDescription) or string.sub(sEngineDescription, 1, string.len(sDescription)) ~= sDescription then
+        oUnit.M28AssemblyOrder = nil
+        return false
+    end
+    oUnit.M28AssemblyOrder = {position = {tPosition[1], tPosition[2], tPosition[3]}, description = sDescription,
+        engineDescription = sEngineDescription, time = iNow}
+    return true
+end
+
+function GetNearbySupportWaveThreat(tUnits, iPlateau, iSourceZone, iTargetZone, iTeam, bDirectFire)
+    local iNow = GetGameTimeSeconds()
+    local tPosition, iCount = {0, 0, 0}, 0
+    for _, oUnit in tUnits do
+        if M28UnitInfo.IsUnitValid(oUnit) then
+            local tUnitPosition = oUnit:GetPosition()
+            tPosition[1], tPosition[3] = tPosition[1] + tUnitPosition[1], tPosition[3] + tUnitPosition[3]
+            iCount = iCount + 1
+        end
+    end
+    if iCount == 0 then return 0 end
+    tPosition[1], tPosition[3] = tPosition[1] / iCount, tPosition[3] / iCount
+    local tZones = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones]
+    local tSource = tZones[iSourceZone]
+    if bDirectFire then
+        -- Numeric observations expire quickly and do not retain unit handles after death.
+        tSource[M28Map.subrefLZTeamData][iTeam].M28SupportWave = {time = iNow, target = iTargetZone,
+            position = tPosition, threat = M28UnitInfo.GetCombatThreatRating(tUnits, false, false)}
+    end
+    local iThreat = 0
+    local tNearby = {iSourceZone}
+    for _, iZone in tSource[M28Map.subrefLZAdjacentLandZones] or {} do table.insert(tNearby, iZone) end
+    table.sort(tNearby)
+    for _, iZone in tNearby do
+        if iZone ~= iTargetZone and (iZone ~= iSourceZone or not(bDirectFire)) then
+            local tZone = tZones[iZone]
+            local tTeam = tZone[M28Map.subrefLZTeamData][iTeam]
+            local tWave = tTeam.M28SupportWave
+            if tWave and tWave.target == iTargetZone and iNow - tWave.time <= 3
+                    and tZone[M28Map.subrefLZIslandRef] == tSource[M28Map.subrefLZIslandRef]
+                    and not(tTeam[M28Map.subrefbDangerousEnemiesInThisLZ])
+                    and (tTeam[M28Map.subrefTThreatEnemyCombatTotal] or 0) == 0
+                    and M28Utilities.GetDistanceBetweenPositions(tPosition, tWave.position) <= 70 then
+                iThreat = iThreat + tWave.threat
+            end
+        end
+    end
+    return iThreat
 end
 
 function GetLandWaitingWaveCenter(tZoneTeamData, tUnits, sRole)
@@ -468,7 +532,7 @@ function GetSupportAssemblyZone(tSourceData, iPlateau, iSourceZone, iTargetZone,
     end
     if iBestZone then
         if not(tPrevious) or tPrevious.zone ~= iBestZone or GetGameTimeSeconds() >= tPrevious.untilTime then
-            tTargetTeamData.M28SupportAssembly = {zone = iBestZone, untilTime = GetGameTimeSeconds() + 20}
+            tTargetTeamData.M28SupportAssembly = {zone = iBestZone, untilTime = GetGameTimeSeconds() + 45}
         end
     end
     return iBestZone
@@ -11827,7 +11891,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 end
             end
 
-            local function GetSupportWaveReadiness(tUnits, iTargetLZ)
+            local function GetSupportWaveReadiness(tUnits, iTargetLZ, bDirectFire)
                 local tTargetLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iTargetLZ]
                 local tTargetLZTeamData = tTargetLZData[M28Map.subrefLZTeamData][iTeam]
                 local iEnemyPressure = tTargetLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
@@ -11840,6 +11904,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 local iTargetAllyThreat = tTargetLZTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
                 local iCombinedAllyThreat = iTargetAllyThreat
                 if iTargetLZ ~= iLandZone then iCombinedAllyThreat = iCombinedAllyThreat + iWaveThreat end
+                if bDirectFire ~= nil then
+                    iCombinedAllyThreat = iCombinedAllyThreat + GetNearbySupportWaveThreat(tUnits, iPlateau, iLandZone, iTargetLZ, iTeam, bDirectFire)
+                end
 
                 local iRequiredRatio = 1.06
                 local tTargetMexCountByTech = tTargetLZTeamData[M28Map.subrefMexCountByTech]
@@ -12855,7 +12922,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 end
 
                 local tTargetLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iDFLZToSupport]
-                local bDFWaveReady, iDFWaveThreat, iTargetAllyCombatThreat, iDFEnemyPressure, iDFReleaseRatio = GetSupportWaveReadiness(tDFUnits, iDFLZToSupport)
+                local bDFWaveReady, iDFWaveThreat, iTargetAllyCombatThreat, iDFEnemyPressure, iDFReleaseRatio = GetSupportWaveReadiness(tDFUnits, iDFLZToSupport, true)
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': DF support wave for LZ '..iDFLZToSupport..'; wave threat='..iDFWaveThreat..'; target ally threat='..iTargetAllyCombatThreat..'; enemy pressure='..iDFEnemyPressure..'; required ratio='..iDFReleaseRatio..'; ready='..tostring(bDFWaveReady)) end
 
                 if bDFWaveReady then
@@ -12878,9 +12945,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         if not(IgnoreOrderDueToStuckUnit(oUnit)) then
                             if iAssemblyZone and iAssemblyZone ~= iLandZone then
                                 SetLandCombatIntent(oUnit, iPlateau, iAssemblyZone, 12, 'DFGather')
-                                M28Orders.IssueSmartMove(oUnit, tDFWaveCenter, 6, false, 'DFGather'..iAssemblyZone)
+                                IssueLandAssemblyOrder(oUnit, tDFWaveCenter, 'DFGather'..iAssemblyZone, true)
                             else
-                                M28Orders.IssueSmartMove(oUnit, tDFWaveCenter, 6, false, 'DFWaitLZ'..iDFLZToSupport..'From'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
+                                IssueLandAssemblyOrder(oUnit, tDFWaveCenter, 'DFWaitLZ'..iDFLZToSupport..'From'..iLandZone, false, tFixedDFSpreadAvoidanceAreaTables)
                             end
                         end
                     end
@@ -12944,7 +13011,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     end
                 end
                 local tIndirectTargetLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iIndirectLZToSupport]
-                local bIFWaveReady, iIFWaveThreat, iIndirectTargetAllyCombatThreat, iIFEnemyPressure, iIFReleaseRatio = GetSupportWaveReadiness(tIndirectUnits, iIndirectLZToSupport)
+                local bIFWaveReady, iIFWaveThreat, iIndirectTargetAllyCombatThreat, iIFEnemyPressure, iIFReleaseRatio = GetSupportWaveReadiness(tIndirectUnits, iIndirectLZToSupport, false)
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': IF support wave for LZ '..iIndirectLZToSupport..'; wave threat='..iIFWaveThreat..'; target ally threat='..iIndirectTargetAllyCombatThreat..'; enemy pressure='..iIFEnemyPressure..'; required ratio='..iIFReleaseRatio..'; ready='..tostring(bIFWaveReady)) end
 
                 if bIFWaveReady then
@@ -12970,9 +13037,9 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                         if not(IgnoreOrderDueToStuckUnit(oUnit)) then
                             if iAssemblyZone and iAssemblyZone ~= iLandZone then
                                 SetLandCombatIntent(oUnit, iPlateau, iAssemblyZone, 12, 'IFGather')
-                                M28Orders.IssueSmartMove(oUnit, tIFWaveCenter, 6, false, 'IFGather'..iAssemblyZone)
+                                IssueLandAssemblyOrder(oUnit, tIFWaveCenter, 'IFGather'..iAssemblyZone, true)
                             else
-                                M28Orders.IssueSmartMove(oUnit, tIFWaveCenter, 6, false, 'IFWaitLZ'..iIndirectLZToSupport..'From'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
+                                IssueLandAssemblyOrder(oUnit, tIFWaveCenter, 'IFWaitLZ'..iIndirectLZToSupport..'From'..iLandZone, false, tFixedDFSpreadAvoidanceAreaTables)
                             end
                         end
                     end
