@@ -3701,6 +3701,48 @@ function UpdateAirRallyAndSupportPoints(iTeam, iAirSubteam)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     end
 
+function GetStrikeRouteGroundAAThreat(oAircraft, tStart, tEnd, iMargin)
+    local tMidpoint = {(tStart[1] + tEnd[1]) * 0.5, 0, (tStart[3] + tEnd[3]) * 0.5}
+    local iDX, iDZ = tEnd[1] - tStart[1], tEnd[3] - tStart[3]
+    local iLengthSquared = iDX * iDX + iDZ * iDZ
+    local iThreat = 0
+    for _, oAA in oAircraft:GetAIBrain():GetUnitsAroundPoint(M28UnitInfo.refCategoryGroundAA, tMidpoint, math.sqrt(iLengthSquared) * 0.5 + 160, 'Enemy') do
+        if M28UnitInfo.IsUnitValid(oAA) and M28UnitInfo.CanSeeUnit(oAircraft:GetAIBrain(), oAA) and oAA:GetFractionComplete() >= 0.8 then
+            if not(oAA[M28UnitInfo.refiAARange]) then M28UnitInfo.RecordUnitRange(oAA) end
+            local tAA = oAA:GetPosition()
+            local iProjection = iLengthSquared > 0 and math.max(0, math.min(1, ((tAA[1] - tStart[1]) * iDX + (tAA[3] - tStart[3]) * iDZ) / iLengthSquared)) or 0
+            local iX, iZ = tAA[1] - tStart[1] - iProjection * iDX, tAA[3] - tStart[3] - iProjection * iDZ
+            local iRange = (oAA[M28UnitInfo.refiAARange] or 0) + (iMargin or 10)
+            if iX * iX + iZ * iZ <= iRange * iRange then
+                iThreat = iThreat + GetAirUnitAdjustedGroundAAThreatForUnit(oAircraft, oAA)
+            end
+        end
+    end
+    return iThreat
+end
+
+function GetLocalGunshipOpportunity(tAircraft, iTeam, iAirSubteam)
+    local tPosition, _, oFront = GetStrikeAircraftCohortData(tAircraft)
+    if not(oFront) or M28Utilities.IsTableEmpty(tPosition) then return nil end
+    local iThreat = M28UnitInfo.GetAirThreatLevel(tAircraft, false, false, false, true, false, false)
+    local aiBrain = oFront:GetAIBrain()
+    local tCandidates = {}
+    for _, oEnemy in aiBrain:GetUnitsAroundPoint(categories.LAND - categories.SCOUT, tPosition, 180, 'Enemy') do
+        if M28UnitInfo.IsUnitValid(oEnemy) and M28UnitInfo.CanSeeUnit(aiBrain, oEnemy) and not(M28UnitInfo.IsUnitUnderwater(oEnemy))
+                and not(oEnemy:IsUnitState('Attached')) and M28Conditions.IsLocationInPlayableArea(oEnemy:GetPosition())
+                and not(M28Conditions.IsTargetNearActiveNukeTarget(oEnemy:GetPosition(), iTeam, 60)) then
+            table.insert(tCandidates, {unit = oEnemy, distance = M28Utilities.GetDistanceBetweenPositions(tPosition, oEnemy:GetPosition())})
+        end
+    end
+    table.sort(tCandidates, function(a, b) if a.distance == b.distance then return a.unit.EntityId < b.unit.EntityId end return a.distance < b.distance end)
+    for i = 1, math.min(6, table.getn(tCandidates)) do
+        local oTarget = tCandidates[i].unit
+        if GetStrikeRouteGroundAAThreat(oFront, tPosition, oTarget:GetPosition(), 15) <= iThreat * 0.2
+                and not(GetStrikeAircraftFighterInterceptionRisk(iTeam, iAirSubteam, tAircraft, oTarget:GetPosition(), true)) then return oTarget end
+    end
+    return nil
+end
+
 function ShouldWaitForStrikeWave(tAircraft, iAvailableThreat, iMinimumThreat)
     if M28Utilities.IsTableEmpty(tAircraft) then return false end
     local iNow = GetGameTimeSeconds()
@@ -8343,9 +8385,11 @@ function AssignTorpOrBomberTargets(tAvailableAircraft, tCandidateEntries, iAirSu
         return iDistanceX * iDistanceX + iDistanceZ * iDistanceZ <= iRadius * iRadius
     end
 
+    local iStrikeCorridorThreatBudget = M28UnitInfo.GetAirThreatLevel(tAvailableAircraft, false, false, false, true, false, bTorpedoPayload) * 0.2
     local function IsStrikeRunCorridorSafe(tCandidate, tApproachPoint, tNearbyEnemyGroundAA)
         if not(bUseUnifiedAttackRun) or M28Utilities.IsTableEmpty(tNearbyEnemyGroundAA) then return true end
         local tRunEnd = GetStrikeRunEnd(tCandidate, tApproachPoint)
+        local iCorridorThreat = 0
         for iAA, oAA in tNearbyEnemyGroundAA do
             if M28UnitInfo.IsUnitValid(oAA) and oAA:GetFractionComplete() >= 0.8 then
                 local iAdjustedThreat = GetAirUnitAdjustedGroundAAThreatForUnit(oFirstAircraft, oAA)
@@ -8353,10 +8397,11 @@ function AssignTorpOrBomberTargets(tAvailableAircraft, tCandidateEntries, iAirSu
                     if not(oAA[M28UnitInfo.refiAARange]) or oAA[M28UnitInfo.refiAARange] <= 0 then M28UnitInfo.RecordUnitRange(oAA) end
                     local iAARange = oAA[M28UnitInfo.refiAARange] or 0
                     if iAARange > 0 and IsPointInStrikeCorridor(tApproachPoint, tRunEnd, oAA:GetPosition(), iAARange + iGroundAASafetyMargin) then
-                        if bDebugMessages == true then
+                        iCorridorThreat = iCorridorThreat + iAdjustedThreat
+                        if bDebugMessages == true and iCorridorThreat > iStrikeCorridorThreatBudget then
                             LOG(sFunctionRef..': [AirSub'..iAirSubteam..'] STRIKE_AA_CORRIDOR_REJECT - Target='..tCandidate.oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(tCandidate.oUnit)..', AA='..oAA.UnitId..M28UnitInfo.GetUnitLifetimeCount(oAA)..', AARange='..string.format('%.1f', iAARange)..', Margin='..iGroundAASafetyMargin..', Approach='..repru(tApproachPoint)..', RunEnd='..repru(tRunEnd))
                         end
-                        return false
+                        if iCorridorThreat > iStrikeCorridorThreatBudget then return false end
                     end
                 end
             end
@@ -10305,6 +10350,11 @@ function ManageGunships(iTeam, iAirSubteam)
                     end
                 end
             end
+        end
+
+        if M28Utilities.IsTableEmpty(tEnemyGroundOrGunshipTargets) and not(bUsingSnipePriority) then
+            local oOpportunity = GetLocalGunshipOpportunity(tGunshipsNearFront, iTeam, iAirSubteam)
+            if oOpportunity then table.insert(tEnemyGroundOrGunshipTargets, oOpportunity) end
         end
 
         if M28Utilities.IsTableEmpty(tEnemyGroundOrGunshipTargets) then
