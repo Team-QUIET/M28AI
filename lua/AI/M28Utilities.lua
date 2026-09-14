@@ -290,19 +290,19 @@ function ErrorHandler(sErrorMessage, bWarningNotError, bIgnoreCount, iIntervalOv
 end
 
 
-function IsTableEmpty(tTable, bEmptyIfNonTableWithValue, iOptionalCycleCount)
+local TableValueType = type
+local function IsTableEmptyRecursive(tTable, bEmptyIfNonTableWithValue, iOptionalCycleCount)
     --bEmptyIfNonTableWithValue - Optional, defaults to true
     --E.g. if passed oUnit to a function that was expecting a table, then setting bEmptyIfNonTableWithValue = false means it will register the table isn't nil
 
-    if (type(tTable) == "table") then
-        if next (tTable) == nil then return true --(could probably also use table.empty)
-        else
-            for i1, v1 in pairs(tTable) do
-                if iOptionalCycleCount and iOptionalCycleCount >= 5 then return false --If table has this many entries then assume it isnt empty
-                elseif IsTableEmpty(v1, false, (iOptionalCycleCount or 0) + 1) == false then return false end
-            end
-            return true
+    if (TableValueType(tTable) == "table") then
+        -- Native table iteration handles empty tables without a separate next
+        -- call. Only nested tables need recursion; false and zero are values.
+        for _, v1 in tTable do
+            if iOptionalCycleCount and iOptionalCycleCount >= 5 then return false
+            elseif TableValueType(v1) ~= 'table' or IsTableEmptyRecursive(v1, false, (iOptionalCycleCount or 0) + 1) == false then return false end
         end
+        return true
     else
         if tTable == nil then return true
         else
@@ -312,6 +312,9 @@ function IsTableEmpty(tTable, bEmptyIfNonTableWithValue, iOptionalCycleCount)
         end
     end
 end
+
+-- Export the recursive closure without an extra wrapper on the hot path.
+IsTableEmpty = IsTableEmptyRecursive
 
 function ForkedDrawRectangle(rRect, iColour, iDisplayCount)
     --Only call via cork thread
@@ -505,9 +508,10 @@ function GetTravelDistanceBetweenPositions(tStart, tEnd, sPathing)
         return nil
     end
 end
+local PositionDistance = VDist2
 function GetDistanceBetweenPositions(tPosition1, tPosition2)
     --Done for convenience and to reduce risk of human error if were to use vdist2 directly; returns the distance in a straight line (ignoring pathing) between 2 positions
-    return VDist2(tPosition1[1], tPosition1[3], tPosition2[1], tPosition2[3])
+    return PositionDistance(tPosition1[1], tPosition1[3], tPosition2[1], tPosition2[3])
 end
 
 function GetRoughDistanceBetweenPositions(tPosition1, tPosition2)
@@ -785,32 +789,33 @@ function DoesCategoryContainCategory(iCategoryWanted, iCategoryToSearch, bOnlyCo
     return false
 end
 
-function spairs(t, order)
-    --Required by the sort tables function
-    --Code with thanks to Michal Kottman https://stackoverflow.com/questions/15706270/sort-a-table-in-lua
-    -- collect the keys
+local function SortedTableIterator(t, order)
+    --Key iterator based on Michal Kottman's https://stackoverflow.com/questions/15706270/sort-a-table-in-lua
+    -- Preserve key collection and tie ordering while passing the comparator
+    -- directly to table.sort, without a second Lua call per comparison.
     local keys = {}
     local iKeyCount = 0
     for k in pairs(t) do
         iKeyCount = iKeyCount+1
         keys[iKeyCount] = k end
 
-    -- if order function given, sort by it by passing the table and keys a, b,
-    -- otherwise just sort the keys
-    if order then
-        table.sort(keys, function(a,b) return order(t, a, b) end)
-    else
-        table.sort(keys)
-    end
+    table.sort(keys, order)
 
     -- return the iterator function
     local i = 0
     return function()
         i = i + 1
-        if keys[i] then
-            return keys[i], t[keys[i]]
+        local key = keys[i]
+        if key then
+            return key, t[key]
         end
     end
+end
+
+function spairs(t, order)
+    -- Keep the public comparator signature: order(table, keyA, keyB).
+    if order then return SortedTableIterator(t, function(a,b) return order(t,a,b) end) end
+    return SortedTableIterator(t)
 end
 
 function SortTableBySubtable(tTableToSort, sSortByRef, bLowToHigh)
@@ -832,15 +837,15 @@ function SortTableBySubtable(tTableToSort, sSortByRef, bLowToHigh)
 
     if bLowToHigh == nil then bLowToHigh = true end
     if bLowToHigh == true then
-        return spairs(tTableToSort, function(t,a,b) return t[b][sSortByRef] > t[a][sSortByRef] end)
-    else return spairs(tTableToSort, function(t,a,b) return t[b][sSortByRef] < t[a][sSortByRef] end)
+        return SortedTableIterator(tTableToSort, function(a,b) return tTableToSort[b][sSortByRef] > tTableToSort[a][sSortByRef] end)
+    else return SortedTableIterator(tTableToSort, function(a,b) return tTableToSort[b][sSortByRef] < tTableToSort[a][sSortByRef] end)
     end
 end
 
 function SortTableByValue(tTableToSort, bHighToLow)
     --e.g. for iCategory, iCount in M28Utilities.SortTableByValue(tCategoryUsage, true) do
-    if bHighToLow then return spairs(tTableToSort, function(t,a,b) return t[b] < t[a] end)
-    else return spairs(tTableToSort, function(t,a,b) return t[b] > t[a] end)
+    if bHighToLow then return SortedTableIterator(tTableToSort, function(a,b) return tTableToSort[b] < tTableToSort[a] end)
+    else return SortedTableIterator(tTableToSort, function(a,b) return tTableToSort[b] > tTableToSort[a] end)
     end
 end
 

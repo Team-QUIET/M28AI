@@ -275,9 +275,9 @@ end
 ---@param position Vector
 ---@return NavLeaf | nil
 ---@return 'OutsideMap' | nil
-local function FindLeaf(grid, position)
-    -- check position argument
-    local leaf = grid:FindLeafXZ(position[1], position[3])
+local function FindLeaf(grid, position, resolvedLeaf)
+    -- Reuse an exact lookup when the caller already has the unpathable leaf.
+    local leaf = resolvedLeaf or grid:FindLeafXZ(position[1], position[3])
     if not leaf then
         return nil, 'OutsideMap'
     end
@@ -975,13 +975,14 @@ function GetLabel(layer, position)
     end
 
     -- check layer argument
-    local grid = FindGrid(layer)
+    local grid = NavGenerator.NavGrids[layer]
     if not grid then
         return nil, 'InvalidLayer'
     end
 
     -- check position argument
-    local leaf = FindLeaf(grid, position)
+    local leaf = grid:FindLeafXZ(position[1], position[3])
+    if leaf and leaf.Label == -1 then leaf = FindLeaf(grid, position, leaf) end
     if not leaf then
         return nil, 'OutsideMap'
     end

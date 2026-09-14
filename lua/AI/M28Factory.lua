@@ -1111,37 +1111,57 @@ local function ShouldAllowAnotherTransport(aiBrain, iTeam)
     return GetTeamTransportCount(aiBrain, iTeam) + GetTeamPendingTransportCount(aiBrain, iTeam) < 1
 end
 
-local function ShouldAllowAnotherLandScout(aiBrain, oFactory, tLZTeamData)
+local function ShouldAllowAnotherLandScout(aiBrain, oFactory, tLZTeamData, tSelectionCounts)
     local iTeam = aiBrain.M28Team
     if M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision] or not(tLZTeamData) then
         return false
     end
-    if GetTeamCurrentLandScoutCount(aiBrain, iTeam) + GetTeamPendingLandScoutCount(aiBrain, iTeam) >= GetTeamLandScoutCap(aiBrain, iTeam) then
-        return false
+    local bHaveCapacity = tSelectionCounts and tSelectionCounts.bHaveCapacity
+    if bHaveCapacity == nil then
+        bHaveCapacity = GetTeamCurrentLandScoutCount(aiBrain, iTeam) + GetTeamPendingLandScoutCount(aiBrain, iTeam) < GetTeamLandScoutCap(aiBrain, iTeam)
+                and GetFactoryPendingLandScoutCount(oFactory) < (GetFactoryLiveQueueCapForCategory(M28UnitInfo.refCategoryLandScout) or 1)
+        if tSelectionCounts then tSelectionCounts.bHaveCapacity = bHaveCapacity end
     end
-    if GetFactoryPendingLandScoutCount(oFactory) >= (GetFactoryLiveQueueCapForCategory(M28UnitInfo.refCategoryLandScout) or 1) then
-        return false
-    end
+    if not(bHaveCapacity) then return false end
 
-    local iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oFactory:GetPosition(), true, oFactory)
-    if (iLandZone or 0) <= 0 or not(M28Map.tAllPlateaus[iPlateau]) then
-        return false
+    local iPlateau, iLandZone, tLocalLZData
+    if tSelectionCounts and tSelectionCounts.bFactoryZoneResolved then
+        iPlateau = tSelectionCounts.iFactoryPlateau
+        iLandZone = tSelectionCounts.iFactoryZone
+        tLocalLZData = tSelectionCounts.tFactoryZoneData
+    else
+        iPlateau, iLandZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oFactory:GetPosition(), true, oFactory)
+        if (iLandZone or 0) > 0 and M28Map.tAllPlateaus[iPlateau] then
+            tLocalLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone]
+        end
+        if tSelectionCounts then
+            tSelectionCounts.bFactoryZoneResolved = true
+            tSelectionCounts.iFactoryPlateau = iPlateau
+            tSelectionCounts.iFactoryZone = iLandZone
+            tSelectionCounts.tFactoryZoneData = tLocalLZData
+        end
     end
-
-    local tLocalLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone]
+    if (iLandZone or 0) <= 0 or not(M28Map.tAllPlateaus[iPlateau]) then return false end
     if tLZTeamData[M28Map.refbWantLandScout] and GetLandScoutCoverageForZone(tLZTeamData) == 0 then
         return true
     end
 
+    -- The factory and its adjacent zones are unchanged during the caller's
+    -- non-yielding selection loop. Candidate-zone coverage above stays live.
+    if tSelectionCounts and tSelectionCounts.bAdjacentNeedsScout ~= nil then
+        return tSelectionCounts.bAdjacentNeedsScout
+    end
     if M28Utilities.IsTableEmpty(tLocalLZData[M28Map.subrefLZAdjacentLandZones]) == false then
         for _, iAdjLZ in tLocalLZData[M28Map.subrefLZAdjacentLandZones] do
             local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
             if tAdjLZTeamData[M28Map.refbWantLandScout] and GetLandScoutCoverageForZone(tAdjLZTeamData) == 0 then
+                if tSelectionCounts then tSelectionCounts.bAdjacentNeedsScout = true end
                 return true
             end
         end
     end
 
+    if tSelectionCounts then tSelectionCounts.bAdjacentNeedsScout = false end
     return false
 end
 
@@ -5628,11 +5648,14 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             --Check we are in same plateau as a unit wanting priority scout, and the unit is within 550 of here
             local bHaveUnitToGetScoutFor = false
             local tPriorityScoutZoneData
+            -- This loop neither yields nor changes factory queues. Reuse its
+            -- team/factory counts, but check each candidate zone independently.
+            local tPriorityScoutSelectionCounts = {}
             for iUnit, oUnit in M28Team.tLandSubteamData[iLandSubteam][M28Team.reftoPriorityUnitsWantingLandScout] do
                 if oUnit[M28Land.refiCurrentAssignmentPlateauAndLZ][1] == iPlateau and M28UnitInfo.IsUnitValid(oUnit) and (not(oUnit[M28Land.refiTimeLastBuiltLandScoutForUnit]) or GetGameTimeSeconds() - oUnit[M28Land.refiTimeLastBuiltLandScoutForUnit] >= 40) and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oFactory:GetPosition()) <= 550 then
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have unit wanting priority land scout, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' assigned to P'..oUnit[M28Land.refiCurrentAssignmentPlateauAndLZ][1]..'Z'..oUnit[M28Land.refiCurrentAssignmentPlateauAndLZ][2]..'; Dist to factory='..M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), oFactory:GetPosition())..'; Does the LZ it is assigned to want land scouts='..tostring(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][oUnit[M28Land.refiCurrentAssignmentPlateauAndLZ][2]][M28Map.subrefLZTeamData][iTeam][M28Map.refbWantLandScout])) end
                     tPriorityScoutZoneData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][oUnit[M28Land.refiCurrentAssignmentPlateauAndLZ][2]][M28Map.subrefLZTeamData][iTeam]
-                    if ShouldAllowAnotherLandScout(aiBrain, oFactory, tPriorityScoutZoneData) then
+                    if ShouldAllowAnotherLandScout(aiBrain, oFactory, tPriorityScoutZoneData, tPriorityScoutSelectionCounts) then
                         bHaveUnitToGetScoutFor = true
                         oUnit[M28Land.refiTimeLastBuiltLandScoutForUnit] = GetGameTimeSeconds()
                         break

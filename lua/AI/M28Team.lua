@@ -4039,6 +4039,9 @@ function GetSafeMexToUpgrade(iM28Team, bReturnIfSafeInsteadOfUpgrading, bDontUpg
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
     local toSafeUnitsToUpgrade = {}
+    -- Gate scans share only this read-only shortlist pass; actual upgrade
+    -- admission below rechecks current state without this context.
+    local tQuietMexSelectionScan = {}
     local tPotentialUnits
     local tiMexCategory
     local toPriorityTierTimeoutCandidates = {}
@@ -4060,7 +4063,7 @@ function GetSafeMexToUpgrade(iM28Team, bReturnIfSafeInsteadOfUpgrading, bDontUpg
                 local tEligibleMexes = {}
                 for iMex, oMex in tPotentialUnits do
                     if not(((oMex:GetBlueprint().General.UpgradesTo or '') == '')) then
-                        local tQuietGateState = M28Economy.GetQuietMexTierGateState(iM28Team, oMex)
+                        local tQuietGateState = M28Economy.GetQuietMexTierGateState(iM28Team, oMex, nil, tQuietMexSelectionScan)
                         local tHigherTierPriorityState = M28Economy.GetHigherTierMexPriorityState(iM28Team, oMex, tQuietGateState)
                         if not(tQuietGateState.bBlocked) then
                             if tQuietGateState.bTimedOut then

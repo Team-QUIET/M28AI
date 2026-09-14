@@ -310,7 +310,28 @@ NavGrid = ClassNavGrid {
             local bz = MathFloor(z / size)
             local labelTree = trees[bz][bx]
             if labelTree then
-                return labelTree:FindLeafXZ(bx * size, bz * size, size, x, z)
+                -- Traverse here to avoid a second method dispatch for every
+                -- grid lookup. Keep the tree method's bounds and arithmetic so
+                -- boundary positions resolve to the identical live leaf.
+                bx = bx * size
+                bz = bz * size
+                if x < bx or bx + size < x or z < bz or bz + size < z then return nil end
+                local type = type
+                local iox, ioz, hc = 0, 0, size
+                local lx, lz = x - bx, z - bz
+                local instance = labelTree[1]
+                while type(instance) ~= 'table' do
+                    hc = 0.5 * hc
+                    local hx, hz = iox + hc, ioz + hc
+                    if lz < hz then
+                        if lx < hx then instance = labelTree[instance]
+                        else instance = labelTree[instance + 1] iox = hx end
+                    else
+                        if lx < hx then instance = labelTree[instance + 2] ioz = hz
+                        else instance = labelTree[instance + 3] iox = hx ioz = hz end
+                    end
+                end
+                return instance
             end
         end
 

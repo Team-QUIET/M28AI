@@ -1055,13 +1055,17 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
         local iOtherAdjustFactor = 1
 
 
-        local iThreatRef = '1'
-        if bIndirectFireThreatOnly then iThreatRef = iThreatRef .. '1' else iThreatRef = iThreatRef .. '0' end
-        if bJustGetMassValue then iThreatRef = iThreatRef .. '1' else iThreatRef = iThreatRef .. '0' end
-        if bAntiNavyOnly then iThreatRef = iThreatRef .. '1' else iThreatRef = iThreatRef .. '0' end
-        if bAddAntiNavy then iThreatRef = iThreatRef .. '1' else iThreatRef = iThreatRef .. '0' end
-        if bSubmersibleOnly then iThreatRef = iThreatRef .. '1' else iThreatRef = iThreatRef .. '0' end
-        if bLongRangeThreatOnly then iThreatRef = iThreatRef..'1' else iThreatRef = iThreatRef .. '0' end
+        local iThreatRef = '1000000'
+        -- The common ground-combat mode needs no per-call string building.
+        if bIndirectFireThreatOnly or bJustGetMassValue or bAntiNavyOnly or bAddAntiNavy or bSubmersibleOnly or bLongRangeThreatOnly then
+            iThreatRef = '1'
+            if bIndirectFireThreatOnly then iThreatRef = iThreatRef .. '1' else iThreatRef = iThreatRef .. '0' end
+            if bJustGetMassValue then iThreatRef = iThreatRef .. '1' else iThreatRef = iThreatRef .. '0' end
+            if bAntiNavyOnly then iThreatRef = iThreatRef .. '1' else iThreatRef = iThreatRef .. '0' end
+            if bAddAntiNavy then iThreatRef = iThreatRef .. '1' else iThreatRef = iThreatRef .. '0' end
+            if bSubmersibleOnly then iThreatRef = iThreatRef .. '1' else iThreatRef = iThreatRef .. '0' end
+            if bLongRangeThreatOnly then iThreatRef = iThreatRef..'1' else iThreatRef = iThreatRef .. '0' end
+        end
         --E.g. if want combat (DF+IF) threat then would be 1000000
 
         if not(tiThreatRefsCalculated[iThreatRef]) then M28Utilities.ErrorHandler('Havent calculated threat values for iThreatRef='..iThreatRef..' refer to CalculateBlueprintThreatsByType') end
@@ -1248,7 +1252,7 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                     if oUnit[refiAntiNavyMassThreatOverride] and (bAntiNavyOnly or bAddAntiNavy or bSubmersibleOnly) then
                         iBaseThreat = oUnit[refiAntiNavyMassThreatOverride]
                     end
-                    if EntityCategoryContains(categories.COMMAND, oUnit.UnitId) and bEnemyUnits and not(bJustGetMassValue) and not(bAntiNavyOnly) and not(bAddAntiNavy) and not(bSubmersibleOnly) then
+                    if bEnemyUnits and not(bJustGetMassValue) and not(bAntiNavyOnly) and not(bAddAntiNavy) and not(bSubmersibleOnly) and EntityCategoryContains(categories.COMMAND, oUnit.UnitId) then
                         local iEnemyACUThreatMultiplier = 0.35
                         if GetGameTimeSeconds() <= 420 and (oUnit[refiDFRange] or 0) < 32 then
                             iEnemyACUThreatMultiplier = 0.18

@@ -638,10 +638,11 @@ refbIgnoreForNearestPlayerIndexByTeam = 'M28MIgNPI' --[x] = team we are consider
 
 ---@param tPosition table
 ---@return number, number
+local PathingFloor = math.floor
 function GetPathingSegmentFromPosition(tPosition)
     --The map is divided into equal sized square segments with each segment allocated to a land zone; this can be used to get the segment X and Z references
     --tPosition shoudl be {x,y,z} format, although y value is ignored)
-    return math.floor( (tPosition[1] - rMapPotentialPlayableArea[1]) / iLandZoneSegmentSize) + 1, math.floor((tPosition[3] - rMapPotentialPlayableArea[2]) / iLandZoneSegmentSize) + 1
+    return PathingFloor( (tPosition[1] - rMapPotentialPlayableArea[1]) / iLandZoneSegmentSize) + 1, PathingFloor((tPosition[3] - rMapPotentialPlayableArea[2]) / iLandZoneSegmentSize) + 1
 end
 
 ---@param iSegmentX number
@@ -9190,12 +9191,17 @@ function InPlayableArea(tLocation) --NOTE - also have the same function in M28Co
     end
 end
 
-function GetLandOrWaterZoneData(tLocation, bReturnTeamDataAsWell, iOptionalTeam)
+function GetLandOrWaterZoneData(tLocation, bReturnTeamDataAsWell, iOptionalTeam, iResolvedPlateauOrZero, iResolvedZone)
     local sFunctionRef = 'GetLandOrWaterZoneData'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMap, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    local iPlateauOrZero, iLandOrWaterZone = GetClosestPlateauOrZeroAndZoneToPosition(tLocation)
+    -- Callers that just resolved this position can reuse those references;
+    -- zone/team tables are still read live, without caching map state.
+    local iPlateauOrZero, iLandOrWaterZone = iResolvedPlateauOrZero, iResolvedZone
+    if iPlateauOrZero == nil or iLandOrWaterZone == nil then
+        iPlateauOrZero, iLandOrWaterZone = GetClosestPlateauOrZeroAndZoneToPosition(tLocation)
+    end
     if (iLandOrWaterZone or 0) > 0 then
         if iPlateauOrZero == 0 then
             --Water zone

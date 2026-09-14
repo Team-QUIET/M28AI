@@ -1204,13 +1204,13 @@ end
 
 function GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZOrWZTeamData, iCategoryWanted)
     local iCount = 0
-    if M28Utilities.IsTableEmpty(tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
-        local tUnitsOfCategory = EntityCategoryFilterDown(iCategoryWanted, tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
-        if M28Utilities.IsTableEmpty(tUnitsOfCategory) == false then
-            for iUnit, oUnit in tUnitsOfCategory do
-                if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 then
-                    iCount = iCount + 1
-                end
+    local tUnits = tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits]
+    if M28Utilities.IsTableEmpty(tUnits) == false then
+        -- The native filter returns a flat unit list; its empty result needs no
+        -- separate recursive emptiness scan before this loop.
+        for iUnit, oUnit in EntityCategoryFilterDown(iCategoryWanted, tUnits) do
+            if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 then
+                iCount = iCount + 1
             end
         end
     end

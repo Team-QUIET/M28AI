@@ -159,10 +159,11 @@ end
 
 local function GetQuietMexClusterContext(iTeam, oMex)
     if not(M28UnitInfo.IsUnitValid(oMex)) then return nil end
-    local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oMex:GetPosition())
+    local tPosition = oMex:GetPosition()
+    local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tPosition)
     if iPlateauOrZero == nil or iLandOrWaterZone == nil then return nil end
 
-    local tZoneData, tZoneTeamData = M28Map.GetLandOrWaterZoneData(oMex:GetPosition(), true, iTeam)
+    local tZoneData, tZoneTeamData = M28Map.GetLandOrWaterZoneData(tPosition, true, iTeam, iPlateauOrZero, iLandOrWaterZone)
     if not(tZoneData) or not(tZoneTeamData) then
         return {
             iPlateauOrZero = iPlateauOrZero,
@@ -192,9 +193,10 @@ local function DoesQuietClusterIncludeMex(iTeam, oMex, tClusterContext)
     if not(tClusterContext) then return true end
     if not(M28UnitInfo.IsUnitValid(oMex)) then return false end
 
-    local iOtherPlateauOrZero, iOtherLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oMex:GetPosition())
+    local tPosition = oMex:GetPosition()
+    local iOtherPlateauOrZero, iOtherLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tPosition)
     if iOtherPlateauOrZero == nil or iOtherLandOrWaterZone == nil then return false end
-    local tOtherZoneData, tOtherZoneTeamData = M28Map.GetLandOrWaterZoneData(oMex:GetPosition(), true, iTeam)
+    local tOtherZoneData, tOtherZoneTeamData = M28Map.GetLandOrWaterZoneData(tPosition, true, iTeam, iOtherPlateauOrZero, iOtherLandOrWaterZone)
     if not(tOtherZoneData) or not(tOtherZoneTeamData) then return false end
 
     if tClusterContext.bBaseCluster then
@@ -266,10 +268,13 @@ function GetLowestOutstandingQuietMexTier(iTeam, tOptionalClusterContext)
             local tMexes = oBrain:GetListOfUnits(M28UnitInfo.refCategoryMex, false, true)
             if M28Utilities.IsTableEmpty(tMexes) == false then
                 for iMex, oMex in tMexes do
-                    if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 and not(oMex:IsUnitState('Upgrading')) and not(oMex:IsUnitState('BeingUpgraded')) and not(((oMex:GetBlueprint().General.UpgradesTo or '') == '')) and DoesQuietClusterIncludeMex(iTeam, oMex, tOptionalClusterContext) then
+                    if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 and not(oMex:IsUnitState('Upgrading')) and not(oMex:IsUnitState('BeingUpgraded')) and not(((oMex:GetBlueprint().General.UpgradesTo or '') == '')) then
                         local iTier = GetQuietMexProgressionTier(oMex)
                         local iPriority = tiQuietMexTierPriority[iTier]
-                        if iPriority and (not(iLowestPriority) or iPriority < iLowestPriority) then
+                        -- Only a lower tier can change the answer. Resolve its
+                        -- cluster after this cheap test, preserving list order.
+                        if iPriority and (not(iLowestPriority) or iPriority < iLowestPriority)
+                                and DoesQuietClusterIncludeMex(iTeam, oMex, tOptionalClusterContext) then
                             iLowestTier = iTier
                             iLowestPriority = iPriority
                             if iLowestPriority == tiQuietMexTierPriority[refiMexQuietTierT1] then
@@ -371,7 +376,7 @@ function GetAllowedQuietParallelMexTier(iTeam, iOutstandingTier, tOptionalCluste
     return nil
 end
 
-function GetQuietMexTierGateState(iTeam, oMex, tOptionalClusterContext)
+function GetQuietMexTierGateState(iTeam, oMex, tOptionalClusterContext, tOptionalSelectionScan)
     local tGateState = {
         bBlocked = false,
         bTimedOut = false,
@@ -397,7 +402,28 @@ function GetQuietMexTierGateState(iTeam, oMex, tOptionalClusterContext)
     local tClusterContext = tOptionalClusterContext or GetQuietMexClusterContext(iTeam, oMex)
     tGateState.tClusterContext = tClusterContext
 
-    local iOutstandingTier = GetLowestOutstandingQuietMexTier(iTeam, tClusterContext)
+    -- A caller may share this only within one non-yielding shortlist pass that
+    -- does not start upgrades. The next pass and admission checks stay fresh.
+    local tSharedCluster
+    local tClusterKey = tClusterContext and tClusterContext.tZoneTeamData
+    if tOptionalSelectionScan and tClusterKey then
+        tSharedCluster = tOptionalSelectionScan[tClusterKey]
+        -- A zone without a recorded base falls back to each owner's start;
+        -- those owners can therefore have different base-cluster membership.
+        if tSharedCluster and tSharedCluster.tClosestFriendlyBase ~= tClusterContext.tClosestFriendlyBase then
+            tSharedCluster = nil
+        end
+        if not(tSharedCluster) then
+            tSharedCluster = {
+                iOutstandingTier = GetLowestOutstandingQuietMexTier(iTeam, tClusterContext),
+                tClosestFriendlyBase = tClusterContext.tClosestFriendlyBase,
+            }
+            tOptionalSelectionScan[tClusterKey] = tSharedCluster
+        end
+    end
+    local iOutstandingTier
+    if tSharedCluster then iOutstandingTier = tSharedCluster.iOutstandingTier
+    else iOutstandingTier = GetLowestOutstandingQuietMexTier(iTeam, tClusterContext) end
     tGateState.iOutstandingTier = iOutstandingTier
     local iOutstandingPriority = tiQuietMexTierPriority[iOutstandingTier]
     if not(iOutstandingPriority) or iOutstandingPriority >= iCandidatePriority then
@@ -410,7 +436,16 @@ function GetQuietMexTierGateState(iTeam, oMex, tOptionalClusterContext)
         return tGateState
     end
 
-    local iParallelTier = GetAllowedQuietParallelMexTier(iTeam, iOutstandingTier, tClusterContext)
+    local iParallelTier
+    if tSharedCluster and tSharedCluster.bParallelResolved then
+        iParallelTier = tSharedCluster.iParallelTier
+    else
+        iParallelTier = GetAllowedQuietParallelMexTier(iTeam, iOutstandingTier, tClusterContext)
+        if tSharedCluster then
+            tSharedCluster.bParallelResolved = true
+            tSharedCluster.iParallelTier = iParallelTier
+        end
+    end
     tGateState.iParallelTier = iParallelTier
     if iParallelTier and iParallelTier == iCandidateTier then
         return tGateState
