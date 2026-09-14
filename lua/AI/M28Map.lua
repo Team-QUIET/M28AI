@@ -1479,8 +1479,8 @@ local function RecordAllPlateaus()
 end
 
 function RecordPlateauReclaimSegmentsMidpointAndRadius(iPlateau, sPathing, tSegmentPositionMin, tSegmentPositionMax)
-    iReclaimSegmentStartX, iReclaimSegmentStartZ = GetReclaimSegmentsFromLocation(tSegmentPositionMin)
-    iReclaimSegmentEndX, iReclaimSegmentEndZ = GetReclaimSegmentsFromLocation(tSegmentPositionMax)
+    local iReclaimSegmentStartX, iReclaimSegmentStartZ = GetReclaimSegmentsFromLocation(tSegmentPositionMin)
+    local iReclaimSegmentEndX, iReclaimSegmentEndZ = GetReclaimSegmentsFromLocation(tSegmentPositionMax)
 
     --Record all reclaim segments that are part of the plateau
     tAllPlateaus[iPlateau][subrefPlateauReclaimSegments] = {}
@@ -7983,9 +7983,8 @@ function RecordLandZonePathingToOtherLandZonesInSamePlateau()
 
                             --Now work out the path based on iClosestPrevAdjacentZone
                             local tiLZPath = {}
-                            tiPathFromStartToNextAdjZone[iClosestNextAdjacencyZone] = {}
-                            local iAdjacentRef = tLZData[subrefLZPathingToOtherLZEntryRef][iAdjacentLandZone]
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iStartLandZone='..iStartLandZone..'; iAdjacentLandZone='..iAdjacentLandZone..'; iClosestNextAdjacencyZone='..iClosestNextAdjacencyZone..'; Refs for start LZ to other LZs='..repru(tLZData[subrefLZPathingToOtherLZEntryRef])..'; iCurAdjacencyLevel='..iCurAdjacencyLevel..'; iAdjacentRef='..iAdjacentRef..'; tLZData[subrefLZPathingToOtherLandZones][iAdjacentRef][subrefLZPath]='..repru(tLZData[subrefLZPathingToOtherLandZones][iAdjacentRef][subrefLZPath])) end
+                            local iAdjacentRef = tLZData[subrefLZPathingToOtherLZEntryRef][iClosestPrevAdjacentZone]
+                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iStartLandZone='..iStartLandZone..'; iTargetLandZone='..iTargetLandZone..'; iClosestPrevAdjacentZone='..iClosestPrevAdjacentZone..'; Refs for start LZ to other LZs='..repru(tLZData[subrefLZPathingToOtherLZEntryRef])..'; iCurAdjacencyLevel='..iCurAdjacencyLevel..'; iAdjacentRef='..iAdjacentRef..'; tLZData[subrefLZPathingToOtherLandZones][iAdjacentRef][subrefLZPath]='..repru(tLZData[subrefLZPathingToOtherLandZones][iAdjacentRef][subrefLZPath])) end
                             for iEntry, iPathingLandZone in tLZData[subrefLZPathingToOtherLandZones][iAdjacentRef][subrefLZPath] do
                                 table.insert(tiLZPath, iPathingLandZone)
                             end
@@ -9018,7 +9017,7 @@ function RecordThatWeWantToUpdateReclaimAtLocation(tLocation, iNearbySegmentsToU
     end
     local iReclaimSegmentX, iReclaimSegmentZ = GetReclaimSegmentsFromLocation(tLocation)
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code at time='..GetGameTimeSeconds()..'; tLocation='..repru(tLocation)..'; iReclaimSegmentX-Z='..iReclaimSegmentX..'-'..iReclaimSegmentZ) end
-    if iReclaimSegmentX >= 10000 or iNearbySegmentsToUpdate >= 10000 or iReclaimSegmentZ >= 10000 then M28Utilities.ErrorHandler('Likely infinite loop about to start. iReclaimSegmentX='..(iReclaimSegmentX or 'nil')..'; iNearbySegmentsToUpdate='..(iNearbySegmentsToUpdate or 'nil')..'; iReclaimSegmentSizeX='..(iReclaimSegmentSizeX or 'nil')..'; iReclaimSegmentSizeZ='..(iReclaimSegmentSizeX or 'nil')..'; rMapPotentialPlayableArea='..repru(rMapPotentialPlayableArea or {'nil'})..'; iMaxSegmentInterval='..(iMaxSegmentInterval or 'nil'))
+    if iReclaimSegmentX >= 10000 or iNearbySegmentsToUpdate >= 10000 or iReclaimSegmentZ >= 10000 then M28Utilities.ErrorHandler('Likely infinite loop about to start. iReclaimSegmentX='..(iReclaimSegmentX or 'nil')..'; iNearbySegmentsToUpdate='..(iNearbySegmentsToUpdate or 'nil')..'; iReclaimSegmentSizeX='..(iReclaimSegmentSizeX or 'nil')..'; iReclaimSegmentSizeZ='..(iReclaimSegmentSizeX or 'nil')..'; rMapPotentialPlayableArea='..repru(rMapPotentialPlayableArea or {'nil'}))
     else
 
         if iNearbySegmentsToUpdate then

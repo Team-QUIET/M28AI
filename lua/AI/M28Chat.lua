@@ -2183,7 +2183,7 @@ function SendUnitReclaimedMessage(oEngineer, oReclaim)
     local tsPotentialMessages = {
         'Great, now I have to deal with my so called teammates reclaiming my units, thanks a lot ' .. oEngineer:GetAIBrain().Nickname,
         'Hey ' .. oEngineer:GetAIBrain().Nickname .. ', quit reclaiming my units!',
-        'You\’re reclaiming my unit ' .. oEngineer:GetAIBrain().Nickname .. '? You know I’m on the same team as you right?',
+        'You’re reclaiming my unit ' .. oEngineer:GetAIBrain().Nickname .. '? You know I’m on the same team as you right?',
         'Just be warnted ' .. oEngineer:GetAIBrain().Nickname .. ', if you keep reclaiming my units, I have more apm for a reclaim war!',
         oEngineer:GetAIBrain().Nickname..' stop reclaiming my units, I don\'t like toxic teammates.',
         'No need to be greedy by reclaiming my units '..oEngineer:GetAIBrain().Nickname,

@@ -1909,7 +1909,7 @@ function GetAirThreatLevel(tUnits, bEnemyUnits, bIncludeAirToAir, bIncludeGround
             return iTotalThreat
         end
     end
-    M28Profiler.ErrorHandler('Code shouldve returend before now, will return 0')
+    M28Utilities.ErrorHandler('Code shouldve returend before now, will return 0')
     return 0
 end
 
@@ -3292,18 +3292,14 @@ function GetUnitFacingAngle(oUnit)
         if oUnit.GetWeapon and oUnit:GetWeaponCount() > 0 then
             --LOG('GetFacingAngle: oUnit='..oUnit.UnitId..GetUnitLifetimeCount(oUnit))
             local oWeapon = oUnit:GetWeapon(1)
-            if oWeapon and oWeapon.GetAimManipulator and oWeapon:GetAimManipulator().GetHeadingPitch then
-                return M28Utilities.ConvertRadiansToAngle(oWeapon:GetAimManipulator():GetHeadingPitch())
+            local oAim = oWeapon and oWeapon.GetAimManipulator and oWeapon:GetAimManipulator()
+            if oAim and oAim.GetHeadingPitch then
+                return M28Utilities.ConvertRadiansToAngle(oAim:GetHeadingPitch())
             else return 0
             end
         else return 0
         end
-        if oUnit:IsValidBone('Turret') then
-            --0% = south, 25% = east, 50% = north; want to convert from % into angle where 0 is north
-            return M28Utilities.ConvertCounterclockwisePercentageToAngle(oUnit:GetBoneDirection('Turret'))
-        else
-            return 180 - oUnit:GetHeading() / math.pi * 180 --redundancy - for a building this is likeliy to be the same value every time
-        end
+
     else
         --Other units (would expect to be mobile) - get the unit direction
         return 180 - oUnit:GetHeading() / math.pi * 180
@@ -3720,7 +3716,7 @@ function CanSeeUnit(aiBrain, oUnit, bRequireVisualNotJustBlipToReturnTrue)
         local iArmyIndex = aiBrain:GetArmyIndex()
         if not(oUnit.Dead) then
             if not(oUnit.GetBlip) then
-                ErrorHandler('oUnit with UnitID='..(oUnit.UnitId or 'nil')..' has no blip, will assume can see it')
+                M28Utilities.ErrorHandler('oUnit with UnitID='..(oUnit.UnitId or 'nil')..' has no blip, will assume can see it')
                 return true
             else
                 local oBlip = oUnit:GetBlip(iArmyIndex)

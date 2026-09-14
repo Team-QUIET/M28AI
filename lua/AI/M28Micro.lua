@@ -123,7 +123,7 @@ function MoveAwayFromTargetTemporarily(oUnit, iTimeToRun, tPositionToRunFrom)
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iLoopCount='..iLoopCount..'; iTempAngleDirectionToMove='..iTempAngleDirectionToMove..'; iInitialAngleAdj='..iInitialAngleAdj..'; iAngleAdjFactor='..iAngleAdjFactor..'; iCurFacingDirection='..iCurFacingDirection..'; iFacingAngleWanted='..iFacingAngleWanted) end
 
 
-                    iTempDistanceAwayToMove = iTempDistanceAwayToMove + iDistanceIncreasePerCycle * iDistanceIncreasePerCycle * (iDistanceIncreaseCompoundFactor ^ iLoopCount - 1)
+                    iTempDistanceAwayToMove = iTempDistanceAwayToMove + iDistanceIncreasePerCycle * iDistanceIncreasePerCycle * (math.pow(iDistanceIncreaseCompoundFactor, iLoopCount) - 1)
                     tTempLocationToMove = M28Utilities.MoveInDirection(oUnit:GetPosition(), iTempAngleDirectionToMove, iTempDistanceAwayToMove, true, false, true)
                     M28Orders.IssueTrackedMove(oUnit, tTempLocationToMove, 0.25, true, 'TempMA', true)
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Just issued move order to tTempLocationToMove='..repru(tTempLocationToMove)..'; iTempAngleDirectionToMove='..iTempAngleDirectionToMove) end
@@ -466,18 +466,6 @@ function DodgeBomb(oBomber, oWeapon, projectile)
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tBombTarget is nil or are in LOUD') end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-end
-
-function DelayedRemovalOfTargetToAvoid(tTargetLZTeamData, tTargetToAvoid, iDelayInSeconds)
-    WaitSeconds(iDelayInSeconds)
-    if M28Utilities.IsTableEmpty(tTargetLZTeamData[M28Map.reftiLocationsToAvoid]) == false then
-        for iEntry, tEntry in tTargetLZTeamData[M28Map.reftiLocationsToAvoid] do
-            if tEntry[1] == tTargetToAvoid[1] and tEntry[3] == tTargetToAvoid[3] then
-                table.remove(tTargetLZTeamData[M28Map.reftiLocationsToAvoid], iEntry)
-                break
-            end
-        end
-    end
 end
 
 function ConsiderDodgingShot(oUnit, oWeapon)
@@ -1767,7 +1755,7 @@ function MoveAwayFromFactory(oUnit, oFactory)
                     M28Orders.IssueTrackedMove(oUnit, tOrderPosition, 0, false, 'JustBuilt', true)
                     local iMicroDelay = 1.5
                     if EntityCategoryContains(M28UnitInfo.refCategoryQuantumGateway, oFactory.UnitId) then iMicroDelay = 4 --done as when was 1.5 would have RAS SACUs given new orders like GE template just after being built and getting stuck
-                    elseif EntityCategoryContains(M28UnitInfo.refCategoryNavalFactory, oFactory.UnitId) and EntityCategoryContains(M28UnitInfo.categories.TECH3 * M28UnitInfo.refCategoryNavalSurface, oUnit.UnitId) then iMicroDelay = 4
+                    elseif EntityCategoryContains(M28UnitInfo.refCategoryNavalFactory, oFactory.UnitId) and EntityCategoryContains(categories.TECH3 * M28UnitInfo.refCategoryNavalSurface, oUnit.UnitId) then iMicroDelay = 4
                     end
                     TrackTemporaryUnitMicro(oUnit, iMicroDelay)
                 end

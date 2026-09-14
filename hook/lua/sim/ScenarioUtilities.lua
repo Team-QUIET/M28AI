@@ -89,7 +89,7 @@ local M28Events = import('/mods/M28AI/lua/AI/M28Events.lua')
                 local iTeam = oBrain.Team or ScenarioInfo.ArmySetup[oBrain.Name].Team or -1
                 if bDebugMessages == true then LOG(sFunctionRef..': WIll consider applying M28 logic, iTeam='..iTeam..'; ScenarioInfo.Options.M28Teams='..(ScenarioInfo.Options.M28Teams or 'nil')..'; M28Utilities.DoesAINicknameContainM28(oBrain.Nickname)='..tostring(M28Utilities.DoesAINicknameContainM28(oBrain.Nickname))..'; Is this an AIx brain='..tostring(M28Utilities.DoesAINicknameContainM28(oBrain.Nickname, false, true))) end
                 if M28Utilities.DoesAINicknameContainM28(oBrain.Nickname) or tonumber(ScenarioInfo.Options.M28Teams) == 3 or (tonumber(ScenarioInfo.Options.M28Teams) == 2 and (iTeam <= 0 or iTeam == 1 or iTeam == 3 or iTeam == 5 or iTeam == 7)) then
-                    if bDebugMessages == true then LOG(sFunctionRef..': Will apply M28 logic to the AI, math.round(oBrain.CheatValue)='..math.round(oBrain.CheatValue*10)*0.1..'; Is this 1.0='..tostring(math.round(oBrain.CheatValue*10)*0.1 == 1.0)) end
+                    if bDebugMessages == true then LOG(sFunctionRef..': Will apply M28 logic to the AI, math.round(oBrain.CheatValue)='..(math.round(oBrain.CheatValue*10)*0.1)..'; Is this 1.0='..tostring(math.round(oBrain.CheatValue*10)*0.1 == 1.0)) end
                     oBrain.M28AI = true
                     if ScenarioInfo.Options.CmM28CampPers == 1 or M28Utilities.DoesAINicknameContainM28(oBrain.Nickname, true) then
                         oBrain.M28Easy = true
@@ -100,7 +100,7 @@ local M28Events = import('/mods/M28AI/lua/AI/M28Events.lua')
                     elseif M28Utilities.DoesAINicknameContainM28(oBrain.Nickname, false, true) then
                         oBrain.CheatEnabled = true
                     elseif oBrain.CheatValue and not(math.round(oBrain.CheatValue * 10) * 0.1 == 1.0) then
-                        if bDebugMessages == true then LOG(sFunctionRef..': oBrain.CheatValue='..oBrain.CheatValue..'; math.round of this='..math.round(oBrain.CheatValue*10)*0.1..'; forcing it to be AIx') end
+                        if bDebugMessages == true then LOG(sFunctionRef..': oBrain.CheatValue='..oBrain.CheatValue..'; math.round of this='..(math.round(oBrain.CheatValue*10)*0.1)..'; forcing it to be AIx') end
                         local M28Chat = import('/mods/M28AI/lua/AI/M28Chat.lua')
                         if not(M28Chat.bSentCheatMessage) then
                             M28Chat.bSentCheatMessage = true

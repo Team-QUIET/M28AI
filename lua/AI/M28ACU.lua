@@ -885,7 +885,7 @@ function ACUActionBuildPower(aiBrain, oACU)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-local function ShouldOpeningBuildExtraPower(aiBrain, iCurrentPowerEquivalent, iMassCrashPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages)
+local function ShouldOpeningBuildExtraPower(aiBrain, iCurrentPowerEquivalent, iMassCrashPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages, tDebugContext)
     local iEnergyStored = aiBrain:GetEconomyStored('ENERGY')
     local iEnergyStoredRatio = aiBrain:GetEconomyStoredRatio('ENERGY')
     local iNetEnergy = math.max(aiBrain[M28Economy.refiNetEnergyBaseIncome] or 0, aiBrain:GetEconomyTrend('ENERGY'))
@@ -1584,7 +1584,7 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
                             local iCurPowerCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryPower)
                             local bOpeningMassCrash = aiBrain:GetEconomyStored('MASS') <= iInitialBuildMassCrashStoredFloor and aiBrain[M28Economy.refiNetMassBaseIncome] <= iInitialBuildMassCrashNetFloor
                             local bHardEnergyEmergency = aiBrain:GetEconomyStored('ENERGY') <= math.max(iInitialBuildHardEnergyStoredFloor, iFurtherMexEnergyStoredFloor) or aiBrain[M28Economy.refiGrossEnergyBaseIncome] < math.max(iFirstMexGrossEnergyFloor, 4 * iResourceMod) or (aiBrain[M28Economy.refiNetEnergyBaseIncome] <= 1 * iResourceMod and aiBrain:GetEconomyStored('ENERGY') < math.max(400, iFurtherMexEnergyStoredFloor))
-                            if aiBrain[M28Economy.refiGrossEnergyBaseIncome] < math.max(6, 2 * (tLZOrWZTeamData[M28Map.subrefMexCountByTech][1] + tLZOrWZTeamData[M28Map.subrefMexCountByTech][2] * 3 + tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] * 9)) * iResourceMod and ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashNoHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages) then
+                            if aiBrain[M28Economy.refiGrossEnergyBaseIncome] < math.max(6, 2 * (tLZOrWZTeamData[M28Map.subrefMexCountByTech][1] + tLZOrWZTeamData[M28Map.subrefMexCountByTech][2] * 3 + tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] * 9)) * iResourceMod and ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashNoHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages, tDebugContext) then
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want to build initial PGens') end
                                 ACUActionBuildPower(aiBrain, oACU)
                             else
@@ -1597,7 +1597,7 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want at least 2 mexes') end
                                     ACUActionBuildMex(aiBrain, oACU)
 
-                                elseif aiBrain[M28Economy.refiGrossEnergyBaseIncome] < iFurtherMexGrossEnergyFloor and ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashNoHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages) then
+                                elseif aiBrain[M28Economy.refiGrossEnergyBaseIncome] < iFurtherMexGrossEnergyFloor and ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashNoHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages, tDebugContext) then
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want at least 2 pgens before going broader with the opener') end
                                     ACUActionBuildPower(aiBrain, oACU)
                                 elseif TryOpeningFactoryPivotAfterPowerCap(aiBrain, oACU, iTeam, iPlateauOrZero, iLZOrWZ, tLZOrWZData, tLZOrWZTeamData, iCurLandFactories, sFunctionRef, bDebugMessages) then
@@ -1610,7 +1610,7 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
                                 elseif (aiBrain[M28Economy.refiNetEnergyBaseIncome] >= 4 or aiBrain:GetEconomyTrend('ENERGY') >= 4 or (aiBrain:GetEconomyStoredRatio('ENERGY') >= 0.65 and math.max(aiBrain[M28Economy.refiNetEnergyBaseIncome], aiBrain:GetEconomyTrend('ENERGY')) >= 2.5)) and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 18 and aiBrain[M28Economy.refiNetMassBaseIncome] <= -0.2 and aiBrain:GetEconomyStoredRatio('ENERGY') >= 0.4 and aiBrain:GetEconomyStored('MASS') <= 1 then
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finish build order early as we cant spend the mass') end
                                     oACU[refbDoingInitialBuildOrder] = false
-                                elseif aiBrain[M28Economy.refiGrossEnergyBaseIncome] < iMinEnergyPerTickWanted and ((aiBrain:GetEconomyStoredRatio('ENERGY') <= 0.6 or (aiBrain:GetEconomyStoredRatio('ENERGY') <= 0.75 and aiBrain[M28Economy.refiNetEnergyBaseIncome] <= 3) or (aiBrain[M28Economy.refiNetEnergyBaseIncome] <= 1.5 and (aiBrain[M28Economy.refiNetEnergyBaseIncome] < 0.5 or aiBrain:GetEconomyStoredRatio('ENERGY') <= 0.98)) or aiBrain[M28Economy.refiGrossEnergyBaseIncome] <= math.max(12 * aiBrain[M28Economy.refiBrainBuildRateMultiplier], iMinEnergyPerTickWanted * 0.75)) or aiBrain:GetEconomyStoredRatio('MASS') >= 0.35) and (not(M28Utilities.bQuietModActive) or aiBrain[M28Economy.refiNetMassBaseIncome] > 0) and ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashNoHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages) then
+                                elseif aiBrain[M28Economy.refiGrossEnergyBaseIncome] < iMinEnergyPerTickWanted and ((aiBrain:GetEconomyStoredRatio('ENERGY') <= 0.6 or (aiBrain:GetEconomyStoredRatio('ENERGY') <= 0.75 and aiBrain[M28Economy.refiNetEnergyBaseIncome] <= 3) or (aiBrain[M28Economy.refiNetEnergyBaseIncome] <= 1.5 and (aiBrain[M28Economy.refiNetEnergyBaseIncome] < 0.5 or aiBrain:GetEconomyStoredRatio('ENERGY') <= 0.98)) or aiBrain[M28Economy.refiGrossEnergyBaseIncome] <= math.max(12 * aiBrain[M28Economy.refiBrainBuildRateMultiplier], iMinEnergyPerTickWanted * 0.75)) or aiBrain:GetEconomyStoredRatio('MASS') >= 0.35) and (not(M28Utilities.bQuietModActive) or aiBrain[M28Economy.refiNetMassBaseIncome] > 0) and ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashNoHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages, tDebugContext) then
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want basic level of power, energy stored='..aiBrain:GetEconomyStoredRatio('ENERGY')..'; Net E income='..aiBrain[M28Economy.refiNetEnergyBaseIncome]..'; aiBrain:GetEconomyTrend(ENERGY)='..aiBrain:GetEconomyTrend('ENERGY')..'; Gross inc='..aiBrain[M28Economy.refiGrossEnergyBaseIncome]..'; Mass %='..aiBrain:GetEconomyStoredRatio('MASS')..'; Net mass='..aiBrain[M28Economy.refiNetMassBaseIncome]) end
                                     ACUActionBuildPower(aiBrain, oACU)
                                     --below are redundancy - if we have min energy per tick wanted then wouldn't expect below to trigger
@@ -1642,7 +1642,7 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
                                     ACUActionBuildFactory(aiBrain, oACU, iPlateauOrZero, iLZOrWZ, tLZOrWZData, tLZOrWZTeamData,     M28UnitInfo.refCategoryLandFactory, M28Engineer.refActionBuildLandFactory)
 
                                 else
-                                    if ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashNoHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages) then
+                                    if ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashNoHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages, tDebugContext) then
                                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We dont have the min level of power that we want yet') end
                                         ACUActionBuildPower(aiBrain, oACU)
                                     elseif TryOpeningFactoryPivotAfterPowerCap(aiBrain, oACU, iTeam, iPlateauOrZero, iLZOrWZ, tLZOrWZData, tLZOrWZTeamData, iCurLandFactories, sFunctionRef, bDebugMessages) then
@@ -1662,7 +1662,7 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
                                 end
                                 if M28Utilities.IsTableEmpty(oACU[M28Orders.reftiLastOrders]) then
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will try and build power as redundancy') end
-                                    if ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashNoHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages) then
+                                    if ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashNoHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages, tDebugContext) then
                                         ACUActionBuildPower(aiBrain, oACU)
                                     elseif TryOpeningFactoryPivotAfterPowerCap(aiBrain, oACU, iTeam, iPlateauOrZero, iLZOrWZ, tLZOrWZData, tLZOrWZTeamData, iCurLandFactories, sFunctionRef, bDebugMessages) then
                                         oACU[refbDoingInitialBuildOrder] = false
@@ -1721,7 +1721,7 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
                             if iCurPowerCount == 0
                                     or ((iCurPowerCount == 1 and iCurMexCount >= iCurPowerCount and aiBrain:GetEconomyStored('ENERGY') <= math.min(2000, aiBrain:GetEconomyStored('MASS') * 20) and (aiBrain[M28Economy.refiGrossEnergyBaseIncome] < iFirstMexGrossEnergyFloor or aiBrain:GetEconomyStored('ENERGY') <= iHydroExtraPgenEnergyStoredFloor))
                                     or (iCurPowerCount < iMinT1PowerCountBeforeHydro and iCurMexCount >= iPreferredMexCountBeforeHydro and aiBrain[M28Economy.refiGrossEnergyBaseIncome] < iFurtherMexGrossEnergyFloor and aiBrain:GetEconomyStored('ENERGY') <= math.max(iHydroExtraPgenEnergyStoredFloor, iFurtherMexEnergyStoredFloor)))
-                                    and ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages) then
+                                    and ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages, tDebugContext) then
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Hydro opener = want the first pgen before hydro, but not an extra pgen unless energy is still genuinely low') end
                                 ACUActionBuildPower(aiBrain, oACU)
                             elseif bHaveUnderConstructionFirstHydro and
@@ -1742,7 +1742,7 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want to build pgens or extra hydro, is oOptionalUnderConstructionHydro valid='..tostring(M28UnitInfo.IsUnitValid(oOptionalUnderConstructionHydro))) end
                                 if oOptionalUnderConstructionHydro then
                                     ACUActionAssistHydro(aiBrain, oACU, tLZOrWZData, tLZOrWZTeamData, oOptionalUnderConstructionHydro)
-                                elseif ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages) then
+                                elseif ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages, tDebugContext) then
                                     ACUActionBuildPower(aiBrain, oACU)
                                 end
 
@@ -1759,7 +1759,7 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
                                 ACUActionAssistHydro(aiBrain, oACU, tLZOrWZData, tLZOrWZTeamData, oOptionalUnderConstructionHydro)
                             else --We ahve alreadyu confirmed we have < min energy per tick wanted earlier, so want to build pgen
                                 --Have base level of power suggesting already have hydro but we still want a bit more power
-                                if ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages) then
+                                if ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages, tDebugContext) then
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want more power to reach a base level') end
                                     ACUActionBuildPower(aiBrain, oACU)
                                 elseif TryOpeningFactoryPivotAfterPowerCap(aiBrain, oACU, iTeam, iPlateauOrZero, iLZOrWZ, tLZOrWZData, tLZOrWZTeamData, iCurLandFactories, sFunctionRef, bDebugMessages) then
@@ -1781,7 +1781,7 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
                                 if not(M28Conditions.DoesACUHaveValidOrder(oACU)) then
                                     ACUActionAssistHydro(aiBrain, oACU, tLZOrWZData, tLZOrWZTeamData)
                                     if not(M28Conditions.DoesACUHaveValidOrder(oACU)) then
-                                        if ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages) then
+                                        if ShouldOpeningBuildExtraPower(aiBrain, iCurPowerCount, iMassCrashHydroPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages, tDebugContext) then
                                             ACUActionBuildPower(aiBrain, oACU)
                                         elseif TryOpeningFactoryPivotAfterPowerCap(aiBrain, oACU, iTeam, iPlateauOrZero, iLZOrWZ, tLZOrWZData, tLZOrWZTeamData, iCurLandFactories, sFunctionRef, bDebugMessages) then
                                             oACU[refbDoingInitialBuildOrder] = false
@@ -1952,7 +1952,7 @@ function GetACUEarlyGameOrders(aiBrain, oACU)
                             local iCurPower =  aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryPower) + aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryHydro) * 5
                             local bOpeningMassCrash = aiBrain:GetEconomyStored('MASS') <= iInitialBuildMassCrashStoredFloor and aiBrain[M28Economy.refiNetMassBaseIncome] <= iInitialBuildMassCrashNetFloor
                             local bHardEnergyEmergency = aiBrain:GetEconomyStored('ENERGY') <= math.max(iInitialBuildHardEnergyStoredFloor, iFurtherMexEnergyStoredFloor) or aiBrain[M28Economy.refiGrossEnergyBaseIncome] < math.max(iFirstMexGrossEnergyFloor, 4 * iResourceMod) or (aiBrain[M28Economy.refiNetEnergyBaseIncome] <= 1 * iResourceMod and aiBrain:GetEconomyStored('ENERGY') < math.max(400, iFurtherMexEnergyStoredFloor))
-                            if (iCurPower <= 7 or (iCurPower <= 13 and aiBrain:GetEconomyStoredRatio('MASS') >= 0.25 and aiBrain:GetEconomyStoredRatio('ENERGY') <= 0.95)) and ShouldOpeningBuildExtraPower(aiBrain, iCurPower, iMassCrashRedundancyPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages) then
+                            if (iCurPower <= 7 or (iCurPower <= 13 and aiBrain:GetEconomyStoredRatio('MASS') >= 0.25 and aiBrain:GetEconomyStoredRatio('ENERGY') <= 0.95)) and ShouldOpeningBuildExtraPower(aiBrain, iCurPower, iMassCrashRedundancyPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages, tDebugContext) then
                                 ACUActionBuildPower(aiBrain, oACU)
                             end
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Redundancy - Attempted to build power, is table of last orders empty='..tostring(M28Utilities.IsTableEmpty(oACU[M28Orders.reftiLastOrders]))..'; DoesACUHaveValidOrder(oACU)='..tostring(M28Conditions.DoesACUHaveValidOrder(oACU))..'; Cur factory count='..aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryFactory)) end
@@ -4052,7 +4052,7 @@ function DoesACUWantToReturnToCoreBase(iPlateauOrZero, iLandOrWaterZone, tLZOrWZ
         if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]) == false then
             for iExp, oExp in M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals] do
                 if not(oExp.Dead) then
-                    if not(iCurPlateau) or NavUtils.GetLabel(refPathingTypeHover, oExp:GetPosition()) == iPlateauOrZero then
+                    if not(iCurPlateau) or NavUtils.GetLabel(M28Map.refPathingTypeHover, oExp:GetPosition()) == iPlateauOrZero then
                         iCurDist = M28Utilities.GetDistanceBetweenPositions(oExp:GetPosition(), oACU:GetPosition())
                         if iCurDist < iClosestLandExperimental then
                             iClosestLandExperimental = iCurDist
@@ -7074,7 +7074,7 @@ function HaveTelesnipeAction(oACU, tLZOrWZData, tLZOrWZTeamData, aiBrain, iTeam,
                 M28Orders.IssueTrackedMove(oACU, oClosestFixedShield:GetPosition(), 5, false, 'ACUTelSh', false)
             else
                 if not(tLZOrWZTeamData[M28Map.subrefLZbCoreBase]) then
-                    if bDebugMessages == true then LGO(sFunctionRef..': Will return ACU to core base unless want shield instead') end
+                    if bDebugMessages == true then LOG(sFunctionRef..': Will return ACU to core base unless want shield instead') end
                     if not(ConsiderRunningToNearestShield(oACU, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrZero, iLandOrWaterZone)) then
                         ReturnACUToCoreBase(oACU, tLZOrWZData, tLZOrWZTeamData, aiBrain, iTeam, iPlateauOrZero, iLandOrWaterZone)
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Going to core base') end

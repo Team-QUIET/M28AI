@@ -43,7 +43,7 @@ bCPUPerformanceMode = false
 function ConsiderIfLoudActive()
     local bDebugMessages = false --simplified setup/no profiling as dont want to call profiler at this stage since hardly anything will have loaded and might cause compatibility headaches
     local sFunctionRef = 'ConsiderIfLoudActive'
-    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to consider whether LOUD or Steam is active, bFAFActive='..tostring(bFAFActive)..'; bSteamActive='..tostring(bSteamActive)) end
+    if bDebugMessages == true then LOG(sFunctionRef..': About to consider whether LOUD or Steam is active, bFAFActive='..tostring(bFAFActive)..'; bSteamActive='..tostring(bSteamActive)) end
     if not(bFAFActive) and not(bSteamActive) then
         --Further check for if FAF active
         local file_exists = function(name)
@@ -57,7 +57,7 @@ function ConsiderIfLoudActive()
         local NavUtilsCheck
         local bAddNonFafFunctions = false
         if file_exists('/lua/sim/navutils.lua') then
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': NavUtils exists, so either FAF or a mod with FAF characteristics') end
+            if bDebugMessages == true then LOG(sFunctionRef..': NavUtils exists, so either FAF or a mod with FAF characteristics') end
             NavUtilsCheck = import('/lua/sim/navutils.lua')
             if NavUtilsCheck and rawget(NavUtilsCheck, 'DetailedPathTo') then
                 bFAFActive = true
@@ -86,16 +86,16 @@ function ConsiderIfLoudActive()
                 LOG('M28AI: Flagging that QUIET mod is active')
             elseif file_exists('/lua/AI/CustomAIs_v2/ExtrasAI.lua') and import('/lua/AI/CustomAIs_v2/ExtrasAI.lua').AI.Version then
                 bLoudModActive = true
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': LOUD is active') end
+                if bDebugMessages == true then LOG(sFunctionRef..': LOUD is active') end
                 --Backwards compatibility for initial versions of LCE and QUIET which were done as mods to LOUD (not relevant going forwards as its standalone)
                 if file_exists('/mods/LOUD-Community-Edition/mod_info.lua') or file_exists('/mods/QUIET-Community-Edition/mod_info.lua') then
                     --Make sure by checking active SIM mods
                     local tSimMods = __active_mods or {}
                     for iMod, tModData in tSimMods do
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering iMod='..iMod..'; Mod name='..(tModData.name or 'nil')..'; tModData.enabled='..tostring(tModData.enabled or false)..'; tModData.ui_only='..tostring(tModData.ui_only or false)) end
+                        if bDebugMessages == true then LOG(sFunctionRef..': Considering iMod='..iMod..'; Mod name='..(tModData.name or 'nil')..'; tModData.enabled='..tostring(tModData.enabled or false)..'; tModData.ui_only='..tostring(tModData.ui_only or false)) end
                         if tModData.enabled and not (tModData.ui_only) then --Note: pre-v1.52 of QUIET there was a bug where the mod wouldn't have .enabled set to true, Azraeel mentioned this should be fixed as of v1.52
                             if tModData.name == 'LOUD Community Edition' or tModData.name == 'QUIET' then
-                                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Appears that QUIET is active instead of LOUD') end
+                                if bDebugMessages == true then LOG(sFunctionRef..': Appears that QUIET is active instead of LOUD') end
                                 bQuietModActive = true
                                 bLoudModActive = false
                                 break
@@ -406,7 +406,6 @@ function ForkedDrawLine(tStart, tEnd, iColour, iDisplayCount)
     --FORK THREAD before calling this
     local sFunctionRef = 'ForkedDrawLine'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelUtilities, sFunctionRef)
-    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': rRect='..repru(rRect)) end
 
     local sColour
     if iColour == nil then sColour = 'c00000FF' --dark blue

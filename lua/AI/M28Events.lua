@@ -421,8 +421,8 @@ function OnKilled(oUnitKilled, instigator, type, overkillRatio)
 
                         --Non-M28 specific killer logic:
 
-                        if EntityCategoryContains(M28UnitInfo.refCategoryBomber * categories.TECH3, oKillerUnit.UnitId) and EntityCategoryContains(M28UnitInfo.refCategoryMex + M28UnitInfo.refCategoryT3Power + M28UnitInfo.refCategoryT2Power, oKillerUnit.UnitId) then
-                            ForkThread(ConsiderRecordingStratBomberToSuicideInto, oKillerUnit, true)
+                        if EntityCategoryContains(M28UnitInfo.refCategoryBomber * categories.TECH3, oKillerUnit.UnitId) and EntityCategoryContains(M28UnitInfo.refCategoryMex + M28UnitInfo.refCategoryT3Power + M28UnitInfo.refCategoryT2Power, oUnitKilled.UnitId) then
+                            ForkThread(M28Air.ConsiderRecordingStratBomberToSuicideInto, oKillerUnit, true)
                         end
 
                         --Logic specific to where M28 unit is killed:
@@ -3089,7 +3089,7 @@ function OnConstructed(oEngineer, oJustBuilt)
                     end
 
                     if EntityCategoryContains(M28UnitInfo.refCategorySatellite, oJustBuilt.UnitId) then
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..'Novax created, reprs='..reprs(oUnit)) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..'Novax created, reprs='..reprs(oJustBuilt)) end
                         ForkThread(M28Air.DetachSatellite,oJustBuilt, 1)
                     end
 
@@ -3134,7 +3134,7 @@ function OnConstructed(oEngineer, oJustBuilt)
 
                             ForkThread(M28Factory.DecideAndBuildUnitForFactory, oEngineer:GetAIBrain(), oEngineer)
                             --If T3 support factory just built a T1 unit, then consider gifting it to a teammate
-                            if EntityCategoryContains(M28UnitInfo.categories.SUPPORTFACTORY * categories.TECH3, oEngineer.UnitId) and EntityCategoryContains(categories.TECH1, oJustBuilt.UnitId) then
+                            if EntityCategoryContains(categories.SUPPORTFACTORY * categories.TECH3, oEngineer.UnitId) and EntityCategoryContains(categories.TECH1, oJustBuilt.UnitId) then
                                 --Do we lack HQs for this brain and are dealing with an air or naval fac (since land fac should rebuild anyway)
                                 if EntityCategoryContains(M28UnitInfo.refCategoryAirFactory, oEngineer.UnitId) then
                                     if oEngineer:GetAIBrain()[M28Economy.refiOurHighestAirFactoryTech] == 0 then
@@ -4733,7 +4733,7 @@ function DelayedUnpauseOfTransferredUnits(toCapturedUnits, iArmyIndex)
                         for iLauncher, oLauncher in tMissileLaunchers do
                             --LOG('Forked consideration of launching missile Delay6')
                             if oLauncher:GetAIBrain().M28AI then --redundancy
-                                M28Conditions.DelayedConsiderLaunchingMissile(oLauncher, 1, bCheckHaveMissile)
+                                ForkThread(M28Building.DelayedConsiderLaunchingMissile, oLauncher, 1, true)
                             end
                         end
                     end
@@ -4745,7 +4745,7 @@ function DelayedUnpauseOfTransferredUnits(toCapturedUnits, iArmyIndex)
                         iClosestDist = 2
                         iClosestUnitRef = nil
                         for iCompletedUnit, oCompletedUnit in tCompletedUnits do
-                            iCurDist = M28Utilities.GetDistanceBetweenPosition(oCompletedUnit:GetPosition(), oUnit:GetPosition())
+                            iCurDist = M28Utilities.GetDistanceBetweenPositions(oCompletedUnit:GetPosition(), oUnit:GetPosition())
                             if iCurDist < iClosestDist then
                                 iClosestDist = iCurDist
                                 iClosestUnitRef = iCompletedUnit
@@ -4847,7 +4847,7 @@ function OnCaptured(toCapturedUnits, iArmyIndex, bCaptured)
                                     local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(toCapturedUnits[1]:GetPosition())
                                     M28Map.MarkZoneForFortification(iPlateauOrZero, iLandOrWaterZone, oBrain.M28Team)
                                     if bDebugMessages == true then
-                                        LOG(sFunctionRef..': Have flagged zone to be fortified, iPlateauOrZero='..(iPlateauOrZero or 'nil')..'; iCaptureZone='..(iCaptureZone or 'nil'))
+                                        LOG(sFunctionRef..': Have flagged zone to be fortified, iPlateauOrZero='..(iPlateauOrZero or 'nil')..'; iCaptureZone='..(iLandOrWaterZone or 'nil'))
                                     end
 
                                 end

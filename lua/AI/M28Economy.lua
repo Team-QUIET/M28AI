@@ -4437,13 +4437,13 @@ function ConsiderPowerPgenUpgrade(oUnit, iOverrideSecondsToWait)
         local tLZOrWZData, tLZOrWZTeamData
         if iPlateauOrZero == 0 then
             tLZOrWZData = M28Map.tPondDetails[M28Map.tiPondByWaterZone[iLandOrWaterZone]][M28Map.subrefPondWaterZones][iLandOrWaterZone]
-            tLZOrWZTeamData = tLZOrWZData[M28Map.subrefLZTeamData][iTeam]
+            tLZOrWZTeamData = tLZOrWZData[M28Map.subrefWZTeamData][iTeam]
         else
             tLZOrWZData = M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iLandOrWaterZone]
             tLZOrWZTeamData = tLZOrWZData[M28Map.subrefLZTeamData][iTeam]
         end
 
-        if (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] and (tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] < math.min(2, tLZOrWZData[M28Map.subrefLZOrWZMexCount]))) or (M28Team.tTeamData[iTeam][M28Team.refbPrioritiseProduction] and not(M28Conditions.HaveLowPower(iTeam)) and M28Conditions.HaveLowMass(iTeam)) or not(M28Conditions.SafeToUpgradeUnit(oUnit)) or ShouldDelayPowerPgenUpgrade(oUnit, iTeam, tLZOrWZData, tLZOrWZTeamData) then
+        if (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] and (tLZOrWZTeamData[M28Map.subrefMexCountByTech][3] < math.min(2, tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0))) or (M28Team.tTeamData[iTeam][M28Team.refbPrioritiseProduction] and not(M28Conditions.HaveLowPower(iTeam)) and M28Conditions.HaveLowMass(iTeam)) or not(M28Conditions.SafeToUpgradeUnit(oUnit)) or ShouldDelayPowerPgenUpgrade(oUnit, iTeam, tLZOrWZData, tLZOrWZTeamData) then
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Delaying pgen upgrade as mass or production state is not suitable, or we do not genuinely need the extra power yet. tLZOrWZTeamData[M28Map.subrefMexCountByTech]='..repru(tLZOrWZTeamData[M28Map.subrefMexCountByTech])..'; M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] or false)..'; Prioritise production='..tostring(M28Team.tTeamData[iTeam][M28Team.refbPrioritiseProduction] or false)..'; Safe to upgrade unit='..tostring(M28Conditions.SafeToUpgradeUnit(oUnit))..'; WantMorePower='..tostring(M28Conditions.WantMorePower(iTeam))..'; Team mass %='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 'nil')..'; Team net mass='..(M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 'nil')) end
             ForkThread(ConsiderPowerPgenUpgrade, oUnit, 10)
         else
