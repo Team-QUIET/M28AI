@@ -1119,6 +1119,38 @@ function ShouldHoldFreshRadarStart(iAction, tZoneTeamData)
         and (tZoneTeamData[M28Intel.refiPlannedRadarCoverage] or 0) >= 60
 end
 
+function ShouldHoldFreshRadarAtLocation(aiBrain, sBlueprint, tPosition)
+    if not(EntityCategoryContains(M28UnitInfo.refCategoryRadar, sBlueprint)) then return false end
+    local iTech = M28UnitInfo.GetBlueprintTechLevel(sBlueprint)
+    local iRadius = ((__blueprints[sBlueprint].Intel or {}).RadarRadius or 0)
+    local function IsDuplicate(sOther, tOtherPosition, bCompleted)
+        if not(tOtherPosition) or not(EntityCategoryContains(M28UnitInfo.refCategoryRadar, sOther)) then return false end
+        local iOtherTech = M28UnitInfo.GetBlueprintTechLevel(sOther)
+        -- A higher tier adds capability; an unfinished higher tier can still
+        -- need one cheap T1 radar for immediate coverage.
+        if iOtherTech < iTech or (not(bCompleted) and iTech == 1 and iOtherTech > 1) then return false end
+        return M28Utilities.GetDistanceBetweenPositions(tPosition, tOtherPosition) <= math.min(60, iRadius * 0.5)
+    end
+    for _, oBrain in M28Team.tTeamData[aiBrain.M28Team][M28Team.subreftoFriendlyActiveM28Brains] do
+        for _, oRadar in oBrain:GetListOfUnits(M28UnitInfo.refCategoryRadar, false, true) do
+            if M28UnitInfo.IsUnitValid(oRadar) and IsDuplicate(oRadar.UnitId, oRadar:GetPosition(), oRadar:GetFractionComplete() == 1) then
+                -- Disabled sensors still occupy a site; restore their power
+                -- instead of repeatedly buying replacements beside them.
+                return true
+            end
+        end
+        for _, oEngineer in oBrain:GetListOfUnits(M28UnitInfo.refCategoryEngineer + categories.COMMAND, false, true) do
+            local sQueued, oTarget, oPrimary = GetEngineerConstructionIntent(oEngineer)
+            if sQueued and not(oTarget) and oPrimary == oEngineer then
+                local tOrders = oPrimary[M28Orders.reftiLastOrders]
+                local tOrder = tOrders and tOrders[oPrimary[M28Orders.refiOrderCount] or 0]
+                if tOrder and IsDuplicate(sQueued, tOrder[M28Orders.subreftOrderPosition], false) then return true end
+            end
+        end
+    end
+    return false
+end
+
 function GetPowerRecoveryTech(tZoneTeamData, toAssignedEngineers, toAvailableEngineersByTech)
     for _, oEngineer in toAssignedEngineers do
         if oEngineer.M28PowerRecoveryTech and oEngineer[refiAssignedAction] == refActionBuildThirdPower
@@ -12112,6 +12144,7 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                                         end
                                     end
                                 elseif sBlueprint and not(ShouldHoldOffFreshHighTechPowerStart(iActionToAssign, iRequestedPowerTech, iTeam, bPowerRecovery))
+                                    and not(ShouldHoldFreshRadarAtLocation(aiBrain, sBlueprint, tBuildLocation))
                                     and (not(EntityCategoryContains(M28UnitInfo.refCategoryMassFab, sBlueprint)) or M28Economy.CanFundMassFab(aiBrain, sBlueprint, iTotalBuildPowerWanted)) then
                                     local tMoveLocation
                                     local oPowerBuildPrimary
