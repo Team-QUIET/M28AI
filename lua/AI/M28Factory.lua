@@ -3557,7 +3557,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     -- Don't build more MAA if we already have sufficient mobile AA relative to ground combat units
     -- This prevents starving ground unit production when we have good mobile AA coverage
     if not(bDontConsiderBuildingMAA) and not(bEnemyLowTechGunshipsPressuringLandInZone) then
-        local iMobileAACount = aiBrain:GetCurrentUnits(categories.MOBILE * categories.ANTIAIR - categories.SCOUT)
+        local iMobileAACount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMAA)
         local iGroundCombatCount = aiBrain:GetCurrentUnits(categories.MOBILE * categories.LAND * (categories.DIRECTFIRE + categories.INDIRECTFIRE) - categories.ENGINEER - categories.SCOUT)
 
         -- If we have more than 1 mobile AA for every 8 ground combat units, and enemy air threat is low, stop building MAA
@@ -4089,7 +4089,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     end
 
     iCurrentConditionToTry = iCurrentConditionToTry + 1
-    local iArmyMAACategory = not(bHaveLowPower) and GetLandArmyMAAFloorCategory(oFactory)
+    local iArmyMAACategory = GetLandArmyMAAFloorCategory(oFactory)
     if iArmyMAACategory then
         local sEscortBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, iArmyMAACategory, oFactory)
         if sEscortBlueprint and GetFactoryProductionAdmission(aiBrain, oFactory, sEscortBlueprint)
@@ -6860,8 +6860,10 @@ local function GetFactoryCurrentProductionResourceDrain(oFactory)
     if not(M28UnitInfo.IsUnitValid(oFocusUnit)) then
         return 0, 0
     end
-    local iMassDrain, iEnergyDrain = GetFactoryBlueprintResourceProfile(oFactory, oFocusUnit.UnitId)
-    return iMassDrain or 0, iEnergyDrain or 0
+    -- Team net income already includes actual consumption, not nominal blueprint
+    -- drain. Crediting full build speed during a stall invents available resources.
+    return math.max(0, oFactory:GetConsumptionPerSecondMass()) * 0.1,
+        math.max(0, oFactory:GetConsumptionPerSecondEnergy()) * 0.1
 end
 
 local function GetTeamManagedFactories(aiBrain, iTeam)
@@ -6900,7 +6902,7 @@ local function GetTeamPendingFactoryResourceDrain(aiBrain, iTeam, oCandidateFact
     local iEnergyStorageCapacity = 0
     local toFactories, tFriendlyBrains = GetTeamManagedFactories(aiBrain, iTeam)
     for _, oFactory in toFactories do
-        if oFactory ~= oCandidateFactory and not(IsFactoryActivelyBuilding(oFactory)) then
+        if oFactory ~= oCandidateFactory and not(oFactory[M28UnitInfo.refbPaused] or oFactory:IsPaused()) and not(IsFactoryActivelyBuilding(oFactory)) then
             local tQueuedBlueprints = GetQueuedFactoryBlueprints(oFactory)
             if M28Utilities.IsTableEmpty(tQueuedBlueprints) == false then
                 local sQueuedBlueprint = tQueuedBlueprints[1]
@@ -7204,11 +7206,11 @@ end
 
 local function IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iMassDrain, iEnergyDrain)
     local iCategory = categories.LAND * categories.MOBILE * (categories.DIRECTFIRE + categories.INDIRECTFIRE)
-        + iAirAAProductionCategory
+        + M28UnitInfo.refCategoryMAA + iAirAAProductionCategory
     iCategory = iCategory - categories.ENGINEER - categories.SCOUT - categories.EXPERIMENTAL
     iMassDrain, iEnergyDrain = GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iMassDrain, iEnergyDrain)
     for _, oOther in GetTeamManagedFactories(aiBrain, aiBrain.M28Team) do
-        if oOther ~= oFactory then
+        if oOther ~= oFactory and not(oOther[M28UnitInfo.refbPaused] or oOther:IsPaused()) then
             local tQueue = GetQueuedFactoryBlueprints(oOther)
             local oFocus = oOther:GetFocusUnit()
             local sOther = tQueue and tQueue[1]
@@ -7228,7 +7230,7 @@ local function IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iM
 end
 
 local function CanReserveContinuousLandProduction(aiBrain, oFactory, sBlueprint, iMassDrain, iEnergyDrain)
-    local iCombatCategory = categories.LAND * categories.MOBILE * (categories.DIRECTFIRE + categories.INDIRECTFIRE)
+    local iCombatCategory = (categories.LAND * categories.MOBILE * (categories.DIRECTFIRE + categories.INDIRECTFIRE) + M28UnitInfo.refCategoryMAA)
         - categories.ENGINEER - categories.SCOUT - categories.EXPERIMENTAL
     if GetGameTimeSeconds() < 240 or M28Map.bIsCampaignMap or not(aiBrain[M28Map.refbCanPathToEnemyBaseWithLand])
             or not(EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oFactory.UnitId))
@@ -7240,7 +7242,7 @@ local function CanReserveContinuousLandProduction(aiBrain, oFactory, sBlueprint,
     if not(bCombinedMassAvailable) then return false end
     iMassDrain, iEnergyDrain = GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iMassDrain, iEnergyDrain)
     for _, oOtherFactory in GetTeamManagedFactories(aiBrain, aiBrain.M28Team) do
-        if oOtherFactory ~= oFactory then
+        if oOtherFactory ~= oFactory and not(oOtherFactory[M28UnitInfo.refbPaused] or oOtherFactory:IsPaused()) then
             local tQueue = GetQueuedFactoryBlueprints(oOtherFactory)
             local oFocus = oOtherFactory:GetFocusUnit()
             local iOtherMass, iOtherEnergy = 0, 0
@@ -8471,6 +8473,9 @@ function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
 end
 
 function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait)
+    -- Reuse admission scans within this decision, never across other factories'
+    -- intervening queue changes.
+    oFactory[refsFactoryAdmissionDrainCache] = nil
     --If factory is idle then gets it to build something; if its not idle then keeps checking for up to 20 seconds, but will abort if the factory appears to be building something
     -- ForkThread exits must return no values; an explicit nil triggers a native yield warning.
     local sFunctionRef = 'DecideAndBuildUnitForFactory'
