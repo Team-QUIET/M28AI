@@ -9963,8 +9963,6 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     CalculateNearbyEnemyCombatThreatFriendlyDFAndIfFriendlyACUInCombat()
                     if iOurDFAndT1ArtiCombatThreat > 0 and M28Utilities.IsTableEmpty(tOurDFAndT1ArtiUnits) == false then
                         local iOurDFAndT1ArtiUnits = table.getn(tOurDFAndT1ArtiUnits)
-                        --Legacy unit count check as fallback
-                        if not(bAttackWithEverything) and iOurDFAndT1ArtiUnits >= 125 and iOurDFAndT1ArtiUnits - table.getn(tLZTeamData[M28Map.subrefTEnemyUnits]) >= 50 and (M28Utilities.IsTableEmpty(tLZTeamData[M28Map.reftoNearestDFEnemies]) or table.getn(tLZTeamData[M28Map.reftoNearestDFEnemies]) < iOurDFAndT1ArtiUnits * 0.25) then bAttackWithEverything = true end
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Deciding whether to attack with everything - pre firebase and beachhead adjust bAttackWithEverything='..tostring(bAttackWithEverything)..'; iOurDFAndT1ArtiCombatThreat='..iOurDFAndT1ArtiCombatThreat..'; iEnemyCombatThreat='..iEnemyCombatThreat..'; iFirebaseThreatAdjust='..iFirebaseThreatAdjust..'; bHaveSignificantCombatCloserToFirebase='..tostring(bHaveSignificantCombatCloserToFirebase)..'; tLZTeamData[M28Map.subrefLZTValue]='..tLZTeamData[M28Map.subrefLZTValue]..'; Have enough threat to attack (ignoring lower modifier for if nearby ACU or if this zone has PD)='..tostring(M28Conditions.HaveEnoughThreatToAttack(iPlateau, iLandZone, tLZData, tLZTeamData, iOurDFAndT1ArtiCombatThreat, iEnemyCombatThreat, iFirebaseThreatAdjust, bHaveSignificantCombatCloserToFirebase, iTeam, iAttackThreatRatioRequired))..'; oNearestEnemyToFriendlyBase='..oNearestEnemyToFriendlyBase.UnitId..M28UnitInfo.GetUnitLifetimeCount(oNearestEnemyToFriendlyBase)..'; Is brain civilian='..tostring(M28Conditions.IsCivilianBrain(oNearestEnemyToFriendlyBase:GetAIBrain()))..'; iClosestFriendlyUnitToAnEnemyFirebase='..(iClosestFriendlyUnitToAnEnemyFirebase or 'nil')..'; iFirebaseThreatAdjust='..(iFirebaseThreatAdjust or 'nil')) end
                         if not(bAttackWithEverything) and (not(EntityCategoryContains(M28UnitInfo.refCategoryPD, oNearestEnemyToFriendlyBase.UnitId)) or not(M28Conditions.IsCivilianBrain(oNearestEnemyToFriendlyBase:GetAIBrain()))) then
                             if M28Utilities.IsTableEmpty(toEnemyACUsNearZone) == false then bAttackWithLowerThreatRatio = false
@@ -10566,6 +10564,14 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                 end
                             end
                         end
+                    end
+
+                    if bAttackWithEverything and not(bHaveACUInTroubleAndRecentlyInCombat)
+                            and not(tLZTeamData[M28Map.subrefLZbCoreBase])
+                            and not(M28Team.tTeamData[iTeam][M28Team.refbDontHaveBuildingsOrACUInPlayableArea])
+                            and ShouldWaitForExperimentalAssault(aiBrain, tOurDFAndT1ArtiUnits, oNearestEnemyToFriendlyBase, tSkirmisherDFEnemies) then
+                        bAttackWithEverything = false
+                        bWantReinforcements = true
                     end
 
                     local function FinalizeScenario2DecisionState(bAttackWithEverythingLocal, bConsolidateAtMidpointLocal)
@@ -13343,6 +13349,52 @@ function RetreatOtherUnits(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, tOt
         IssueResolvedRetreatOrder(oUnit, tResolvedRetreatTarget, sResolvedRetreatOrderRef, 10, {bUseBackupThread = bUseBackupThreadRetreat, iPathingRef = iResolvedRetreatPathingRef, bUseHoverPlateauRef = bResolvedUseHoverPlateauRef, iDefaultDistOverride = iResolvedDefaultDist})
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+end
+
+function ShouldWaitForExperimentalAssault(aiBrain, tAttackers, oTarget, tEnemies)
+    if M28Utilities.IsTableEmpty(tAttackers) then return false end
+    local tTarget = M28Intel.GetKnownThreatPosition(aiBrain, oTarget, 20)
+    if not(tTarget) then return false end
+    local tRelevantEnemies, tExperimentals = {}, {}
+    for _, oEnemy in tEnemies or {} do
+        local tKnown = M28Intel.GetKnownThreatPosition(aiBrain, oEnemy, 20)
+        if tKnown and EntityCategoryContains(categories.LAND * (categories.DIRECTFIRE + categories.INDIRECTFIRE), oEnemy.UnitId)
+                and M28Utilities.GetDistanceBetweenPositions(tKnown, tTarget) <= 60 + (oEnemy[M28UnitInfo.refiCombatRange] or 0) then
+            table.insert(tRelevantEnemies, oEnemy)
+            if EntityCategoryContains(categories.EXPERIMENTAL * categories.MOBILE, oEnemy.UnitId) then table.insert(tExperimentals, oEnemy) end
+        end
+    end
+    if M28Utilities.IsTableEmpty(tExperimentals) then return false end
+    local iEnemyThreat = M28UnitInfo.GetCombatThreatRating(tRelevantEnemies, true)
+    local iExperimentalThreat = M28UnitInfo.GetCombatThreatRating(tExperimentals, true)
+    if iExperimentalThreat < math.max(5000, iEnemyThreat * 0.25) then return false end
+
+    local tArrivals, tSeen = {}, {}
+    local iFirstArrival, oLead
+    local function IncludeAttacker(oUnit)
+        if not(tSeen[oUnit]) and M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1
+                and not(oUnit:IsUnitState('Attached')) and not(oUnit[M28UnitInfo.refbSpecialMicroActive])
+                and (oUnit[M28UnitInfo.refiDFRange] or 0) > 0 then
+            tSeen[oUnit] = true
+            local iArrival = math.max(0, M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tTarget)
+                - oUnit[M28UnitInfo.refiDFRange]) / math.max(1, (oUnit:GetBlueprint().Physics or {}).MaxSpeed or 1)
+            table.insert(tArrivals, {unit=oUnit, time=iArrival})
+            if not(iFirstArrival) or iArrival < iFirstArrival then iFirstArrival, oLead = iArrival, oUnit end
+        end
+    end
+    for _, oUnit in tAttackers do IncludeAttacker(oUnit) end
+    if not(oLead) then return true, 0, iEnemyThreat end
+    -- Nearby reinforcements count only if they can join the first firing line.
+    for _, oUnit in aiBrain:GetUnitsAroundPoint(categories.LAND * categories.MOBILE * categories.DIRECTFIRE
+            - categories.ENGINEER - categories.COMMAND - categories.SCOUT, oLead:GetPosition(), 100, 'Ally') do
+        IncludeAttacker(oUnit)
+    end
+    local tReady = {}
+    for _, tArrival in tArrivals do
+        if tArrival.time <= iFirstArrival + 4 then table.insert(tReady, tArrival.unit) end
+    end
+    local iReadyThreat = M28UnitInfo.GetCombatThreatRating(tReady)
+    return iReadyThreat < iEnemyThreat * 1.15, iReadyThreat, iEnemyThreat
 end
 
 function RecordUnitAsReceivingLandZoneAssignment(oUnit, iPlateau, iLandZone)
