@@ -21059,7 +21059,7 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
                                     local tAdjLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ]
                                     if bDontCheckPlayableArea or M28Conditions.IsLocationInPlayableArea(tAdjLZData[M28Map.subrefMidpoint]) then
                                         local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][iTeam]
-                                        if tAdjLZTeamData[M28Map.subrefLZbCoreBase] or (tAdjLZTeamData[M28Map.subrefTbWantBP] and (not(tAdjLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) or GetGameTimeSeconds() - (tAdjLZTeamData[M28Map.bEngineersRecentlyRunFromEnemy] or 0) >= 20)) then
+                                        if tAdjLZTeamData[M28Map.subrefLZbCoreBase] or (tAdjLZTeamData[M28Map.subrefTbWantBP] and (not(tAdjLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) or GetGameTimeSeconds() - (tAdjLZTeamData[M28Map.refiTimeLastRunFromEnemyLand] or 0) >= 20)) then
                                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Minor zone spare engi overflow - will send to adjacent zone '..iAdjLZ..'; iPlateau='..iPlateau..'; iBPToSend='..iBPToSend) end
                                             HaveActionToAssign(refActionMoveToLandZone, 1, iBPToSend, iAdjLZ, true, nil, nil, nil, true)
                                             iHighestTechEngiAvailable = GetHighestTechEngiAvailable(toAvailableEngineersByTech)
