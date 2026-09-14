@@ -3447,28 +3447,26 @@ function UpdateAirRallyAndSupportPoints(iTeam, iAirSubteam)
         if M28Utilities.IsTableEmpty(tStartMidpoint) == false then
             local iStartPlateau, iStartLZOrWZ = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tStartMidpoint)
             if not(iStartPlateau) or not(iStartLZOrWZ) then
-                --Record new land zone if we have a plateau, dont have a LZOrWZ, but do ahve an island (as e.g. we may have discounted it before due to being too small)
-                if iStartPlateau and NavUtils.GetLabel(M28Map.refPathingTypeLand, tStartMidpoint) then
-                    local iSegmentX, iSegmentZ = M28Map.GetPathingSegmentFromPosition(tStartMidpoint)
-                    local tSegmentMidpoint = M28Map.GetPositionFromPathingSegments(iSegmentX, iSegmentZ)
-                    local iSegmentPlateau, iSegmentZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tSegmentMidpoint)
-                    if iSegmentPlateau and not(iSegmentZone) then
-                        M28Map.CreateNewLandZoneAtSegment(iSegmentX, iSegmentZ, iSegmentPlateau)
-                    end
-                end
-
+                --Use an existing zone; map setup owns zone creation and team initialization.
                 --Need to adjust support point to a valid location
                 local iAngleToBase = M28Utilities.GetAngleFromAToB(tStartMidpoint, M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint])
                 for iDistance = 10, 100, 10 do
                     tStartMidpoint = M28Utilities.MoveInDirection(tStartMidpoint, iAngleToBase, iDistance, true, false, not(M28Map.bIsCampaignMap))
                     iStartPlateau, iStartLZOrWZ = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tStartMidpoint)
-                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Trying to find a valid location, iDistance='..iDistance..'; iAngleToBase='..iAngleToBase..'; iStartPlateau='..(iStartPlateau or 'nil')..'; iStartLZOrWZ='..(iStartLZOrWZ or 'nil'))
-                        if iStartPlateau and iStartLZOrWZ then
-                            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will update air sub support point to the revised tStartMidpoint='..repru(tStartMidpoint)) end
-                            M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint] = {tStartMidpoint[1], tStartMidpoint[2], tStartMidpoint[3]}
-                            break
-                        end
+                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Trying to find a valid location, iDistance='..iDistance..'; iAngleToBase='..iAngleToBase..'; iStartPlateau='..(iStartPlateau or 'nil')..'; iStartLZOrWZ='..(iStartLZOrWZ or 'nil')) end
+                    if iStartPlateau and iStartLZOrWZ then
+                        M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint] = {tStartMidpoint[1], tStartMidpoint[2], tStartMidpoint[3]}
+                        break
                     end
+                end
+                if not(iStartPlateau) or not(iStartLZOrWZ) then
+                    tStartMidpoint = M28Map.GetPlayerStartPosition(aiBrain)
+                    iStartPlateau, iStartLZOrWZ = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tStartMidpoint)
+                    if not(iStartPlateau) or not(iStartLZOrWZ) then
+                        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                        return
+                    end
+                    M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubSupportPoint] = {tStartMidpoint[1], tStartMidpoint[2], tStartMidpoint[3]}
                 end
             end
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iStartPlateau='..(iStartPlateau or 'nil')..'; iStartLZOrWZ='..(iStartLZOrWZ or 'nil')) end
@@ -5302,7 +5300,6 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
         iAirControlFactor = math.min(0.08, 0.08 * (GetGameTimeSeconds() - 2700) / 1800) + iAirControlFactor
     end
     M28Team.tAirSubteamData[iAirSubteam][M28Team.refiFarBehindFactor] = iFarBehindFactor
-    M28Team.tAirSubteamData[iAirSubteam][M28Team.refiAirControlFactor] = iAirControlFactor
 
     --FarBehindOnAir check: Either enemy exceeds tech-scaled threshold, OR we have a severe ratio disadvantage
     --Lowered threshold from 200 to 100 per tech^2 to catch cases like enemy=579, our=96 at T2 (was requiring 800, now requires 400)
@@ -5318,6 +5315,7 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
     end
     --Inties and small numbers of asfs - require a higher factor (we also add a further absolute check below)
     if M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] <= 1500 then iAirControlFactor = iAirControlFactor + 0.05 end
+    M28Team.tAirSubteamData[iAirSubteam][M28Team.refiAirControlFactor] = iAirControlFactor
 
     if M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] * iAirControlFactor < M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat] then
         --With low numbers of inties there is more of a risk we think we have air control when we dont
@@ -7654,7 +7652,7 @@ function ManageBombers(iTeam, iAirSubteam)
 
     -- If we don't have enough bomber threat to attack safely, regroup at the proactive air anchor.
     if ShouldWaitForStrikeWave(tAvailableBombers, iAvailableBomberThreat, iBomberMinWaveThreat) then
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Insufficient Bomber Threat for Wave ('..iAvailableBomberThreat..' < '..iBomberMinWaveThreat..'). Regrouping at proactive air fallback. EnemyAirAA='..iEnemyAirAA..', PeakGroundAA='..iPeakEnemyGroundAA) end
+        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Insufficient Bomber Threat for Wave ('..iAvailableBomberThreat..' < '..iBomberMinWaveThreat..'). Regrouping at proactive air fallback. EnemyAirAA='..iEnemyAirAA) end
 
         local tRallyPoint = GetProactiveAirFallbackPoint(iAirSubteam)
         for _, oUnit in tAvailableBombers do
@@ -13584,7 +13582,7 @@ function ShouldTransportDropEarlyOrAlwaysDropAtTarget(oUnit, iTeam, bJustConside
                     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                     return false, true, false
                 end
-                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCargoSize='..iCargoSize..'; Enemy combat threat='..tTargetLZOrWZTeamData[M28Map.subrefTThreatEnemyCombatTotal]..'; bUnloadAtRallyOrOtherZone='..tostring(bUnloadAtRallyOrOtherZone)) end
+                if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCargoSize='..iCargoSize..'; Enemy combat threat='..tTargetLZOrWZTeamData[M28Map.subrefTThreatEnemyCombatTotal]) end
             end
         end
     end
@@ -16390,7 +16388,7 @@ function AttackTargetForMexHuntingBomber(oBomber, bCalledFromOnBombFired, oOptio
         else
             --Manual attack as mobile target
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will do manual attack') end
-            IssueTrackedAttack(oBomber, oTarget, false, 'MexHuntM', false)
+            M28Orders.IssueTrackedAttack(oBomber, oTarget, false, 'MexHuntM', false)
         end
     else
         --Do nothing
