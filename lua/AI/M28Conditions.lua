@@ -1443,9 +1443,6 @@ function CloseToEnemyUnit(tStartPosition, tUnitsToCheck, iDistThreshold, iTeam, 
     local iCurDist
     if bDebugMessages == true then
         LOG(sFunctionRef..': tStartPosition='..repru(tStartPosition)..'; Size of tUnitsToCheck='..table.getn(tUnitsToCheck)..'; iDistThreshold='..iDistThreshold..'; bIncludeEnemyDFRange='..tostring(bIncludeEnemyDFRange or false))
-        for iUnit, oUnit in tUnitsToCheck do
-            LOG(sFunctionRef..': Dist to oUnit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' = '..M28Utilities.GetDistanceBetweenPositions(tStartPosition, oUnit[M28UnitInfo.reftLastKnownPositionByTeam][iTeam])..' based on last known position of '..repru(oUnit[M28UnitInfo.reftLastKnownPositionByTeam][iTeam])..'; actual unit position='..repru(oUnit:GetPosition())..'; Unit range='..(oUnit[M28UnitInfo.refiDFRange] or 0)..'; Is distance less tahn threshold='..tostring(M28Utilities.GetDistanceBetweenPositions(tStartPosition, oUnit[M28UnitInfo.reftLastKnownPositionByTeam][iTeam]) < iDistThreshold))
-        end
     end
     local bIncludeAngleChecks, iAngleDistMod, iAngleDifferenceThreshold, iMiniAngleDistMod, iMiniAngleThreshold, iCurAngleDif
     local bAreCloseToUnit = false
@@ -1474,13 +1471,18 @@ function CloseToEnemyUnit(tStartPosition, tUnitsToCheck, iDistThreshold, iTeam, 
         oOptionalFriendlyUnitToRecordClosestEnemy[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck] = nil
     end
     for iUnit, oUnit in tUnitsToCheck do
-        if M28UnitInfo.IsUnitValid(oUnit) then
-            iCurDist = M28Utilities.GetDistanceBetweenPositions(tStartPosition, oUnit[M28UnitInfo.reftLastKnownPositionByTeam][iTeam])
+        local tPositions = oUnit[M28UnitInfo.reftLastKnownPositionByTeam]
+        local tKnownPosition = tPositions and tPositions[iTeam]
+        -- A contact can outlive its per-team position during ownership and defeat cleanup.
+        if M28UnitInfo.IsUnitValid(oUnit) and tKnownPosition
+                and type(tKnownPosition[1]) == 'number' and type(tKnownPosition[3]) == 'number' then
+            iCurDist = M28Utilities.GetDistanceBetweenPositions(tStartPosition, tKnownPosition)
             if oOptionalFriendlyUnitToRecordClosestEnemy and iCurDist < iClosestEnemyDist then
                 iClosestEnemyDist = iCurDist
                 oOptionalFriendlyUnitToRecordClosestEnemy[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck] = oUnit
             end
-            if bIncludeAngleChecks and EntityCategoryContains(categories.MOBILE, oUnit.UnitId) then
+            if bIncludeAngleChecks and EntityCategoryContains(categories.MOBILE, oUnit.UnitId)
+                    and M28UnitInfo.CanSeeUnit(oUnitIfConsideringAngleAndLastShot:GetAIBrain(), oUnit) then
                 local tCurPosition = oUnit:GetPosition()
                 iCurSpeedX, iCurSpeedY, iCurSpeedZ = oUnit:GetVelocity()
                 iDistanceShortly = M28Utilities.GetDistanceBetweenPositions({tCurPosition[1] + iCurSpeedX, tCurPosition[2] + iCurSpeedY, tCurPosition[3] + iCurSpeedZ}, tStartPosition)

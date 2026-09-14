@@ -55,7 +55,7 @@ function GetKnownThreatPosition(aiBrain, oUnit, iMaxAge)
     local iTeam = aiBrain.M28Team
     local tPosition = tPositions and tPositions[iTeam]
     local iSeen = tTimes and tTimes[iTeam]
-    if not(tPosition) or not(iSeen) then return nil, 0, 0 end
+    if not(tPosition) or type(tPosition[1]) ~= 'number' or type(tPosition[3]) ~= 'number' or not(iSeen) then return nil, 0, 0 end
     local iAge = math.max(0, GetGameTimeSeconds() - iSeen)
     if EntityCategoryContains(categories.STRUCTURE, oUnit.UnitId) then return tPosition, 1, iAge end
     iMaxAge = iMaxAge or 60
