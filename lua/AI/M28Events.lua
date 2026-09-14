@@ -2200,6 +2200,10 @@ function OnConstructionStarted(oEngineer, oConstruction, sOrder)
 
         --M28 specific
         if oEngineer:GetAIBrain().M28AI then
+            if EntityCategoryContains(M28UnitInfo.refCategoryEngineer + categories.COMMAND, oEngineer.UnitId)
+                and EntityCategoryContains(categories.STRUCTURE, oConstruction.UnitId) then
+                M28Engineer.ClaimConstructionPrimary(oConstruction, oEngineer)
+            end
             --Stuff to update every time construction starts
             if oEngineer[M28Building.reftArtiTemplateRefs] then oEngineer[M28Conditions.refiEngineerStuckCheckCount] = 0 end
             if oEngineer[M28Orders.refiMoveAndBuildStuckCount] then oEngineer[M28Orders.refiMoveAndBuildStuckCount] = 0 end

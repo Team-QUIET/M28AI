@@ -4393,8 +4393,9 @@ function GetPendingHighTechPowerDetails(iTeam)
                 sBuildingId = tQueuedDetails[M28Map.subrefBuildingID]
                 oPrimaryBuilder = tQueuedDetails[M28Map.subrefPrimaryBuilder]
                 if sBuildingId and EntityCategoryContains(M28UnitInfo.refCategoryT2Power + M28UnitInfo.refCategoryT3Power, sBuildingId) and M28UnitInfo.IsUnitValid(oPrimaryBuilder) then
-                    oFocusUnit = oPrimaryBuilder:GetFocusUnit()
-                    if not(M28UnitInfo.IsUnitValid(oFocusUnit) and EntityCategoryContains(M28UnitInfo.refCategoryT2Power + M28UnitInfo.refCategoryT3Power, oFocusUnit.UnitId) and oFocusUnit:GetFractionComplete() < 1) then
+                    local sActiveBlueprint
+                    sActiveBlueprint, oFocusUnit = M28Engineer.GetEngineerConstructionIntent(oPrimaryBuilder)
+                    if sActiveBlueprint == sBuildingId and not(oFocusUnit) then
                         oQueuedBlueprint = __blueprints[sBuildingId]
                         iPendingHighTechPowerCount = iPendingHighTechPowerCount + 1
                         iPendingHighTechPowerIncome = iPendingHighTechPowerIncome + ((oQueuedBlueprint and (oQueuedBlueprint.Economy or {}).ProductionPerSecondEnergy) or 0)
