@@ -673,10 +673,11 @@ function GetEngineerConstructionIntent(oEngineer)
     end
 end
 
-function EngineerMatchesPowerRequest(oEngineer, iRequestedTech)
+function EngineerMatchesPowerRequest(oEngineer, iRequestedTech, bExactTech)
     local sBlueprint = GetEngineerConstructionIntent(oEngineer)
     if not(sBlueprint) or not(EntityCategoryContains(M28UnitInfo.refCategoryPower - M28UnitInfo.refCategoryHydro, sBlueprint)) then return false end
     local iTech = M28UnitInfo.GetBlueprintTechLevel(sBlueprint)
+    if bExactTech then return iTech == iRequestedTech end
     -- High-tech requests can complete an existing T2/T3 project first. A T1
     -- recovery request must retain its separate, quick-completing project.
     return (iRequestedTech == 1 and iTech == 1) or (iRequestedTech >= 2 and iTech >= 2)
@@ -762,17 +763,38 @@ local tHighTechPowerBuildActions = {
     [refActionBuildThirdPower] = true,
 }
 
-local function ShouldHoldOffFreshHighTechPowerStart(iActionToAssign, iMinTechLevelWanted, iTeam)
+local function ShouldHoldOffFreshHighTechPowerStart(iActionToAssign, iMinTechLevelWanted, iTeam, bPowerRecovery)
+    if bPowerRecovery and iMinTechLevelWanted == 2 then
+        -- Recovery must be independent of the pending T3 output, but it must
+        -- still reserve its own sites across zones before foundations appear.
+        local tTeam = M28Team.tTeamData[iTeam]
+        local iPending = 0
+        local iLimit = math.max(1, tTeam[M28Team.subrefiActiveM28BrainCount] or 1)
+        for _, oBrain in tTeam[M28Team.subreftoFriendlyActiveM28Brains] do
+            for _, oPower in oBrain:GetListOfUnits(M28UnitInfo.refCategoryT2Power, false, true) do
+                if M28UnitInfo.IsUnitValid(oPower) and oPower:GetFractionComplete() < 1 then iPending = iPending + 1 end
+            end
+            for _, oEngineer in oBrain:GetListOfUnits(M28UnitInfo.refCategoryEngineer + categories.COMMAND, false, true) do
+                local sBlueprint, oTarget, oPrimary = GetEngineerConstructionIntent(oEngineer)
+                if sBlueprint and not(oTarget) and oPrimary == oEngineer and EntityCategoryContains(M28UnitInfo.refCategoryT2Power, sBlueprint) then
+                    iPending = iPending + 1
+                end
+            end
+            if iPending >= iLimit then return true end
+        end
+        return false
+    end
     return tHighTechPowerBuildActions[iActionToAssign] and (iMinTechLevelWanted or 1) >= 2
         and M28Conditions.ShouldHoldOffStartingNewHighTechPower(iTeam)
 end
 
-function GetNearbyHighTechPowerConstruction(oEngineer, iTeam)
+function GetNearbyHighTechPowerConstruction(oEngineer, iTeam, iExactTech)
     local oBest, iBestProgress, iBestDistance
     local tPosition = oEngineer:GetPosition()
     for _, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains] do
         for _, oPower in oBrain:GetListOfUnits(M28UnitInfo.refCategoryT2Power + M28UnitInfo.refCategoryT3Power, false, true) do
             if M28UnitInfo.IsUnitValid(oPower) and oPower:GetFractionComplete() < 1
+                    and (not(iExactTech) or M28UnitInfo.GetUnitTechLevel(oPower) == iExactTech)
                     and not(oPower[refbDontIncludeAsPartCompleteBuildingForConstruction]) then
                 local iProgress = oPower:GetFractionComplete()
                 local iDistance = M28Utilities.GetDistanceBetweenPositions(tPosition, oPower:GetPosition())
@@ -1095,6 +1117,24 @@ function ShouldHoldFreshRadarStart(iAction, tZoneTeamData)
     -- still provide immediate coverage while a higher-tech radar is unfinished.
     return M28UnitInfo.GetUnitTechLevel(oPlanned) == iTech
         and (tZoneTeamData[M28Intel.refiPlannedRadarCoverage] or 0) >= 60
+end
+
+function GetPowerRecoveryTech(tZoneTeamData, toAssignedEngineers, toAvailableEngineersByTech)
+    for _, oEngineer in toAssignedEngineers do
+        if oEngineer.M28PowerRecoveryTech and oEngineer[refiAssignedAction] == refActionBuildThirdPower
+            and EngineerMatchesPowerRequest(oEngineer, oEngineer.M28PowerRecoveryTech, true) then return oEngineer.M28PowerRecoveryTech end
+    end
+    local bCanBuildT2 = toAvailableEngineersByTech and
+        (not(M28Utilities.IsTableEmpty(toAvailableEngineersByTech[2])) or not(M28Utilities.IsTableEmpty(toAvailableEngineersByTech[3])))
+    if not(bCanBuildT2) then return 1 end
+    for _, oEngineer in toAssignedEngineers do
+        if EngineerMatchesPowerRequest(oEngineer, 3, true) then return 2 end
+    end
+    for _, oPower in tZoneTeamData[M28Map.subreftoLZOrWZAlliedUnits] or {} do
+        if M28UnitInfo.IsUnitValid(oPower) and EntityCategoryContains(M28UnitInfo.refCategoryT3Power, oPower.UnitId)
+            and oPower:GetFractionComplete() < 1 then return 2 end
+    end
+    return 1
 end
 
 function PutCapableConstructionEngineerLast(tEngineers, iCategory)
@@ -11380,7 +11420,7 @@ function GetEconomicZoneAACoverage(iTeam, iPlateau, tZoneData, tZoneTeamData)
     return iResult
 end
 
-function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iCurPriority, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrPond, iLandOrWaterZone, toAvailableEngineersByTech, toAssignedEngineers, bIsWaterZone, iSpecificFactionRequiredOverride, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
+function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iCurPriority, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrPond, iLandOrWaterZone, toAvailableEngineersByTech, toAssignedEngineers, bIsWaterZone, iSpecificFactionRequiredOverride, bDontUseLowerTechEngineersToAssist, bMarkAsSpare, bPowerRecovery)
     if iActionToAssign == refActionBuildT3MassFab and M28Conditions.HaveLowPower(iTeam) then return end
     local iRequestedPowerTech = IsPowerBuildAction(iActionToAssign) and iMinTechWanted or 0
     --vOptionalVariable can be a table, nil or a value; used to pass info specific to the action if it needs it
@@ -11546,7 +11586,7 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                 if not(oEngi[M28UnitInfo.refbSpecialMicroActive]) then
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time='..GetGameTimeSeconds()..': Considering if oEngi '..oEngi.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngi)..' already has iActionToAssign '..iActionToAssign..'; oEngi[refiAssignedAction]='..(oEngi[refiAssignedAction] or 'nil')..'; Priority of engis action='..(oEngi[refiAssignedActionPriority] or 'nil')..'; iCurPrioriyt='..iCurPriority..'; Engi tech level='..M28UnitInfo.GetUnitTechLevel(oEngi)..'; iMinTechWanted='..iMinTechWanted) end
                     if (oEngi[refiAssignedAction] == iActionToAssign or (iSubstituteAction and oEngi[refiAssignedAction] == iSubstituteAction))
-                        and (iRequestedPowerTech == 0 or EngineerMatchesPowerRequest(oEngi, iRequestedPowerTech)) then
+                        and (iRequestedPowerTech == 0 or EngineerMatchesPowerRequest(oEngi, iRequestedPowerTech, bPowerRecovery)) then
                         if not(bAlreadyHaveTechLevelWanted) and (iRequestedPowerTech > 0 or M28UnitInfo.GetUnitTechLevel(oEngi) >= iMinTechWanted) then
                             --Only flag as having min tech level wanted if we will be able to make use of this engineer per the later code
                             if not(tbIgnoreEngineerAssistance[iActionToAssign]) and (iRequestedPowerTech > 0 or (oEngi[M28Orders.reftiLastOrders] and oEngi[M28Orders.reftiLastOrders][oEngi[M28Orders.refiOrderCount]] and oEngi[M28Orders.reftiLastOrders][oEngi[M28Orders.refiOrderCount]][M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueBuild)) then
@@ -11672,6 +11712,7 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
             if iSpecificFactionRequiredOverride and not(iOptionalFactionRequired) then iOptionalFactionRequired = iSpecificFactionRequiredOverride end
 
             function UpdateBPTracking()
+                tEngineersOfTechWanted[iEngiCount].M28PowerRecoveryTech = bPowerRecovery and iRequestedPowerTech or nil
                 iCurEngiTechLevel = M28UnitInfo.GetUnitTechLevel(tEngineersOfTechWanted[iEngiCount])
                 iCurEngiBuildPower = tEngineersOfTechWanted[iEngiCount]:GetBlueprint().Economy.BuildRate
                 iTotalBuildPowerWanted = iTotalBuildPowerWanted - iCurEngiBuildPower
@@ -11718,7 +11759,7 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
 
                 local oBuildingToAssist
                 local iAssistanceCategory = iCategoryWanted
-                if iRequestedPowerTech >= 2 then
+                if iRequestedPowerTech >= 2 and not(bPowerRecovery) then
                     iAssistanceCategory = iCategoryWanted + M28UnitInfo.refCategoryT2Power + M28UnitInfo.refCategoryT3Power
                 end
                 if iConstructionCountToIgnore < 100 and not(iActionToAssign == refActionAssistNavalFactory) then --Dont want naval fac to assist an upgrading fac, but instead get the highest tech one
@@ -11734,7 +11775,7 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                     if not(oBuildingToAssist) and iRequestedPowerTech >= 2 then
                         -- Placement can cross a zone boundary. Keep funding that
                         -- nearby foundation before looking for another build site.
-                        oBuildingToAssist = GetNearbyHighTechPowerConstruction(tEngineersOfTechWanted[iEngiCount], iTeam)
+                        oBuildingToAssist = GetNearbyHighTechPowerConstruction(tEngineersOfTechWanted[iEngiCount], iTeam, bPowerRecovery and iRequestedPowerTech or nil)
                     end
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Finished checking to see if we have a unit of the desired category. oBuildingToAssist='..(oBuildingToAssist.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oBuildingToAssist) or 'nil')..'; bIsWaterZone='..tostring(bIsWaterZone)) end
                 end
@@ -11772,7 +11813,7 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                     if not(tbIgnoreEngineerAssistance[iActionToAssign]) and M28Utilities.IsTableEmpty(toAssignedEngineers) == false then
 
                         for iEngi, oEngi in toAssignedEngineers do
-                            if oEngi[refiAssignedAction] == iActionToAssign and (iRequestedPowerTech == 0 or EngineerMatchesPowerRequest(oEngi, iRequestedPowerTech)) then
+                            if oEngi[refiAssignedAction] == iActionToAssign and (iRequestedPowerTech == 0 or EngineerMatchesPowerRequest(oEngi, iRequestedPowerTech, bPowerRecovery)) then
                                 if not(EngineerHasActiveStructureBuildIntent(oEngi)) then
                                     ClearEngineersAssistingEngineer(oEngi, 'assist target has no active structure build intent', bDebugMessages, tDebugContext, sFunctionRef)
                                     if bDebugMessages == true then
@@ -12070,7 +12111,7 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                                             end
                                         end
                                     end
-                                elseif sBlueprint and not(ShouldHoldOffFreshHighTechPowerStart(iActionToAssign, iRequestedPowerTech, iTeam))
+                                elseif sBlueprint and not(ShouldHoldOffFreshHighTechPowerStart(iActionToAssign, iRequestedPowerTech, iTeam, bPowerRecovery))
                                     and (not(EntityCategoryContains(M28UnitInfo.refCategoryMassFab, sBlueprint)) or M28Economy.CanFundMassFab(aiBrain, sBlueprint, iTotalBuildPowerWanted)) then
                                     local tMoveLocation
                                     local oPowerBuildPrimary
@@ -14381,13 +14422,13 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     end
 
     local bPowerBridgeRequested = false
-    function HaveActionToAssign(iActionToAssign, iMinTechLevelWanted, iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iOptionalSpecificFactionWanted, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
+    function HaveActionToAssign(iActionToAssign, iMinTechLevelWanted, iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iOptionalSpecificFactionWanted, bDontUseLowerTechEngineersToAssist, bMarkAsSpare, bPowerRecovery)
         --Done as subfunction for convenience so can just note the key values for the action in question and add on the others that wont change
         --vOptionalVariable can be used for action specific information to save having to recalculate the same thing - could be a table, nil, or a value
         if bPowerBridgeRequested and iActionToAssign == refActionBuildThirdPower then return end
         if M28Utilities.bLoudModActive and (bHaveLowMass or bHaveLowPower) then iBuildPowerWanted = iBuildPowerWanted * 0.8 end
         if ShouldHoldFreshRadarStart(iActionToAssign, tLZTeamData) then return end
-        ConsiderActionToAssign(iActionToAssign, math.max(1, iMinTechLevelWanted), iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iCurPriority, tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, toAvailableEngineersByTech, toAssignedEngineers, false, iOptionalSpecificFactionWanted, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
+        ConsiderActionToAssign(iActionToAssign, math.max(1, iMinTechLevelWanted), iBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iCurPriority, tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, toAvailableEngineersByTech, toAssignedEngineers, false, iOptionalSpecificFactionWanted, bDontUseLowerTechEngineersToAssist, bMarkAsSpare, bPowerRecovery)
         if tHighTechPowerBuildActions[iActionToAssign] and math.max(1, iMinTechLevelWanted) >= 2 then M28Team.tTeamData[iTeam][M28Team.refiTimeLastPendingHighTechPowerRefresh] = nil end
     end
     if bDebugMessages == true then
@@ -14965,7 +15006,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
     end
 
     -- Keep a small, separately owned recovery project while expensive power is
-    -- unfinished. Its T1 request cannot be absorbed by the high-tech foundation.
+    -- unfinished. Its recovery request cannot be absorbed by the larger foundation.
     if not(bEngineersRecentlyRunFromEnemy) and bHaveLowPower
         and aiBrain:GetEconomyStoredRatio('ENERGY') <= 0.15
         and math.min(aiBrain:GetEconomyTrend('ENERGY'), aiBrain[M28Economy.refiNetEnergyBaseIncome] or 0) < 0
@@ -14973,13 +15014,15 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
         local iPendingPower = M28Conditions.GetPendingHighTechPowerDetails(iTeam)
         local bThirdPowerCommitted = false
         for _, oEngineer in toAssignedEngineers do
-            if oEngineer[refiAssignedAction] == refActionBuildThirdPower and EngineerMatchesPowerRequest(oEngineer, 2) then
+            if oEngineer[refiAssignedAction] == refActionBuildThirdPower and EngineerMatchesPowerRequest(oEngineer, 2)
+                and not(oEngineer.M28PowerRecoveryTech) then
                 bThirdPowerCommitted = true
                 break
             end
         end
         if iPendingPower > 0 and not(bThirdPowerCommitted) then
-            HaveActionToAssign(refActionBuildThirdPower, 1, tiBPByTech[1])
+            local iRecoveryTech = GetPowerRecoveryTech(tLZTeamData, toAssignedEngineers, toAvailableEngineersByTech)
+            HaveActionToAssign(refActionBuildThirdPower, iRecoveryTech, tiBPByTech[iRecoveryTech], nil, nil, nil, nil, nil, nil, true)
             bPowerBridgeRequested = true
         end
     end
