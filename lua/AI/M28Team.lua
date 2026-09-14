@@ -3171,6 +3171,18 @@ local function GetHQGrossMassPerBrain(iSourceTech, sMassBufferBypassReason, iFac
             or sMassBufferBypassReason == 'MatureNextTechProduction'
     local bUrgentBypass = sMassBufferBypassReason and sMassBufferBypassReason ~= 'None' and not(bProductionMaturity)
 
+    if iFactoryCategory == M28UnitInfo.refCategoryAirFactory then
+        -- The economy counters use mass per tick. Keep air progression affordable
+        -- without bypassing the extractor, storage or concurrent-upgrade gates.
+        if iSourceTech == 1 then
+            if bUrgentBypass then return 4 end
+            return (bProductionMaturity and 50 or 60) * 0.1
+        elseif iSourceTech == 2 then
+            if bUrgentBypass then return 5 end
+            return (bProductionMaturity and 60 or 80) * 0.1
+        end
+    end
+
     if iSourceTech == 1 then
         if iFactoryCategory == M28UnitInfo.refCategoryLandFactory then
             -- Keep autonomous T2 progression below T3's income requirement.
@@ -3251,7 +3263,7 @@ local function DoesBrainMeetHQMexGate(oBrain, iM28Team, iFactoryCategory, sFunct
         iRequiredMexes = 6
     end
     if iCurrentFactoryTech == 1 then
-        --Core-base HQ openings should not jump tech before the mex base is in place.
+        -- Require an established extractor base before the first HQ transition.
     elseif tPolicy.sLayer == 'Air' and iCurrentFactoryTech == 2 then
         iRequiredMexes = 2
         sMexRequirementRef = 'T3+'
@@ -3270,6 +3282,21 @@ local function DoesBrainMeetHQMexGate(oBrain, iM28Team, iFactoryCategory, sFunct
         return iRelevantMexes >= iRequiredMexes, iRelevantMexes, iRequiredMexes, sMexRequirementRef, sMexGateScope, iTotalMexes
     else
         return true, 0, iRequiredMexes, sMexRequirementRef, sMexGateScope, iTotalMexes
+    end
+
+    if tPolicy.sLayer == 'Air' then
+        -- Expansion extractors fund the same army as its starting extractors.
+        sMexGateScope = 'owned'
+        local iRelevantMexes = 0
+        for _, oMex in oBrain:GetListOfUnits(categories.MASSEXTRACTION, false, true) do
+            if M28UnitInfo.IsUnitValid(oMex) and oMex:GetFractionComplete() == 1 then
+                iTotalMexes = iTotalMexes + 1
+                if EntityCategoryContains(sMexRequirementRef == 'T3+' and categories.TECH3 + categories.EXPERIMENTAL or categories.TECH2 + categories.TECH3 + categories.EXPERIMENTAL, oMex.UnitId) then
+                    iRelevantMexes = iRelevantMexes + 1
+                end
+            end
+        end
+        return iRelevantMexes >= iRequiredMexes, iRelevantMexes, iRequiredMexes, sMexRequirementRef, sMexGateScope, iTotalMexes
     end
 
     local tStartZoneData, tStartZoneTeamData = M28Map.GetLandOrWaterZoneData(M28Map.GetPlayerStartPosition(oBrain, false), true, iM28Team)
@@ -3570,7 +3597,8 @@ function ConsiderPriorityAirFactoryUpgrades(iM28Team, bIntentOnly)
 
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tTeamData[iM28Team][subrefiHighestFriendlyAirFactoryTech]='..tTeamData[iM28Team][subrefiHighestFriendlyAirFactoryTech]..'; tTeamData[iM28Team][subrefiHighestFriendlyAirFactoryTech]='..tTeamData[iM28Team][subrefiHighestFriendlyAirFactoryTech]..'; tTeamData[iM28Team][subrefiHighestEnemyAirTech]='..tTeamData[iM28Team][subrefiHighestEnemyAirTech]) end
 
-    if tTeamData[iM28Team][subrefiHighestFriendlyAirFactoryTech] > 0 and tTeamData[iM28Team][subrefiHighestFriendlyAirFactoryTech] < 3 and not(tTeamData[iM28Team][refbFocusOnT1Spam]) then
+    local iLowestSourceTech = GetLowestFriendlyHQSourceTech(iM28Team, M28UnitInfo.refCategoryAirFactory)
+    if iLowestSourceTech > 0 and not(tTeamData[iM28Team][refbFocusOnT1Spam]) then
         --Campaign specific - dont be as keen to urgently upgrade air (as it may be enemy starts at t3 air while we start at t1)
         if not(M28Map.bIsCampaignMap) or tTeamData[iM28Team][subrefiTeamGrossMass] >= 4 * tTeamData[iM28Team][subrefiHighestFriendlyAirFactoryTech] * tTeamData[iM28Team][subrefiActiveM28BrainCount] then
             local bWantUpgrade = false
@@ -3592,7 +3620,7 @@ function ConsiderPriorityAirFactoryUpgrades(iM28Team, bIntentOnly)
             if tTeamData[iM28Team][subrefiLowestFriendlyAirFactoryTech] == 2 and tTeamData[iM28Team][subrefiHighestEnemyAirTech] < 3 then
                 bWaitUntilBuiltMoreUnits = true
                 for iBrain, oBrain in tTeamData[iM28Team][subreftoFriendlyActiveM28Brains] do
-                    if not(oBrain[M28Overseer.refbPrioritiseLand]) and not(oBrain[M28Overseer.refbPrioritiseLowTech]) then
+                    if oBrain[M28Economy.refiOurHighestAirFactoryTech] == 2 then
                         local tT2AirFactories = oBrain:GetListOfUnits(M28UnitInfo.refCategoryAirFactory * categories.TECH2, false, true)
                         if M28Utilities.IsTableEmpty(tT2AirFactories) == false then
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': T2 air fac count for brain '..oBrain.Nickname..'='..table.getn(tT2AirFactories)) end
@@ -4178,10 +4206,10 @@ local function GetSafeAirOrNavalHQUpgrade(iM28Team, bIntentOnly)
                         SetBrainHQUpgradeDesire(oBrain, M28UnitInfo.refCategoryAirFactory, 3, false, sFunctionRef..':NormalAirT3')
                         --Dont add factories that havent built much (for air fac will consider T1+ since may be building inties
                         local iLifetimeThreshold = 4
-                        if tAirSubteamData[oBrain.M28SubteamData][refbNoAvailableTorpsForEnemies] then iLifetimeThreshold = 20 end
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Added table of air facs for brain '..oBrain.Nickname..'; is tPotentialUnits empty='..tostring(M28Utilities.IsTableEmpty(tPotentialUnits))..'; iLifetimeThreshold='..iLifetimeThreshold..'; tAirSubteamData[oBrain.M28SubteamData][refbNoAvailableTorpsForEnemies]='..tostring(tAirSubteamData[oBrain.M28SubteamData][refbNoAvailableTorpsForEnemies] or false)) end
+                        if tAirSubteamData[oBrain.M28AirSubteam][refbNoAvailableTorpsForEnemies] then iLifetimeThreshold = 20 end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Added table of air facs for brain '..oBrain.Nickname..'; is tPotentialUnits empty='..tostring(M28Utilities.IsTableEmpty(tPotentialUnits))..'; iLifetimeThreshold='..iLifetimeThreshold..'; tAirSubteamData[oBrain.M28AirSubteam][refbNoAvailableTorpsForEnemies]='..tostring(tAirSubteamData[oBrain.M28AirSubteam][refbNoAvailableTorpsForEnemies] or false)) end
                         for iFactory, oFactory in tPotentialUnits do
-                            if M28Conditions.GetFactoryLifetimeCount(oFactory, categories.MOBILE - M28UnitInfo.refCategoryAirScout) > iLifetimeThreshold or (oBrain[M28Economy.refiOurHighestAirFactoryTech] <= oBrain[M28Economy.refiOurHighestLandFactoryTech] and not(tAirSubteamData[oBrain.M28SubteamData][refbNoAvailableTorpsForEnemies])) then
+                            if M28Conditions.GetFactoryLifetimeCount(oFactory, categories.MOBILE - M28UnitInfo.refCategoryAirScout) > iLifetimeThreshold or (oBrain[M28Economy.refiOurHighestAirFactoryTech] <= oBrain[M28Economy.refiOurHighestLandFactoryTech] and not(tAirSubteamData[oBrain.M28AirSubteam][refbNoAvailableTorpsForEnemies])) then
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will add factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..' with mobile lifetime count='..M28Conditions.GetFactoryLifetimeCount(oFactory, categories.MOBILE - M28UnitInfo.refCategoryAirScout)..' to the table') end
                                 AddPotentialUnitsToShortlist(toSafeUnitsToUpgrade, { oFactory })
                             end
