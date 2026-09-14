@@ -870,7 +870,7 @@ local function DoesFactoryQueueHaveRoomForBlueprint(oFactory, sBlueprint)
     return GetFactoryLiveQueuedCountForBlueprint(oFactory, sBlueprint) < iCap
 end
 
-local function ShouldRetireFactoryAfterNoBuild(aiBrain, oFactory, tLZOrWZTeamData, iPlateauOrZero, iLandOrWaterZone)
+function ShouldRetireFactoryAfterNoBuild(aiBrain, oFactory, tLZOrWZTeamData, iPlateauOrZero, iLandOrWaterZone)
     local sFunctionRef = 'ShouldRetireFactoryAfterNoBuild'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelFactory, sFunctionRef)
     local bFactoryValid = M28UnitInfo.IsUnitValid(oFactory)
@@ -909,6 +909,16 @@ local function ShouldRetireFactoryAfterNoBuild(aiBrain, oFactory, tLZOrWZTeamDat
         sVetoReason = 'NoZoneTeamData'
     elseif bPrimaryFactory then
         sVetoReason = 'PrimaryFactoryForIslandOrPond'
+    elseif oFactory:GetFractionComplete() < 1 or oFactory:IsUnitState('Upgrading') or oFactory:IsUnitState('BeingUpgraded')
+        or oFactory[refsPendingFactoryUpgradeBlueprint] then
+        sVetoReason = 'ConstructionOrUpgrade'
+    elseif oFactory:IsUnitState('Building') or not(M28Utilities.IsTableEmpty(oFactory:GetCommandQueue())) then
+        oFactory.M28FactoryNoBuildSince = nil
+        sVetoReason = 'ActiveProduction'
+    elseif GetGameTimeSeconds() - (oFactory.M28FactoryCompletedTime or GetGameTimeSeconds()) < 120 then
+        sVetoReason = 'NewFactory'
+    elseif GetGameTimeSeconds() - (oFactory.M28FactoryNoBuildSince or GetGameTimeSeconds()) < 60 then
+        sVetoReason = 'TemporaryNoBuild'
     else
         iFactoryType = M28UnitInfo.GetFactoryType(oFactory)
         iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
@@ -922,7 +932,7 @@ local function ShouldRetireFactoryAfterNoBuild(aiBrain, oFactory, tLZOrWZTeamDat
                 if bKeepLowerTechLandProduction then
                     sVetoReason = 'KeepLowerTechLandProduction'
                 else
-                    iHigherTechCategory = M28UnitInfo.refCategoryLandFactory - M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)
+                    iHigherTechCategory = M28UnitInfo.refCategoryLandFactory * (iFactoryTechLevel == 1 and (categories.TECH2 + categories.TECH3) or categories.TECH3)
                     sRetireReason = 'LandObsolete'
                 end
             end
@@ -932,7 +942,7 @@ local function ShouldRetireFactoryAfterNoBuild(aiBrain, oFactory, tLZOrWZTeamDat
             if not(bObsoleteByTech) then
                 sVetoReason = 'HighestAirTech'
             else
-                iHigherTechCategory = M28UnitInfo.refCategoryAirFactory - M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)
+                iHigherTechCategory = M28UnitInfo.refCategoryAirFactory * (iFactoryTechLevel == 1 and (categories.TECH2 + categories.TECH3) or categories.TECH3)
                 sRetireReason = 'AirObsolete'
             end
         elseif iFactoryType == refiFactoryTypeNaval then
@@ -941,7 +951,7 @@ local function ShouldRetireFactoryAfterNoBuild(aiBrain, oFactory, tLZOrWZTeamDat
             if not(bObsoleteByTech) then
                 sVetoReason = 'HighestNavalTech'
             else
-                iHigherTechCategory = M28UnitInfo.refCategoryNavalFactory - M28UnitInfo.ConvertTechLevelToCategory(iFactoryTechLevel)
+                iHigherTechCategory = M28UnitInfo.refCategoryNavalFactory * (iFactoryTechLevel == 1 and (categories.TECH2 + categories.TECH3) or categories.TECH3)
                 sRetireReason = 'NavalObsolete'
             end
         else
@@ -950,7 +960,12 @@ local function ShouldRetireFactoryAfterNoBuild(aiBrain, oFactory, tLZOrWZTeamDat
 
         if not(sVetoReason) then
             iHigherTechFactoriesInZone = M28Conditions.GetNumberOfConstructedUnitsMeetingCategoryInZone(tLZOrWZTeamData, iHigherTechCategory)
-            iHigherTechFactoriesTeam = aiBrain:GetCurrentUnits(iHigherTechCategory)
+            iHigherTechFactoriesTeam = 0
+            for _, oReplacement in aiBrain:GetListOfUnits(iHigherTechCategory, false, true) do
+                if M28UnitInfo.IsUnitValid(oReplacement) and oReplacement:GetFractionComplete() == 1 then
+                    iHigherTechFactoriesTeam = iHigherTechFactoriesTeam + 1
+                end
+            end
             bLowMassRetirementPressure = M28Conditions.HaveLowMass(aiBrain) and iFactoryTechLevel < iHighestFactoryTech
             iTeamReplacementRequirement = (bOverFactoryMassBudget or bLowMassRetirementPressure) and 1 or 2
             if iHigherTechFactoriesInZone == 0 and iHigherTechFactoriesTeam < iTeamReplacementRequirement then
@@ -1592,37 +1607,9 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
                     M28Team.tTeamData[iTeam][M28Team.refoLastStagnantPausedFactory] = nil
                 end
             else
-                --CTRL+K one factory if stagnant for 120+ seconds (2 minutes), with 60s cooldown between kills
-                local iTimeSinceLastCtrlK = iCurTime - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastStagnantCtrlK] or -1000)
-                if iTimeStagnant >= 120 and iTimeSinceLastCtrlK >= 60 then
-                    --Only ctrl+K lower tech factories, and only if we have at least 2 of that factory type
-                    if iFactoryTechLevel < M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech] then
-                        local iSearchCategory
-                        if iFactoryType == refiFactoryTypeLand then
-                            iSearchCategory = M28UnitInfo.refCategoryLandFactory
-                        else
-                            iSearchCategory = M28UnitInfo.refCategoryNavalFactory
-                        end
-                        local tFactoriesOfType = aiBrain:GetListOfUnits(iSearchCategory, false, true)
-                        local iFactoryCount = 0
-                        if M28Utilities.IsTableEmpty(tFactoriesOfType) == false then
-                            for _, oFac in tFactoriesOfType do
-                                if oFac:GetFractionComplete() == 1 then iFactoryCount = iFactoryCount + 1 end
-                            end
-                        end
-
-                        if iFactoryCount >= 2 then --Only ctrl+K if we have at least 2 factories
-                            if bDebugMessages == true then
-                                LOG(sFunctionRef..': ECO STAGNANT CTRL+K - Destroying factory '..oFactory.UnitId..M28UnitInfo.GetUnitLifetimeCount(oFactory)..
-                                    ' (Tech'..iFactoryTechLevel..') | FactoryCount='..iFactoryCount..' | TimeStagnant='..string.format('%.0f', iTimeStagnant)..'s')
-                            end
-                            M28Team.tTeamData[iTeam][M28Team.refiTimeLastStagnantCtrlK] = iCurTime
-                            M28Orders.IssueTrackedKillUnit(oFactory)
-                            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-                            return nil
-                        end
-                    end
-                end
+                -- Stagnation limits production here. Only the no-build
+                -- retirement owner may remove an obsolete factory after its
+                -- live replacement and lifecycle checks have passed.
 
                 --PAUSE PRODUCTION on one factory at a time when stagnant for 60+ seconds
                 local iTimeSinceLastPause = iCurTime - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastStagnantPause] or -1000)
@@ -8473,6 +8460,12 @@ function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
 end
 
 function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait)
+    if M28UnitInfo.IsUnitValid(oFactory) and oFactory:GetFractionComplete() == 1 then
+        oFactory.M28FactoryCompletedTime = oFactory.M28FactoryCompletedTime or GetGameTimeSeconds()
+        if oFactory:IsUnitState('Building') or not(M28Utilities.IsTableEmpty(oFactory:GetCommandQueue())) then
+            oFactory.M28FactoryNoBuildSince = nil
+        end
+    end
     -- Reuse admission scans within this decision, never across other factories'
     -- intervening queue changes.
     oFactory[refsFactoryAdmissionDrainCache] = nil
@@ -8617,6 +8610,7 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait)
                         --Campaign - clear orders if work progress is 0 to protect against issues where campaign AI script tells the factory to build something it cant due to unit restrictions
                         if M28Map.bIsCampaignMap and oFactory:GetWorkProgress() == 0 then M28Orders.IssueTrackedClearCommands(oFactory) end
                         if M28Orders.IssueTrackedFactoryBuild(oFactory, sBPToBuild, bAddToExistingQueue) then
+                            oFactory.M28FactoryNoBuildSince = nil
                             QueueAdditionalFactoryBuildOrders(aiBrain, oFactory, sBPToBuild)
                         else
                             InvalidateFactoryBuildPlan(oFactory)
@@ -8628,6 +8622,7 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait)
                 else
                     InvalidateFactoryBuildPlan(oFactory)
                     oFactory[refiTimeSinceLastFailedToGetOrder] = GetGameTimeSeconds()
+                    oFactory.M28FactoryNoBuildSince = oFactory.M28FactoryNoBuildSince or GetGameTimeSeconds()
                     --Clear any assisting engineers
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We dont have anything to build, will wait 10 ticks and try again.  In the meantime will clear all assisting engineers. Is table of assisting units empty='..tostring(M28Utilities.IsTableEmpty(oFactory[M28UnitInfo.reftoUnitsAssistingThis]))) end
                     if M28Utilities.IsTableEmpty(oFactory[M28UnitInfo.reftoUnitsAssistingThis]) == false then
