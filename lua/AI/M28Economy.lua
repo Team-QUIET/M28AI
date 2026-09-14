@@ -2625,7 +2625,7 @@ function ManageMassStalls(iTeam)
                                                         bApplyActionToUnit = true
                                                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have an action match, iActionRef='..iActionRef..'; will apply action to unitunless have an override such as priamry power builder, oUnit[M28Engineer.refbPrimaryBuilder]='..tostring(oUnit[M28Engineer.refbPrimaryBuilder])) end
                                                         --Dont pause the last engi building power or GE Template, and also dont pause if are building PD/T2 Arti/Shield/Experimental and have a fraction complete of at least 70%
-                                                        if oUnit[M28Engineer.refbPrimaryBuilder] and (iActionRef == M28Engineer.refActionBuildPower or iActionRef == M28Engineer.refActionBuildSecondPower or iActionRef == M28Engineer.refActionManageGameEnderTemplate) then
+                                                        if IsPrimaryPowerBuilder(oUnit) or (oUnit[M28Engineer.refbPrimaryBuilder] and iActionRef == M28Engineer.refActionManageGameEnderTemplate) then
                                                             bApplyActionToUnit = false
                                                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dealing with primary builder that is building power or GE template so wont pause') end
                                                         elseif oUnit.GetFocusUnit then
@@ -2887,6 +2887,22 @@ function ManageMassStalls(iTeam)
         M28Utilities.ErrorHandler('No active M28 brains')
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+end
+
+function IsPowerConstructionAction(iAction)
+    return iAction == M28Engineer.refActionBuildPower or iAction == M28Engineer.refActionBuildSecondPower
+        or iAction == M28Engineer.refActionBuildThirdPower
+end
+
+function IsPrimaryPowerBuilder(oEngineer)
+    return oEngineer[M28Engineer.refbPrimaryBuilder] and IsPowerConstructionAction(oEngineer[M28Engineer.refiAssignedAction])
+end
+
+function ShouldPauseRadarForEnergy(aiBrain)
+    -- A reserve shortfall should not blind the army while construction can be paused instead.
+    local iNetPerSecond = math.min(aiBrain[refiNetEnergyBaseIncome] or 0, aiBrain:GetEconomyTrend('ENERGY')) * 10
+    return iNetPerSecond < 0 and (aiBrain:GetEconomyStoredRatio('ENERGY') <= 0.15
+        or aiBrain:GetEconomyStored('ENERGY') <= -iNetPerSecond * 8)
 end
 
 function ManageEnergyStalls(iTeam)
@@ -3269,7 +3285,9 @@ function ManageEnergyStalls(iTeam)
                                                         bApplyActionToUnit = true
                                                         --Dont pause the last engi building power
 
-                                                        if iActionRef == M28Engineer.refActionBuildPower and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.7 then
+                                                        if IsPowerConstructionAction(iActionRef) then
+                                                            -- Finish admitted power projects through an energy shortage.
+                                                            -- Mass throttling still controls their extra assistants.
                                                             bApplyActionToUnit = false
                                                             --Dont pause T1 factory construction if we have a certain amount of gross energy income
                                                         elseif iActionRef == M28Engineer.refActionBuildLandFactory and EntityCategoryContains(categories.TECH1, oUnit.UnitId) and oBrain[refiGrossEnergyBaseIncome] >= 26 then
@@ -3360,6 +3378,10 @@ function ManageEnergyStalls(iTeam)
                                     end
 
 
+
+                                    if bApplyActionToUnit and bPauseNotUnpause and EntityCategoryContains(M28UnitInfo.refCategoryRadar, oUnit.UnitId) then
+                                        bApplyActionToUnit = ShouldPauseRadarForEnergy(oUnit:GetAIBrain())
+                                    end
 
                                     --Pause the unit
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bApplyActionToUnit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'='..tostring(bApplyActionToUnit)) end
@@ -4353,7 +4375,6 @@ local function ShouldDelayPowerPgenUpgrade(oUnit, iTeam, tLZOrWZData, tLZOrWZTea
     local iActiveBrains = math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1)
     local bWantMorePower = M28Conditions.WantMorePower(iTeam)
     local bGoodMassForUpgrade = not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0) >= 0.35 and ((M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 0) >= 2 or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0) >= 12 * iActiveBrains or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] or 0) >= 250)
-    local iPendingHighTechPowerCount, iPendingHighTechPowerIncome = M28Conditions.GetPendingHighTechPowerDetails(iTeam)
     local iEnemyNearOurSide = 0
     local iAllyNearOurSide = 0
     local bPrioritiseProduction = false
@@ -4369,7 +4390,7 @@ local function ShouldDelayPowerPgenUpgrade(oUnit, iTeam, tLZOrWZData, tLZOrWZTea
     if not(bWantMorePower) or not(bGoodMassForUpgrade) then
         return true
     end
-    if iPendingHighTechPowerCount >= 1 and iPendingHighTechPowerIncome >= math.max(100, (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] or 0) * 0.15) and not(M28Conditions.HaveLowPower(iTeam)) then
+    if M28Conditions.ShouldHoldOffStartingNewHighTechPower(iTeam) then
         return true
     end
     if bEnemyStillSubT3Ground and (bPrioritiseProduction or bLandPressureNearOurSide or bLocalContestedPressure) then

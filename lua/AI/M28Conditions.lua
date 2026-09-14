@@ -4398,6 +4398,7 @@ function GetPendingHighTechPowerDetails(iTeam)
                         oQueuedBlueprint = __blueprints[sBuildingId]
                         iPendingHighTechPowerCount = iPendingHighTechPowerCount + 1
                         iPendingHighTechPowerIncome = iPendingHighTechPowerIncome + ((oQueuedBlueprint and (oQueuedBlueprint.Economy or {}).ProductionPerSecondEnergy) or 0)
+                            * 0.1 * (oPrimaryBuilder:GetAIBrain()[M28Economy.refiBrainResourceMultiplier] or 1)
                     end
                 end
             end
@@ -4416,14 +4417,16 @@ function GetPendingHighTechPowerDetails(iTeam)
                 for iUnit, oUnit in tHighTechPowerUnits do
                     if M28UnitInfo.IsUnitValid(oUnit) then
                         oBlueprint = oUnit:GetBlueprint()
-                        iCurrentEnergy = ((oBlueprint.Economy or {}).ProductionPerSecondEnergy or 0)
+                        -- Match the team's income ledger: energy per tick, including the owner multiplier.
+                        local iIncomeScale = 0.1 * (oBrain[M28Economy.refiBrainResourceMultiplier] or 1)
+                        iCurrentEnergy = ((oBlueprint.Economy or {}).ProductionPerSecondEnergy or 0) * iIncomeScale
                         if oUnit:GetFractionComplete() < 1 then
                             iPendingHighTechPowerCount = iPendingHighTechPowerCount + 1
                             iPendingHighTechPowerIncome = iPendingHighTechPowerIncome + iCurrentEnergy
                         elseif EntityCategoryContains(M28UnitInfo.refCategoryT3Power, oUnit.UnitId) and (oUnit:IsUnitState('Upgrading') or oUnit:IsUnitState('BeingUpgraded')) then
                             sUpgradeId = M28UnitInfo.GetUnitUpgradeBlueprint(oUnit, true) or ((oBlueprint.General or {}).UpgradesTo)
                             oUpgradeBlueprint = sUpgradeId and __blueprints[sUpgradeId]
-                            iUpgradeEnergy = oUpgradeBlueprint and ((oUpgradeBlueprint.Economy or {}).ProductionPerSecondEnergy or 0) or 0
+                            iUpgradeEnergy = oUpgradeBlueprint and ((oUpgradeBlueprint.Economy or {}).ProductionPerSecondEnergy or 0) * iIncomeScale or 0
                             if iUpgradeEnergy > iCurrentEnergy then
                                 iPendingHighTechPowerCount = iPendingHighTechPowerCount + 1
                                 iPendingHighTechPowerIncome = iPendingHighTechPowerIncome + (iUpgradeEnergy - iCurrentEnergy)
@@ -4466,12 +4469,12 @@ end
 function ShouldHoldOffStartingNewHighTechPower(iTeam)
     local iPendingHighTechPowerCount, iPendingHighTechPowerIncome = GetPendingHighTechPowerDetails(iTeam)
     local iActiveBrains = math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1)
-    local iPendingCountThreshold = math.max(1, math.min(2, iActiveBrains - 1))
-    local bHardEnergyEmergency = M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and ((M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] or 1) <= 0.08 or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] or 0) <= -25 or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] or 0) <= 50 * iActiveBrains)
-    if iPendingHighTechPowerCount >= iPendingCountThreshold and iPendingHighTechPowerIncome >= math.max(100, (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] or 0) * 0.2) and not(bHardEnergyEmergency) then
-        return true
-    end
-    return false
+    local tTeam = M28Team.tTeamData[iTeam]
+    local iIncomeNeeded = math.max(100, (tTeam[M28Team.subrefiTeamGrossEnergy] or 0) * 0.2,
+        M28Factory.GetCombatProductionEnergyDemand(iTeam) - (tTeam[M28Team.subrefiTeamNetEnergy] or 0))
+    -- Once pending output covers the shortfall, finish it instead of splitting
+    -- build power over more foundations. Local assistance remains available.
+    return iPendingHighTechPowerCount >= iActiveBrains and iPendingHighTechPowerIncome >= iIncomeNeeded
 end
 
 function WantMoreEngineersToAssistMexUpgradeAsPriority(tLZOrWZTeamData, iTeam)
