@@ -3760,15 +3760,23 @@ end
 function GetLocalAirAAFightStrength(oFighter, tPosition)
     local aiBrain = oFighter:GetAIBrain()
     local tOwnPosition = oFighter:GetPosition()
+    local iArrivalTime = M28Utilities.GetDistanceBetweenPositions(tOwnPosition, tPosition)
+        / math.max(1, (oFighter:GetBlueprint().Physics or {}).MaxSpeed or 1)
     local tFriendly, tEnemy = {}, {}
     for _, oAlly in aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryAirAA, tOwnPosition, 100, 'Ally') do
         if IsAirAAOperationalForLocalEscort(aiBrain.M28AirSubteam, oAlly, tPosition)
-                and M28Utilities.GetDistanceBetweenPositions(oAlly:GetPosition(),tPosition) <= 160 then table.insert(tFriendly,oAlly) end
+                and M28Utilities.GetDistanceBetweenPositions(oAlly:GetPosition(),tPosition)
+                    / math.max(1, (oAlly:GetBlueprint().Physics or {}).MaxSpeed or 1) <= iArrivalTime + 3 then
+            table.insert(tFriendly,oAlly)
+        end
     end
     for _, oEnemy in M28Team.tTeamData[aiBrain.M28Team][M28Team.reftoEnemyAirAA] or {} do
         local tKnown, _, iAge = M28Intel.GetKnownThreatPosition(aiBrain,oEnemy,20)
-        if tKnown and M28Utilities.GetDistanceBetweenPositions(tKnown,tPosition) <= 100 + math.min(50,iAge*10) then
-            table.insert(tEnemy,oEnemy)
+        if tKnown then
+            local iReach = math.min(150, math.max(iAge * 10, iArrivalTime * ((oEnemy:GetBlueprint().Physics or {}).MaxSpeed or 10)))
+            if M28Utilities.GetDistanceBetweenPositions(tKnown,tPosition) <= 100 + iReach then
+                table.insert(tEnemy,oEnemy)
+            end
         end
     end
     return M28UnitInfo.GetAirThreatLevel(tFriendly,false,true,false,false,false,false),
@@ -3813,7 +3821,7 @@ function GetLocalGunshipOpportunity(tAircraft, iTeam, iAirSubteam)
     local iThreat = M28UnitInfo.GetAirThreatLevel(tAircraft, false, false, false, true, false, false)
     local aiBrain = oFront:GetAIBrain()
     local tCandidates = {}
-    for _, oEnemy in aiBrain:GetUnitsAroundPoint(categories.LAND - categories.SCOUT, tPosition, 180, 'Enemy') do
+    for _, oEnemy in aiBrain:GetUnitsAroundPoint(categories.LAND - categories.SCOUT, tPosition, 400, 'Enemy') do
         if M28UnitInfo.IsUnitValid(oEnemy) and M28UnitInfo.CanSeeUnit(aiBrain, oEnemy) and not(M28UnitInfo.IsUnitUnderwater(oEnemy))
                 and not(oEnemy:IsUnitState('Attached')) and M28Conditions.IsLocationInPlayableArea(oEnemy:GetPosition())
                 and not(M28Conditions.IsTargetNearActiveNukeTarget(oEnemy:GetPosition(), iTeam, 60)) then
@@ -3821,10 +3829,19 @@ function GetLocalGunshipOpportunity(tAircraft, iTeam, iAirSubteam)
         end
     end
     table.sort(tCandidates, function(a, b) if a.distance == b.distance then return a.unit.EntityId < b.unit.EntityId end return a.distance < b.distance end)
-    for i = 1, math.min(6, table.getn(tCandidates)) do
+    local tCheckedAreas = {}
+    local iAreasChecked = 0
+    for i = 1, table.getn(tCandidates) do
         local oTarget = tCandidates[i].unit
-        if GetStrikeRouteGroundAAThreat(oFront, tPosition, oTarget:GetPosition(), 15) <= iThreat * 0.2
-                and not(GetStrikeAircraftFighterInterceptionRisk(iTeam, iAirSubteam, tAircraft, oTarget:GetPosition(), true)) then return oTarget end
+        local tTarget = oTarget:GetPosition()
+        local sArea = math.floor(tTarget[1]/40)..':'..math.floor(tTarget[3]/40)
+        if not(tCheckedAreas[sArea]) then
+            tCheckedAreas[sArea] = true
+            iAreasChecked = iAreasChecked + 1
+            if GetStrikeRouteGroundAAThreat(oFront, tPosition, tTarget, 15) <= iThreat * 0.2
+                    and not(GetStrikeAircraftFighterInterceptionRisk(iTeam, iAirSubteam, tAircraft, tTarget, true)) then return oTarget end
+            if iAreasChecked >= 12 then break end
+        end
     end
     return nil
 end
@@ -8931,6 +8948,14 @@ function GetGunshipsToMoveToTarget(tAvailableGunships, tTarget, oOptionalTarget)
     end
 
     function MoveIndividualGunship(oClosestUnit, tUnitDestination)
+        if EntityCategoryContains(categories.EXPERIMENTAL, oClosestUnit.UnitId)
+                and M28UnitInfo.IsUnitValid(oOptionalTarget)
+                and M28UnitInfo.CanSeeUnit(oClosestUnit:GetAIBrain(), oOptionalTarget) then
+            -- Native attack owns approach, turning and weapon deployment. The
+            -- target and route have already passed the gunship safety checks.
+            M28Orders.IssueTrackedAttack(oClosestUnit, oOptionalTarget, false, 'GSExpAttack', false)
+            return
+        end
         --Experimental gunship doesnt attack properly when just given a move order
         local bIsCzar = EntityCategoryContains(M28UnitInfo.refCategoryCzar, oClosestUnit.UnitId)
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Are we dealing with an experimental='..tostring( EntityCategoryContains(categories.EXPERIMENTAL, oClosestUnit.UnitId))..'; Dist to unit destination='..M28Utilities.GetDistanceBetweenPositions(oClosestUnit:GetPosition(), tUnitDestination)..'; Is oOptionalTarget valid='..tostring(M28UnitInfo.IsUnitValid(oOptionalTarget))..'; oOptionalTarget='..(oOptionalTarget.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oOptionalTarget) or 'nil')..'; Is this a czar='..tostring(bIsCzar)) end

@@ -13631,7 +13631,7 @@ function ShouldWithdrawLandExperimentalFromAir(oUnit)
     local aiBrain = oUnit:GetAIBrain()
     local tPosition = oUnit:GetPosition()
     local iStrikeDamage, iBomberMass = 0, 0
-    for _, oBomber in aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryBomber, tPosition, 240, 'Enemy') do
+    for _, oBomber in aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryBomber, tPosition, 320, 'Enemy') do
         if M28Air.IsAttackAirApproachingProtectedUnit(oBomber, oUnit) then
             local _, iDamage = M28UnitInfo.GetBomberAOEAndStrikeDamage(oBomber)
             iStrikeDamage = iStrikeDamage + (iDamage or 0)
@@ -13639,7 +13639,7 @@ function ShouldWithdrawLandExperimentalFromAir(oUnit)
         end
     end
     local iShield = M28UnitInfo.GetCurrentAndMaximumShield(oUnit, true)
-    local bExposed = iStrikeDamage >= (oUnit:GetHealth() + (iShield or 0)) * 0.2
+    local bExposed = iStrikeDamage >= (oUnit:GetHealth() + (iShield or 0)) * 0.12
     if bExposed and iBomberMass > 0 then
         local tCover = {}
         for _, oAA in aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryGroundAA + M28UnitInfo.refCategoryAirAA, tPosition, 100, 'Ally') do
@@ -13649,6 +13649,15 @@ function ShouldWithdrawLandExperimentalFromAir(oUnit)
             end
         end
         local iCoverThreat = M28Utilities.IsTableEmpty(tCover) and 0 or M28UnitInfo.GetAirThreatLevel(tCover, false, true, true, false, false, false)
+        local tEnemyFighters = {}
+        for _, oFighter in aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryAirAA, tPosition, 180, 'Enemy') do
+            if M28UnitInfo.CanSeeUnit(aiBrain, oFighter) then table.insert(tEnemyFighters, oFighter) end
+        end
+        local tFriendlyFighters = EntityCategoryFilterDown(M28UnitInfo.refCategoryAirAA, tCover)
+        local iFighterCover = M28UnitInfo.GetAirThreatLevel(tFriendlyFighters, false, true, false, false, false, false)
+        local iEnemyFighterThreat = M28UnitInfo.GetAirThreatLevel(tEnemyFighters, true, true, false, false, false, false)
+        -- Fighters occupied by a stronger screen cannot also cover the bomber pass.
+        iCoverThreat = iCoverThreat - math.min(iFighterCover, iEnemyFighterThreat)
         if iCoverThreat < iBomberMass * 0.75 then oUnit[refiExperimentalAirWithdrawalUntil] = GetGameTimeSeconds() + 10 end
     end
     return GetGameTimeSeconds() < (oUnit[refiExperimentalAirWithdrawalUntil] or -1)
