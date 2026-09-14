@@ -4391,11 +4391,11 @@ function GetLandZoneEconomicExposure(tZone, tTeamZone, iPlateau, iTeam)
     return iValue
 end
 
-function GetLandZoneDefensePriority(tZone, tTeamZone, iPlateau, iTeam)
+function GetLandZoneDefensePriority(tZone, tTeamZone, iPlateau, iTeam, iOptionalDefendingThreat)
     local iRaidThreat = (tTeamZone[subrefLZThreatEnemyMobileDFTotal] or 0)
         + (tTeamZone[subrefLZThreatEnemyMobileIndirectTotal] or 0)
     if iRaidThreat <= 0 then return 0 end
-    local iDefenders = tTeamZone[subrefLZTThreatAllyCombatTotal] or 0
+    local iDefenders = iOptionalDefendingThreat or tTeamZone[subrefLZTThreatAllyCombatTotal] or 0
     local iShortfall = math.max(0, 1 - iDefenders / (iRaidThreat * 1.25))
     if iShortfall == 0 then return 0 end
     local iExposure = GetLandZoneEconomicExposure(tZone, tTeamZone, iPlateau, iTeam)
