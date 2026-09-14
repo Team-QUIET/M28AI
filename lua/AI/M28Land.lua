@@ -5317,6 +5317,7 @@ local function IssueResolvedRetreatOrder(oUnit, tRetreatTarget, sRetreatOrderRef
     if not(tRetreatTarget) then return false end
     tRetreatOptions = tRetreatOptions or {}
     local bOverrideMicroOrder = tRetreatOptions.bOverrideMicroOrder or false
+    if not(bOverrideMicroOrder) and ShouldPreserveArtilleryEngagement(oUnit) then return false end
     if tRetreatOptions.bUseBackupThread then
         ForkThread(
             BackupUnitTowardsRallyIfAvailable,
@@ -5332,7 +5333,12 @@ local function IssueResolvedRetreatOrder(oUnit, tRetreatTarget, sRetreatOrderRef
     elseif tRetreatOptions.bUseAggressiveMove then
         M28Orders.IssueTrackedAggressiveMove(oUnit, tRetreatTarget, iOrderDistance, false, sRetreatOrderRef, bOverrideMicroOrder)
     elseif tRetreatOptions.bUseSmartMove then
-        M28Orders.IssueSmartMove(oUnit, tRetreatTarget, iOrderDistance, false, sRetreatOrderRef, bOverrideMicroOrder, true, tRetreatOptions.tSpreadAvoidanceAreaTables)
+        if bOverrideMicroOrder then
+            M28Orders.IssueSmartMove(oUnit, tRetreatTarget, iOrderDistance, false, sRetreatOrderRef, true, true, tRetreatOptions.tSpreadAvoidanceAreaTables)
+            return true
+        end
+        return IssueLandTacticalMove(oUnit, tRetreatTarget, iOrderDistance, sRetreatOrderRef, true,
+            tRetreatOptions.tSpreadAvoidanceAreaTables, oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck])
     else
         M28Orders.IssueTrackedMove(oUnit, tRetreatTarget, iOrderDistance, false, sRetreatOrderRef, bOverrideMicroOrder)
     end
@@ -9482,7 +9488,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                             if bUseAggressiveIndirectRetreat then
                                                                 M28Orders.IssueTrackedAggressiveMove(oUnit, tAmphibiousRallyPoint, 6, false, 'AIKRetr'..iLandZone)
                                                             else
-                                                                M28Orders.IssueSmartMove(oUnit, tAmphibiousRallyPoint, 6, false, 'AIKRetr'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
+                                                                IssueLandTacticalMove(oUnit, tAmphibiousRallyPoint, 6, 'AIKRetr'..iLandZone, true, tFixedDFSpreadAvoidanceAreaTables, oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck])
                                                             end
                                                         else
                                                             if iCurDistToDFEnemy <= math.max((oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck][M28UnitInfo.refiCombatRange] or 0) + 8, (oUnit[M28UnitInfo.refiCombatRange] or 0) - 10) then
@@ -9490,7 +9496,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                                 if tTemporaryRetreatLocation and NavUtils.GetLabel(M28Map.refPathingTypeLand, tTemporaryRetreatLocation) == tLZData[M28Map.subrefLZIslandRef] then
                                                                     bTemporaryKiting = true
                                                                     oUnit[M28UnitInfo.refiTimeLastTriedRetreating] = iCurTime
-                                                                    M28Orders.IssueSmartMove(oUnit, tTemporaryRetreatLocation, 6, false, 'IKEnRetr'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
+                                                                    IssueLandTacticalMove(oUnit, tTemporaryRetreatLocation, 6, 'IKEnRetr'..iLandZone, true, tFixedDFSpreadAvoidanceAreaTables, oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck])
                                                                 end
                                                             end
                                                             if not(bTemporaryKiting) then
@@ -9499,7 +9505,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                                                                 if bUseAggressiveIndirectRetreat then
                                                                     M28Orders.IssueTrackedAggressiveMove(oUnit, tRallyPoint, 6, false, 'IKRetr'..iLandZone)
                                                                 else
-                                                                    M28Orders.IssueSmartMove(oUnit, tRallyPoint, 6, false, 'IKRetr'..iLandZone, false, true, tFixedDFSpreadAvoidanceAreaTables)
+                                                                    IssueLandTacticalMove(oUnit, tRallyPoint, 6, 'IKRetr'..iLandZone, true, tFixedDFSpreadAvoidanceAreaTables, oUnit[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck])
                                                                 end
                                                             end
                                                         end
@@ -13358,11 +13364,11 @@ function RecordUnitAsReceivingLandZoneAssignment(oUnit, iPlateau, iLandZone)
 end
 
 function ShouldPreserveArtilleryEngagement(oUnit)
-    if not(EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, oUnit.UnitId)) then return false end
+    if oUnit[M28UnitInfo.refbSpecialMicroActive] or not(EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, oUnit.UnitId)) then return false end
     local iNow = GetGameTimeSeconds()
     local tOrders = oUnit[M28Orders.reftiLastOrders]
     local iOrderType = tOrders and tOrders[1] and tOrders[1][M28Orders.subrefiOrderType]
-    if (iOrderType ~= M28Orders.refiOrderIssueAggressiveMove and iOrderType ~= M28Orders.refiOrderIssueAttack)
+    if (iOrderType ~= M28Orders.refiOrderIssueAggressiveMove and iOrderType ~= M28Orders.refiOrderIssueAttack and iOrderType ~= M28Orders.refiOrderIssueMove)
             or oUnit:IsUnitState('Attached') or iNow - (oUnit[M28UnitInfo.refiTimeLastDamaged] or -100) < 2 then
         oUnit.M28ArtilleryDeployStarted = nil
         return false
@@ -13381,6 +13387,15 @@ function ShouldPreserveArtilleryEngagement(oUnit)
         oUnit.M28ArtilleryDeployStarted = nil
         return false
     end
+    -- A safe firing opportunity must not hold the unit in another enemy's range.
+    local aiBrain = oUnit:GetAIBrain()
+    for _, oEnemy in aiBrain:GetUnitsAroundPoint(categories.LAND * (categories.DIRECTFIRE + categories.COMMAND), oUnit:GetPosition(), 80, 'Enemy') do
+        local tKnown = M28Intel.GetKnownThreatPosition(aiBrain, oEnemy, 20)
+        if tKnown and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tKnown) <= (oEnemy[M28UnitInfo.refiDFRange] or 0) + 8 then
+            oUnit.M28ArtilleryDeployStarted = nil
+            return false
+        end
+    end
     if iNow < (oUnit.M28ArtilleryRetryAfter or -1) then return false end
     local iWindow = math.min(15, math.max(4, (oUnit[M28UnitInfo.refiTimeBetweenIFShots] or 8.5) + 3))
     if not(oUnit.M28ArtilleryDeployStarted) then oUnit.M28ArtilleryDeployStarted = iNow end
@@ -13390,6 +13405,10 @@ function ShouldPreserveArtilleryEngagement(oUnit)
         oUnit.M28ArtilleryDeployStarted = nil
         oUnit.M28ArtilleryRetryAfter = iNow + 3
         return false
+    end
+    if iOrderType == M28Orders.refiOrderIssueMove then
+        -- Ownership and safety were checked above; bypass the attack wrapper's deployment check.
+        M28Orders.IssueTrackedAttack(oUnit, oTarget, false, 'ArtyDeploy', true)
     end
     return true
 end
@@ -13543,6 +13562,7 @@ end
 
 function IssueLandTacticalMove(oUnit, tPosition, iReissueDistance, sDescription, bSupport, tAvoidance, oEnemy)
     if oUnit[M28UnitInfo.refbSpecialMicroActive] then return false end
+    if ShouldPreserveArtilleryEngagement(oUnit) then return false end
     local tPrevious = oUnit.M28LandTacticalMove
     local iNow = GetGameTimeSeconds()
     local tPositionNow = oUnit:GetPosition()
