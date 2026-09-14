@@ -11381,6 +11381,7 @@ function GetEconomicZoneAACoverage(iTeam, iPlateau, tZoneData, tZoneTeamData)
 end
 
 function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iCurPriority, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrPond, iLandOrWaterZone, toAvailableEngineersByTech, toAssignedEngineers, bIsWaterZone, iSpecificFactionRequiredOverride, bDontUseLowerTechEngineersToAssist, bMarkAsSpare)
+    if iActionToAssign == refActionBuildT3MassFab and M28Conditions.HaveLowPower(iTeam) then return end
     local iRequestedPowerTech = IsPowerBuildAction(iActionToAssign) and iMinTechWanted or 0
     --vOptionalVariable can be a table, nil or a value; used to pass info specific to the action if it needs it
     local sFunctionRef = 'ConsiderActionToAssign'
@@ -12069,7 +12070,8 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                                             end
                                         end
                                     end
-                                elseif sBlueprint and not(ShouldHoldOffFreshHighTechPowerStart(iActionToAssign, iRequestedPowerTech, iTeam)) then
+                                elseif sBlueprint and not(ShouldHoldOffFreshHighTechPowerStart(iActionToAssign, iRequestedPowerTech, iTeam))
+                                    and (not(EntityCategoryContains(M28UnitInfo.refCategoryMassFab, sBlueprint)) or M28Economy.CanFundMassFab(aiBrain, sBlueprint, iTotalBuildPowerWanted)) then
                                     local tMoveLocation
                                     local oPowerBuildPrimary
                                     local oConstructionPrimary
@@ -24461,7 +24463,7 @@ function ConsiderBuildingMassFabOrGateway(iTeam, iZone, tLZTeamData, HaveActionT
                 if M28Utilities.IsTableEmpty( tQuantumGateways) == false then
                     for iUnit, oUnit in tQuantumGateways do
                         if oUnit:GetFractionComplete() == 1 then
-                            iExistingGateways = iExistingT3MassFabs + 1
+                            iExistingGateways = iExistingGateways + 1
                         end
                     end
                 end

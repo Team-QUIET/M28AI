@@ -875,6 +875,13 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
 
     if sUpgradeID and M28UnitInfo.IsUnitValid(oUnitToUpgrade) then
         local aiBrain = oUnitToUpgrade:GetAIBrain()
+        if EntityCategoryContains(M28UnitInfo.refCategoryMassFab, sUpgradeID)
+            and not(oUnitToUpgrade:IsUnitState('Upgrading') or oUnitToUpgrade:IsUnitState('BeingUpgraded'))
+            and not(CanFundMassFab(aiBrain, sUpgradeID, oUnitToUpgrade:GetBlueprint().Economy.BuildRate or 1, oUnitToUpgrade)) then
+            ForkThread(ConsiderMassFabUpgrade, oUnitToUpgrade, 10)
+            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+            return nil
+        end
         if EntityCategoryContains(M28UnitInfo.refCategoryMex, oUnitToUpgrade.UnitId) and ShouldDelayMexUpgradeForQuietTierOrder(oUnitToUpgrade, aiBrain.M28Team) then
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Aborting upgrade of mex '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' because a lower Quiet mex rung still has outstanding upgrades elsewhere on the team') end
             ForkThread(ConsiderFutureMexUpgrade, oUnitToUpgrade, 20)
@@ -974,6 +981,10 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
                 --Issue upgrade
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Issuing tracked upgrade for land factory '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..'; upgradeID='..(sUpgradeID or 'nil')..'; bAddToExistingQueue='..tostring(bAddToExistingQueue)..'; currentState='..M28UnitInfo.GetUnitState(oUnitToUpgrade)..'; queueEmpty='..tostring(M28Utilities.IsTableEmpty(oUnitToUpgrade:GetCommandQueue()))..'; reason='..(sReasonRef or 'nil')) end
                 M28Orders.IssueTrackedUpgrade(oUnitToUpgrade, sUpgradeID, bAddToExistingQueue, sReasonRef)
+                if EntityCategoryContains(M28UnitInfo.refCategoryMassFab, sUpgradeID) then
+                    oUnitToUpgrade.M28MassFabUpgradeOrderTime = GetGameTimeSeconds()
+                    oUnitToUpgrade.M28MassFabUpgradeBlueprint = sUpgradeID
+                end
                 bIssuedUpgrade = true
                 --Issue where if we give the upgrade presumably just as the unit has finihsed its own upgrade, then it shows as beingupgrade while also being complete; so we wait 1 second and try again
             elseif oUnitToUpgrade:GetFractionComplete() == 1 then
@@ -1708,6 +1719,12 @@ function UpdateGrossIncomeForUnit(oUnit, bDestroyed)
     -- storage adjacency. Credit a delta so repeats and replacements cannot add it twice.
     local iMass = math.max(0, oUnit:GetProductionPerSecondMass()) * 0.1
     local iEnergy = math.max(0, oUnit:GetProductionPerSecondEnergy()) * 0.1
+    if EntityCategoryContains(M28UnitInfo.refCategoryMassFab, oUnit.UnitId) then
+        -- Native getters retain nominal rates while a converter is switched off.
+        local bPaused = oUnit.M28FabNativePaused
+        if bPaused == nil then bPaused = oUnit:IsPaused() end
+        if bPaused or oUnit.M28FabProductionPaused then iMass = 0; iEnergy = 0 end
+    end
     local iMassChange = iMass - (tRecorded and tRecorded.mass or 0)
     local iEnergyChange = iEnergy - (tRecorded and tRecorded.energy or 0)
     ApplyResourceIncomeChange(aiBrain, iMassChange, iEnergyChange)
@@ -4443,6 +4460,67 @@ function ConsiderPowerPgenUpgrade(oUnit, iOverrideSecondsToWait)
         end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+end
+
+function GetCommittedMassFabEnergy(iTeam, oExcludedUnit)
+    local iEnergy = 0
+    local tQueuedBuilders = {}
+    for _, aiBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains] or {} do
+        for _, oFab in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryMassFab, false, true) do
+            if M28UnitInfo.IsUnitValid(oFab) and oFab ~= oExcludedUnit then
+                local oBP = oFab:GetBlueprint()
+                local iMaintenance = (oBP.Economy.MaintenanceConsumptionPerSecondEnergy or 0)
+                if oFab:GetFractionComplete() < 1 then
+                    iEnergy = iEnergy + iMaintenance * 0.1
+                else
+                    local bJustOrdered = oFab.M28MassFabUpgradeOrderTime == GetGameTimeSeconds()
+                    if bJustOrdered or oFab:IsUnitState('Upgrading') or oFab:IsUnitState('BeingUpgraded') then
+                        local sUpgrade = bJustOrdered and oFab.M28MassFabUpgradeBlueprint or M28UnitInfo.GetUnitUpgradeBlueprint(oFab, true)
+                        local oUpgrade = sUpgrade and __blueprints[sUpgrade]
+                        if oUpgrade and oUpgrade.Economy then
+                            iMaintenance = math.max(iMaintenance, oUpgrade.Economy.MaintenanceConsumptionPerSecondEnergy or 0)
+                            if bJustOrdered then
+                                -- The next caller sees the reservation before native consumption updates.
+                                iEnergy = iEnergy + (oBP.Economy.BuildRate or 1) * (aiBrain[refiBrainBuildRateMultiplier] or 1)
+                                    * (oUpgrade.Economy.BuildCostEnergy or 0) / math.max(1, oUpgrade.Economy.BuildTime or 1) * 0.1
+                            end
+                        end
+                    end
+                    -- Pausing existing converters must not fund more converters.
+                    local iCurrent = oFab:GetConsumptionPerSecondEnergy()
+                    iEnergy = iEnergy + math.max(0, iMaintenance - iCurrent) * 0.1
+                end
+            end
+        end
+        for _, oEngineer in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryEngineer + categories.COMMAND, false, true) do
+            local sBlueprint, oTarget, oPrimary = M28Engineer.GetEngineerConstructionIntent(oEngineer)
+            if sBlueprint and not(oTarget) and not(tQueuedBuilders[oPrimary])
+                and EntityCategoryContains(M28UnitInfo.refCategoryMassFab, sBlueprint) then
+                tQueuedBuilders[oPrimary] = true
+                local tEco = __blueprints[sBlueprint].Economy
+                local tBuilderEco = oPrimary:GetBlueprint().Economy
+                iEnergy = iEnergy + ((tEco.MaintenanceConsumptionPerSecondEnergy or 0)
+                    + (tBuilderEco.BuildRate or 0) * (oPrimary:GetAIBrain()[refiBrainBuildRateMultiplier] or 1)
+                    * (tEco.BuildCostEnergy or 0) / math.max(1, tEco.BuildTime or 1)) * 0.1
+            end
+        end
+    end
+    return iEnergy
+end
+
+function CanFundMassFab(aiBrain, sBlueprint, iBuildPower, oUpgradeUnit)
+    local tTeam = aiBrain and M28Team.tTeamData[aiBrain.M28Team]
+    local oBP = sBlueprint and __blueprints[sBlueprint]
+    if not(tTeam and oBP and oBP.Economy) then return false end
+    if tTeam[M28Team.subrefbTeamIsStallingEnergy] or M28Conditions.HaveLowPower(aiBrain.M28Team) then return false end
+    local iMaintenance = oBP.Economy.MaintenanceConsumptionPerSecondEnergy or 0
+    if oUpgradeUnit then iMaintenance = math.max(0, iMaintenance - oUpgradeUnit:GetConsumptionPerSecondEnergy()) end
+    local iConstruction = (oBP.Economy.BuildCostEnergy or 0) / math.max(1, oBP.Economy.BuildTime or 1)
+        * (iBuildPower or 0) * (aiBrain[refiBrainBuildRateMultiplier] or 1)
+    local iReserve = math.max(6 * math.max(1, tTeam[M28Team.subrefiActiveM28BrainCount] or 1),
+        (tTeam[M28Team.subrefiTeamGrossEnergy] or 0) * 0.08)
+    return (tTeam[M28Team.subrefiTeamNetEnergy] or 0) - GetCommittedMassFabEnergy(aiBrain.M28Team, oUpgradeUnit)
+        - (iMaintenance + iConstruction) * 0.1 >= iReserve
 end
 
 function ConsiderMassFabUpgrade(oUnit, iOverrideSecondsToWait)

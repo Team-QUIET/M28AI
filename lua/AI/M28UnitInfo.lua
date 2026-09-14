@@ -3178,6 +3178,16 @@ function PauseOrUnpauseEnergyUsage(oUnit, bPauseNotUnpause, bExcludeProduction, 
             end
 
 
+            -- A converter's maintenance and production are separate from its
+            -- construction pause. Keep the native restart callback behind the
+            -- same energy-pause decision, including while an upgrade is paused.
+            if EntityCategoryContains(refCategoryMassFab, oUnit.UnitId) then
+                oUnit.M28FabEnergyPaused = bPauseNotUnpause
+                if bPauseNotUnpause then oUnit:OnProductionPaused()
+                else oUnit:OnProductionUnpaused()
+                end
+            end
+
             --Jamming - check via blueprint since no reliable category
             local oBP = oUnit:GetBlueprint()
             if oBP.Intel.JamRadius then

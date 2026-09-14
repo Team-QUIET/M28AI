@@ -4,6 +4,34 @@
 ---
 ---
 local M28Events = import('/mods/M28AI/lua/AI/M28Events.lua')
+local M28OldMassFabricationUnit = MassFabricationUnit
+MassFabricationUnit = Class(M28OldMassFabricationUnit) {
+    OnPaused = function(self)
+        self.M28FabNativePaused = true
+        M28OldMassFabricationUnit.OnPaused(self)
+        if self:GetAIBrain().M28AI then import('/mods/M28AI/lua/AI/M28Economy.lua').UpdateGrossIncomeForUnit(self) end
+    end,
+    OnUnpaused = function(self)
+        self.M28FabNativePaused = false
+        M28OldMassFabricationUnit.OnUnpaused(self)
+        if self:GetAIBrain().M28AI then import('/mods/M28AI/lua/AI/M28Economy.lua').UpdateGrossIncomeForUnit(self) end
+    end,
+    OnProductionPaused = function(self)
+        if self:GetAIBrain().M28AI and self.M28FabProductionPaused == true then return end
+        self.M28FabProductionPaused = true
+        M28OldMassFabricationUnit.OnProductionPaused(self)
+        if self:GetAIBrain().M28AI then import('/mods/M28AI/lua/AI/M28Economy.lua').UpdateGrossIncomeForUnit(self) end
+    end,
+    OnProductionUnpaused = function(self)
+        -- QUIET's automatic converter restart must respect an M28 energy pause.
+        if self:GetAIBrain().M28AI and self.M28FabEnergyPaused then return end
+        if self:GetAIBrain().M28AI and self.M28FabProductionPaused == false then return end
+        self.M28FabProductionPaused = false
+        M28OldMassFabricationUnit.OnProductionUnpaused(self)
+        if self:GetAIBrain().M28AI then import('/mods/M28AI/lua/AI/M28Economy.lua').UpdateGrossIncomeForUnit(self) end
+    end,
+}
+
 --safeGetGlobal provided by chatGPT
 local function safeGetGlobal(varName)
     local success, value = pcall(function() return _G[varName] end)
