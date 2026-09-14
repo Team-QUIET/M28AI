@@ -1427,6 +1427,39 @@ function GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryCondition, oFactor
 
 end
 
+function GetProactiveFighterThreatTarget(iAirSubteam, iEnemyAirAA, iEnemyAirToGround)
+    local iControlFactor = M28Team.tAirSubteamData[iAirSubteam][M28Team.refiAirControlFactor] or 1.15
+    return math.max(iEnemyAirAA * math.max(1.1, iControlFactor), iEnemyAirToGround * 0.55)
+end
+
+function GetSiegeArtilleryBlueprint(aiBrain, oFactory)
+    if M28UnitInfo.GetUnitTechLevel(oFactory) < 3 then return nil end
+    local iDirectFire = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand * categories.TECH3 - M28UnitInfo.refCategorySkirmisher)
+    if iDirectFire < 4 then return nil end
+    local sBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryT3MobileArtillery, oFactory)
+    if not(sBlueprint) then return nil end
+    local iRange = M28UnitInfo.GetBlueprintMaxGroundRange(__blueprints[sBlueprint])
+    local iDefenses = 0
+    for _, tDefense in M28Land.GetKnownLandDefenses(aiBrain) do
+        if tDefense.range >= 45 and tDefense.range + 12 <= iRange
+                and M28Utilities.GetDistanceBetweenPositions(oFactory:GetPosition(), tDefense.position) <= 600
+                and NavUtils.CanPathTo(M28Map.refPathingTypeLand, oFactory:GetPosition(), tDefense.position) then
+            iDefenses = iDefenses + 1
+        end
+    end
+    if iDefenses == 0 then return nil end
+    local iWanted = math.min(4, math.max(2, math.floor(iDirectFire * 0.2)), iDefenses + 1)
+    local iCommitted = 0
+    for _, oUnit in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryT3MobileArtillery, false, true) do
+        if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 then iCommitted = iCommitted + 1 end
+    end
+    for _, oOtherFactory in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory, false, true) do
+        iCommitted = iCommitted + GetFactoryPendingBuildCountByCategory(oOtherFactory, M28UnitInfo.refCategoryT3MobileArtillery)
+    end
+    if iCommitted < iWanted then return sBlueprint end
+    return nil
+end
+
 local function GetEnemyT3MobileArtilleryCount(iTeam)
     local iEnemyT3MobileArtiCount = 0
     if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains]) == false then
@@ -4474,6 +4507,13 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
         if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileLandStealth) then return sBPIDToBuild end
     end
 
+    --A defended front needs guns that outrange it before more short-range tanks.
+    --Queued guns count toward the small siege detachment, preserving its screen.
+    if FactoryEcoAllowsHighTechProduction(tFactoryEco) then
+        local sSiegeBlueprint = GetSiegeArtilleryBlueprint(aiBrain, oFactory)
+        if sSiegeBlueprint and ConsiderBuildingCategory(categories[sSiegeBlueprint]) then return sBPIDToBuild end
+    end
+
     --Upgrade toward T3 long-range land when the generic long-range owner wants sniper/artillery access.
     iCurrentConditionToTry = iCurrentConditionToTry + 1
     if iFactoryTechLevel < 3 and tLZTeamData[M28Map.subrefLZbCoreBase] and not(bHaveLowMass) then
@@ -6006,7 +6046,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                     end
                 end
             end
-        elseif (not (bHaveHighestLZTech) or iFactoryTechLevel < aiBrain[M28Economy.refiOurHighestLandFactoryTech]) and (not(M28Map.bIsLowMexMap) or not(bHaveLowMas)) then
+        elseif (not (bHaveHighestLZTech) or iFactoryTechLevel < aiBrain[M28Economy.refiOurHighestLandFactoryTech]) and (not(M28Map.bIsLowMexMap) or not(bHaveLowMass)) then
             --Dont have our brains highest tech, and have low mass
             if bDebugMessages == true then
                 LOG(sFunctionRef .. ': Consideringi f we want to upgrade factory, iFactoryTechLevel=' .. iFactoryTechLevel .. '; Brain highest tech=' .. aiBrain[M28Economy.refiOurHighestLandFactoryTech])
@@ -9014,7 +9054,7 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
     -- Even if not under immediate attack, prevent enemy from gaining overwhelming air superiority
     iCurrentConditionToTry = iCurrentConditionToTry + 1
     if not(bHaveLowPower) and (iEnemyAirAA >= 500 or iEnemyAirToGround >= 1000)
-            and iOurAirAA < math.max(iEnemyAirAA * 1.1, iEnemyAirToGround * 0.55) then
+            and iOurAirAA < GetProactiveFighterThreatTarget(iAirSubteam, iEnemyAirAA, iEnemyAirToGround) then
         sProductionDecisionReason = 'Proactive fighter production - preventing air disparity'
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Proactive fighter production to prevent air disparity from growing. Ratio='..string.format('%.2f', iOurAirAA / math.max(1, iEnemyAirAA))) end
         if ConsiderBuildingCategory(M28UnitInfo.refCategoryAirAA) then return sBPIDToBuild end
