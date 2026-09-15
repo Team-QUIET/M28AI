@@ -12637,7 +12637,7 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
         end
 
         if bReserveLandExperimental and not(bQueuedLandExperimentalReserve) and not(bIsWaterZone) and not(iActionToAssign == refActionBuildLandExperimental) and iOriginalTotalBuildPowerWanted > 0 then
-            local iLandExperimentalReserveBP = math.max(35, math.min(90, math.floor(iOriginalTotalBuildPowerWanted * 0.35)))
+            local iLandExperimentalReserveBP = math.max(35, math.min(100, math.floor(iOriginalTotalBuildPowerWanted * 0.5)))
             if M28Conditions.TeamHasLowMass(iTeam) then iLandExperimentalReserveBP = math.min(iLandExperimentalReserveBP, 45) end
             if M28Conditions.HaveLowPower(iTeam) then iLandExperimentalReserveBP = math.min(iLandExperimentalReserveBP, 35) end
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Queueing supplemental land experimental reserve, iActionToAssign='..iActionToAssign..'; iLandExperimentalReserveBP='..iLandExperimentalReserveBP..'; iPlateauOrPond='..iPlateauOrPond..'; iLandOrWaterZone='..iLandOrWaterZone) end
@@ -13988,7 +13988,7 @@ function GetLandExperimentalBuildPowerReserve(iTeam, iPlateau, iLandZone, iOptio
     --Keep the share after the mobile foundation starts, and count existing BP.
     if M28Conditions.HaveLowPower(iTeam) then return 30 end
     if M28Conditions.TeamHasLowMass(iTeam) then return 45 end
-    return 75
+    return 100
 end
 
 function GetExperimentalAggressionState(iTeam, iPlateau, iLandZone, iOptionalAirSubteam)
