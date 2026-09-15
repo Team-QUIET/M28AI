@@ -1094,6 +1094,7 @@ end
 function ShouldHoldOffPowerForMassCrash(iTeam)
     local tCurTeamData = M28Team.tTeamData[iTeam]
     if not(tCurTeamData) or tCurTeamData[M28Team.refbBuiltParagon] then return false end
+    if M28Economy.GetPausedEnergyDemand(iTeam) > math.max(0, tCurTeamData[M28Team.subrefiTeamNetEnergy] or 0) then return false end
 
     local iActiveBrains = math.max(1, tCurTeamData[M28Team.subrefiActiveM28BrainCount] or 1)
     local iTeamGrossMass = tCurTeamData[M28Team.subrefiTeamGrossMass] or 0
@@ -1136,6 +1137,11 @@ function HaveLowPower(iTeam)
     local sFunctionRef = 'HaveLowPower'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelConditions, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    if M28Economy.GetPausedEnergyDemand(iTeam) > math.max(0, M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetEnergy] or 0) then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return true
+    end
 
 
 
@@ -1285,7 +1291,7 @@ function WantMorePower(iTeam)
     local bHoldOffFreshHighTechPower = iPendingHighTechPowerCount >= iPendingCountThreshold and bMeaningfulPendingHighTechPower and not(bHardEnergyEmergency)
     local iProjectedGrossEnergy = iTeamGrossEnergy + iPendingHighTechPowerIncome
     local iProjectedNetEnergy = iTeamNetEnergy + iPendingHighTechPowerIncome * 0.25
-    local iCombatEnergyDemand = M28Factory.GetCombatProductionEnergyDemand(iTeam)
+    local iCombatEnergyDemand = M28Factory.GetCombatProductionEnergyDemand(iTeam) + M28Economy.GetPausedEnergyDemand(iTeam)
     local bPowerStillTightAfterProjectedIncome = iProjectedNetEnergy < math.max(6 * iActiveBrains, iProjectedGrossEnergy * 0.08) or (iGrossEnergyWhenStalled > 0 and iProjectedGrossEnergy < iGrossEnergyWhenStalled * (iTeamAvgMassStored >= 0.5 and 1.25 or 1.1))
     local bEarlyT1PowerPush = GetGameTimeSeconds() <= 480 and ShouldKeepT1RecoveryPowerOpen(iTeam) and iHighestTeamTech <= 2 and (
             iProjectedGrossEnergy < 30 * iActiveBrains * iResourceMod
@@ -4472,7 +4478,7 @@ function ShouldHoldOffStartingNewHighTechPower(iTeam)
     local iActiveBrains = math.max(1, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] or 1)
     local tTeam = M28Team.tTeamData[iTeam]
     local iIncomeNeeded = math.max(100, (tTeam[M28Team.subrefiTeamGrossEnergy] or 0) * 0.2,
-        M28Factory.GetCombatProductionEnergyDemand(iTeam) - (tTeam[M28Team.subrefiTeamNetEnergy] or 0))
+        M28Factory.GetCombatProductionEnergyDemand(iTeam) + M28Economy.GetPausedEnergyDemand(iTeam) - (tTeam[M28Team.subrefiTeamNetEnergy] or 0))
     -- Once pending output covers the shortfall, finish it instead of splitting
     -- build power over more foundations. Local assistance remains available.
     return iPendingHighTechPowerCount >= iActiveBrains and iPendingHighTechPowerIncome >= iIncomeNeeded

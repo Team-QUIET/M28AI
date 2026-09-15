@@ -186,6 +186,7 @@ refWeaponPriorityACUSnipe = {'COMMAND', 'DIRECTFIRE TECH1 MOBILE, INDIRECTFIRE T
 refWeaponPriorityExpSnipeACU = {'COMMAND', 'SHIELD STRUCTURE', 'SHIELD MOBILE', 'DIRECTFIRE', 'ALLUNITS'}
 refbUsingDefaultWeaponPriority = 'M28UDfW' --true if using default weapon priroity (for unit with multiple options - e.g. gunships)
 
+refiEnergyUnpauseDemand = 'M28EnergyUnpauseDemand' -- Energy per tick reserved for work suspended by an energy pause
 refbPaused = 'M28UnitPaused' --true if unit is paused
 refbCampaignNeverPause = 'M28UNeverPause' --only affects FAF; true if dont want unit to pause, e.g. due to being special campaign unit
 refiPausedPriority = 'M28UnitPsPr' --table index where the paused unit is s tored in team data
@@ -3012,6 +3013,7 @@ function AddOrRemoveUnitFromListOfPausedUnits(oUnit, bPauseNotUnpause, iOptional
     --Remove from list of paused units
     local iTeam = iOptionalTeam or oUnit:GetAIBrain().M28Team
     if not(bPauseNotUnpause) then
+        oUnit[refiEnergyUnpauseDemand] = nil
         local iUnitPausePriority = oUnit[refiPausedPriority]
         if iUnitPausePriority then
             local M28Team = import('/mods/M28AI/lua/AI/M28Team.lua')
@@ -3136,7 +3138,7 @@ function PauseOrUnpauseMassUsage(oUnit, bPauseNotUnpause, iOptionalTeam, iPauseP
     end
 end
 
-function PauseOrUnpauseEnergyUsage(oUnit, bPauseNotUnpause, bExcludeProduction, iOptionalTeam, iPausePriority)
+function PauseOrUnpauseEnergyUsage(oUnit, bPauseNotUnpause, bExcludeProduction, iOptionalTeam, iPausePriority, iEnergyDemand)
     --iPausePriority - only needed if are pausing the unit
     if bDontConsiderCombinedArmy or oUnit.M28Active then
         local sFunctionRef = 'PauseOrUnpauseEnergyUsage'
@@ -3151,6 +3153,11 @@ function PauseOrUnpauseEnergyUsage(oUnit, bPauseNotUnpause, bExcludeProduction, 
             if oUnit.GetWorkProgress then LOG(sFunctionRef..': Unit work progress='..oUnit:GetWorkProgress()..'; Unit fraction complete='..oUnit:GetFractionComplete()..'; Is arti template nil='..tostring(oUnit[import('/mods/M28AI/lua/AI/M28Building.lua').reftArtiTemplateRefs] == nil)) end
         end
         if IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 and oUnit.SetPaused and (not(oUnit[refbCampaignNeverPause]) or not(bPauseNotUnpause)) then
+            if bPauseNotUnpause then
+                oUnit[refiEnergyUnpauseDemand] = math.max(oUnit[refiEnergyUnpauseDemand] or 0, iEnergyDemand or 0)
+            else
+                oUnit[refiEnergyUnpauseDemand] = nil
+            end
             --Normal logic - just pause unit - exception if are dealing with a factory whose workcomplete is 100%
             --Want this to run before the later stages so can properly track if unit is paused
 

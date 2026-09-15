@@ -3486,7 +3486,7 @@ function ManageEnergyStalls(iTeam)
                                                 end
                                             end
                                         end
-                                        M28UnitInfo.PauseOrUnpauseEnergyUsage(oUnit, bPauseNotUnpause, nil, iTeam, iCategoryCount)
+                                        M28UnitInfo.PauseOrUnpauseEnergyUsage(oUnit, bPauseNotUnpause, nil, iTeam, iCategoryCount, iCurUnitEnergyUsage)
                                         --Cant move the below into unitinfo as get a crash if unitinfo tries to refernce the table of paused units
                                         --Managed to avoid the crash by making a localised import of M28Economy into the pauseorunpause function; want it in unitinfo as then m28orders can call the same function when clearing an engineer's orders
 
@@ -4472,6 +4472,23 @@ function ConsiderPowerPgenUpgrade(oUnit, iOverrideSecondsToWait)
         end
     end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+end
+
+function GetPausedEnergyDemand(iTeam)
+    -- Energy saved by pausing is still needed to resume the suspended work.
+    -- Mass-only pauses have no energy reservation; repeated entries count once.
+    local iEnergy = 0
+    local tCounted = {}
+    local tTeam = M28Team.tTeamData[iTeam]
+    for _, tUnits in tTeam[M28Team.subreftoPausedUnitsByPriority] or {} do
+        for _, oUnit in tUnits do
+            if not(tCounted[oUnit]) and M28UnitInfo.IsUnitValid(oUnit) and oUnit[M28UnitInfo.refbPaused] then
+                tCounted[oUnit] = true
+                iEnergy = iEnergy + (oUnit[M28UnitInfo.refiEnergyUnpauseDemand] or 0)
+            end
+        end
+    end
+    return iEnergy
 end
 
 function GetCommittedMassFabEnergy(iTeam, oExcludedUnit)
