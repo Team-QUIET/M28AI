@@ -3152,7 +3152,7 @@ function PauseOrUnpauseEnergyUsage(oUnit, bPauseNotUnpause, bExcludeProduction, 
 
             if not(bExcludeProduction) or bPauseNotUnpause then
 
-                if oUnit.SetPaused and (not(bPauseNotUnpause) or not(oUnit:IsPaused())) and (not(EntityCategoryContains(refCategoryFactory, oUnit.UnitId)) or (oUnit.GetWorkProgress and oUnit:GetWorkProgress() > 0 and oUnit:GetWorkProgress() < 1)) then
+                if oUnit.SetPaused and (not(bPauseNotUnpause) or not(oUnit:IsPaused())) and (not(EntityCategoryContains(refCategoryFactory, oUnit.UnitId)) or (oUnit.GetWorkProgress and oUnit:GetWorkProgress() > 0 and oUnit:GetWorkProgress() < 1) or (oUnit:IsPaused() and not(bPauseNotUnpause))) then
                     if oUnit.UnitId == 'xsb2401'  and bPauseNotUnpause then M28Utilities.ErrorHandler('Pausing Yolona') end
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to set paused to '..tostring(bPauseNotUnpause)..' for unit '..oUnit.UnitId..GetUnitLifetimeCount(oUnit)..'; Unit state='..GetUnitState(oUnit))
                         if oUnit.GetWorkProgress then LOG(sFunctionRef..': Unit work progress='..oUnit:GetWorkProgress()) end
@@ -3198,22 +3198,24 @@ function PauseOrUnpauseEnergyUsage(oUnit, bPauseNotUnpause, bExcludeProduction, 
 
             --Want to pause/unpause unit, check for any special logic for pausing
             --local bWasUnitPaused = (oUnit[refbPaused] or false)
+            -- Restoring maintenance during a mass stall must retain ownership of paused construction.
+            local bStillPaused = bPauseNotUnpause or (bExcludeProduction and oUnit:IsPaused()) or false
             if oUnit.MyShield and oUnit.MyShield:GetMaxHealth() > 0 then
                 if IsUnitShieldEnabled(oUnit) == bPauseNotUnpause then
                     if bPauseNotUnpause then DisableUnitShield(oUnit)
                     else EnableUnitShield(oUnit) end
-                    oUnit[refbPaused] = bPauseNotUnpause
+                    oUnit[refbPaused] = bStillPaused
                 end
             elseif oBP.Intel.ReactivateTime and (oBP.Intel.SonarRadius or oBP.Intel.RadarRadius) then
                 if bPauseNotUnpause then DisableUnitIntel(oUnit)
                 else EnableUnitIntel(oUnit)
                 end
-                oUnit[refbPaused] = bPauseNotUnpause
+                oUnit[refbPaused] = bStillPaused
             elseif oBP.Intel.Cloak or oBP.Intel.RadarStealth or oBP.Intel.RadarStealthFieldRadius then
                 if bPauseNotUnpause then DisableUnitStealth(oUnit)
                 else EnableUnitStealth(oUnit)
                 end
-                oUnit[refbPaused] = bPauseNotUnpause
+                oUnit[refbPaused] = bStillPaused
             end
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': end of code oUnit[refbPaused]='..tostring(oUnit[refbPaused] or false)..'; oUnit[refiPausedPriority]='..(oUnit[refiPausedPriority] or 'nil')) end
 

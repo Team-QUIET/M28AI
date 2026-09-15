@@ -3577,7 +3577,7 @@ function ManageEnergyStalls(iTeam)
                     else
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': About to check if we wanted to unpause units but havent unpaused anything; iUnitsAdjusted=' .. iUnitsAdjusted .. '; bNoRelevantUnits=' .. tostring(bNoRelevantUnits) .. '; M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]=' .. tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])) end
                         --Backup - sometimes we still have units in the table listed as being paused (e.g. if an engineer changes action to one that isnt listed as needing pausing) - unpause them if we couldnt find via category search
-                        if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and not (bPauseNotUnpause) and (iEnergySavingManaged > iEnergyPerTickSavingNeeded or iUnitsAdjusted == 0 or bNoRelevantUnits) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.95 then
+                        if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] and not (bPauseNotUnpause) and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass]) and (iEnergySavingManaged > iEnergyPerTickSavingNeeded or iUnitsAdjusted == 0 or bNoRelevantUnits) and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.95 then
                             --Have a decent amount of power, are flagged as stalling energy, but couldnt find any categories to unpause
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': werent able to find any units to unpause with normal approach so will unpause all remaining units for all M28 brains in the team') end
                             if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoPausedUnitsByPriority]) == false then
@@ -3587,7 +3587,7 @@ function ManageEnergyStalls(iTeam)
                                         if iUnitCount > 0 then
                                             for iCurUnit = iUnitCount, 1, -1 do
                                                 if M28UnitInfo.IsUnitValid(tUnits[iCurUnit]) then
-                                                    M28UnitInfo.PauseOrUnpauseEnergyUsage(tUnits[iCurUnit], false, iTeam)
+                                                    M28UnitInfo.PauseOrUnpauseEnergyUsage(tUnits[iCurUnit], false, false, iTeam)
                                                 end
                                             end
                                         end
@@ -3595,9 +3595,9 @@ function ManageEnergyStalls(iTeam)
                                     tUnits = nil
                                 end
                             end
-                            M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] = false
+                            M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] = false
                             M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] = 0
-                            M28Team.tTeamData[iTeam][M28Team.refiLastMassStallCategoryAndEngineerTables] = nil
+                            M28Team.tTeamData[iTeam][M28Team.refiLastEnergyStallCategoryAndEngineerTables] = nil
 
 
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': FInished unpausing units and resetting the flag re paused units') end
