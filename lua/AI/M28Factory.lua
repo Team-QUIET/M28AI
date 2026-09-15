@@ -3616,8 +3616,8 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                 local iMAAInLZ = 0
                 local iEnemyAirToGround = 0
                 for iEntry, iIslandLZ in M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauIslandLandZones][tLZData[M28Map.subrefLZIslandRef]] do
-                    iMAAInLZ = iMAAInLZ + tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefLZThreatAllyMAA]
-                    iEnemyAirToGround = iEnemyAirToGround + tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiEnemyAirToGroundThreat]
+                    iMAAInLZ = iMAAInLZ + M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iIslandLZ][M28Map.subrefLZTeamData][iTeam][M28Map.subrefLZThreatAllyMAA]
+                    iEnemyAirToGround = iEnemyAirToGround + M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iIslandLZ][M28Map.subrefLZTeamData][iTeam][M28Map.refiEnemyAirToGroundThreat]
                 end
                 if iMAAInLZ >= 300 and iMAAInLZ >= iEnemyAirToGround * 2 then
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Have more air to ground threat than needed so wont get more') end
@@ -3629,7 +3629,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                 bDontConsiderBuildingMAA = true
             end
         end
-        if not (bDontConsiderBuildingMAA) and ((M28Team.tTeamData[iTeam][M28Team.subrefiAlliedMAAThreat] >= math.min(600 or M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] * 2)) and (M28Team.tTeamData[iTeam][M28Team.subrefiAlliedMAAThreat] >= M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] + (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] + M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] + M28Team.tTeamData[iTeam][M28Team.refiEnemyAirOtherThreat]) * 0.2) or (M28Team.tTeamData[iTeam][M28Team.subrefiAlliedMAAThreat] > math.max(4000, M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]) and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] <= 4000 and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMAA * categories.TECH3) >= 5)) then
+        if not (bDontConsiderBuildingMAA) and ((M28Team.tTeamData[iTeam][M28Team.subrefiAlliedMAAThreat] >= math.min(600, M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] * 2)) and (M28Team.tTeamData[iTeam][M28Team.subrefiAlliedMAAThreat] >= M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] + (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] + M28Team.tTeamData[iTeam][M28Team.refiEnemyTorpBombersThreat] + M28Team.tTeamData[iTeam][M28Team.refiEnemyAirOtherThreat]) * 0.2) or (M28Team.tTeamData[iTeam][M28Team.subrefiAlliedMAAThreat] > math.max(4000, M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat]) and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] <= 4000 and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMAA * categories.TECH3) >= 5)) then
             --Do we have more than 1/6 of our DF and indirect force in AA and enemy air to ground threat is <4k? Or alternatively enemy has no air to ground and we have a lot of AA
             local iMAAFactor = 6
             if M28Team.tTeamData[iTeam][M28Team.refbEnemyEarlyT3AirSpottedRecently] then iMAAFactor = 2.5
@@ -3648,8 +3648,8 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                     local iMAAInLZ = 0
                     local iEnemyAirToGround = 0
                     for iEntry, iIslandLZ in M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauIslandLandZones][tLZData[M28Map.subrefLZIslandRef]] do
-                        iMAAInLZ = iMAAInLZ + tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.subrefLZThreatAllyMAA]
-                        iEnemyAirToGround = iEnemyAirToGround + tLZData[M28Map.subrefLZTeamData][iTeam][M28Map.refiEnemyAirToGroundThreat]
+                        iMAAInLZ = iMAAInLZ + M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iIslandLZ][M28Map.subrefLZTeamData][iTeam][M28Map.subrefLZThreatAllyMAA]
+                        iEnemyAirToGround = iEnemyAirToGround + M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iIslandLZ][M28Map.subrefLZTeamData][iTeam][M28Map.refiEnemyAirToGroundThreat]
                     end
                     if iMAAInLZ >= 300 and iMAAInLZ >= iEnemyAirToGround * 2 and (iMAAInLZ >= 600 or not(M28Team.tTeamData[iTeam][M28Team.refbEnemyEarlyT3AirSpottedRecently])) then
                         bDontConsiderBuildingMAA = true
@@ -3720,7 +3720,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                     bCapMAABuiltAtOnce = false
                 elseif M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
                     for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
-                        if M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][iTeam][M28Map.refiEnemyAirToGroundThreat] > 0 then
+                        if M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam][M28Map.refiEnemyAirToGroundThreat] > 0 then
                             bCapMAABuiltAtOnce = false
                             break
                         end
@@ -5018,9 +5018,9 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                                     local iEnemyAirToGroundThreat = tLZTeamData[M28Map.refiEnemyAirToGroundThreat]
                                     if M28Utilities.IsTableEmpty(tLZData[M28Map.subrefLZAdjacentLandZones]) == false then
                                         for _, iAdjLZ in tLZData[M28Map.subrefLZAdjacentLandZones] do
-                                            iDFTotalThreat = iDFTotalThreat + M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][iTeam][M28Map.subrefLZThreatAllyMobileDFTotal]
-                                            iIndirectTotalThreat = iIndirectTotalThreat + M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][iTeam][M28Map.subrefLZThreatAllyMobileIndirectTotal]
-                                            iEnemyAirToGroundThreat = iEnemyAirToGroundThreat + M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][iTeam][M28Map.refiEnemyAirToGroundThreat]
+                                            iDFTotalThreat = iDFTotalThreat + M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam][M28Map.subrefLZThreatAllyMobileDFTotal]
+                                            iIndirectTotalThreat = iIndirectTotalThreat + M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam][M28Map.subrefLZThreatAllyMobileIndirectTotal]
+                                            iEnemyAirToGroundThreat = iEnemyAirToGroundThreat + M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam][M28Map.refiEnemyAirToGroundThreat]
                                         end
                                     end
                                     local iDirectThreatPerIndirectThreatWanted
@@ -11817,37 +11817,12 @@ function GetBlueprintToBuildForQuantumGateway(aiBrain, oFactory)
     end
     local sBPIDToBuild
     if bDebugMessages == true then
-        LOG(sFunctionRef .. ': Near start of code, time=' .. GetGameTimeSeconds() .. '; oFactory=' .. oFactory.UnitId .. M28UnitInfo.GetUnitLifetimeCount(oFactory)..'; aiBrain owner='..aiBrain.Nickname)
-    end
-    local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory) --to be safe given we include it in adjustblueprintforoverrides
-    local iCurrentConditionToTry = 0
-
-
-
-
-    function ConsiderBuildingCategory(iCategoryToBuild, bOptionalGetCheapest)
-        --GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryCondition, oFactory, bGetSlowest, bGetFastest, bGetCheapest, iOptionalCategoryThatMustBeAbleToBuild, bIgnoreTechDifferences)
-        sBPIDToBuild = GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryToBuild, oFactory,  nil,            nil,        bOptionalGetCheapest, nil,                          false)
-        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': Time=' .. GetGameTimeSeconds() .. ' Factory=' .. oFactory.UnitId .. M28UnitInfo.GetUnitLifetimeCount(oFactory) .. '; LZ=' .. iLandZone .. '; iCurrentConditionToTry=' .. iCurrentConditionToTry .. '; sBPIDToBuild before adjusting for override=' .. (sBPIDToBuild or 'nil')) end
-        if sBPIDToBuild then sBPIDToBuild = AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamData, iFactoryTechLevel) end
-        if sBPIDToBuild then
-            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd) --Assumes we will end code if we get to this point
-            return sBPIDToBuild
-        else
-            if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': After adjusting for override we dont have anything to build') end
-        end
-    end
-
-
-
-    local sBPIDToBuild
-    if bDebugMessages == true then
         LOG(sFunctionRef .. ': Near start of code, time=' .. GetGameTimeSeconds() .. '; oFactory=' .. oFactory.UnitId .. M28UnitInfo.GetUnitLifetimeCount(oFactory) .. '; bHvaeLowPower=' .. tostring(bHaveLowPower))
     end
     local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory) --to be safe given we include it in adjustblueprintforoverrides
     local iCurrentConditionToTry = 0
 
-    function ConsiderBuildingCategory(iCategoryToBuild, bOptionalGetCheapest)
+    local function ConsiderBuildingCategory(iCategoryToBuild, bOptionalGetCheapest)
         --GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryCondition, oFactory, bGetSlowest, bGetFastest, bGetCheapest, iOptionalCategoryThatMustBeAbleToBuild, bIgnoreTechDifferences)
         sBPIDToBuild = GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryToBuild, oFactory, nil,             nil,        bOptionalGetCheapest, nil,                          false)
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': Time=' .. GetGameTimeSeconds() .. ' Factory=' .. oFactory.UnitId .. M28UnitInfo.GetUnitLifetimeCount(oFactory) .. '; LZ=' .. iLandZone .. '; iCurrentConditionToTry=' .. iCurrentConditionToTry .. '; sBPIDToBuild before adjusting for override=' .. (sBPIDToBuild or 'nil')) end

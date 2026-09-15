@@ -11753,7 +11753,7 @@ function UpdateTransportPlateauDropLocationShortlist(iTeam, bUpdateCombatDropSho
                                         if not(iClosestBasePlateau) then break
                                         end
                                     end
-                                    iCurDistToFriendlyBase = (M28Utilities.GetApproxTravelDistanceBetweenPositions(tLZTeamData[M28Map.reftClosestFriendlyBase], tLZTeamData[M28Map.subrefMidpoint]) or 100000)
+                                    iCurDistToFriendlyBase = (M28Utilities.GetApproxTravelDistanceBetweenPositions(tLZTeamData[M28Map.reftClosestFriendlyBase], tLZData[M28Map.subrefMidpoint]) or 100000)
                                     if iCurDistToFriendlyBase < iClosestLZToBase then
                                         iClosestLZToBase = iCurDistToFriendlyBase
                                     end
@@ -14567,7 +14567,7 @@ function ManageExperimentalBomber(iTeam, iAirSubteam)
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking if too great an enemy threat in zone IsThereAANearLandOrWaterZone='..tostring(IsThereAANearLandOrWaterZone(iTeam, iBomberPlateauOrZero, iBomberLandOrWaterZone, (iBomberPlateauOrZero == 0), -1, iMaxEnemyAirAA) or false)..'; IsThereNearbyAirAA='..tostring(IsThereNearbyAirAA(iTeam, iBomberPlateauOrZero, iBomberLandOrWaterZone, (iBomberPlateauOrZero == 0), 200, iMaxEnemyAirAA, oBomber:GetPosition()) or false)..'; Have air control='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl])..'; iMaxEnemyAirAA='..iMaxEnemyAirAA..'; iBomberPlateauOrZero='..iBomberPlateauOrZero..'; iBomberLandOrWaterZone='..iBomberLandOrWaterZone) end
                     if ((M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl] and not(IsThereAANearLandOrWaterZone(iTeam, iBomberPlateauOrZero, iBomberLandOrWaterZone, (iBomberPlateauOrZero == 0), -1, iMaxEnemyAirAA))) or (not(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]) and not(IsThereNearbyAirAA(iTeam, iBomberPlateauOrZero, iBomberLandOrWaterZone, (iBomberPlateauOrZero == 0), 200, iMaxEnemyAirAA, oBomber:GetPosition()))))
                             --If there is enemy groundAA in the zone we are currently in and we are facing the rally point and are more than 20 from it, then keep moving to the rally point
-                            and ((tBomberLandOrWaterZoneTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) + (tBomberLandOrWaterZoneTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) < 1000 or M28Utilities.GetAngleDifference(M28UnitInfo.GetUnitFacingAngle(oBomber), M28Utilities.GetAngleFromAToB(oBomber:GetPosition(),M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint])) >= 25) then
+                            and ((tBomberLandOrWaterZoneTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) < 500 or M28Utilities.GetAngleDifference(M28UnitInfo.GetUnitFacingAngle(oBomber), M28Utilities.GetAngleFromAToB(oBomber:GetPosition(),M28Team.tAirSubteamData[iAirSubteam][M28Team.reftAirSubRallyPoint])) >= 25) then
 
                         --no nearby enemy air threat so can just evaluate each land zone or water zone on its own merits - cycle through each in order of distance, but first consider adjacent locations
                         --First consider the land/water zone the bomber is in at the moment and any nearby zones
@@ -14615,7 +14615,7 @@ function ManageExperimentalBomber(iTeam, iAirSubteam)
                         end
                         --if M28Utilities.IsTableEmpty(tEnemyGroundTargets) then
                         --Is there groundAA in the current plateau/water zone (i.e. there are enemies but we have chosen not to attack due to the threat)?
-                        if (tBomberLandOrWaterZoneData[M28Map.subrefiThreatEnemyGroundAA] or 0) > 0 or (tBomberLandOrWaterZoneData[M28Map.subrefiThreatEnemyGroundAA] or 0) > 0 then
+                        if (tBomberLandOrWaterZoneTeamData[M28Map.subrefiThreatEnemyGroundAA] or 0) > 0 then
                             --Enemy has AA in the same LZ as our exp bomber and we dont want to attack enemies, so retreat (if no targets)
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Enemy GroundAA threat exists in same zone as exp bomber so want to retreat if not already got targets') end
                         else
@@ -15337,7 +15337,7 @@ function DelayedNovaxUnloadCheck(oUnit)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         WaitSeconds(1)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-        function CheckAndReleaseIfRelevant()
+        local function CheckAndReleaseIfRelevant()
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Checking for novax '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' at time='..GetGameTimeSeconds()..'; reprs='..reprs(oUnit)) end
             if oUnit.Satellite and M28UnitInfo.IsUnitValid(oUnit.Satellite) then
                 DetachSatellite(oUnit.Satellite, nil)
