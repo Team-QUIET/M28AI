@@ -2383,7 +2383,7 @@ function OnConstructionStarted(oEngineer, oConstruction, sOrder)
                                                             if M28Utilities.GetDistanceBetweenPositions(oConstruction:GetPosition(), oGameEnder:GetPosition()) <= iShieldRadius * 0.9 then
                                                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Fixed shield construction '..oConstruction.UnitId..M28UnitInfo.GetUnitLifetimeCount(oConstruction)..' built by engineer '..oEngineer.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEngineer)..'; will be assigned to a game ender shield as it is close to oGameEnder '..oGameEnder.UnitId..M28UnitInfo.GetUnitLifetimeCount(oGameEnder)) end
                                                                 bHaveMatch = true
-                                                                M28Building.AssignShieldToGameEnder(oConstruction, oEngineer)
+                                                                M28Building.AssignShieldToGameEnder(oConstruction, oEngineer, oGameEnder)
                                                                 break
                                                             end
                                                         end
@@ -2392,7 +2392,7 @@ function OnConstructionStarted(oEngineer, oConstruction, sOrder)
                                                     if not(bHaveMatch) and M28Utilities.GetDistanceBetweenPositions(oConstruction:GetPosition(), oGameEnder:GetPosition()) <= (oConstruction:GetBlueprint().Defense.Shield.ShieldSize or 0) * 0.5 - 4 then
                                                         bHaveMatch = true
                                                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will assign this shield as one of the template shields for the GE template') end
-                                                        M28Building.AssignShieldToGameEnder(oConstruction, oEngineer)
+                                                        M28Building.AssignShieldToGameEnder(oConstruction, oEngineer, oGameEnder)
                                                     end
                                                     if bHaveMatch then break end
                                                 end
