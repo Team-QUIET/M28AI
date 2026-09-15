@@ -4589,7 +4589,7 @@ function JustBuiltParagon(oParagon)
                                     end
                                 end
                                 --Fixed shields - xfer if not part of GE template
-                                local tFixedShields = oBrain:GetListOfUnits(M28UnitInfo.refCategoryFixedShield)
+                                local tFixedShields = oBrain:GetListOfUnits(M28UnitInfo.refCategoryFixedShield, false, true)
                                 if M28Utilities.IsTableEmpty(tFixedShields) == false then
                                     for iShield, oShield in tFixedShields do
                                         if (not(oShield:IsUnitState('Upgrading')) or oShield:GetWorkProgress() <= 0.1) and not(oShield[reftArtiTemplateRefs]) then
