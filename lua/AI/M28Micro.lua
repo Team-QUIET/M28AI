@@ -26,7 +26,7 @@ refbMicroResetChecker = 'M28MicChk' --True if we have an active thread checking 
 refiMaxUnitsToDodgeMicroAtOnce = 'M28MxDgM' --determined by ScenarioInfo.Options.M28DodgeMicro, nil if no limit
 refiCurUnitsDodging = 'M28CrDgM' --Number of untis currently dodging (used if refiMaxUnitsToDodgeMicroAtOnce isnt nil)
 refiMaxUnitsToHoverMicroAtOnce = 'M28MxHvM' --determiend by ScenarioInfo.Options.M28HoverMicro, nil if no limit
-refiCurUnitsHoverMicroing = 'M28CrDgM' --Number of untis currently doing hover micro (used if refiMaxUnitsToHoverMicroAtOnce isnt nil)
+refiCurUnitsHoverMicroing = 'M28CrHoverM' --Number of untis currently doing hover micro (used if refiMaxUnitsToHoverMicroAtOnce isnt nil)
 
 function MoveAwayFromTargetTemporarily(oUnit, iTimeToRun, tPositionToRunFrom)
     local sFunctionRef = 'MoveAwayFromTargetTemporarily'

@@ -1702,11 +1702,10 @@ function ConsiderMessageForACUInTrouble(oACU, aiBrain)
             if bHaveTeammates then
                 AddPotentialMessage(LOC('<LOC X06_M03_060_020>[{i Kael}]: Do something!'), 'X06_Kael_M03_04499', 'X06_VO', true)
             end
+            AddPotentialMessage(LOC('<LOC XGG_MP1_250_010>[{i Kael}]: The Order will not be defeated!'), 'XGG_Kael_MP1_04590', 'XGG')
         elseif oBrainToSendMessage[refiAssignedPersonality] == refiRhiza then
             AddPotentialMessage(LOC('<LOC X06_T01_885_010>[{i Rhiza}]: Such a thing will not stop me!'), 'X06_Rhiza_T01_04508', 'X06_VO')
             AddPotentialMessage(LOC('<LOC X06_T01_887_010>[{i Rhiza}]: You mistake me if you think I will be cowed!'), 'X06_Rhiza_T01_04510', 'X06_VO')
-        elseif oBrainToSendMessage[refiAssignedPersonality] == refiKael then
-            AddPotentialMessage(LOC('<LOC XGG_MP1_250_010>[{i Kael}]: The Order will not be defeated!'), 'XGG_Kael_MP1_04590', 'XGG')
         elseif oBrainToSendMessage[refiAssignedPersonality] == refiDostya then
             AddPotentialMessage(LOC('<LOC X01_M02_260_020>[{i Dostya}]: We\'ll fight you to our last breath.'), 'X01_Dostya_M02_03667', 'X01_VO')
         elseif oBrainToSendMessage[refiAssignedPersonality] == refiBrackman then

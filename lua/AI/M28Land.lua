@@ -1858,7 +1858,7 @@ function ManageLandZoneScouts(tLZData, tLZTeamData, iTeam, iPlateau, iLandZone, 
                     oScout[M28UnitInfo.refoClosestEnemyFromLastCloseToEnemyUnitCheck] = oClosestDangerousEnemy
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': setting refoClosestEnemyFromLastCloseToEnemyUnitCheck to be oClosestDangerousEnemy='..oClosestDangerousEnemy.UnitId..M28UnitInfo.GetUnitLifetimeCount(oClosestDangerousEnemy)) end
                 end
-                if oScout.UnitId == 'xsl0101' and oEnemyToRunFrom and not(oEnemyToConsiderAttacking) and oScout[M28UnitInfo.refbUnitGivenCloakOrder] and not(tLZTeamData[M28Map.refiEnemyOmniCoverage] or 0) > 0 then
+                if oScout.UnitId == 'xsl0101' and oEnemyToRunFrom and not(oEnemyToConsiderAttacking) and oScout[M28UnitInfo.refbUnitGivenCloakOrder] and (tLZTeamData[M28Map.refiEnemyOmniCoverage] or 0) <= 0 then
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Selen is cloaked so will stay cloaked instead of running') end
                     bWantScoutToCloak = true
                 end

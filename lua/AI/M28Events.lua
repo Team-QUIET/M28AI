@@ -1480,7 +1480,7 @@ function OnDamaged(self, instigator) --This doesnt trigger when a shield bubble 
                             end
                         end
                         --TML - update shots hit
-                    elseif self[M28Building.refiTMLShotsFired] or 0 > 0 and EntityCategoryContains(M28UnitInfo.refCategoryTML, oUnitCausingDamage.UnitId) then
+                    elseif (self[M28Building.refiTMLShotsFired] or 0) > 0 and EntityCategoryContains(M28UnitInfo.refCategoryTML, oUnitCausingDamage.UnitId) then
                         self[M28Building.refiTMLShotsHit] = (self[M28Building.refiTMLShotsHit] or 0) + 1
                         --Mobile missile units that have a missed count - record
                     elseif self[M28UnitInfo.refiMissileShotBlockedCount] and oUnitCausingDamage[M28UnitInfo.reftoTargetBlockedMissileCountByEntityId][self.EntityId] then

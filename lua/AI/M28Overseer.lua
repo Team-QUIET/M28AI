@@ -97,8 +97,8 @@ function GetNearestEnemyBrain(aiBrain)
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelOverseer, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     local oNearestBrainThatAreIgnoring
-    if aiBrain[refoNearestEnemyBrain][M28Map.refbIgnoreForNearestPlayerIndexByTeam][aiBrain.M28Team] and not(aiBrain[refoNearestEnemyBrain].M28IsDefeated) and not(aiBrain[refoNearestEnemyBrain]:IsDefeated()) then oNearestBrainThatAreIgnoring = aiBrain[refoNearestEnemyBrain] end
-    if (aiBrain[refoNearestEnemyBrain] and not(aiBrain[refoNearestEnemyBrain].M28IsDefeated) and not(aiBrain[refoNearestEnemyBrain]:IsDefeated()) and not(aiBrain[refoNearestEnemyBrain][M28Map.refbIgnoreForNearestPlayerIndexByTeam][aiBrain.M28Team])) or aiBrain.M28IsDefeated then
+    if aiBrain[refoNearestEnemyBrain] and aiBrain[refoNearestEnemyBrain][M28Map.refbIgnoreForNearestPlayerIndexByTeam] and aiBrain[refoNearestEnemyBrain][M28Map.refbIgnoreForNearestPlayerIndexByTeam][aiBrain.M28Team] and not(aiBrain[refoNearestEnemyBrain].M28IsDefeated) and not(aiBrain[refoNearestEnemyBrain]:IsDefeated()) then oNearestBrainThatAreIgnoring = aiBrain[refoNearestEnemyBrain] end
+    if (aiBrain[refoNearestEnemyBrain] and not(aiBrain[refoNearestEnemyBrain].M28IsDefeated) and not(aiBrain[refoNearestEnemyBrain]:IsDefeated()) and not(aiBrain[refoNearestEnemyBrain][M28Map.refbIgnoreForNearestPlayerIndexByTeam] and aiBrain[refoNearestEnemyBrain][M28Map.refbIgnoreForNearestPlayerIndexByTeam][aiBrain.M28Team])) or aiBrain.M28IsDefeated then
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Previously nearest enemy brain is still valid='..(aiBrain[refoNearestEnemyBrain].Nickname or 'nil')) end
         return aiBrain[refoNearestEnemyBrain]
     else
@@ -129,7 +129,7 @@ function GetNearestEnemyBrain(aiBrain)
 
             for iCurBrain, oBrain in ArmyBrains do
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': Start of brain loop, iCurBrain=' .. iCurBrain .. '; brain personality=' .. ScenarioInfo.ArmySetup[oBrain.Name].AIPersonality .. '; brain Nickname=' .. oBrain.Nickname .. '; Brain index=' .. oBrain:GetArmyIndex() .. '; if brain isnt equal to our AI brain then will get its start position etc. IsCivilian='..tostring(M28Conditions.IsCivilianBrain(oBrain))..'; IsEnemy='..tostring(IsEnemy(oBrain:GetArmyIndex(), aiBrain:GetArmyIndex()))..'; Is oBrain a .M28AI brain='..tostring(oBrain.M28AI or false)) end
-                if not (oBrain == aiBrain) and (not (M28Conditions.IsCivilianBrain(oBrain)) and IsEnemy(oBrain:GetArmyIndex(), aiBrain:GetArmyIndex())) and not(oBrain[M28Map.refbIgnoreForNearestPlayerIndexByTeam]) then
+                if not (oBrain == aiBrain) and (not (M28Conditions.IsCivilianBrain(oBrain)) and IsEnemy(oBrain:GetArmyIndex(), aiBrain:GetArmyIndex())) and not(oBrain[M28Map.refbIgnoreForNearestPlayerIndexByTeam] and oBrain[M28Map.refbIgnoreForNearestPlayerIndexByTeam][aiBrain.M28Team]) then
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': Brain is dif to aiBrain and a non civilian enemy so will record its start position number if it doesnt have one already') end
 
                     if not (oBrain:IsDefeated()) and not (oBrain.M28IsDefeated) then
