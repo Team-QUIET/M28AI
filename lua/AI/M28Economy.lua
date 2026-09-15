@@ -2587,7 +2587,7 @@ function ManageMassStalls(iTeam)
                                 if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 then --Only consider unit if it has been constructed
                                     if not(bPauseNotUnpause) then
                                         bApplyActionToUnit = true
-                                        if (oUnit.GetTacticalSiloAmmoCount or oUnit.GetTacticalSiloAmmoCount) and M28UnitInfo.GetMissileCount(oUnit) >= 2 then
+                                        if (oUnit.GetTacticalSiloAmmoCount or oUnit.GetNukeSiloAmmoCount) and M28UnitInfo.GetMissileCount(oUnit) >= 2 then
                                             --Dont unpause TML, SML and SMD that have 2+ missiles loaded already
                                             bApplyActionToUnit = false
                                         end
@@ -2640,9 +2640,9 @@ function ManageMassStalls(iTeam)
                                                 end
                                             end
                                             --SMD LOGIC - Check if already have 1 missile loaded before pausing (we know we are in a pause unit scenario from above condition)
-                                        elseif iCategoryRef == M28UnitInfo.refCategorySMD and oUnit.GetTacticalSiloAmmoCount and oUnit:GetTacticalSiloAmmoCount() == 0 and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyNukeLaunchers]) == false then
+                                        elseif iCategoryRef == M28UnitInfo.refCategorySMD and M28UnitInfo.GetMissileCount(oUnit) == 0 and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyNukeLaunchers]) == false then
                                             if bDebugMessages == true then
-                                                LOG(sFunctionRef .. ': Have SMD with at least 1 missile so will pause it')
+                                                LOG(sFunctionRef .. ': SMD is empty and enemy has nukes, so keep missile production unpaused')
                                             end
                                             bApplyActionToUnit = false
                                         elseif iCategoryRef == M28UnitInfo.refCategoryEngineer then
@@ -3259,11 +3259,9 @@ function ManageEnergyStalls(iTeam)
                                     if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 then  --Only consider unit if it has been constructed
                                         if not(bPauseNotUnpause) then
                                             bApplyActionToUnit = true
-                                            if (oUnit.GetTacticalSiloAmmoCount or oUnit.GetTacticalSiloAmmoCount) then
-                                                if M28UnitInfo.GetMissileCount(oUnit) >= 2 then
-                                                    --Dont unpause TML, SML and SMD that have 2+ missiles loaded already
-                                                    bApplyActionToUnit = false
-                                                end
+                                            if (oUnit.GetTacticalSiloAmmoCount or oUnit.GetNukeSiloAmmoCount) and M28UnitInfo.GetMissileCount(oUnit) >= 2 then
+                                                --Dont unpause TML, SML and SMD that have 2+ missiles loaded already.
+                                                bApplyActionToUnit = false
                                             elseif bConsideringHQ or (bDontPauseUpgradingT1LandOrT2Land and EntityCategoryContains(categories.TECH1 * M28UnitInfo.refCategoryLandFactory, oUnit.UnitId)) then
                                                 --Only unpause HQs
                                                 bApplyActionToUnit = false
@@ -3300,9 +3298,9 @@ function ManageEnergyStalls(iTeam)
                                                 LOG(sFunctionRef .. ': UnitState=' .. M28UnitInfo.GetUnitState(oUnit) .. '; Is ActiveHQUpgrades Empty=' .. tostring(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingHQs])))
                                             end
                                             --SMD LOGIC - Check if already have 1 missile loaded before pausing (unless enemy has no nukes)
-                                            if iCategoryRef == M28UnitInfo.refCategorySMD and oUnit.GetTacticalSiloAmmoCount and oUnit:GetTacticalSiloAmmoCount() == 0 and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyNukeLaunchers]) == false then
+                                            if iCategoryRef == M28UnitInfo.refCategorySMD and M28UnitInfo.GetMissileCount(oUnit) == 0 and M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyNukeLaunchers]) == false then
                                                 if bDebugMessages == true then
-                                                    LOG(sFunctionRef .. ': Have SMD with at least 1 missile so will pause it')
+                                                    LOG(sFunctionRef .. ': SMD is empty and enemy has nukes, so keep missile production unpaused')
                                                 end
                                                 bApplyActionToUnit = false
                                             elseif iCategoryRef == M28UnitInfo.refCategoryEngineer then
