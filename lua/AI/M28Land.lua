@@ -651,8 +651,8 @@ function GetUnitPlateauAndLandZoneOverride(oUnit)
                                 iCurLZDist = M28Utilities.GetDistanceBetweenPositions(tAltLocation, M28Map.tAllPlateaus[iPossiblePlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMidpoint])
 
                                 if iCurLZDist < iClosestLZDist then
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Can we path from alt location to midpoint of land zone '..iLandZone..' with iCurLZDist='..iCurLZDist..'='..tostring(NavUtils.CanPathTo(M28Map.refPathingTypeLand, tAltLocation, M28Map.tAllPlateaus[iPossiblePlateau][M28Map.subrefPlateauLandZones][M28Map.subrefMidpoint]))) end
-                                    if NavUtils.CanPathTo(M28Map.refPathingTypeLand, tAltLocation, M28Map.tAllPlateaus[iPossiblePlateau][M28Map.subrefPlateauLandZones][M28Map.subrefMidpoint]) then
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Can we path from alt location to midpoint of land zone '..iLandZone..' with iCurLZDist='..iCurLZDist..'='..tostring(NavUtils.CanPathTo(M28Map.refPathingTypeLand, tAltLocation, M28Map.tAllPlateaus[iPossiblePlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMidpoint]))) end
+                                    if NavUtils.CanPathTo(M28Map.refPathingTypeLand, tAltLocation, M28Map.tAllPlateaus[iPossiblePlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefMidpoint]) then
                                         if iCurLZDist < iClosestLZDist then
                                             iClosestLZDist = iCurLZDist
                                             iPossibleLZ = iLandZone

@@ -725,6 +725,12 @@ function DetailedPathTo(layer, origin, destination, thresholdLeafSize, multiplie
     local originLeaf = FindLeaf(grid, origin)                --[[@as NavLeaf]]
     local destinationLeaf = FindLeaf(grid, destination)      --[[@as NavLeaf]]
 
+    --A shared leaf already connects both positions and has no predecessor.
+    if originLeaf == destinationLeaf then
+        local dx, dz = origin[1] - destination[1], origin[3] - destination[3]
+        return { destination }, 1, MathSqrt(dx * dx + dz * dz)
+    end
+
     -- 0th iteration of search
     originLeaf.HeapFrom = nil
     originLeaf.HeapAcquiredCosts = 0
@@ -805,6 +811,12 @@ function PathTo(layer, origin, destination)
     local originSection = FindSection(grid, origin)             --[[@as NavSection]]
     local destinationSection = FindSection(grid, destination)   --[[@as NavSection]]
 
+    --Do not reset the origin's search marker when both positions share a section.
+    if originSection == destinationSection then
+        local dx, dz = origin[1] - destination[1], origin[3] - destination[3]
+        return { destination }, 1, MathSqrt(dx * dx + dz * dz)
+    end
+
     -- 0th iteration of search
     originSection.HeapFrom = nil
     originSection.HeapAcquiredCosts = 0
@@ -846,7 +858,7 @@ function PathTo(layer, origin, destination)
     end
 
     -- check if we found a path
-    if not destinationSection.HeapIdentifier == seenIdentifier then
+    if destinationSection.HeapIdentifier ~= seenIdentifier then
         return nil, 'SystemError'
     end
 
@@ -894,6 +906,12 @@ function PathToWithThreatThreshold(layer, origin, destination, aibrain, threatFu
     local grid = FindGrid(layer)                                --[[@as NavGrid]]
     local originSection = FindSection(grid, origin)             --[[@as NavSection]]
     local destinationSection = FindSection(grid, destination)   --[[@as NavSection]]
+
+    --No section transition needs a predecessor or a threat check.
+    if originSection == destinationSection then
+        local dx, dz = origin[1] - destination[1], origin[3] - destination[3]
+        return { destination }, 1, MathSqrt(dx * dx + dz * dz), {}, 0
+    end
 
     -- 0th iteration of search
     originSection.HeapFrom = nil
