@@ -761,6 +761,22 @@ function ConsiderDodgingShot(oUnit, oWeapon)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+function GetLandDodgeDestination(oUnit, tPreferred)
+    if not(EntityCategoryContains(categories.LAND * categories.MOBILE - categories.EXPERIMENTAL - categories.COMMAND - categories.ENGINEER - categories.SCOUT,oUnit.UnitId)) then return tPreferred end
+    local tPosition = oUnit:GetPosition()
+    local tDefenses = M28Land.GetKnownLandDefenses(oUnit:GetAIBrain())
+    local bRetreating = M28Land.IsLandRetreatUnfinished(oUnit)
+    local tRetreat = bRetreating and oUnit.M28LandTacticalMove.position
+    local iAngle = M28Utilities.GetAngleFromAToB(tPosition,tPreferred)
+    local iDistance = M28Utilities.GetDistanceBetweenPositions(tPosition,tPreferred)
+    for _, iTurn in {0,90,-90,180} do
+        local tCandidate = iTurn == 0 and tPreferred or M28Utilities.MoveInDirection(tPosition,iAngle+iTurn,iDistance,true,false,true)
+        if (not(tRetreat) or M28Utilities.GetDistanceBetweenPositions(tCandidate,tRetreat) <= M28Utilities.GetDistanceBetweenPositions(tPosition,tRetreat)+1)
+                and M28Land.IsLandRouteOutsideKnownDefenses(oUnit,tCandidate,tDefenses,8,true) then return tCandidate end
+    end
+    return nil
+end
+
 function DodgeShot(oTarget, oOptionalWeapon, oAttacker, iTimeToDodge)
     --Should have already checked oTarget is a valid unit that has a chance of dodging the shot in time before claling this
     --Gets unit to move at a slightly different angle to its current facing direction for iTimeToDodge
@@ -785,7 +801,6 @@ function DodgeShot(oTarget, oOptionalWeapon, oAttacker, iTimeToDodge)
 
     M28Orders.UpdateRecordedOrders(oTarget)
     local tCurDestination
-    local bAttackMove = false
     --ACU special - if ACU wants to run, then ignore hte last order and instead treat it as tyring to run to base
     if oTarget[M28ACU.refiTimeLastWantedToRun] and GetGameTimeSeconds() - (oTarget[M28ACU.refiTimeLastWantedToRun] or -100) <= 5 or (EntityCategoryContains(categories.COMMAND, oTarget.UnitId) and M28UnitInfo.GetUnitHealthPercent(oTarget) <= 0.6) then
         local tLZOrWZData, tLZOrWZTeamData = M28Map.GetLandOrWaterZoneData(oTarget:GetPosition(), true, oTarget:GetAIBrain().M28Team)
@@ -798,9 +813,6 @@ function DodgeShot(oTarget, oOptionalWeapon, oAttacker, iTimeToDodge)
         else
             local tLastOrder = oTarget[M28Orders.reftiLastOrders][oTarget[M28Orders.refiOrderCount]]
             tCurDestination = tLastOrder[M28Orders.subreftOrderPosition]
-            if tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueAttack or tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueAggressiveMove or tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueAggressiveFormMove then
-                bAttackMove = true
-            end
         end
     end
 
@@ -878,6 +890,12 @@ function DodgeShot(oTarget, oOptionalWeapon, oAttacker, iTimeToDodge)
     end
 
     local tTempDestination = M28Utilities.MoveInDirection(oTarget:GetPosition(), iAngleToMove, iDistanceToRun, true, false, true)
+    tTempDestination = GetLandDodgeDestination(oTarget,tTempDestination)
+    if not(tTempDestination) then
+        if bAdjustDodgeMicroCount then oTarget:GetAIBrain()[refiCurUnitsDodging] = oTarget:GetAIBrain()[refiCurUnitsDodging] - 1 end
+        M28Profiler.FunctionProfiler(sFunctionRef,M28Profiler.refProfilerEnd)
+        return
+    end
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': oTarget (ie unit that is dodging)='..oTarget.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTarget)..'; clearing current orders which have a possible destination of '..repru(tCurDestination)..'; and giving an order to move to '..repru(tTempDestination)..'; Dist from our position to temp position='..M28Utilities.GetDistanceBetweenPositions(oTarget:GetPosition(), tTempDestination)..'; iAngleAdjust='..iAngleAdjust..'; Unit size='..iUnitSize..'; iTimeToDodge='..iTimeToDodge) end
     --M28Orders.IssueTrackedClearCommands(oTarget)
     TrackTemporaryUnitMicro(oTarget, iTimeToDodge)
@@ -885,13 +903,8 @@ function DodgeShot(oTarget, oOptionalWeapon, oAttacker, iTimeToDodge)
         M28Utilities.DelayChangeVariable(oTarget:GetAIBrain(), refiCurUnitsDodging, -1, iTimeToDodge, nil, nil, nil, nil, true)
     end
     M28Orders.IssueTrackedMove(oTarget, tTempDestination, 0.25, false, 'MiDod1', true)
-    --Also send an order to go to the destination that we had before
-    if bAttackMove then
-        M28Orders.IssueTrackedAttackMove(oTarget, tCurDestination, 0.25, true, 'MiDod2', true)
-    else
-        --M28Orders.IssueTrackedMove(oTarget, tCurDestination, 0.25, true, 'MiDod3', true)
-        --Disabled for v89 given new 'get goal' position and increase in the micro dodge distance
-    end
+    -- The land owner reassesses its target when the dodge ends.
+    -- Queuing the previous attack-move here bypasses that decision.
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
@@ -924,6 +937,12 @@ function AltDodgeShot(oTarget, oWeapon, oAttacker, iTimeToDodge)
     local iSpeed = oBP.Physics.MaxSpeed
     local iDistanceToRun = iTimeToDodge * iSpeed
     local tTempDestination = M28Utilities.MoveInDirection(oTarget:GetPosition(), iAngleToMove, iDistanceToRun, true, false, true)
+    tTempDestination = GetLandDodgeDestination(oTarget,tTempDestination)
+    if not(tTempDestination) then
+        if bAdjustDodgeMicroCount then oTarget:GetAIBrain()[refiCurUnitsDodging] = oTarget:GetAIBrain()[refiCurUnitsDodging] - 1 end
+        M28Profiler.FunctionProfiler(sFunctionRef,M28Profiler.refProfilerEnd)
+        return
+    end
     TrackTemporaryUnitMicro(oTarget, iTimeToDodge)
     if bAdjustDodgeMicroCount then
         M28Utilities.DelayChangeVariable(oTarget:GetAIBrain(), refiCurUnitsDodging, -1, iTimeToDodge, nil, nil, nil, nil, true)

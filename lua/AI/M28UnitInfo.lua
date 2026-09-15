@@ -1167,6 +1167,7 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                             elseif EntityCategoryContains(refCategoryFatboy, oUnit.UnitId) then
                                 iMassMod = 0.55
                             elseif EntityCategoryContains(categories.SUBCOMMANDER, oUnit.UnitId) then iMassMod = 1 --SACUs dont have directfire category for some reason (they have subcommander and overlaydirectfire)
+                            elseif EntityCategoryContains(refCategoryFixedT3BarrageArti, oUnit.UnitId) then iMassMod = 1 --Discounted below; barrage is a local combat threat.
                             elseif EntityCategoryContains(categories.INDIRECTFIRE * categories.ARTILLERY * categories.STRUCTURE * categories.TECH2, oUnit.UnitId) then iMassMod = 0.1 --Gets doubled as its a structure
                             elseif EntityCategoryContains(categories.INDIRECTFIRE * categories.ARTILLERY * categories.MOBILE * categories.TECH1, oUnit.UnitId) then iMassMod = 0.9
                             elseif EntityCategoryContains(categories.INDIRECTFIRE * categories.ARTILLERY * categories.MOBILE * categories.TECH3, oUnit.UnitId) then iMassMod = 0.5
@@ -1204,8 +1205,10 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                     end
                     if EntityCategoryContains(refCategoryStructure, oUnit.UnitId) then
                         --T2 arti - reduce its value because it sucks
-                        if EntityCategoryContains(refCategoryFixedT2Arti, oUnit.UnitId) then
+                        if EntityCategoryContains(refCategoryFixedT2ArtiOnly, oUnit.UnitId) then
                             iMassMod = iMassMod * 0.6
+                        elseif EntityCategoryContains(refCategoryFixedT3BarrageArti, oUnit.UnitId) then
+                            iMassMod = iMassMod * 0.3
                         elseif EntityCategoryContains(refCategoryStructureAA * categories.TECH1, oUnit.UnitId) then
                             iMassMod = iMassMod * 1.5
                         elseif M28Utilities.bFAFActive and EntityCategoryContains(refCategoryT3PD, oUnit.UnitId) then
@@ -1290,7 +1293,7 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
 
                                 --Adjust threat for cur health %
                                 iOtherAdjustFactor = 1
-                                iHealthPercentage = (oUnit:GetHealth() + iCurShield) / (iMaxHealth + iMaxShield)
+                                iHealthPercentage = (oUnit:GetHealth() + iCurShield) / iMaxHealth
 
                                 --Reduce threat by health, with the amount depending on if its an ACU and if its an enemy
                                 if EntityCategoryContains(categories.COMMAND, oUnit.UnitId) then
@@ -1406,6 +1409,7 @@ function GetCombatThreatRating(tUnits, bEnemyUnits, bJustGetMassValue, bIndirect
                                         elseif EntityCategoryContains(refCategoryFatboy, oUnit.UnitId) then
                                             iMassMod = 0.55
                                         elseif EntityCategoryContains(categories.SUBCOMMANDER, oUnit.UnitId) then iMassMod = 1 --SACUs dont have directfire category for some reason (they have subcommander and overlaydirectfire)
+                                        elseif EntityCategoryContains(refCategoryFixedT3BarrageArti, oUnit.UnitId) then iMassMod = 1 --Discounted below; barrage is a local combat threat.
                                         elseif EntityCategoryContains(categories.INDIRECTFIRE * categories.ARTILLERY * categories.STRUCTURE * categories.TECH2, oUnit.UnitId) then iMassMod = 0.1 --Gets doubled as its a structure
                                         elseif EntityCategoryContains(categories.INDIRECTFIRE * categories.ARTILLERY * categories.MOBILE * categories.TECH1, oUnit.UnitId) then iMassMod = 0.9
                                         elseif EntityCategoryContains(categories.INDIRECTFIRE * categories.ARTILLERY * categories.MOBILE * categories.TECH3, oUnit.UnitId) then iMassMod = 0.5
