@@ -1672,6 +1672,21 @@ local function RemoveRecordedResourceIncome(oUnit)
     oUnit[refoBrainRecordedForEconomy] = nil
 end
 
+local function GetCompletedResourceUnitsInOrder(toUnits)
+    local toCompleted = {}
+    for _, oUnit in toUnits or {} do
+        --Native spatial queries can include units whose creation is unfinished.
+        if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1
+                and EntityCategoryContains(M28UnitInfo.refCategoryResourceUnit, oUnit.UnitId) then
+            if not(oUnit.EntityId) then oUnit.EntityId = oUnit:GetEntityId() end
+            table.insert(toCompleted, oUnit)
+        end
+    end
+    --QUIET uses string entity IDs; normalize any cached numeric IDs as well.
+    table.sort(toCompleted, function(a, b) return tostring(a.EntityId) < tostring(b.EntityId) end)
+    return toCompleted
+end
+
 local function RefreshAdjacentResourceIncome(oUnit)
     local tPosition = oUnit.M28EconomyAdjacencyPosition
     if not(tPosition) and not(oUnit.Dead) then tPosition = oUnit:GetPosition() end
@@ -1680,8 +1695,7 @@ local function RefreshAdjacentResourceIncome(oUnit)
     local tRect = M28Utilities.GetRectAroundLocation(tPosition, 12)
     ForkThread(function()
         WaitTicks(2)
-        local toNearby = GetUnitsInRect(tRect) or {}
-        table.sort(toNearby, function(a, b) return a.EntityId < b.EntityId end)
+        local toNearby = GetCompletedResourceUnitsInOrder(GetUnitsInRect(tRect))
         for _, oNearby in toNearby do
             if M28UnitInfo.IsUnitValid(oNearby) and oNearby:GetFractionComplete() == 1
                     and EntityCategoryContains(M28UnitInfo.refCategoryResourceUnit, oNearby.UnitId) then
@@ -1700,6 +1714,7 @@ function UpdateGrossIncomeForUnit(oUnit, bDestroyed)
         return
     end
     if not(M28UnitInfo.IsUnitValid(oUnit)) or oUnit:GetFractionComplete() < 1 then return end
+    if not(oUnit.EntityId) then oUnit.EntityId = oUnit:GetEntityId() end
     local aiBrain = oUnit:GetAIBrain()
     if tRecorded and tRecorded.brain ~= aiBrain then
         RemoveRecordedResourceIncome(oUnit)
@@ -1880,14 +1895,13 @@ end
 function RefreshEconomyGrossValues(aiBrain)
     local toRecorded = {}
     for _, oUnit in aiBrain[reftoRecordedEconomyUnits] or {} do table.insert(toRecorded, oUnit) end
-    table.sort(toRecorded, function(a, b) return a.EntityId < b.EntityId end)
+    table.sort(toRecorded, function(a, b) return tostring(a.EntityId) < tostring(b.EntityId) end)
     for _, oUnit in toRecorded do
         if not(M28UnitInfo.IsUnitValid(oUnit)) or oUnit:GetAIBrain() ~= aiBrain then
             RemoveRecordedResourceIncome(oUnit)
         end
     end
-    local toUnits = aiBrain:GetListOfUnits(M28UnitInfo.refCategoryResourceUnit, false, true)
-    table.sort(toUnits, function(a, b) return a.EntityId < b.EntityId end)
+    local toUnits = GetCompletedResourceUnitsInOrder(aiBrain:GetListOfUnits(M28UnitInfo.refCategoryResourceUnit, false, true))
     local iMass, iEnergy = 0, 0
     for _, oUnit in toUnits do
         if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 and oUnit:GetAIBrain() == aiBrain then
