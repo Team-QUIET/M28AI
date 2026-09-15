@@ -3996,13 +3996,14 @@ function ConsiderPriorityMexUpgrades(iM28Team)
                                                 tMexesToConsiderUpgrading = EntityCategoryFilterDown(M28UnitInfo.refCategoryMex * M28UnitInfo.ConvertTechLevelToCategory(iMexTech), tLZOrWZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
                                                 if M28Utilities.IsTableEmpty(tMexesToConsiderUpgrading) == false then
                                                     for iMex, oMex in tMexesToConsiderUpgrading do
-                                                        if not(oMex:IsUnitState('Upgrading')) and oMex:GetFractionComplete() == 1 and not(oMex.Dead) and not(M28Economy.ShouldDelayMexUpgradeForQuietTierOrder(oMex, iM28Team)) then
+                                                        if not(oMex:IsUnitState('Upgrading')) and oMex:GetFractionComplete() == 1 and not(oMex.Dead) and not(M28Economy.ShouldDelayMexUpgradeForQuietTierOrder(oMex, iM28Team)) and M28UnitInfo.GetUnitUpgradeBlueprint(oMex, true) then
                                                             if oMex:GetAIBrain().M28AI and oMex:GetAIBrain().M28Team == iM28Team then
                                                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will try to upgrade mex in starting zone, iPlateau='..iPlateau..'; iLandZone='..iLandZone..'; Mex='..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..'; Owned by '..oMex:GetAIBrain().Nickname..'; Mex unit state='..M28UnitInfo.GetUnitState(oMex)) end
-                                                                M28Economy.UpgradeUnit(oMex, true)
-                                                                iMassStoredToKeepUpgrading = iMassStoredToKeepUpgrading + tiExtraMassStoredPerUpgrade[iMexTech]
-                                                                bAbort = true
-                                                                break
+                                                                if M28Economy.UpgradeUnit(oMex, true) then
+                                                                    iMassStoredToKeepUpgrading = iMassStoredToKeepUpgrading + tiExtraMassStoredPerUpgrade[iMexTech]
+                                                                    bAbort = true
+                                                                    break
+                                                                end
                                                             end
                                                         end
                                                     end
