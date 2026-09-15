@@ -1345,6 +1345,44 @@ function GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryCondition, oFactor
                 end
             end
         end
+        -- Keep UEF artillery experimentals supported by a frontline. Only adjust
+        -- candidates that already passed buildability, restrictions and cost limits.
+        if aiBrain.M28LandSubteam and ScenarioInfo.Options.M28PrioritiseBPs ~= 2
+                and not(bGetSlowest or bGetFastest or bGetCheapest or bGetMostExpensive) then
+            local iUEFLandCategory = M28UnitInfo.refCategoryLandExperimental * categories.UEF
+            local bHaveSupport, bHaveAssault = false, false
+            for _, sBlueprint in tValidBlueprints do
+                if EntityCategoryContains(iUEFLandCategory, sBlueprint) then
+                    if EntityCategoryContains(M28UnitInfo.refCategoryFatboy, sBlueprint) then bHaveSupport = true
+                    elseif (aiBrain[reftBlueprintPriorityOverride][sBlueprint] or 0) >= 0 then bHaveAssault = true end
+                end
+            end
+            if bHaveSupport and bHaveAssault then
+                local iSupportCount, iAssaultCount = 0, 0
+                local tSubteam = M28Team.tLandSubteamData[aiBrain.M28LandSubteam]
+                for _, oBrain in tSubteam[M28Team.subreftoFriendlyM28Brains] do
+                    -- Include unfinished foundations so parallel builders see committed production.
+                    for _, oUnit in oBrain:GetListOfUnits(iUEFLandCategory, false, false) do
+                        if M28UnitInfo.IsUnitValid(oUnit) then
+                            if EntityCategoryContains(M28UnitInfo.refCategoryFatboy, oUnit.UnitId) then iSupportCount = iSupportCount + 1
+                            else iAssaultCount = iAssaultCount + 1 end
+                        end
+                    end
+                end
+                if iSupportCount > 0 and iSupportCount * 2 >= iAssaultCount then
+                    iHighestPriority = -100
+                    for iBlueprint = table.getn(tValidBlueprints), 1, -1 do
+                        local sBlueprint = tValidBlueprints[iBlueprint]
+                        if EntityCategoryContains(M28UnitInfo.refCategoryFatboy, sBlueprint) then
+                            table.remove(tValidBlueprints, iBlueprint)
+                        elseif bIgnoreTechDifferences or EntityCategoryContains(categories.TECH3 + categories.EXPERIMENTAL, sBlueprint) then
+                            iHighestPriority = math.max(iHighestPriority, aiBrain[reftBlueprintPriorityOverride][sBlueprint] or 0)
+                        end
+                    end
+                    iValidBlueprints = table.getn(tValidBlueprints)
+                end
+            end
+        end
         --Now get a list of blueprints that are this tech level and of the highest priority
         --if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iHighestTech='..iHighestTech..'; tiHighestSpeedByTech='..tiHighestSpeedByTech[iHighestTech]..'; bGetSlowest='..tostring(bGetSlowest)..'; bGetFastest='..tostring(bGetFastest)) end
         local bIsValid, iCurrentPriority

@@ -4149,25 +4149,18 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                                 --FACTION SPECIFIC LOGIC
                                 --UEF EXPERIMENTAL CHOICE
                             elseif tbEngineersOfFactionOrNilIfAlreadyAssigned[M28UnitInfo.refFactionUEF] then
-                                --Decide between fatboy and novax, or (with v.high eco) mavor
+                                --Decide between land experimentals, Novax and strategic artillery.
                                 iFactionRequired = M28UnitInfo.refFactionUEF
                                 local iCurFatboyCount = 0
                                 local iCurNovaxCount = 0
                                 local iCurT3ArtiCount = 0 --mavor treated as 3 t3 arti
                                 local iLandExpCount = 0
-                                local iUEFLandExpCategory
-                                if not(ScenarioInfo.Options.M28PrioritiseBPs == 2) and (M28Team.tTeamData[iTeam][M28Team.refiConstructedExperimentalCount] >= math.min(1.5, M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount]) or M28Conditions.GetTeamLifetimeBuildCount(iTeam, M28UnitInfo.refCategoryLandExperimental - M28UnitInfo.refCategoryFatboy) >= 2) then
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want to get a fatboy rather than just any land experimental') end
-                                    iUEFLandExpCategory = M28UnitInfo.refCategoryFatboy - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR
-                                else
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Want to get any UEF land exp instead of just a fatboy') end
-                                    iUEFLandExpCategory = M28UnitInfo.refCategoryLandExperimental - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR
-                                end
+                                local iUEFLandExpCategory = M28UnitInfo.refCategoryLandExperimental - iGameEnderTemplateCategories - categories.TRANSPORTATION  - categories.DEFENSE * categories.STRUCTURE * categories.DIRECTFIRE - categories.STRUCTURE * categories.ANTIAIR
 
                                 local bCanBuildNovax = M28Building.bNovaxInGame and not(M28UnitInfo.IsUnitRestricted('xeb2402', aiBrain:GetArmyIndex()))
                                 --How many fatboys do we have on the subteam already?
                                 for iBrain, oBrain in M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.subreftoFriendlyM28Brains] do
-                                    iCurFatboyCount = iCurFatboyCount + oBrain:GetCurrentUnits(iUEFLandExpCategory)
+                                    iCurFatboyCount = iCurFatboyCount + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryFatboy)
                                     iLandExpCount = iLandExpCount + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandExperimental)
                                     iCurNovaxCount = iCurNovaxCount + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryNovaxCentre)
                                     iCurT3ArtiCount = iCurT3ArtiCount + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryFixedT3Arti) + oBrain:GetCurrentUnits(M28UnitInfo.refCategoryExperimentalArti) * 3
