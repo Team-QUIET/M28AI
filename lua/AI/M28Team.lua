@@ -394,7 +394,7 @@ tLandSubteamData = {} --tLandSubteamData[oBrain.M28LandSubteam] results in the b
 
 --Other variables dependent on above:
 tEnemyBigThreatCategories = { [reftEnemyLandExperimentals] = M28UnitInfo.refCategoryLandExperimental + categories.COMMAND, --include ACU here so that if ACU gets laser or blast gun upgrade it will get assigned to land experimentals
-                              [reftEnemyArtiAndExpStructure] = M28UnitInfo.refCategoryFixedT3Arti + M28UnitInfo.refCategoryExperimentalStructure, [reftEnemyNukeLaunchers] = M28UnitInfo.refCategorySML, [reftEnemySMD] = M28UnitInfo.refCategorySMD, [reftEnemyBattleships] = M28UnitInfo.refCategoryNavalSurface * categories.BATTLESHIP, [reftEnemyMobileSatellites] = M28UnitInfo.refCategorySatellite, [reftEnemyAirExperimentals] = M28UnitInfo.refCategoryGunship * categories.EXPERIMENTAL + M28UnitInfo.refCategoryCzar + M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL }
+                              [reftEnemyArtiAndExpStructure] = M28UnitInfo.refCategoryFixedT3Arti + M28UnitInfo.refCategoryExperimentalStructure, [reftEnemyNukeLaunchers] = M28UnitInfo.refCategorySML, [reftEnemySMD] = M28UnitInfo.refCategoryAllSMD, [reftEnemyBattleships] = M28UnitInfo.refCategoryNavalSurface * categories.BATTLESHIP, [reftEnemyMobileSatellites] = M28UnitInfo.refCategorySatellite, [reftEnemyAirExperimentals] = M28UnitInfo.refCategoryGunship * categories.EXPERIMENTAL + M28UnitInfo.refCategoryCzar + M28UnitInfo.refCategoryBomber * categories.EXPERIMENTAL }
 
 
 
@@ -1470,7 +1470,7 @@ function UpdateUnitLastKnownPosition(aiBrain, oUnit, bDontCheckIfCanSeeUnit, bIn
     if not(M28UnitInfo.IsUnitValid(oUnit)) then return end
     local oUnitBrain = oUnit:GetAIBrain()
     if oUnitBrain == aiBrain or IsAlly(aiBrain:GetArmyIndex(), oUnitBrain:GetArmyIndex()) then return end
-    if bDontCheckIfCanSeeUnit or M28UnitInfo.CanSeeUnit(aiBrain, oUnit) then
+    if bDontCheckIfCanSeeUnit or M28UnitInfo.CanSeeUnit(aiBrain, oUnit, EntityCategoryContains(M28UnitInfo.refCategoryMobileSMD, oUnit.UnitId)) then
         local iTeam = aiBrain.M28Team
         local tPosition = oUnit:GetPosition()
         oUnit[M28UnitInfo.reftLastKnownPositionByTeam] = oUnit[M28UnitInfo.reftLastKnownPositionByTeam] or {}
@@ -1532,7 +1532,7 @@ function RemoveUnitFromBigThreatTable(oDeadUnit)
     --Removes all dead units from each team's listings, assuming oDeadUnit is a big threat
     local sTableRef
     local bIsSMD = false
-    if EntityCategoryContains(M28UnitInfo.refCategorySMD, oDeadUnit.UnitId) then bIsSMD = true end
+    if EntityCategoryContains(M28UnitInfo.refCategoryAllSMD, oDeadUnit.UnitId) then bIsSMD = true end
     for sReferenceTable, iCategory in tEnemyBigThreatCategories do
         if EntityCategoryContains(iCategory, oDeadUnit.UnitId) then
             sTableRef = sReferenceTable
@@ -1855,10 +1855,10 @@ function AddUnitToBigThreatTable(iTeam, oUnit)
                     end
 
                     --Flag if SMD built so can update nuke targeting; refiTimeOfLastCheck is used to hold the estimated time that the smd was built (which then informs whether the smd is assumed to be able to block a nuke)
-                    if EntityCategoryContains(M28UnitInfo.refCategorySMD, oUnit.UnitId) then
+                    if EntityCategoryContains(M28UnitInfo.refCategoryAllSMD, oUnit.UnitId) then
                         tTeamData[iTeam][refbEnemySMDBuiltSinceLastNukeCheck] = true
                         local iTimeAssumedConstructed
-                        if oUnit:GetNukeSiloAmmoCount() >= 1 or oUnit:GetWorkProgress() >= 0.8 then oUnit[M28UnitInfo.refiTimeOfLastCheck] = (oUnit[M28UnitInfo.refiTimeOfLastCheck] or 0) - 240 - M28Building.iTimeForSMDToBeConstructed
+                        if M28UnitInfo.GetMissileCount(oUnit) >= 1 or oUnit:GetWorkProgress() >= 0.8 then oUnit[M28UnitInfo.refiTimeOfLastCheck] = (oUnit[M28UnitInfo.refiTimeOfLastCheck] or 0) - 240 - M28Building.iTimeForSMDToBeConstructed
                             --Rough approximation of when SMD was built (ideally in future would work out the time we last scouted this area and then to be prudent assume the SMD got built 30s after that)
                         elseif oUnit:GetFractionComplete() == 1 then
                             oUnit[M28UnitInfo.refiTimeOfLastCheck] = GetGameTimeSeconds() - M28Building.iTimeForSMDToBeConstructed - 240 * oUnit:GetWorkProgress()
