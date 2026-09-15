@@ -588,6 +588,7 @@ local function IssueACURetreatOrder(oACU, iPlateauOrZero, iLandOrWaterZone, tLZO
 end
 
 function ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearchForAdjacencyAndUnderConstruction, iMaxAreaToSearchForBuildLocation, iOptionalAdjacencyCategory, iOptionalCategoryBuiltUnitCanBuild, tOptionalSearchLocation, bRequireAdjacency, iOptionalEngineerAction)
+    if oACU[M28UnitInfo.refbSpecialMicroActive] then return false end
     local sFunctionRef = 'ACUBuildUnit'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelACU, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -595,6 +596,7 @@ function ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearchForAdjace
     --Do we have a nearby unit of the type we want to build under construction?
     local tNearbyUnitsOfCategoryToBuild = aiBrain:GetUnitsAroundPoint(iCategoryToBuild, oACU:GetPosition(), iMaxAreaToSearchForAdjacencyAndUnderConstruction, 'Ally')
     local oNearestPartComplete
+    local bHaveBuildAction = false
 
     if M28Utilities.IsTableEmpty(tNearbyUnitsOfCategoryToBuild) == false then
         local iClosestUnit = 10000
@@ -615,12 +617,12 @@ function ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearchForAdjace
         local tLastOrder = oACU[M28Orders.reftiLastOrders][oACU[M28Orders.refiOrderCount]]
         --if not(tLastOrder[M28Orders.subrefoOrderUnitTarget] == oNearestPartComplete) then --Dont need this step, as the order already takes this into account, and reissues once we get within build range
         M28Orders.IssueTrackedRepair(oACU, oNearestPartComplete, false, 'ACUComplB', false)
+        bHaveBuildAction = true
         --M28Orders.IssueTrackedGuard(oACU, oNearestPartComplete, false)
         --end
 
     else
         --No nearby under construction factory, so build one unless we allready have a queued orer to build one
-        oACU[refbACUHasBeenGivenABuildOrderRecently] = true
         local bAlreadyHaveOrder = false
         M28Orders.UpdateRecordedOrders(oACU)
         local tLastOrder = oACU[M28Orders.reftiLastOrders][oACU[M28Orders.refiOrderCount]]
@@ -630,11 +632,20 @@ function ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearchForAdjace
         end
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': tLastOrder='..reprs(tLastOrder)..'; bAlreadyHaveOrder='..tostring(bAlreadyHaveOrder)) end
         if not(bAlreadyHaveOrder) then
+            local sBlueprintOverride
+            if M28Utilities.DoesCategoryContainCategory(M28UnitInfo.refCategoryExperimentalLevel, iCategoryToBuild, true) then
+                --A faction's experimental category does not establish this ACU's build capability.
+                sBlueprintOverride = M28Factory.GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryToBuild, oACU, false, false, nil, iOptionalCategoryBuiltUnitCanBuild)
+                if not(sBlueprintOverride) then
+                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                    return false
+                end
+            end
             local tLZData, tLZTeamData = M28Map.GetLandOrWaterZoneData(oACU:GetPosition(), true, oACU:GetAIBrain().M28Team)
             --GetBlueprintAndLocationToBuild(aiBrain, oEngineer, iOptionalEngineerActionForDebug, iCategoryToBuild, iMaxAreaToSearch,                                   iCatToBuildBy,              tAlternativePositionToLookFrom, bLookForQueuedBuildings, oUnitToBuildBy, iOptionalCategoryForStructureToBuild, bBuildCheapestStructure, tLZData, tLZTeamData)
-            local sBlueprint, tBuildLocation = M28Engineer.GetBlueprintAndLocationToBuild(aiBrain, oACU, iOptionalEngineerAction, iCategoryToBuild, iMaxAreaToSearchForAdjacencyAndUnderConstruction, iOptionalAdjacencyCategory, tOptionalSearchLocation, false, nil, iOptionalCategoryBuiltUnitCanBuild, nil, tLZData, tLZTeamData)
+            local sBlueprint, tBuildLocation = M28Engineer.GetBlueprintAndLocationToBuild(aiBrain, oACU, iOptionalEngineerAction, iCategoryToBuild, iMaxAreaToSearchForAdjacencyAndUnderConstruction, iOptionalAdjacencyCategory, tOptionalSearchLocation, false, nil, iOptionalCategoryBuiltUnitCanBuild, nil, tLZData, tLZTeamData, nil, sBlueprintOverride)
             if not(tBuildLocation) and not(bRequireAdjacency) then
-                sBlueprint, tBuildLocation = M28Engineer.GetBlueprintAndLocationToBuild(aiBrain, oACU, iOptionalEngineerAction, iCategoryToBuild, iMaxAreaToSearchForBuildLocation, nil, tOptionalSearchLocation, false, nil, iOptionalCategoryBuiltUnitCanBuild, nil, tLZData, tLZTeamData)
+                sBlueprint, tBuildLocation = M28Engineer.GetBlueprintAndLocationToBuild(aiBrain, oACU, iOptionalEngineerAction, iCategoryToBuild, iMaxAreaToSearchForBuildLocation, nil, tOptionalSearchLocation, false, nil, iOptionalCategoryBuiltUnitCanBuild, nil, tLZData, tLZTeamData, nil, sBlueprintOverride)
             end
             if bDebugMessages == true then
                 local iPlateauOrZero, iLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oACU:GetPosition())
@@ -644,6 +655,7 @@ function ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearchForAdjace
                 end
             end
             if sBlueprint and tBuildLocation then
+                bHaveBuildAction = true
                 --If our last order was to build this unit (ignoring location)
                 --Move to the target and then build on it
                 local tMoveTarget = M28Engineer.GetLocationToMoveForConstruction(oACU, tBuildLocation, sBlueprint)
@@ -657,6 +669,7 @@ function ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearchForAdjace
                 --M28Orders.UpdateRecordedOrders(oACU) --now are doing this earlier on
             end
         else
+            bHaveBuildAction = true
             --Consider reissuing the same order if we are close
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Deciding whether to reissue order to build, last order position='..repru(tLastOrder[M28Orders.subreftOrderPosition])..'; Dist to ACU position='..M28Utilities.GetDistanceBetweenPositions(tLastOrder[M28Orders.subreftOrderPosition], oACU:GetPosition())..'; BUilding radius+ACU build distance - 0.1='..(oACU:GetBlueprint().Economy.MaxBuildDistance + M28UnitInfo.GetBuildingSize(tLastOrder[M28Orders.subrefsOrderBlueprint]) * 0.5 - 0.1)) end
             if M28Utilities.IsTableEmpty(tLastOrder[M28Orders.subreftOrderPosition]) == false and M28Utilities.GetDistanceBetweenPositions(tLastOrder[M28Orders.subreftOrderPosition], oACU:GetPosition()) <= oACU:GetBlueprint().Economy.MaxBuildDistance + M28UnitInfo.GetBuildingSize(tLastOrder[M28Orders.subrefsOrderBlueprint]) * 0.5 - 0.1 then
@@ -667,7 +680,9 @@ function ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearchForAdjace
         end
     end
 
+    if bHaveBuildAction then oACU[refbACUHasBeenGivenABuildOrderRecently] = true end
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return bHaveBuildAction
 end
 
 local function GetOpeningFactoryMexAnchor(aiBrain, oACU, iCategoryToBuild, tLZData)
@@ -880,9 +895,10 @@ function ACUActionBuildPower(aiBrain, oACU)
     local iEngineerAction = M28Engineer.refActionBuildPower
     local iOptionalAdjacencyCategory = M28Engineer.tiActionAdjacentCategory[iEngineerAction]
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to tell ACU to build power; will require adjacency and use engineer adjacency owner') end
-    ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearch, iMaxAreaToSearch * 3, iOptionalAdjacencyCategory, nil, nil, M28Engineer.DoesEngineerActionRequireAdjacency(iEngineerAction), iEngineerAction)
+    local bHaveBuildAction = ACUBuildUnit(aiBrain, oACU, iCategoryToBuild, iMaxAreaToSearch, iMaxAreaToSearch * 3, iOptionalAdjacencyCategory, nil, nil, M28Engineer.DoesEngineerActionRequireAdjacency(iEngineerAction), iEngineerAction)
 
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    return bHaveBuildAction
 end
 
 local function ShouldOpeningBuildExtraPower(aiBrain, iCurrentPowerEquivalent, iMassCrashPowerCap, bOpeningMassCrash, bHardEnergyEmergency, sFunctionRef, bDebugMessages, tDebugContext)
@@ -2875,7 +2891,7 @@ function GetACUUpgradeWanted(oACU, bWantToDoTeleSnipe, tLZOrWZData, tLZOrWZTeamD
             local sPotentialUpgrade = oACU[reftPreferredUpgrades][1]
             if M28Utilities.IsTableEmpty(oACU[reftPreferredUpgrades]) == false and sPotentialUpgrade then
                 local tEnhancement = oACU:GetBlueprint().Enhancements[sPotentialUpgrade]
-                if tEnhancement.BuildCostMass <= 100 and tEnhancement.BuildCostEnergy <= 100 and (oACU:GetAIBrain()[M28Economy.refiGrossEnergyBaseIncome] >= 600 or not(sUpgradeWanted == 'CloakingGenerator' or sUpgradeWanted == 'Sheild')) then
+                if tEnhancement.BuildCostMass <= 100 and tEnhancement.BuildCostEnergy <= 100 and (oACU:GetAIBrain()[M28Economy.refiGrossEnergyBaseIncome] >= 600 or not(sPotentialUpgrade == 'CloakingGenerator' or sPotentialUpgrade == 'Shield')) then
                     sUpgradeWanted = sPotentialUpgrade
                     if tEnhancement.BuildTime <= 100 then
                         bIgnoreOtherConditions = true
@@ -7095,7 +7111,7 @@ function HaveTelesnipeAction(oACU, tLZOrWZData, tLZOrWZTeamData, aiBrain, iTeam,
                 if not(tLZOrWZTeamData[M28Map.subrefLZbCoreBase]) then
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will teleport back to base') end
                     bGivenACUOrder = true
-                    if M28Conditions.BaseIsSafeToRetreatTo(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase], iTeam) or M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] <= 1 then
+                    if M28Conditions.BaseIsSafeToRetreatTo(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase], iTeam) then
                         M28Orders.IssueTrackedTeleport(oACU, tLZOrWZTeamData[M28Map.reftClosestFriendlyBase], 5, true, 'ACUTelB', true)
                     else
                         --Find a safe base
@@ -7103,8 +7119,8 @@ function HaveTelesnipeAction(oACU, tLZOrWZData, tLZOrWZTeamData, aiBrain, iTeam,
                         local tPotentialBase
                         local tTeleportBaseTarget, iCurDist
                         for iBrain, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains] do
-                            tPotentialBase = M28Map.GetPlayerStartPosition(aiBrain)
-                            if tPotentialBase and M28Conditions.BaseIsSafeToRetreatTo(tLZOrWZTeamData[M28Map.reftClosestFriendlyBase], iTeam) then
+                            tPotentialBase = M28Map.GetPlayerStartPosition(oBrain)
+                            if tPotentialBase and M28Conditions.BaseIsSafeToRetreatTo(tPotentialBase, iTeam) then
                                 iCurDist = M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tPotentialBase)
                                 if iCurDist < iClosestSafeBaseDist then
                                     iClosestSafeBaseDist = iCurDist
@@ -7112,8 +7128,12 @@ function HaveTelesnipeAction(oACU, tLZOrWZData, tLZOrWZTeamData, aiBrain, iTeam,
                                 end
                             end
                         end
-                        if not(tTeleportBaseTarget) then tTeleportBaseTarget = {tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][1],tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][2],tLZOrWZTeamData[M28Map.reftClosestFriendlyBase][3]} end
-                        M28Orders.IssueTrackedTeleport(oACU, tTeleportBaseTarget, 5, true, 'ACUTelC', true)
+                        if tTeleportBaseTarget then
+                            M28Orders.IssueTrackedTeleport(oACU, tTeleportBaseTarget, 5, true, 'ACUTelC', true)
+                        else
+                            --Let ordinary ACU movement handle retreat when no base is safe.
+                            bGivenACUOrder = false
+                        end
                     end
                 else
                     --Do we have enough health to target
@@ -8668,6 +8688,7 @@ end
 
 function HaveActionForACUAsEngineer(oACU, tLZOrWZData, tLZOrWZTeamData, iPlateauOrZero, iLandOrWaterZone)
     --Intended where ACU has >=T2, returns true if we are giving the ACU a build order
+    if oACU[M28UnitInfo.refbSpecialMicroActive] then return false end
     local sFunctionRef = 'HaveActionForACUAsEngineer'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelACU, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -8711,8 +8732,7 @@ function HaveActionForACUAsEngineer(oACU, tLZOrWZData, tLZOrWZTeamData, iPlateau
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iNearbyEnemyThreat='..iNearbyEnemyThreat..'; Gross mass='..aiBrain[M28Economy.refiGrossMassBaseIncome]) end
                     if iNearbyEnemyThreat >= 500 or (iNearbyEnemyThreat >= math.max(150, iExistingLRPDThreat * 0.5) and (iExistingLRPDThreat == 0 or not(M28Conditions.TeamHasLowMass(iTeam)) or aiBrain[M28Economy.refiGrossMassBaseIncome] >= 10)) then
                         if not(tLZOrWZTeamData[M28Map.refbBaseInSafePosition]) or M28Utilities.IsTableEmpty(aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryLandCombat, oACU:GetPosition(), 100, 'Enemy')) == false then
-                            bGivenOrder = true
-                            ACUBuildUnit(aiBrain, oACU, M28UnitInfo.refCategoryPD, 50, 60, nil, nil)
+                            bGivenOrder = ACUBuildUnit(aiBrain, oACU, M28UnitInfo.refCategoryPD, 50, 60, nil, nil)
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will try and build PD') end
                         end
                     end
@@ -8726,16 +8746,15 @@ function HaveActionForACUAsEngineer(oACU, tLZOrWZData, tLZOrWZTeamData, iPlateau
                     --Prioritize T3 power so we better convert ACU buildrate into high-tech eco.
                     if bQuietT4Engineering then
                         local oT3PowerToAssist = M28Engineer.GetPartCompleteBuildingInZone(iTeam, iPlateauOrZero, iLandOrWaterZone, M28UnitInfo.refCategoryT3Power)
-                        bGivenOrder = true
                         if oT3PowerToAssist then
+                            bGivenOrder = true
                             M28Orders.IssueTrackedRepair(oACU, oT3PowerToAssist, false, 'ACUAstTP', false)
                         else
-                            ACUBuildUnit(aiBrain, oACU, M28UnitInfo.refCategoryT3Power, 35, 55, M28UnitInfo.refCategoryT3Power, nil)
+                            bGivenOrder = ACUBuildUnit(aiBrain, oACU, M28UnitInfo.refCategoryT3Power, 35, 55, M28UnitInfo.refCategoryT3Power, nil)
                         end
                     --If we dont have highest tech level then look to just assist power
                     elseif oACU[refiBuildTech] >= aiBrain[M28Economy.refiOurHighestFactoryTechLevel] then
-                        ACUActionBuildPower(aiBrain, oACU)
-                        bGivenOrder = true
+                        bGivenOrder = ACUActionBuildPower(aiBrain, oACU)
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': We have highest tech available on acu so will build power') end
                     else
                         local oPowerToAssist = M28Engineer.GetPartCompleteBuildingInZone(iTeam, iPlateauOrZero, iLandOrWaterZone, M28UnitInfo.refCategoryPower)
@@ -8754,19 +8773,20 @@ function HaveActionForACUAsEngineer(oACU, tLZOrWZData, tLZOrWZTeamData, iPlateau
                     local iExperimentalCategory = M28Engineer.DecideOnExperimentalToBuild(M28Engineer.refActionReclaimFriendlyUnit, aiBrain, tbEngineersOfFaction, tLZOrWZData, tLZOrWZTeamData, iPlateauOrZero, iLandOrWaterZone)
                     if iExperimentalCategory then
                         if not(iExperimentalCategory == M28Engineer.refActionManageGameEnderTemplate) then
-                            bGivenOrder = true
                             local oExpToAssist = M28Engineer.GetPartCompleteBuildingInZone(iTeam, iPlateauOrZero, iLandOrWaterZone, iExperimentalCategory)
                             if bQuietT4Engineering and not(M28Conditions.HaveLowPower(iTeam)) and oExpToAssist and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryQuantumGateway) == 0 then
                                 local oQuantumGatewayToAssist = M28Engineer.GetPartCompleteBuildingInZone(iTeam, iPlateauOrZero, iLandOrWaterZone, M28UnitInfo.refCategoryQuantumGateway)
                                 if oQuantumGatewayToAssist then
+                                    bGivenOrder = true
                                     M28Orders.IssueTrackedRepair(oACU, oQuantumGatewayToAssist, false, 'ACUAstQG', false)
                                 else
-                                    ACUBuildUnit(aiBrain, oACU, M28UnitInfo.refCategoryQuantumGateway, 50, 70, M28UnitInfo.refCategoryT3Power, nil)
+                                    bGivenOrder = ACUBuildUnit(aiBrain, oACU, M28UnitInfo.refCategoryQuantumGateway, 50, 70, M28UnitInfo.refCategoryT3Power, nil)
                                 end
                             elseif oExpToAssist then
+                                bGivenOrder = true
                                 M28Orders.IssueTrackedRepair(oACU, oExpToAssist, false, 'ACUAstEx', false)
                             else
-                                ACUBuildUnit(aiBrain, oACU, iExperimentalCategory, 50, 60, nil, nil)
+                                bGivenOrder = ACUBuildUnit(aiBrain, oACU, iExperimentalCategory, 50, 60, nil, nil)
                             end
                         else
                             local oExpToAssist = M28Engineer.GetPartCompleteBuildingInZone(iTeam, iPlateauOrZero, iLandOrWaterZone, M28UnitInfo.refCategoryExperimentalLevel + M28UnitInfo.refCategoryFixedShield)
@@ -8778,11 +8798,11 @@ function HaveActionForACUAsEngineer(oACU, tLZOrWZData, tLZOrWZTeamData, iPlateau
                     end
                     if not(bGivenOrder) and bQuietT4Engineering and not(M28Conditions.HaveLowPower(iTeam)) and aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryQuantumGateway) == 0 then
                         local oQuantumGatewayToAssist = M28Engineer.GetPartCompleteBuildingInZone(iTeam, iPlateauOrZero, iLandOrWaterZone, M28UnitInfo.refCategoryQuantumGateway)
-                        bGivenOrder = true
                         if oQuantumGatewayToAssist then
+                            bGivenOrder = true
                             M28Orders.IssueTrackedRepair(oACU, oQuantumGatewayToAssist, false, 'ACUAstQG', false)
                         else
-                            ACUBuildUnit(aiBrain, oACU, M28UnitInfo.refCategoryQuantumGateway, 50, 70, M28UnitInfo.refCategoryT3Power, nil)
+                            bGivenOrder = ACUBuildUnit(aiBrain, oACU, M28UnitInfo.refCategoryQuantumGateway, 50, 70, M28UnitInfo.refCategoryT3Power, nil)
                         end
                     end
                 end
