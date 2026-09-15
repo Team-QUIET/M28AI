@@ -1781,10 +1781,10 @@ function GetPotentialBuildLocationsNearLocation(aiBrain, tLZOrWZData, iPlateauOr
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function SearchForBuildableLocationsNearTarget(aiBrain, tLZOrWZData, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, iBaseSegmentX, iBaseSegmentZ, iAffectedDistanceRadius)
+function SearchForBuildableLocationsNearTarget(aiBrain, tLZOrWZData, iPlateauOrZero, iLandOrWaterZone, iBaseSegmentX, iBaseSegmentZ, iAffectedDistanceRadius)
     local iDistanceSearchSize = math.max(iAffectedDistanceRadius, 8)
     --local iSegmentSearchSize = math.ceil(iAffectedDistanceRadius + iMaxBuildingSize * 0.5 / M28Map.iLandZoneSegmentSize)
-    iSegmentSearchSize = math.ceil(iDistanceSearchSize / M28Map.iLandZoneSegmentSize)
+    local iSegmentSearchSize = math.ceil(iDistanceSearchSize / M28Map.iLandZoneSegmentSize)
     for iSegmentX = math.max(1, iBaseSegmentX - iSegmentSearchSize), math.min(iBaseSegmentX + iSegmentSearchSize, M28Map.iMaxLandSegmentX), 1 do
         for iSegmentZ = math.max(1, iBaseSegmentZ - iSegmentSearchSize), math.min(iBaseSegmentZ + iSegmentSearchSize, M28Map.iMaxLandSegmentZ), 1 do
             FindBuildableLocationsForSegment(aiBrain, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, iSegmentX, iSegmentZ)
@@ -10002,7 +10002,7 @@ function GETemplateConsiderDefences(tAvailableEngineers, tAvailableT3EngineersBy
             --Enemy has nuke (non sera battleship version) and we lack SMD for this template, so get SMD unless we have another template in this zone that has SMD
             local bHaveOtherTemplateWithSMD = false
             for iTemplate, tSubtable in tLZTeamData[M28Map.reftActiveGameEnderTemplates] do
-                if M28UnitInfo.IsUnitValid(tTableRef[M28Map.subrefGESMDUnit]) then
+                if M28UnitInfo.IsUnitValid(tSubtable[M28Map.subrefGESMDUnit]) then
                     bHaveOtherTemplateWithSMD = true
                     break
                 end
@@ -10111,7 +10111,7 @@ function GameEnderTemplateManager(tLZData, tLZTeamData, iTemplateRef, iPlateau, 
     local tTableRef = tLZTeamData[M28Map.reftActiveGameEnderTemplates][iTemplateRef]
     local bCallAgainAfterDelay
 
-    function RemoveEngineerFromGETemplate(oEngineer)
+    local function RemoveEngineerFromGETemplate(oEngineer)
         if tLZTeamData[M28Map.subrefbGEShieldSACU] and EntityCategoryContains(categories.UEF * categories.SUBCOMMANDER, oEngineer.UnitId) then
             --Dont remove - shield SACU
             bCallAgainAfterDelay = true
@@ -22849,7 +22849,7 @@ function CheckDestroyedBuildingLocations()
                     --local iAffectedDistanceRadius = math.min(math.max(iBuildingSize, 8), iBuildingSize * 0.5 + iMaxBuildingSize * 0.5)
 
                     if aiBrain then
-                        SearchForBuildableLocationsNearTarget(aiBrain, tLZOrWZData, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, iBaseSegmentX, iBaseSegmentZ, iBuildingSize * 0.5)
+                        SearchForBuildableLocationsNearTarget(aiBrain, tLZOrWZData, iPlateauOrZero, iLandOrWaterZone, iBaseSegmentX, iBaseSegmentZ, iBuildingSize * 0.5)
 
                         --Record any mass storage locations
                         if iPlateauOrZero > 0 then

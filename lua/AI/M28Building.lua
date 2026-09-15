@@ -3189,7 +3189,7 @@ function DelayedScathisOrderChange(bAttackUnitNotGround, oArti, oBestTarget, tAc
         bWillIssueNewOrder = true
         if tLastOrder[M28Orders.subrefoOrderUnitTarget] == oBestTarget and tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueAttack then bWillIssueNewOrder = false end
     else
-        if tLastOrder[M28Orders.subreftOrderPosition] and M28Utilities.GetRoughDistanceBetweenPositions(tLastOrder, tActualTarget) > 1 then bWillIssueNewOrder = true end
+        if tActualTarget and (tLastOrder[M28Orders.subrefiOrderType] ~= M28Orders.refiOrderIssueGroundAttack or not(tLastOrder[M28Orders.subreftOrderPosition]) or M28Utilities.GetRoughDistanceBetweenPositions(tLastOrder[M28Orders.subreftOrderPosition], tActualTarget) > 1) then bWillIssueNewOrder = true end
     end
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Scathis oArti='..oArti.UnitId..M28UnitInfo.GetUnitLifetimeCount(oArti)..'; bWillIssueNewOrder='..tostring(bWillIssueNewOrder or false)..'; oBestTarget='..(oBestTarget.UnitId or 'nil')..(M28UnitInfo.GetUnitLifetimeCount(oBestTarget) or 'nil')..'; Time='..GetGameTimeSeconds()) end
     if bWillIssueNewOrder then
@@ -3210,7 +3210,11 @@ function DelayedScathisOrderChange(bAttackUnitNotGround, oArti, oBestTarget, tAc
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
         end
 
-        function AttackOrigTarget(bQueuedOrder)
+        local function AttackOrigTarget(bQueuedOrder)
+            if not(M28UnitInfo.IsUnitValid(oArti)) then
+                bTrackForMovement = false
+                return
+            end
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to issue attack order if target is still valid, is oBestTarget valid='..tostring(M28UnitInfo.IsUnitValid(oBestTarget))..'; Time='..GetGameTimeSeconds()) end
             if bAttackUnitNotGround then
                 if M28UnitInfo.IsUnitValid(oBestTarget) then
@@ -5509,7 +5513,7 @@ function RemoveOldNukeTarget(iTeam, iRecordedTime, iDelayInSeconds)
     if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subrefNukeLaunchLocations]) == false then
         for iTime, tLocation in M28Team.tTeamData[iTeam][M28Team.subrefNukeLaunchLocations] do
             if iRecordedTime == iTime then
-                M28Team.tTeamData[iTeam][M28Team.subrefNukeLaunchLocations] = nil
+                M28Team.tTeamData[iTeam][M28Team.subrefNukeLaunchLocations][iTime] = nil
                 break
             end
         end
@@ -5534,8 +5538,8 @@ function QuantumOpticsManager(aiBrain, oUnit)
         local iEntryCount
         local iEntryToScout
         local iCurLZOrWZ, iCurPlateauOrZero, iCurZoneSizeX, iCurZoneSizeZ
-        function ReadyToScry()
-            if M28Orders.bDontConsiderCombinedArmy or oUnit.M28Active and aiBrain:GetEconomyStoredRatio('ENERGY') >= 1 and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 250 and aiBrain:GetEconomyStored('ENERGY') >= 14000 and not (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) then
+        local function ReadyToScry()
+            if M28UnitInfo.IsUnitValid(oUnit) and (M28Orders.bDontConsiderCombinedArmy or oUnit.M28Active) and aiBrain:GetEconomyStoredRatio('ENERGY') >= 1 and aiBrain[M28Economy.refiGrossEnergyBaseIncome] >= 250 and aiBrain:GetEconomyStored('ENERGY') >= 14000 and not (M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) then
                 return true
             else
                 return false
@@ -5543,17 +5547,18 @@ function QuantumOpticsManager(aiBrain, oUnit)
         end
         local tAdjAreaToScout
 
-        function ScryAdjacentAreaWhenReady(tBaseTarget, iXAdjust, iZAdjust)
+        local function ScryAdjacentAreaWhenReady(tBaseTarget, iXAdjust, iZAdjust)
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
             WaitSeconds(iDelayInSeconds)
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-            while not(ReadyToScry) do
+            while M28UnitInfo.IsUnitValid(oUnit) and not(ReadyToScry()) do
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
                 WaitSeconds(iDelayInSeconds)
                 M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
             end
+            if not(M28UnitInfo.IsUnitValid(oUnit)) then return end
             tAdjAreaToScout = {tBaseTarget[1] + (iXAdjust or 0), tBaseTarget[2], tBaseTarget[3] + (iZAdjust or 0)}
-            tAdjAreaToScout[2] = GetSurfaceHeight(tBaseTarget[1], tBaseTarget[3])
+            tAdjAreaToScout[2] = GetSurfaceHeight(tAdjAreaToScout[1], tAdjAreaToScout[3])
             if bDebugMessages == true then
                 LOG(sFunctionRef..': Scrying adjacent area, tBaseTarget='..repru(tBaseTarget)..'; iXAdjust='..(iXAdjust or 'nil')..'; iZAdjust='..(iZAdjust or 'nil')..'; tAdjAreaToScout='..repru(tAdjAreaToScout)..'; Time='..GetGameTimeSeconds())
                 M28Utilities.DrawLocation(tAdjAreaToScout, nil, nil, iIntelRange)
