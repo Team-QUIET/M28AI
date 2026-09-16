@@ -348,7 +348,6 @@ iLandZoneSegmentSize = 5 --Gets updated by the SetupLandZones - the size of one 
                 subrefPrimaryBuilder = 5 --Engineer given the build order
             subreftiPotentialNukeTargetZones = 'NkTrgtZ' --contains subtables, ordered 1,2,...x returning {iPlateauOrZero, iLandOrWaterZone} for each zone that can probably be hit by a nuke from this zone
             refbAdjZonesWantEngiForUnbuiltMex = 'AZwEMx' --true if have adj zones wanting engineer for unbuilt mex
-            subreftoEmergencyPDEngineers = 'EmPDEngis' --table of engineers with emergency PD build order
             subrefiTimeLastWantSACUForExp = 'sacuexp' --Gametimeseconds that we last failed to build an experimental in the zone due to trying with an engineer
             subrefiTimeLastWantSACUForSMD = 'sacusmd' --Gametimeseconds that we last failed to build an SMD in the zone due to trying with an engineer
             refoNearbyExperimentalResourceGen = 'nrexpr' --LOUD experimental resource generator (only LOUD) - since LOUD prevents them being built between each other
@@ -359,7 +358,6 @@ iLandZoneSegmentSize = 5 --Gets updated by the SetupLandZones - the size of one 
             refiDetailedTMLTargetWithoutTMDCheckByPlateauAndZone = 'DetTrgt' --[x] = target plateau, [y] = target zone, returns number of potential TML targets that didnt appear to have a TMD that would cover them from a shot from a TML at the base zone's midpoint
             refiTimeOfLastDetailedTMLTMDCheckByPlateauAndZone = 'DetTMDt' --[x] = target plateau, [y] = target zone, returns gametimeseconds that we did a detailed TMD check
 
-            refbIgnoreEmergencyPDReassignmentLogic = 'EmPDAtv' --true if have logic monitoring emergency PD builders active
             --subrefLZTAdjacentBPByTechWanted = 'AdjBPByTechW' --{[1]=a, [2]=b, [3]=c} where a,b,c are the build power wanted wanted
             --Economy related values
             subreftoActiveUpgrades = 'ActiveUpgrades' --against tAllPlateaus[iPlateau][subrefPlateauLandZones][iLandZone][subrefLZTeamData][iTeam]
