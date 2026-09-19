@@ -516,7 +516,6 @@ tPondDetails = {}
         subrefWZOtherWaterZones = 'WZOthWZ' --table of details for water zones adjacent and further away, ordered by distance
             subrefWZAWZRef = 1 --the water zone reference
             subrefWZAWZDistance = 2 --Travel distance between the midpoints of the water zones
-        subrefWZManualNavalPathToOtherPlateauOrZeroAndZone = 'WZPathOtherZ' --Use the function GetWaterZonePathToWaterOrAdjacentLandZone to get this; Intended for land zones adjacent to a water zone in the same pond as this one; [x] is the target plateau or zero, [y] is the target land or water zone, returns a table, with {iEntry (1,2,....x), iPlateauOrZero, iLandOrWaterZone}
         --Reclaim related - uses same values as water zone
         --subrefReclaimSegments
         --subrefTotalMassReclaim
@@ -574,13 +573,6 @@ tPondDetails = {}
             subrefWZbSubsInScenario2 = 'SInSc2' --true if subs are in scenario 2 (so destroyers can consider attacking to support adjacent zones)
             refiLastBombardmentSearchRange = 'WZBmbRng' --Last range used for searching for bmobardment targets
             refbLastBombardmentSearchRangeSuccess = 'WZBmbSuc' --true if last time searched for enemies aroudn a location it found results
-            refiClosestRaidingPlateauAndLandZone = 'WZClRLZ' --returns {Plateau, LandZone} if htere is a land zone we want to consider as a raiding target
-            refiRaidWZForBombardment = 'WZRdBmWZ' --water zone where we expect to be able to attack enemy structures
-            refiMinRangeRaidingZone = 'WZClRng' --returns the min range we want raiding naval units to have to join the raid on the land zone
-            reftoWZRaiders = 'WZRaidr' --table of units assigned to raid; recorded against the base (factory) zone
-            refbActiveRaiderLogic = 'WZActR' --true if are monitoring raider orders
-            refoLastRaidTarget = 'WZRaidT' --Raid target building (used as backup for bombardment logic)
-            refiRaidTechLevel = 'WZRadTL' --Tech level to use for raiding logic to estimate permissible ranges and enemy threat values
             refiMAACombatRangeWithoutTarget = 'WZMAACmbR' --If have MAA with combat range, but no nearby enemy buildings, then this records that range
             refiEnemyTorpDefenceCount = 'WZEnTDCn' --rough number of torpedo defence weapons in the zone (e.g. T2+ units might count as 2+)
             refiTimeLastRunFromEnemyAir = 'WZTimRnA' --rounded gametime that we last had combat untis in this WZ and wanted them to retreat due to an enemy air htreat
