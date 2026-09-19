@@ -13,6 +13,7 @@ local M28Logic = import('/mods/M28AI/lua/AI/M28Logic.lua')
 local M28Overseer = import('/mods/M28AI/lua/AI/M28Overseer.lua')
 local M28Chat = import('/mods/M28AI/lua/AI/M28Chat.lua')
 local M28Land = import('/mods/M28AI/lua/AI/M28Land.lua')
+local M28ACU = import('/mods/M28AI/lua/AI/M28ACU.lua')
 local M28UnitInfo = import('/mods/M28AI/lua/AI/M28UnitInfo.lua')
 local M28Config = import('/mods/M28AI/lua/M28Config.lua')
 
@@ -230,7 +231,7 @@ iLandZoneSegmentSize = 5 --Gets updated by the SetupLandZones - the size of one 
         --Land zone subteam data (update M28Teams.TeamInitialisation function to include varaibles here so dont have to check if they exist each time)
         subrefLZTeamData = 'Subteam' --tAllPlateaus[iPlateau][subrefPlateauLandZones][iLandZone][subrefLZTeamData] - Table for all the data by team for a plateau's land zone
             --Variables that are against tAllPlateaus[iPlateau][subrefPlateauLandZones][iLandZone][subrefLZTeamData]:
-            subrefLZTValue = 'ZVal' --Value of the zone factoring in mass, reclaim, and allied units
+            subrefLZTValue = 'ZVal' --Legacy zone priority; offensive utility is calculated separately
             subrefLZSValue = 'ZBVal' --Value of friendly buildings in the land zone
             subrefLZbCoreBase = 'ZCore' --true if this is considered a 'core base' land zone
             subrefLZbSharedHumanBase = 'SHmCr' --true if we are playing with shared armies and it looks like this is primarily a human controlled core base
@@ -304,7 +305,6 @@ iLandZoneSegmentSize = 5 --Gets updated by the SetupLandZones - the size of one 
             subrefbLZWantsSupport = 'LZWantsSupport' --true if want DF or indirect units for the LZ
             subrefbLZWantsDFSupport = 'LZWantsDFSupport' --true if want DF units for the LZ
             subrefbLZWantsIndirectSupport = 'LZWantsIndirectSupport' --true if want indirect units for the LZ
-            subrefbLZBaselinePressure = 'LZBaselinePressure' --true if zone marked for baseline offensive pressure (bypasses negligible-enemy filter)
             subrefiTimeOfMMLFiringNearTMDOrShield = 'LZTimMMLFNrTMD' --Gametimeseconds that had MML firing in the zone who were near TMD
             subrefiTimeFriendlyTMDHitEnemyMissile = 'LZTimTMDVsEn' --GetGameTimeSeconds that had TMD intercept enemy missile
 
@@ -4390,6 +4390,10 @@ function GetLandZoneEconomicExposure(tZone, tTeamZone, iPlateau, iTeam)
 end
 
 function GetLandZoneDefensePriority(tZone, tTeamZone, iPlateau, iTeam, iOptionalDefendingThreat)
+    if tZone[subrefbPacifistArea] then return 0 end
+    if tTeamZone[refbACUInTrouble] then
+        return M28ACU.GetValueIncreaseForACUInTrouble(iTeam)
+    end
     local iRaidThreat = (tTeamZone[subrefLZThreatEnemyMobileDFTotal] or 0)
         + (tTeamZone[subrefLZThreatEnemyMobileIndirectTotal] or 0)
     if iRaidThreat <= 0 then return 0 end
@@ -4405,102 +4409,21 @@ function GetLandZoneSupportValue(tZone, tTeamZone, iPlateau, iTeam)
     return (tTeamZone[subrefLZTValue] or 0) + GetLandZoneDefensePriority(tZone, tTeamZone, iPlateau, iTeam)
 end
 
-function CalculateZoneValue(iPlateau, iLandZone, iTeam, iAvailableMass, iZoneCombatMass)
-    --Calculates dynamic zone value based on economic value, threat ratio, distance, and force concentration
-    --Returns zone value score used for unit prioritization
-    local sFunctionRef = 'CalculateZoneValue'
-    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelMap, sFunctionRef)
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-
-    local tLZData = tAllPlateaus[iPlateau][subrefPlateauLandZones][iLandZone]
-    local tLZTeamData = tLZData[subrefLZTeamData][iTeam]
-
-    --Economic Value (mexes only - don't reward fortified zones)
-    local iAvailableMexes = tLZData[subrefLZOrWZMexCount] or 0
-    local iEconomicValue = iAvailableMexes * 500  --Higher weight since this is the only component
-
-    --Threat Modifier (inverse threat ratio) - squared to heavily penalize defended zones
-    local iEnemyThreat = tLZTeamData[subrefTThreatEnemyCombatTotal] or 0
-    local iFriendlyThreat = math.max(1, iZoneCombatMass)
-    local iThreatRatio = iEnemyThreat / iFriendlyThreat
-    local iThreatModifier = 1.0 / (1.0 + (iThreatRatio * iThreatRatio))  --Squared for aggressive penalty
-
-    --Fortification Penalty: Heavily penalize zones with many structures (core bases)
-    local iEnemyStructureCount = (tLZTeamData[subrefTEnemyUnits] and table.getn(tLZTeamData[subrefTEnemyUnits]) or 0)
-    local iFortificationPenalty = 1.0
-    if iEnemyStructureCount > 10 then
-        --Core bases with 10+ structures get heavily penalized (each structure past 10 reduces value by 20%)
-        iFortificationPenalty = 1.0 / (1.0 + ((iEnemyStructureCount - 10) * 0.2))
-    end
-
-    --Distance Decay (closer zones prioritized)
-    local tClosestFriendlyBase = tLZTeamData[reftClosestFriendlyBase]
-    local iDistance = 1000
-    if tClosestFriendlyBase and tLZData[subrefMidpoint] then
-        iDistance = M28Utilities.GetDistanceBetweenPositions(tClosestFriendlyBase, tLZData[subrefMidpoint])
-    end
-    local iDistanceDecay = math.max(0.2, 1.0 - (iDistance / 1100))  --Reduce localism so wider lanes can still win pressure assignments
-
-    --Concentration Penalty: Penalize zones with many units already assigned
-    local iConcentrationPenalty = 1.0
-    if iAvailableMass and iAvailableMass > 0 then
-        local iAssignedRatio = iZoneCombatMass / iAvailableMass
-        iConcentrationPenalty = 1.0 / (1.0 + (iAssignedRatio * 2.5) + (iAssignedRatio * iAssignedRatio * 3.0))
-    end
-
-    --Baseline Pressure Bonus: empty flank / anchor lanes should still win units so we dictate the fight location
-    local iBaselinePressureBonus = 0
-    if tLZTeamData[subrefbLZBaselinePressure] then
-        local iTech = M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyLandFactoryTech] or 1
-        local iBaseThreatFloor = 700
-        if iTech >= 3 then
-            iBaseThreatFloor = 3000
-        elseif iTech == 2 then
-            iBaseThreatFloor = 1600
-        end
-
-        local iMexBonus = math.min(600, (tLZData[subrefLZOrWZMexCount] or 0) * 180)
-        local iExpansionBonus = tLZTeamData[subrefLZCoreExpansion] and 500 or 0
-        local iStructureBonus = math.min(900, (tLZTeamData[subrefLZSValue] or 0) * 0.3)
-        local iForwardBonus = ((tLZTeamData[refiModDistancePercent] or 0) >= 0.5) and 350 or 0
-        local iPressureFloor = iBaseThreatFloor + iMexBonus + iExpansionBonus + iStructureBonus + iForwardBonus
-        local iCurrentDFThreat = tLZTeamData[subrefLZThreatAllyMobileDFTotal] or 0
-        local iShortfall = math.max(0, iPressureFloor - iCurrentDFThreat)
-
-        iBaselinePressureBonus = math.min(3200, iShortfall * 1.25)
-    end
-
-    --Opening Flank Bias: in the first 4 minutes, avoid hard-locking onto the direct base-to-base lane
-    local iOpeningFlankBias = 0
-    if GetGameTimeSeconds() <= 240 and tClosestFriendlyBase and tLZTeamData[reftClosestEnemyBase] and tLZData[subrefMidpoint] then
-        local iModDist = tLZTeamData[refiModDistancePercent] or 0
-        local bZoneHasContestValue = (tLZData[subrefLZOrWZMexCount] or 0) > 0 or tLZTeamData[subrefLZCoreExpansion] or (tLZTeamData[subrefLZSValue] or 0) > 0
-        if bZoneHasContestValue and iModDist >= 0.18 and iModDist <= 0.72 then
-            local iAngleToEnemy = M28Utilities.GetAngleFromAToB(tClosestFriendlyBase, tLZTeamData[reftClosestEnemyBase])
-            local iAngleToZone = M28Utilities.GetAngleFromAToB(tClosestFriendlyBase, tLZData[subrefMidpoint])
-            if iAngleToEnemy and iAngleToZone then
-                local iAngleDiff = M28Utilities.GetAngleDifference(iAngleToEnemy, iAngleToZone)
-                local iTimeMultiplier = math.max(0.25, 1.0 - (GetGameTimeSeconds() / 280))
-                local iFlankRatio = math.max(0, math.min(1, (iAngleDiff - 12) / 38))
-                local iCenterPenaltyRatio = math.max(0, math.min(1, (18 - iAngleDiff) / 18))
-
-                iOpeningFlankBias = ((iFlankRatio * 2600) - (iCenterPenaltyRatio * 1800)) * iTimeMultiplier
-            end
+function CalculateZoneValue(iPlateau, iLandZone, iTeam)
+    -- Offensive benefit only. Prospective force, defensive urgency, incoming
+    -- commitments and full-route exposure belong to each role's allocator.
+    local tZone = tAllPlateaus[iPlateau][subrefPlateauLandZones][iLandZone]
+    if tZone[subrefbPacifistArea] then return 0 end
+    local tData = tZone[subrefLZTeamData][iTeam]
+    local iValue = 0
+    for _, oEnemy in tData[subrefTEnemyUnits] or {} do
+        if M28UnitInfo.IsUnitValid(oEnemy) and EntityCategoryContains(categories.STRUCTURE - categories.DEFENSE, oEnemy.UnitId) then
+            iValue = iValue + M28UnitInfo.GetUnitMassCost(oEnemy)
         end
     end
-
-    --Final Zone Value Calculation (includes all penalties)
-    local iZoneValue = math.max(0, iEconomicValue * iThreatModifier * iFortificationPenalty * iDistanceDecay * iConcentrationPenalty + iBaselinePressureBonus + iOpeningFlankBias)
-
-    if bDebugMessages == true then
-        LOG(sFunctionRef..': iPlateau='..iPlateau..'; iLZ='..iLandZone..'; iTeam='..iTeam..
-            '; EcoValue='..iEconomicValue..'; ThreatMod='..string.format("%.2f", iThreatModifier)..
-            '; FortPenalty='..string.format("%.2f", iFortificationPenalty)..'; DistDecay='..string.format("%.2f", iDistanceDecay)..
-            '; PlateauCombatMass='..iAvailableMass..'; ZoneCombatMass='..iZoneCombatMass..'; ConcPenalty='..string.format("%.2f", iConcentrationPenalty)..'; BaselineBonus='..math.floor(iBaselinePressureBonus)..'; OpeningFlankBias='..math.floor(iOpeningFlankBias)..'; FinalZoneValue='..math.floor(iZoneValue))
-    end
-
-    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
-    return iZoneValue
+    local iAccess = math.max(0, math.min(1, ((tData[refiModDistancePercent] or 0) - 0.25) * 4))
+    return iValue + iAccess * (table.getn(tZone[subrefMexUnbuiltLocations] or {}) * 250
+        + math.min(2000, tZone[subrefTotalSignificantMassReclaim] or 0) * 0.5)
 end
 
 function RecordClosestAllyAndEnemyBaseForEachWaterZone(iTeam, bDontInitializeWZLogic)

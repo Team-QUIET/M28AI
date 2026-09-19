@@ -336,12 +336,12 @@ function GetSpreadPositionForUnit(oUnit, tTargetPosition, iSpreadRadius, tSpread
     return {tPosition[1], tPosition[2], tPosition[3]}
 end
 
-function IssueSmartMove(oUnit, tOrderPosition, iDistanceToReissueOrder, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder, bIsRetreat, tSpreadAvoidanceAreaTables)
+function IssueSmartMove(oUnit, tOrderPosition, iDistanceToReissueOrder, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder, bIsRetreat, tSpreadAvoidanceAreaTables, iSpreadRadius)
     --Uses attack-move for MML/Sniper/T3Arti, regular move for others
     --Spreads positions using unit ID for consistent unique offsets per unit
     --bIsRetreat: if true, always use regular move (no attack-move) since retreating units should flee, not stop to fight
     --Retreats use regular movement but keep the same spread, constrained by any known fixed-defense ranges supplied by the combat owner.
-    local tFinalPosition = GetSpreadPositionForUnit(oUnit, tOrderPosition, nil, tSpreadAvoidanceAreaTables)
+    local tFinalPosition = GetSpreadPositionForUnit(oUnit, tOrderPosition, iSpreadRadius, tSpreadAvoidanceAreaTables)
     if not(bIsRetreat) and ShouldUseAttackMove(oUnit) then
         IssueTrackedAttackMove(oUnit, tFinalPosition, iDistanceToReissueOrder, bAddToExistingQueue, sOptionalOrderDesc, bOverrideMicroOrder)
     else
