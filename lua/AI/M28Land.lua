@@ -13494,11 +13494,15 @@ end
 
 function ShouldPreserveArtilleryEngagement(oUnit)
     if oUnit[M28UnitInfo.refbSpecialMicroActive] or not(EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, oUnit.UnitId)) then return false end
+    if IsLandRetreatUnfinished(oUnit) then
+        oUnit.M28ArtilleryDeployStarted = nil
+        return false
+    end
     local iNow = GetGameTimeSeconds()
     local tOrders = oUnit[M28Orders.reftiLastOrders]
     local iOrderType = tOrders and tOrders[1] and tOrders[1][M28Orders.subrefiOrderType]
     if (iOrderType ~= M28Orders.refiOrderIssueAggressiveMove and iOrderType ~= M28Orders.refiOrderIssueAttack and iOrderType ~= M28Orders.refiOrderIssueMove)
-            or oUnit:IsUnitState('Attached') or iNow - (oUnit[M28UnitInfo.refiTimeLastDamaged] or -100) < 2 then
+            or oUnit:IsUnitState('Attached') or iNow - (oUnit[M28UnitInfo.refiTimeLastDamaged] or -100) < 3 then
         oUnit.M28ArtilleryDeployStarted = nil
         return false
     end
@@ -13522,12 +13526,9 @@ function ShouldPreserveArtilleryEngagement(oUnit)
         oUnit.M28ArtilleryDeployStarted = nil
         return false
     end
-    for _, oEnemy in aiBrain:GetUnitsAroundPoint(categories.LAND * (categories.DIRECTFIRE + categories.COMMAND), oUnit:GetPosition(), 80, 'Enemy') do
-        local tKnown = M28Intel.GetKnownThreatPosition(aiBrain, oEnemy, 20)
-        if tKnown and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tKnown) <= (oEnemy[M28UnitInfo.refiDFRange] or 0) + 8 then
-            oUnit.M28ArtilleryDeployStarted = nil
-            return false
-        end
+    if not(IsPositionOutsideKnownLandDefenses(oUnit:GetPosition(), GetNearbyArtilleryMobileThreats(oUnit), 0)) then
+        oUnit.M28ArtilleryDeployStarted = nil
+        return false
     end
     if iNow < (oUnit.M28ArtilleryRetryAfter or -1) then return false end
     local iWindow = math.min(15, math.max(4, (oUnit[M28UnitInfo.refiTimeBetweenIFShots] or 8.5) + 3))
@@ -14205,19 +14206,22 @@ function ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
                                     if oUnit[M28UnitInfo.refiCombatRange] > 0 and not(EntityCategoryContains(M28UnitInfo.refCategoryMAA, oUnit.UnitId)) then table.insert(tLZTeamData[M28Map.subrefLZTAlliedCombatUnits], oUnit) end
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering physical-zone combat unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; previous owner='..repru(oUnit[refiCurrentAssignmentPlateauAndLZ])..'; Unit mass cost='..(oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit))..'; iMobileShieldMassThreshold='..iMobileShieldMassThreshold) end
                                     local bExperimentalAirWithdrawal = EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental, oUnit.UnitId) and ShouldWithdrawLandExperimentalFromAir(oUnit)
-                                    local bExperimentalPreservationRetreat = ShouldPreserveLandExperimental(oUnit) or bExperimentalAirWithdrawal
-                                    if bExperimentalPreservationRetreat then ClearLandCombatIntent(oUnit) end
-                                    local bLandIntentLocked = not(bExperimentalPreservationRetreat) and (TryLandArtillerySiege(oUnit) or IsLandCombatIntentLocked(oUnit, iPlateau, iLandZone))
+                                    local bPreservationRetreat = ShouldPreserveLandExperimental(oUnit) or bExperimentalAirWithdrawal
+                                    local bSiegeActive, bArtilleryRetreat
+                                    if not(bPreservationRetreat) then bSiegeActive, bArtilleryRetreat = TryLandArtillerySiege(oUnit) end
+                                    bPreservationRetreat = bPreservationRetreat or bArtilleryRetreat
+                                    if bPreservationRetreat then ClearLandCombatIntent(oUnit) end
+                                    local bLandIntentLocked = not(bPreservationRetreat) and (bSiegeActive or IsLandCombatIntentLocked(oUnit, iPlateau, iLandZone))
                                     if bLandIntentLocked then
                                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Skipping unit due to active land combat intent, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; owner='..(oUnit[refsLandCombatIntentOwner] or 'nil')..'; targetPlateau='..(oUnit[refiLandCombatIntentPlateau] or 'nil')..'; targetLZ='..(oUnit[refiLandCombatIntentTargetLZ] or 'nil')..'; until='..(oUnit[refiLandCombatIntentUntil] or 'nil')) end
                                         table.insert(tUnavailableUnitsInThisLZ, oUnit)
                                     else
-                                        if bExperimentalPreservationRetreat then
+                                        if bPreservationRetreat then
                                             table.insert(tOtherUnitsToRetreat, oUnit)
                                             RecordUnitAsReceivingLandZoneAssignment(oUnit, iPlateau, iLandZone)
                                         end
 
-                                        if not(bExperimentalPreservationRetreat) then
+                                        if not(bPreservationRetreat) then
                                         --Is it a unit with a shield that wants to retreat so its shield can regen?
                                         iCurShield, iMaxShield = M28UnitInfo.GetCurrentAndMaximumShield(oUnit, true)
                                         iShieldPercentageAdjust = 0
@@ -14932,20 +14936,46 @@ function ShouldScreenActiveLandSiege(oUnit, tAdvancePosition)
     return false
 end
 
+function GetNearbyArtilleryMobileThreats(oUnit)
+    local aiBrain = oUnit:GetAIBrain()
+    local tThreats = {}
+    local iSearchRadius = math.max(160, (oUnit[M28UnitInfo.refiIndirectRange] or 0) + 100)
+    local iCategory = categories.LAND * categories.MOBILE * (categories.DIRECTFIRE + categories.INDIRECTFIRE + categories.COMMAND)
+    for _, oEnemy in aiBrain:GetUnitsAroundPoint(iCategory, oUnit:GetPosition(), iSearchRadius, 'Enemy') do
+        if M28UnitInfo.IsUnitValid(oEnemy) and not(oEnemy:BeenDestroyed()) then
+            local tKnown = M28Intel.GetKnownThreatPosition(aiBrain, oEnemy, 20)
+            local iRange = math.max(oEnemy[M28UnitInfo.refiDFRange] or 0, oEnemy[M28UnitInfo.refiIndirectRange] or 0)
+            if tKnown and iRange > 0 then
+                -- Leave room to pack up before a closing army reaches weapon range.
+                local iBuffer = math.max(12, ((oEnemy:GetBlueprint().Physics or {}).MaxSpeed or 0) * 5)
+                table.insert(tThreats, {unit=oEnemy, position=tKnown, range=iRange+iBuffer})
+            end
+        end
+    end
+    return tThreats
+end
+
 function TryLandArtillerySiege(oUnit)
     if not(EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, oUnit.UnitId))
             or oUnit[M28UnitInfo.refbSpecialMicroActive] or oUnit:IsUnitState('Attached') then return false end
     local iNow = GetGameTimeSeconds()
-    if iNow < (oUnit.M28SiegeRetryAfter or -1) then return false end
     local aiBrain = oUnit:GetAIBrain()
     local tPosition = oUnit:GetPosition()
     local iRange = oUnit[M28UnitInfo.refiIndirectRange] or 0
     local tDefenses = GetKnownLandDefenses(aiBrain, true)
+    local tThreats = GetNearbyArtilleryMobileThreats(oUnit)
     if not(IsPositionOutsideKnownLandDefenses(tPosition, tDefenses, 6))
-            or iNow - (oUnit[M28UnitInfo.refiTimeLastDamaged] or -100) < 3 then
+            or not(IsPositionOutsideKnownLandDefenses(tPosition, tThreats, 0))
+            or iNow - (oUnit[M28UnitInfo.refiTimeLastDamaged] or -100) < 3
+            or IsLandRetreatUnfinished(oUnit) then
         oUnit.M28SiegeOrder = nil
-        return false
+        oUnit.M28ArtilleryDeployStarted = nil
+        ClearLandCombatIntent(oUnit)
+        -- The zone owner chooses and issues the retreat, not a siege order writer.
+        return false, true
     end
+    if iNow < (oUnit.M28SiegeRetryAfter or -1) then return false end
+    for _, tDefense in tDefenses do table.insert(tThreats, tDefense) end
     local tBest, tApproach, iBestDistance
     for _, tDefense in tDefenses do
         local iDistance = M28Utilities.GetDistanceBetweenPositions(tPosition, tDefense.position)
@@ -14958,16 +14988,8 @@ function TryLandArtillerySiege(oUnit)
                 tFiringPosition = M28Utilities.MoveInDirection(tDefense.position,
                     M28Utilities.GetAngleFromAToB(tDefense.position, tPosition), iRange - 4, true, false, true)
             end
-            if IsLandRouteOutsideKnownDefenses(oUnit, tFiringPosition, tDefenses, 6) then
-                local bMobileThreat = false
-                for _, oEnemy in aiBrain:GetUnitsAroundPoint(categories.LAND * categories.MOBILE * (categories.DIRECTFIRE + categories.COMMAND), tFiringPosition, 120, 'Enemy') do
-                    local tKnown = M28Intel.GetKnownThreatPosition(aiBrain, oEnemy, 20)
-                    if tKnown and M28Utilities.GetDistanceBetweenPositions(tKnown, tFiringPosition) <= (oEnemy[M28UnitInfo.refiDFRange] or 0) + 12 then
-                        bMobileThreat = true
-                        break
-                    end
-                end
-                if not(bMobileThreat) then tBest, tApproach, iBestDistance = tDefense, tFiringPosition, iDistance end
+            if IsLandRouteOutsideKnownDefenses(oUnit, tFiringPosition, tThreats, 6) then
+                tBest, tApproach, iBestDistance = tDefense, tFiringPosition, iDistance
             end
         end
     end
@@ -15003,124 +15025,11 @@ function TryLandArtillerySiege(oUnit)
     return true
 end
 
-function RespondToEconomicRaids(aiBrain, iTeam)
-    local tTeam = M28Team.tTeamData[iTeam]
-    local iNow = GetGameTimeSeconds()
-    if M28Overseer.bNoRushActive or iNow - (tTeam.M28RaidResponseCheck or -10) < 5 then return end
-    tTeam.M28RaidResponseCheck = iNow
-    local tRaids = {}
-    local tDefenses = GetKnownLandDefenses(aiBrain)
-    for iPlateau, tPlateau in M28Map.tAllPlateaus do
-        for iZone, tZone in tPlateau[M28Map.subrefPlateauLandZones] do
-            local tData = tZone[M28Map.subrefLZTeamData][iTeam]
-            -- Coverage is checked at the contact below; distant point defenses cannot intercept a raid.
-            local iPriority = M28Map.GetLandZoneDefensePriority(tZone, tData, iPlateau, iTeam, 0)
-            if iPriority > 0 then
-                local oTarget, tTarget, iClosest
-                for _, oEnemy in tData[M28Map.subrefTEnemyUnits] or {} do
-                    if EntityCategoryContains(categories.LAND * categories.MOBILE * (categories.DIRECTFIRE + categories.INDIRECTFIRE) - categories.SCOUT, oEnemy.UnitId) then
-                        local tKnown = M28Intel.GetKnownThreatPosition(aiBrain, oEnemy, 30)
-                        if tKnown then
-                            local iDistance = M28Utilities.GetDistanceBetweenPositions(tKnown, tZone[M28Map.subrefMidpoint])
-                            if not(iClosest) or iDistance < iClosest or (iDistance == iClosest and oEnemy.EntityId < oTarget.EntityId) then
-                                oTarget, tTarget, iClosest = oEnemy, tKnown, iDistance
-                            end
-                        end
-                    end
-                end
-                if oTarget and IsPositionOutsideKnownLandDefenses(tTarget, tDefenses, 20) then
-                    table.insert(tRaids, {plateau=iPlateau, zone=iZone, position=tTarget, data=tData, priority=iPriority,
-                        threat=(tData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0)+(tData[M28Map.subrefLZThreatEnemyMobileIndirectTotal] or 0)})
-                end
-            end
-        end
-    end
-    table.sort(tRaids, function(a,b)
-        if a.priority ~= b.priority then return a.priority > b.priority end
-        if a.plateau ~= b.plateau then return a.plateau < b.plateau end
-        return a.zone < b.zone
-    end)
-    local tUnits, tAssigned = {}, {}
-    local iDefenderCategory = categories.LAND * categories.MOBILE * categories.DIRECTFIRE
-        - categories.ENGINEER - categories.COMMAND - categories.SCOUT - categories.EXPERIMENTAL - M28UnitInfo.refCategorySkirmisher
-    for _, oBrain in tTeam[M28Team.subreftoFriendlyActiveM28Brains] do
-        for _, oUnit in oBrain:GetListOfUnits(iDefenderCategory, false, true) do
-            if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 and not(oUnit:IsUnitState('Attached')) then
-                table.insert(tUnits, oUnit)
-            end
-        end
-    end
-    -- Revoke an interception when newly revealed defenses cover its remaining route.
-    for _, oUnit in tUnits do
-        local tResponse = oUnit.M28RaidResponse
-        if tResponse and oUnit[refsLandCombatIntentOwner] == 'EcoRaid' and oUnit.M28LandIntentArrivalPosition
-                and (not(IsPositionOutsideKnownLandDefenses(oUnit.M28LandIntentArrivalPosition, tDefenses, 20))
-                    or not(IsLandRouteOutsideKnownDefenses(oUnit, oUnit.M28LandIntentArrivalPosition, tDefenses, 8))) then
-            ClearLandCombatIntent(oUnit)
-            oUnit.M28RaidResponse = nil
-            if tResponse.origin then IssueResolvedRetreatOrder(oUnit, tResponse.origin, 'EcoRaidWithdraw', 6, {bUseSmartMove=true}) end
-        end
-    end
-    for _, tRaid in tRaids do
-        local tCandidates = {}
-        local iCovered = 0
-        for _, oAlly in tRaid.data[M28Map.subreftoLZOrWZAlliedUnits] or {} do
-            if M28UnitInfo.IsUnitValid(oAlly) and oAlly:GetFractionComplete() == 1
-                    and EntityCategoryContains(categories.STRUCTURE * categories.DIRECTFIRE, oAlly.UnitId)
-                    and M28Utilities.GetDistanceBetweenPositions(oAlly:GetPosition(), tRaid.position) <= (oAlly[M28UnitInfo.refiDFRange] or 0) then
-                iCovered = iCovered + M28UnitInfo.GetCombatThreatRating({oAlly})
-            end
-        end
-        for _, oUnit in tUnits do
-            local iDistance = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tRaid.position)
-            local tResponse = oUnit.M28RaidResponse
-            if iDistance <= 80 or (tResponse and tResponse.plateau == tRaid.plateau and tResponse.zone == tRaid.zone
-                    and iNow < tResponse.untilTime and oUnit[refsLandCombatIntentOwner] == 'EcoRaid') then
-                iCovered = iCovered + M28UnitInfo.GetCombatThreatRating({oUnit})
-            elseif not(tAssigned[oUnit]) and iDistance <= 450 and not(oUnit[M28UnitInfo.refbSpecialMicroActive])
-                    and M28UnitInfo.GetUnitHealthPercent(oUnit) >= 0.7
-                    and iNow - (oUnit[M28UnitInfo.refiTimeLastTriedRetreating] or -100) > 15
-                    and iNow - (oUnit[M28UnitInfo.refiLastWeaponEvent] or -100) > 8 then
-                local iSourcePlateau, iSourceZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(oUnit:GetPosition())
-                local tSource = iSourcePlateau and M28Map.tAllPlateaus[iSourcePlateau]
-                tSource = tSource and tSource[M28Map.subrefPlateauLandZones][iSourceZone]
-                local tSourceData = tSource and tSource[M28Map.subrefLZTeamData][iTeam]
-                if tSourceData and not(tSourceData[M28Map.subrefbDangerousEnemiesInThisLZ])
-                        and (tSourceData[M28Map.subrefTThreatEnemyCombatTotal] or 0) == 0
-                        and not(iNow < (oUnit[refiLandCombatIntentUntil] or -1) and oUnit[refsLandCombatIntentOwner] == 'EcoRaid') then
-                    table.insert(tCandidates, {unit=oUnit, distance=iDistance})
-                end
-            end
-        end
-        table.sort(tCandidates, function(a,b)
-            if a.distance == b.distance then return a.unit.EntityId < b.unit.EntityId end
-            return a.distance < b.distance
-        end)
-        local tTargetZone = M28Map.tAllPlateaus[tRaid.plateau][M28Map.subrefPlateauLandZones][tRaid.zone]
-        local tIntercept = M28Utilities.MoveInDirection(tRaid.position,
-            M28Utilities.GetAngleFromAToB(tRaid.position, tTargetZone[M28Map.subrefMidpoint]), 12, true, false, true)
-        for _, tCandidate in tCandidates do
-            if iCovered >= tRaid.threat * 1.35 then break end
-            local oUnit = tCandidate.unit
-            if IsLandRouteOutsideKnownDefenses(oUnit, tIntercept, tDefenses, 8) then
-                local iDuration = math.min(75, tCandidate.distance / math.max(1, (oUnit:GetBlueprint().Physics or {}).MaxSpeed or 1) + 8)
-                if SetLandCombatIntent(oUnit, tRaid.plateau, tRaid.zone, iDuration, 'EcoRaid') then
-                    oUnit.M28LandIntentArrivalPosition = {tIntercept[1], tIntercept[2], tIntercept[3]}
-                    M28Orders.IssueTrackedAttackMove(oUnit, tIntercept, 10, false, 'EcoRaid', false)
-                    oUnit.M28RaidResponse = {plateau=tRaid.plateau, zone=tRaid.zone, untilTime=iNow+iDuration, origin={oUnit:GetPosition()[1],oUnit:GetPosition()[2],oUnit:GetPosition()[3]}}
-                    tAssigned[oUnit] = true
-                    iCovered = iCovered + M28UnitInfo.GetCombatThreatRating({oUnit})
-                end
-            end
-        end
-    end
-end
 
 function ManageAllLandZones(aiBrain, iTeam, bIgnoreMinorPlateaus, iCurMinorPlateauCycleRef)
     local sFunctionRef = 'ManageAllLandZones'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLand, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
-    RespondToEconomicRaids(aiBrain, iTeam)
     local iLastRefreshCount = (tLZRefreshCountByTeam[iTeam] or 1)
     local iCurRefreshCount = 0
     local iTicksToSpreadOver = iTicksPerLandCycle --Default is 10, i.e. 1 second
