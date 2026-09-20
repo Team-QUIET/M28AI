@@ -310,12 +310,11 @@ function GetMexUpgradeAggressionState(iTeam)
             and iGrossEnergy >= 6 * iActiveBrains
             and iNetEnergy >= -30 * iActiveBrains
     -- A growing tech economy can reinvest continuously without first accumulating idle mass.
-    if not(M28Map.bIsCampaignMap) and math.max(tTeamData[M28Team.subrefiHighestFriendlyLandFactoryTech] or 1,
+    local bSustainableGrowth = not(M28Map.bIsCampaignMap) and math.max(tTeamData[M28Team.subrefiHighestFriendlyLandFactoryTech] or 1,
             tTeamData[M28Team.subrefiHighestFriendlyAirFactoryTech] or 1, tTeamData[M28Team.subrefiHighestFriendlyNavalFactoryTech] or 1) >= 2
             and iGrossMass >= 4 * iActiveBrains and iNetMass >= -math.max(1, iGrossMass * 0.2)
-            and iEnergyStoredRatio >= 0.6 and iNetEnergy >= 0 then
-        bStrongEco = true
-    end
+            and iEnergyStoredRatio >= 0.6 and iNetEnergy >= 0
+    if bSustainableGrowth then bStrongEco = true end
     local bVeryStrongEco = iMassStored >= 400 * iActiveBrains
             and iMassStoredRatio >= 0.12
             and iGrossMass >= 3.25 * iActiveBrains
@@ -325,7 +324,8 @@ function GetMexUpgradeAggressionState(iTeam)
             and iNetEnergy >= -20 * iActiveBrains
     local bRushEco = M28Overseer.bNoRushActive
             or (bVeryStrongEco and (iGrossMass >= 4.5 * iActiveBrains or iMassStored >= 700 * iActiveBrains))
-
+            or (bSustainableGrowth and iGrossMass >= 12 * iActiveBrains)
+    bVeryStrongEco = bVeryStrongEco or (bSustainableGrowth and iGrossMass >= 8 * iActiveBrains)
     return {
         bBufferedEco = bBufferedEco,
         bStrongEco = bStrongEco or bVeryStrongEco or bRushEco,
@@ -358,7 +358,10 @@ function DoesTeamWantAggressiveQuietMexTier(iTeam, iCandidateTier)
         return false
     end
 
+    local tAggression = GetMexUpgradeAggressionState(iTeam)
     return bEnemyEcoPressure
+            or (iCandidateTier == refiMexQuietTierT2 and tAggression.bStrongEco)
+            or (iCandidateTier == refiMexQuietTierT25 and tAggression.bVeryStrongEco)
 end
 
 function ShouldAllowQuietParallelMexTier(iTeam, iOutstandingTier, iCandidateTier, tOptionalClusterContext)
@@ -533,13 +536,13 @@ local function GetTeamMexUpgradeStartBurstCap(iTeam, oCandidateMex)
             and (tCurTeamData[M28Team.subrefiTeamNetMass] or 0) >= -math.max(1, (tCurTeamData[M28Team.subrefiTeamGrossMass] or 0) * 0.03)
             and not(tCurTeamData[M28Team.subrefbTeamIsStallingMass] or false)
     if tMexUpgradeAggressionState.bStrongEco then
-        iBurstCap = 3
+        iBurstCap = 5
     end
     if (tMexUpgradeAggressionState.bBufferedEco and not(tCurTeamData[M28Team.subrefbTeamIsStallingMass] or false)) or bOverflowingEco or tMexUpgradeAggressionState.bRushEco then
-        iBurstCap = 4
+        iBurstCap = math.max(iBurstCap, 4)
     end
     if tMexUpgradeAggressionState.bVeryStrongEco or bOverflowingEco then
-        iBurstCap = 5
+        iBurstCap = 6
     end
 
     if M28UnitInfo.IsUnitValid(oCandidateMex) then
@@ -607,10 +610,10 @@ local function GetMaxConcurrentMexUpgradeValue(iTeam)
     end
 
     if tMexUpgradeAggressionState.bStrongEco then
-        iMaxConcurrentMexUpgradeValue = iMaxConcurrentMexUpgradeValue + math.min(2.5, iActiveBrains)
+        iMaxConcurrentMexUpgradeValue = iMaxConcurrentMexUpgradeValue + math.min(5, 3 * iActiveBrains)
     end
     if tMexUpgradeAggressionState.bVeryStrongEco then
-        iMaxConcurrentMexUpgradeValue = iMaxConcurrentMexUpgradeValue + math.min(4, iActiveBrains + 1)
+        iMaxConcurrentMexUpgradeValue = iMaxConcurrentMexUpgradeValue + math.min(7.5, 3 * iActiveBrains)
     end
     if tMexUpgradeAggressionState.bRushEco then
         iMaxConcurrentMexUpgradeValue = iMaxConcurrentMexUpgradeValue + math.min(5.5, 1.5 * iActiveBrains + 1)
@@ -659,21 +662,24 @@ local function GetSafeUnclaimedMexCountInCandidateLandZone(oMex, iTeam)
     return table.getn(tLZData[M28Map.subrefMexUnbuiltLocations])
 end
 
-local function GetMexUpgradeEnergyDrain(oMex)
+local function GetMexUpgradeResourceDrain(oMex, bMass)
     local sUpgrade = M28UnitInfo.GetUnitUpgradeBlueprint(oMex, true)
     local tEconomy = sUpgrade and __blueprints[sUpgrade] and __blueprints[sUpgrade].Economy
     if not(tEconomy) or (tEconomy.BuildTime or 0) <= 0 then return 0, 0 end
     local iBuildRate = oMex:GetEconomyBuildRate()
-    local iConsumption = oMex:GetConsumptionPerSecondEnergy() * 0.1
+    local fnConsumption = bMass and oMex.GetConsumptionPerSecondMass or oMex.GetConsumptionPerSecondEnergy
+    local iConsumption = fnConsumption(oMex) * 0.1
     local tSeen = {}
     for _, oGuard in oMex:GetGuards() or {} do
         if M28UnitInfo.IsUnitValid(oGuard) and not(tSeen[oGuard]) and not(oGuard:IsPaused()) and not(oGuard:IsUnitState('Attached')) then
             tSeen[oGuard] = true
             iBuildRate = iBuildRate + oGuard:GetEconomyBuildRate()
-            iConsumption = iConsumption + oGuard:GetConsumptionPerSecondEnergy() * 0.1
+            local fnGuardConsumption = bMass and oGuard.GetConsumptionPerSecondMass or oGuard.GetConsumptionPerSecondEnergy
+            iConsumption = iConsumption + fnGuardConsumption(oGuard) * 0.1
         end
     end
-    return 0.1 * (tEconomy.BuildCostEnergy or 0) * iBuildRate / tEconomy.BuildTime, iConsumption
+    local iCost = bMass and tEconomy.BuildCostMass or tEconomy.BuildCostEnergy
+    return 0.1 * (iCost or 0) * iBuildRate / tEconomy.BuildTime, iConsumption
 end
 
 local function GetMexUpgradeEnergyBudget(iTeam, oCandidateMex)
@@ -681,14 +687,14 @@ local function GetMexUpgradeEnergyBudget(iTeam, oCandidateMex)
     local iCommitted, iRefund, bCountedCandidate = 0, 0, false
     for _, oMex in tTeam[M28Team.subreftTeamUpgradingMexes] or {} do
         if M28UnitInfo.IsUnitValid(oMex) and not(oMex:IsPaused()) then
-            local iDrain, iConsumption = GetMexUpgradeEnergyDrain(oMex)
+            local iDrain, iConsumption = GetMexUpgradeResourceDrain(oMex)
             iCommitted = iCommitted + iDrain
             -- Newly issued starts are reserved immediately, not refunded from a stale net sample.
             iRefund = iRefund + math.min(iDrain, iConsumption)
             if oMex == oCandidateMex then bCountedCandidate = true end
         end
     end
-    if oCandidateMex and not(bCountedCandidate) then iCommitted = iCommitted + GetMexUpgradeEnergyDrain(oCandidateMex) end
+    if oCandidateMex and not(bCountedCandidate) then iCommitted = iCommitted + GetMexUpgradeResourceDrain(oCandidateMex) end
     local iRatio = tTeam[M28Team.subrefiTeamAverageEnergyPercentStored] or 0
     local iStored = tTeam[M28Team.subrefiTeamEnergyStored] or 0
     local iBuffer = 0
@@ -703,6 +709,23 @@ end
 
 local function CanFundMexUpgradeEnergy(iTeam, oCandidateMex)
     local iBudget, iCommitted = GetMexUpgradeEnergyBudget(iTeam, oCandidateMex)
+    return iCommitted <= iBudget, iBudget
+end
+
+local function CanFundAdditionalMexUpgradeMass(iTeam, oCandidateMex)
+    local tTeam = M28Team.tTeamData[iTeam]
+    local iCommitted, iRefund = GetMexUpgradeResourceDrain(oCandidateMex, true), 0
+    for _, oMex in tTeam[M28Team.subreftTeamUpgradingMexes] or {} do
+        if oMex ~= oCandidateMex and M28UnitInfo.IsUnitValid(oMex) and not(oMex:IsPaused()) then
+            local iDrain, iConsumption = GetMexUpgradeResourceDrain(oMex, true)
+            iCommitted = iCommitted + iDrain
+            iRefund = iRefund + math.min(iDrain, iConsumption)
+        end
+    end
+    -- Extra concurrency spends at most half of recurring income, and only headroom
+    -- left by current work. A banked reclaim windfall cannot finance a lasting drain.
+    local iBudget = math.max(0, math.min((tTeam[M28Team.subrefiTeamGrossMass] or 0) * 0.5,
+            (tTeam[M28Team.subrefiTeamNetMass] or 0) + iRefund))
     return iCommitted <= iBudget, iBudget
 end
 
@@ -731,6 +754,13 @@ function CanTeamStartMexUpgradeNow(iTeam, oCandidateMex, bConsumeSlot)
         local iMinimumActiveMexUpgrades = GetMinimumActiveMexUpgradeFloor(iTeam)
         local bNeedMinimumMexUpgrade = iCurrentMexUpgradeCount < iMinimumActiveMexUpgrades
         if not(bNeedMinimumMexUpgrade) then
+            if not(M28Conditions.SafeToUpgradeUnit(oCandidateMex)) then return false, 'unsafe_mex', 0 end
+            local _, tZoneTeamData = M28Map.GetLandOrWaterZoneData(oCandidateMex:GetPosition(), true, iTeam)
+            if tCurTeamData[M28Team.refbFocusOnT1Spam] or M28Conditions.ZoneWantsT1Spam(tZoneTeamData, iTeam) then
+                return false, 'urgent_production', 0
+            end
+            local bMassFunded, iMassBudget = CanFundAdditionalMexUpgradeMass(iTeam, oCandidateMex)
+            if not(bMassFunded) then return false, 'upgrade_mass_budget', iMassBudget end
             local iMaxConcurrentMexUpgradeValue = GetMaxConcurrentMexUpgradeValue(iTeam)
             if iCurrentMexUpgradeValue + iCandidateMexUpgradeValue > iMaxConcurrentMexUpgradeValue then
                 return false, 'concurrent_value', iMaxConcurrentMexUpgradeValue
@@ -821,7 +851,7 @@ local function GetEnergyStallMexUpgradeKeepCount(iTeam)
     end)
     local iKeep, iCommitted = 0, 0
     for _, oMex in tUpgrades do
-        local iDrain = GetMexUpgradeEnergyDrain(oMex)
+        local iDrain = GetMexUpgradeResourceDrain(oMex)
         -- The pause owner finishes the most advanced affordable upgrades first.
         if iCommitted + iDrain <= iBudget then
             iKeep = iKeep + 1
@@ -941,7 +971,7 @@ function UpgradeUnit(oUnitToUpgrade, bUpdateUpgradeTracker, iOptionalWait, sReas
                             elseif sMexUpgradeGateRef == 'concurrent_value' then
                                 M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Deferring mex upgrade for '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' because team mex concurrent upgrade value cap of '..iMexUpgradeGateLimit..' is already full')
                             else
-                                M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Deferring mex upgrade for '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..' because team mex burst cap of '..iMexUpgradeGateLimit..' starts per '..refiMexUpgradeStartBurstWindow..'s window is already full')
+                                M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Deferring mex upgrade for '..oUnitToUpgrade.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnitToUpgrade)..'; Gate='..sMexUpgradeGateRef..'; Limit='..iMexUpgradeGateLimit)
                             end
                         end
                         local iRetryDelay = 5
@@ -3942,9 +3972,9 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
     local iMexesOnMap = table.getn(M28Map.tMassPoints)
     local iLocalActiveMexUpgradeCap = 2
     if tMexUpgradeAggressionState.bVeryStrongEco then
-        iLocalActiveMexUpgradeCap = 4
+        iLocalActiveMexUpgradeCap = 6
     elseif tMexUpgradeAggressionState.bStrongEco then
-        iLocalActiveMexUpgradeCap = 3
+        iLocalActiveMexUpgradeCap = 4
     end
 
 
@@ -4062,11 +4092,11 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
         elseif aiBrain[M28Overseer.refbPrioritiseHighTech] or aiBrain[M28Overseer.refbPrioritiseDefence] then iTimeToWait = iTimeToWait * 0.9
         end
         if tMexUpgradeAggressionState.bRushEco then
-            iTimeToWait = math.max(0, iTimeToWait * 0.12)
+            iTimeToWait = math.max(0, iTimeToWait * 0.06)
         elseif tMexUpgradeAggressionState.bVeryStrongEco then
-            iTimeToWait = math.max(0, iTimeToWait * 0.2)
+            iTimeToWait = math.max(0, iTimeToWait * 0.1)
         elseif tMexUpgradeAggressionState.bStrongEco then
-            iTimeToWait = math.max(0, iTimeToWait * 0.3)
+            iTimeToWait = math.max(0, iTimeToWait * 0.15)
         elseif not(aiBrain[M28Overseer.refbPrioritiseLowTech]) then
             iTimeToWait = math.max(0, iTimeToWait * 0.5)
         end
@@ -4192,12 +4222,8 @@ function ConsiderFutureMexUpgrade(oMex, iOverrideSecondsToWait)
                                         (tLZOrWZData[M28Map.subrefLZOrWZMexCount] >= 3 and aiBrain[refiGrossMassBaseIncome] >= 2.5 * iMexTechLevel) or
                                         ((tLZOrWZData[M28Map.subrefLZOrWZMexCount] >= 4 or tLZOrWZData[M28Map.subrefLZbCoreBase]) and tHigherTierPriorityState.bPrioritise)
                                 ) then
-                            --Do we have any mexes lower than this tech level? if so then dont upgrade
-
-                            if iMexTechLevel > 1 and (tLZOrWZTeamData[M28Map.subrefMexCountByTech][1] > 0 or (iMexTechLevel >= 3 and tLZOrWZTeamData[M28Map.subrefMexCountByTech][2] > 0)) then
-                                ForkThread(ConsiderFutureMexUpgrade, oMex, 20)
-                                --If this is a T2+ mex and as a team we have more than enough upgrading already then also dont upgrade unless this is a core base with no active upgrades
-                            elseif ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam) then
+                            -- The cluster gate preserves QUIET rung order and its funded adjacent-rung exception.
+                            if ShouldDelayMexUpgradeForQuietTierOrder(oMex, iTeam) then
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Delaying mex '..oMex.UnitId..M28UnitInfo.GetUnitLifetimeCount(oMex)..' because a lower Quiet mex rung still has outstanding upgrades elsewhere on the team') end
                                 ForkThread(ConsiderFutureMexUpgrade, oMex, 10)
                             else
@@ -4242,9 +4268,9 @@ function ConsiderUpgradingMexDueToCompletion(oJustBuilt, oOptionalEngineer)
         local tMexUpgradeAggressionState = GetMexUpgradeAggressionState(iTeam)
         local iLocalActiveMexUpgradeCap = 2
         if tMexUpgradeAggressionState.bVeryStrongEco then
-            iLocalActiveMexUpgradeCap = 4
+            iLocalActiveMexUpgradeCap = 6
         elseif tMexUpgradeAggressionState.bStrongEco then
-            iLocalActiveMexUpgradeCap = 3
+            iLocalActiveMexUpgradeCap = 4
         end
         if not(EntityCategoryContains(categories.TECH1, oJustBuilt.UnitId)) or aiBrain[M28Overseer.refbPrioritiseHighTech] or tMexUpgradeAggressionState.bStrongEco then
             local iMexTechLevel = M28UnitInfo.GetUnitTechLevel(oJustBuilt)
