@@ -661,21 +661,48 @@ end
 local function GetMexUpgradeEnergyDrain(oMex)
     local sUpgrade = M28UnitInfo.GetUnitUpgradeBlueprint(oMex, true)
     local tEconomy = sUpgrade and __blueprints[sUpgrade] and __blueprints[sUpgrade].Economy
-    if not(tEconomy) or (tEconomy.BuildTime or 0) <= 0 then return 0 end
+    if not(tEconomy) or (tEconomy.BuildTime or 0) <= 0 then return 0, 0 end
     local iBuildRate = oMex:GetEconomyBuildRate()
+    local iConsumption = oMex:GetConsumptionPerSecondEnergy() * 0.1
     local tSeen = {}
     for _, oGuard in oMex:GetGuards() or {} do
-        if M28UnitInfo.IsUnitValid(oGuard) and not(tSeen[oGuard]) and not(oGuard:IsUnitState('Attached')) then
+        if M28UnitInfo.IsUnitValid(oGuard) and not(tSeen[oGuard]) and not(oGuard:IsPaused()) and not(oGuard:IsUnitState('Attached')) then
             tSeen[oGuard] = true
             iBuildRate = iBuildRate + oGuard:GetEconomyBuildRate()
+            iConsumption = iConsumption + oGuard:GetConsumptionPerSecondEnergy() * 0.1
         end
     end
-    return 0.1 * (tEconomy.BuildCostEnergy or 0) * iBuildRate / tEconomy.BuildTime
+    return 0.1 * (tEconomy.BuildCostEnergy or 0) * iBuildRate / tEconomy.BuildTime, iConsumption
 end
 
-local function IsMexUpgradeEnergyBudgetLimited(tTeam)
-    return (tTeam[M28Team.subrefiTeamAverageEnergyPercentStored] or 0) < 0.35
-        and (tTeam[M28Team.subrefiTeamNetEnergy] or 0) < 0
+local function GetMexUpgradeEnergyBudget(iTeam, oCandidateMex)
+    local tTeam = M28Team.tTeamData[iTeam]
+    local iCommitted, iRefund, bCountedCandidate = 0, 0, false
+    for _, oMex in tTeam[M28Team.subreftTeamUpgradingMexes] or {} do
+        if M28UnitInfo.IsUnitValid(oMex) and not(oMex:IsPaused()) then
+            local iDrain, iConsumption = GetMexUpgradeEnergyDrain(oMex)
+            iCommitted = iCommitted + iDrain
+            -- Newly issued starts are reserved immediately, not refunded from a stale net sample.
+            iRefund = iRefund + math.min(iDrain, iConsumption)
+            if oMex == oCandidateMex then bCountedCandidate = true end
+        end
+    end
+    if oCandidateMex and not(bCountedCandidate) then iCommitted = iCommitted + GetMexUpgradeEnergyDrain(oCandidateMex) end
+    local iRatio = tTeam[M28Team.subrefiTeamAverageEnergyPercentStored] or 0
+    local iStored = tTeam[M28Team.subrefiTeamEnergyStored] or 0
+    local iBuffer = 0
+    if iRatio > 0.35 then iBuffer = iStored * (1 - 0.35 / iRatio) / 300 end
+    local iGross = tTeam[M28Team.subrefiTeamGrossEnergy] or 0
+    local iAvailable = (tTeam[M28Team.subrefiTeamNetEnergy] or 0) + iRefund + iBuffer
+        - M28Factory.GetCombatProductionEnergyDemand(iTeam)
+        - GetPausedEnergyDemand(iTeam, M28UnitInfo.refCategoryMex)
+    -- Keep the existing upgrade share, but only spend energy left after other work.
+    return math.max(0, math.min(iGross * 0.35 + iBuffer, iAvailable)), iCommitted
+end
+
+local function CanFundMexUpgradeEnergy(iTeam, oCandidateMex)
+    local iBudget, iCommitted = GetMexUpgradeEnergyBudget(iTeam, oCandidateMex)
+    return iCommitted <= iBudget, iBudget
 end
 
 function CanTeamStartMexUpgradeNow(iTeam, oCandidateMex, bConsumeSlot)
@@ -687,16 +714,8 @@ function CanTeamStartMexUpgradeNow(iTeam, oCandidateMex, bConsumeSlot)
         if iSafeUnclaimedMexCount > 0 then
             return false, 'unclaimed_local_mex', iSafeUnclaimedMexCount
         end
-        if IsMexUpgradeEnergyBudgetLimited(tCurTeamData) then
-            local iUpgradeEnergy = GetMexUpgradeEnergyDrain(oCandidateMex)
-            for _, oMex in tCurTeamData[M28Team.subreftTeamUpgradingMexes] or {} do
-                if oMex ~= oCandidateMex and M28UnitInfo.IsUnitValid(oMex) and not(oMex:IsPaused()) then
-                    iUpgradeEnergy = iUpgradeEnergy + GetMexUpgradeEnergyDrain(oMex)
-                end
-            end
-            local iEnergyBudget = (tCurTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * 0.35
-            if iUpgradeEnergy > iEnergyBudget then return false, 'upgrade_energy_budget', iEnergyBudget end
-        end
+        local bEnergyFunded, iEnergyBudget = CanFundMexUpgradeEnergy(iTeam, oCandidateMex)
+        if not(bEnergyFunded) then return false, 'upgrade_energy_budget', iEnergyBudget end
     end
 
     local iCurTime = GetGameTimeSeconds()
@@ -793,18 +812,17 @@ local function GetEnergyStallMexUpgradeKeepCount(iTeam)
             else table.insert(tUpgrades, oMex) end
         end
     end
-    if not(IsMexUpgradeEnergyBudgetLimited(tTeam)) then return iPaused + table.getn(tUpgrades) end
+    local iBudget = GetMexUpgradeEnergyBudget(iTeam)
     table.sort(tUpgrades, function(a, b)
         local iA, iB = a:GetWorkProgress(), b:GetWorkProgress()
         if iA == iB then return a.EntityId < b.EntityId end
         return iA > iB
     end)
-    local iBudget = (tTeam[M28Team.subrefiTeamGrossEnergy] or 0) * 0.35
     local iKeep, iCommitted = 0, 0
     for _, oMex in tUpgrades do
         local iDrain = GetMexUpgradeEnergyDrain(oMex)
-        -- Finish nearly complete income first; the stall manager pauses the least advanced upgrades.
-        if oMex:GetWorkProgress() >= 0.85 or iCommitted + iDrain <= iBudget then
+        -- The pause owner finishes the most advanced affordable upgrades first.
+        if iCommitted + iDrain <= iBudget then
             iKeep = iKeep + 1
             iCommitted = iCommitted + iDrain
         else
@@ -2762,6 +2780,9 @@ function ManageMassStalls(iTeam)
 
                                 --Pause/unpause the unit
 
+                                if bApplyActionToUnit and not(bPauseNotUnpause) and EntityCategoryContains(M28UnitInfo.refCategoryMex, oUnit.UnitId) then
+                                    bApplyActionToUnit = CanFundMexUpgradeEnergy(iTeam, oUnit)
+                                end
                                 if bApplyActionToUnit then
                                     bWasUnitAlreadyPaused = oUnit[M28UnitInfo.refbPaused] --Means we will ignore the mass usage when calculating how much we have saved
                                     oBP = oUnit:GetBlueprint()
@@ -2891,7 +2912,8 @@ function ManageMassStalls(iTeam)
                                     local iUnitCount = table.getn(tUnits)
                                     if iUnitCount > 0 then
                                         for iCurUnit = iUnitCount, 1, -1 do
-                                            if M28UnitInfo.IsUnitValid(tUnits[iCurUnit]) then
+                                            if M28UnitInfo.IsUnitValid(tUnits[iCurUnit])
+                                                    and (not(EntityCategoryContains(M28UnitInfo.refCategoryMex, tUnits[iCurUnit].UnitId)) or CanFundMexUpgradeEnergy(iTeam, tUnits[iCurUnit])) then
                                                 M28UnitInfo.PauseOrUnpauseMassUsage(tUnits[iCurUnit], false, iTeam)
                                             end
                                         end
@@ -2900,9 +2922,10 @@ function ManageMassStalls(iTeam)
                                 tUnits = nil
                             end
                         end
-                        M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] = false
-                        M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] = 0
-                        M28Team.tTeamData[iTeam][M28Team.refiLastMassStallCategoryAndEngineerTables] = nil
+                        if M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] <= 0 then
+                            M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] = false
+                            M28Team.tTeamData[iTeam][M28Team.refiLastMassStallCategoryAndEngineerTables] = nil
+                        end
 
                         if bDebugMessages == true then
                             LOG(sFunctionRef .. ': FInished unpausing any remaining units and resetting the staling mass flag')
@@ -3186,11 +3209,12 @@ function ManageEnergyStalls(iTeam)
                                         local iMexesToPause = math.max(0, table.getn(M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingMexes]) - GetEnergyStallMexUpgradeKeepCount(iTeam))
 
                                         while iMexesToPause > 0 do
-                                            local iLowestProgress = 0.85
+                                            local iLowestProgress = 1.01
                                             local oLowestProgress
                                             local bAlreadyIncluded
                                             for iUnit, oUnit in M28Team.tTeamData[oBrain.M28Team][M28Team.subreftTeamUpgradingMexes] do
-                                                if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetWorkProgress() < iLowestProgress and not(oUnit:GetAIBrain()[refbBuiltParagon]) then
+                                                if M28UnitInfo.IsUnitValid(oUnit) and not(oUnit:IsPaused()) and not(oUnit:GetAIBrain()[refbBuiltParagon])
+                                                        and (oUnit:GetWorkProgress() < iLowestProgress or (oUnit:GetWorkProgress() == iLowestProgress and oLowestProgress and oUnit.EntityId > oLowestProgress.EntityId)) then
                                                     bAlreadyIncluded = false
                                                     --Is the unit already in the table of relevant units?
                                                     if M28Utilities.IsTableEmpty(tRelevantUnits) == false then
@@ -3205,7 +3229,8 @@ function ManageEnergyStalls(iTeam)
                                                 end
                                             end
                                             if oLowestProgress then
-                                                table.insert(tRelevantUnits, oLowestProgress)
+                                                -- The pause executor walks this list in reverse.
+                                                table.insert(tRelevantUnits, 1, oLowestProgress)
                                             else
                                                 break
                                             end
@@ -3415,6 +3440,9 @@ function ManageEnergyStalls(iTeam)
                                     --Pause the unit
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bApplyActionToUnit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'='..tostring(bApplyActionToUnit)) end
 
+                                    if bApplyActionToUnit and not(bPauseNotUnpause) and EntityCategoryContains(M28UnitInfo.refCategoryMex, oUnit.UnitId) then
+                                        bApplyActionToUnit = CanFundMexUpgradeEnergy(iTeam, oUnit)
+                                    end
                                     if bApplyActionToUnit then
                                         bWasUnitAlreadyPaused = oUnit[M28UnitInfo.refbPaused] --Means we will ignore the energy usage when calculating how much we have saved
                                         oBP = oUnit:GetBlueprint()
@@ -3586,7 +3614,8 @@ function ManageEnergyStalls(iTeam)
                                         local iUnitCount = table.getn(tUnits)
                                         if iUnitCount > 0 then
                                             for iCurUnit = iUnitCount, 1, -1 do
-                                                if M28UnitInfo.IsUnitValid(tUnits[iCurUnit]) then
+                                                if M28UnitInfo.IsUnitValid(tUnits[iCurUnit])
+                                                        and (not(EntityCategoryContains(M28UnitInfo.refCategoryMex, tUnits[iCurUnit].UnitId)) or CanFundMexUpgradeEnergy(iTeam, tUnits[iCurUnit])) then
                                                     M28UnitInfo.PauseOrUnpauseEnergyUsage(tUnits[iCurUnit], false, false, iTeam)
                                                 end
                                             end
@@ -3595,9 +3624,10 @@ function ManageEnergyStalls(iTeam)
                                     tUnits = nil
                                 end
                             end
-                            M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] = false
-                            M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] = 0
-                            M28Team.tTeamData[iTeam][M28Team.refiLastEnergyStallCategoryAndEngineerTables] = nil
+                            if M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] <= 0 then
+                                M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] = false
+                                M28Team.tTeamData[iTeam][M28Team.refiLastEnergyStallCategoryAndEngineerTables] = nil
+                            end
 
 
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': FInished unpausing units and resetting the flag re paused units') end
@@ -4474,7 +4504,7 @@ function ConsiderPowerPgenUpgrade(oUnit, iOverrideSecondsToWait)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function GetPausedEnergyDemand(iTeam)
+function GetPausedEnergyDemand(iTeam, iExcludedCategory)
     -- Energy saved by pausing is still needed to resume the suspended work.
     -- Mass-only pauses have no energy reservation; repeated entries count once.
     local iEnergy = 0
@@ -4482,7 +4512,8 @@ function GetPausedEnergyDemand(iTeam)
     local tTeam = M28Team.tTeamData[iTeam]
     for _, tUnits in tTeam[M28Team.subreftoPausedUnitsByPriority] or {} do
         for _, oUnit in tUnits do
-            if not(tCounted[oUnit]) and M28UnitInfo.IsUnitValid(oUnit) and oUnit[M28UnitInfo.refbPaused] then
+            if not(tCounted[oUnit]) and M28UnitInfo.IsUnitValid(oUnit) and oUnit[M28UnitInfo.refbPaused]
+                    and not(iExcludedCategory and EntityCategoryContains(iExcludedCategory, oUnit.UnitId)) then
                 tCounted[oUnit] = true
                 iEnergy = iEnergy + (oUnit[M28UnitInfo.refiEnergyUnpauseDemand] or 0)
             end
