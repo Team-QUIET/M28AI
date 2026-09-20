@@ -13,7 +13,7 @@ local M28Conditions = import('/mods/M28AI/lua/AI/M28Conditions.lua')
 --local M28Overseer = import('/mods/M28AI/lua/AI/M28Overseer.lua')
 local M28Team = import('/mods/M28AI/lua/AI/M28Team.lua')
 local M28Engineer = import('/mods/M28AI/lua/AI/M28Engineer.lua')
---local M28Economy = import('/mods/M28AI/lua/AI/M28Economy.lua')
+local M28Economy = import('/mods/M28AI/lua/AI/M28Economy.lua')
 local M28Orders = import('/mods/M28AI/lua/AI/M28Orders.lua')
 local M28Air = import('/mods/M28AI/lua/AI/M28Air.lua')
 local M28Navy = import('/mods/M28AI/lua/AI/M28Navy.lua')
@@ -337,18 +337,97 @@ function GetLandObjectiveEdge(tStart, tEnd, tLayers, tDefenses, tCache, iMargin,
     return tResult
 end
 
+function GetLandStrategicAttackAdjustment(iTeam)
+    local tTeam = M28Team.tTeamData[iTeam]
+    if not(tTeam) then return 0 end
+    local bFunded = not(tTeam[M28Team.subrefbTeamIsStallingMass])
+        and not(tTeam[M28Team.subrefbTeamIsStallingEnergy])
+        and (tTeam[M28Team.subrefiTeamGrossMass] or 0) > 0
+        and (tTeam[M28Team.subrefiTeamGrossEnergy] or 0) > 0
+        and ((tTeam[M28Team.subrefiTeamNetMass] or 0) >= 0 or (tTeam[M28Team.subrefiTeamAverageMassPercentStored] or 0) >= 0.15)
+        and ((tTeam[M28Team.subrefiTeamNetEnergy] or 0) >= 0 or (tTeam[M28Team.subrefiTeamAverageEnergyPercentStored] or 0) >= 0.2)
+    local iNow = GetGameTimeSeconds()
+    local tSnapshot = tTeam.M28LandStrategicAggression
+    if tSnapshot and iNow - tSnapshot.time < 5 and tSnapshot.funded == bFunded then return tSnapshot.adjustment end
+
+    -- Global superiority changes the required local margin, never the strength
+    -- actually present in a wave. Only recorded enemy intel enters this estimate.
+    local iAlly, iEnemy, iConfidence, iScoutedZones = 0, 0, 0, 0
+    local iEnemyBuildRate, iAllyBuildRate = 0, 0
+    local tSeenFactories = {}
+    for _, tPlateau in M28Map.tAllPlateaus do
+        for _, tZone in tPlateau[M28Map.subrefPlateauLandZones] or {} do
+            local tData = tZone[M28Map.subrefLZTeamData][iTeam]
+            if tData then
+                iAlly = iAlly + (tData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0) + (tData[M28Map.subrefLZThreatAllyMobileIndirectTotal] or 0)
+                iEnemy = iEnemy + (tData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0) + (tData[M28Map.subrefLZThreatEnemyMobileIndirectTotal] or 0)
+                if (tData[M28Map.refiModDistancePercent] or 0) >= 0.5 then
+                    iConfidence = iConfidence + M28Intel.GetZoneIntelConfidence(tData,iTeam,2)
+                    iScoutedZones = iScoutedZones + 1
+                end
+                for _, oFactory in tData[M28Map.subrefTEnemyUnits] or {} do
+                    if not(tSeenFactories[oFactory]) and M28UnitInfo.IsUnitValid(oFactory)
+                        and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory,oFactory.UnitId)
+                        and oFactory:GetFractionComplete() == 1 then
+                        tSeenFactories[oFactory] = true
+                        iEnemyBuildRate = iEnemyBuildRate + (oFactory:GetBlueprint().Economy.BuildRate or 0)
+                    end
+                end
+            end
+        end
+    end
+    if bFunded and iEnemyBuildRate > 0 then
+        for _, aiBrain in tTeam[M28Team.subreftoFriendlyActiveM28Brains] or {} do
+            for _, oFactory in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory,false,true) do
+                if M28UnitInfo.IsUnitValid(oFactory) and oFactory:GetFractionComplete() == 1
+                    and not(oFactory:IsPaused()) and not(oFactory:IsUnitState('Upgrading')) then
+                    local oBuild = oFactory:GetFocusUnit()
+                    if M28UnitInfo.IsUnitValid(oBuild) and oBuild:GetFractionComplete() < 1
+                        and EntityCategoryContains(M28UnitInfo.refCategoryLandCombat,oBuild.UnitId)
+                        and oFactory:GetConsumptionPerSecondMass() > 0 then
+                        iAllyBuildRate = iAllyBuildRate + (oFactory:GetBlueprint().Economy.BuildRate or 0)
+                            * (aiBrain[M28Economy.refiBrainBuildRateMultiplier] or 1)
+                    end
+                end
+            end
+        end
+    end
+    -- Unseen armies and factories are not proof of a lead. Confidence in enemy
+    -- territory scales both bonuses; neither bonus can authorize a hopeless fight.
+    local iIntelScale = iScoutedZones > 0 and math.max(0,math.min(1,(iConfidence/iScoutedZones-40)/35)) or 0
+    local iLandBonus = iEnemy > 0 and math.max(0,math.min(1,iAlly/math.max(200,iEnemy)-1))*0.25 or 0
+    local iProductionBonus = iEnemyBuildRate > 0 and math.max(0,math.min(1,iAllyBuildRate/iEnemyBuildRate-1))*0.15 or 0
+    local iAdjustment = (iLandBonus+iProductionBonus)*iIntelScale
+    tTeam.M28LandStrategicAggression = {time=iNow,funded=bFunded,adjustment=iAdjustment}
+    return iAdjustment
+end
+
 function GetLandObjectiveAvoidance(tUnits, iPlateau, iTeam, iOptionalForce)
     local tZones = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones]
     local iForce = iOptionalForce or M28UnitInfo.GetCombatThreatRating(tUnits)
     local aiBrain = tUnits[1]:GetAIBrain()
-    local tDefenses = {}
-    for _, tDefense in GetKnownLandDefenses(aiBrain, true) do table.insert(tDefenses,tDefense) end
+    local tDefenses, tAssaultable = {}, iForce > 0 and {}
     -- A native edge can detour outside its graph endpoints. Strong known mobile
     -- screens along that detour must reject it just like fixed weapon coverage.
     for _, tZone in tZones do
         local tData = tZone[M28Map.subrefLZTeamData][iTeam]
         local iMobile = (tData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0) + (tData[M28Map.subrefLZThreatEnemyMobileIndirectTotal] or 0)
-        if iForce == 0 or iMobile * 1.35 > iForce then
+        if iForce > 0 and (tData[M28Map.subrefThreatEnemyDFStructures] or 0) > 0 then
+            local iResponse = GetLandObjectiveResponse(tZone,iPlateau,iTeam)
+            -- Adjacent emplacements can cover the same approach; do not admit
+            -- each battery as an isolated fight against the whole wave.
+            for _,iAdjacent in tZone[M28Map.subrefLZAdjacentLandZones] or {} do
+                iResponse = iResponse + (tZones[iAdjacent][M28Map.subrefLZTeamData][iTeam][M28Map.subrefThreatEnemyDFStructures] or 0)
+            end
+            if iForce >= math.max(200,iResponse*(1.35-GetLandStrategicAttackAdjustment(iTeam))) then
+                for _,oEnemy in tData[M28Map.subrefTEnemyUnits] or {} do
+                    if M28UnitInfo.IsUnitValid(oEnemy) and EntityCategoryContains(M28UnitInfo.refCategoryPD,oEnemy.UnitId) then
+                        tAssaultable[oEnemy] = true
+                    end
+                end
+            end
+        end
+        if iForce == 0 or iMobile * (1.35-GetLandStrategicAttackAdjustment(iTeam)) > iForce then
             for _, oEnemy in tData[M28Map.subrefTEnemyUnits] or {} do
                 if M28UnitInfo.IsUnitValid(oEnemy) and EntityCategoryContains(categories.LAND * categories.MOBILE,oEnemy.UnitId) then
                     local tKnown = M28Intel.GetKnownThreatPosition(aiBrain,oEnemy)
@@ -359,6 +438,9 @@ function GetLandObjectiveAvoidance(tUnits, iPlateau, iTeam, iOptionalForce)
                 end
             end
         end
+    end
+    for _,tDefense in GetKnownLandDefenses(aiBrain,true) do
+        if tDefense.indirect or not(tAssaultable and tAssaultable[tDefense.unit]) then table.insert(tDefenses,tDefense) end
     end
     return tDefenses, iForce
 end
@@ -401,6 +483,7 @@ function IsLandObjectiveRouteSafe(tGroup, tMembers)
     end
     local tTarget = tZones[tGroup.target]
     local tData = tTarget[M28Map.subrefLZTeamData][tGroup.team]
+    tGroup.defenses = tDefenses
     return bArrivedSupport or tGroup.advance or M28Map.CalculateZoneValue(tGroup.plateau,tGroup.target,tGroup.team) > 0
         or M28Map.GetLandZoneDefensePriority(tTarget,tData,tGroup.plateau,tGroup.team) > 0
 end
@@ -598,7 +681,7 @@ function SelectLandSupportObjective(tUnits, iPlateau, iSource, iTeam, tPrevious,
             end
         end
         local iDefense = M28Map.GetLandZoneDefensePriority(tZone, tData, iPlateau, iTeam, iPresent + iIncoming)
-        local iNeeded = math.max(200, iResponse * 1.35, math.min(1200, iBenefit * 0.5))
+        local iNeeded = math.max(200, iResponse * (1.35-(iDefense > 0 and 0 or GetLandStrategicAttackAdjustment(iTeam))), math.min(1200, iBenefit * 0.5))
         local iShortfall = math.max(0, iNeeded - iPresent - iIncoming)
         local iRequired = math.max(200, iShortfall)
         if iCurrent ~= iSource and not(tExcluded and tExcluded[iCurrent]) and iShortfall > 0
@@ -884,6 +967,7 @@ function GetLandObjectiveAssignments(tUnits, iPlateau, iSource, iTeam)
             end
         end
         local tOther = table.getn(tNextWave) > 0 and SelectLandSupportObjective(tNextWave,iPlateau,iSource,iTeam,nil,tExcluded)
+        if tOther and not(IsLandObjectiveRouteSafe(tPlan,tSelected)) then tOther = nil end
         if not(tOther) then
             tRemaining = {}
             for _, oUnit in tAvailable do
@@ -894,7 +978,9 @@ function GetLandObjectiveAssignments(tUnits, iPlateau, iSource, iTeam)
                 else table.insert(tRemaining,oUnit) end
             end
         end
-        -- Each member's physical progress, not a moving peer, renews its lease.
+        -- Admission and issued movement use the selected wave, not troops
+        -- assigned elsewhere or a stronger cohort before splitting.
+        tPlan.defenses = GetLandObjectiveAvoidance(tSelected,iPlateau,iTeam)
         InitializeLandObjectiveProgress(tPlan,tSelected)
         table.insert(tAssignments,tPlan)
         tAvailable = tRemaining
@@ -1087,7 +1173,7 @@ function GetLandForwardAssembly(tUnits, iPlateau, iSource, iTeam, tDefenses)
                     / (1+iResponse/math.max(200,iForce))
                 -- Prefer a front that can activate with less reinforcement,
                 -- rather than gathering forever opposite the largest fortress.
-                iScore = iScore*math.min(1,iForce/math.max(200,iResponse*1.35))
+                iScore = iScore*math.min(1,iForce/math.max(200,iResponse*(1.35-GetLandStrategicAttackAdjustment(iTeam))))
                 if iScore > 0 then table.insert(tCandidates,{zone=iZone,data=tData,position=tGoal,score=iScore}) end
             end
         end
@@ -1121,7 +1207,19 @@ function IssueLandForwardGathering(tUnits, iPlateau, iLandZone, iTeam, tSpreadAv
     if table.getn(tUnits)==0 then return tUnits end
     local tWaiting, tGathered = {},{}
     for _,oUnit in tUnits do
-        if not(IsLandObjectiveEmergency(oUnit,iPlateau,iLandZone))
+        local tComplete = oUnit.M28LandAssemblyComplete
+        if tComplete and (tComplete.plateau~=iPlateau or tComplete.zone~=iLandZone) then
+            oUnit.M28LandAssemblyComplete = nil
+        end
+        local tPrevious = oUnit.M28LandAssemblyRoute
+        if tPrevious and tPrevious.plateau==iPlateau and not(tPrevious.cancelled)
+                and not(GetLandObjectiveWaypoint(tPrevious,oUnit)) then
+            -- Arrival completes assembly, not combat admission. The normal
+            -- objective/contact owner decides the next fight or safe alternative.
+            oUnit.M28LandAssemblyComplete = {plateau=iPlateau,zone=iLandZone}
+            oUnit.M28LandAssemblyRoute = nil
+        end
+        if not(oUnit.M28LandAssemblyComplete) and not(IsLandObjectiveEmergency(oUnit,iPlateau,iLandZone))
                 and not(HasLandObjectiveLocalWork(oUnit,iPlateau,iLandZone,iTeam)) then
             table.insert(tWaiting,oUnit)
         end
@@ -1138,13 +1236,14 @@ function IssueLandForwardGathering(tUnits, iPlateau, iLandZone, iTeam, tSpreadAv
         local tAssembly = GetLandForwardAssembly(tCohort,iPlateau,iLandZone,iTeam,tAvoidance)
         local bLocalReady = tAssembly and tAssembly.target==iLandZone
             and M28UnitInfo.GetCombatThreatRating(tCohort)>=GetLandObjectiveResponse(
-                M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone],iPlateau,iTeam)*1.35
+                M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone],iPlateau,iTeam)*(1.35-GetLandStrategicAttackAdjustment(iTeam))
         for _,oUnit in tCohort do
             local tPrevious = oUnit.M28LandAssemblyRoute
             if tPrevious and tPrevious.cancelled then ReleaseStalledLandObjectiveOrder(oUnit,tPrevious) end
             local tPoint = tAssembly and (GetLandObjectiveWaypoint(tAssembly,oUnit) or tAssembly.path[table.getn(tAssembly.path)])
             if bLocalReady then
                 oUnit.M28LandAssemblyRoute = nil
+                oUnit.M28LandAssemblyComplete = {plateau=iPlateau,zone=iLandZone}
             elseif tPoint and IsLandSegmentOutsideKnownDefenses(oUnit:GetPosition(),tPoint,tAvoidance,10,true) then
                 if not(tAssembly.travelProgress[oUnit]) then
                     local _, iPoint = GetLandObjectiveWaypoint(tAssembly,oUnit)
@@ -6232,7 +6331,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                 if tWaypoint then
                     oUnit.M28LandObjective = tGroup
                     oUnit.M28LandAssemblyRoute = nil
-                    if IssueLandTacticalMove(oUnit,tWaypoint,6,'DFFwdLZ'..tGroup.target..'From'..iLandZone,false,tFixedDFSpreadAvoidanceAreaTables) then
+                    oUnit.M28LandAssemblyComplete = nil
+                    if IssueLandTacticalMove(oUnit,tWaypoint,6,'DFFwdLZ'..tGroup.target..'From'..iLandZone,false,tFixedDFSpreadAvoidanceAreaTables,nil,false,tGroup.defenses) then
                         tGroup.travelProgress[oUnit].order = (oUnit[M28Orders.reftiLastOrders] or {})[1]
                         SetLandCombatIntent(oUnit,iPlateau,tGroup.target,iLandSupportOrderIntentSeconds,'DFFwd')
                         tObjectiveOrders[oUnit] = true
@@ -10796,7 +10896,8 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
 
                                     local iNearbyCombatThreat = math.min(iOurDFAndT1ArtiCombatThreat, M28UnitInfo.GetCombatThreatRating(M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains][1]:GetUnitsAroundPoint(M28UnitInfo.refCategoryLandCombat, oClosestFriendlyUnitToAnEnemyFirebase:GetPosition(), iSearchRange, 'Ally'), false))
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Nearby combat threat='..iNearbyCombatThreat..'; iEnemyCombatThreat='..iEnemyCombatThreat) end
-                                    if iNearbyCombatThreat > iEnemyCombatThreat * 1.5 or (iNearbyCombatThreat > iEnemyCombatThreat * 1.15 and iNearbyCombatThreat >= 20000) or (iNearbyCombatThreat > iEnemyCombatThreat and bHaveSignificantCombatCloserToFirebase) then
+                                    local iStrategicAdjustment = GetLandStrategicAttackAdjustment(iTeam)
+                                    if iNearbyCombatThreat > iEnemyCombatThreat * (1.5-iStrategicAdjustment) or (iNearbyCombatThreat > iEnemyCombatThreat * math.max(1,1.15-iStrategicAdjustment) and iNearbyCombatThreat >= 20000) or (iNearbyCombatThreat > iEnemyCombatThreat and bHaveSignificantCombatCloserToFirebase) then
                                         bAttackWithEverything = true
                                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Nearby combat threat is greater than enemy, so will attack with everything') end
                                     else
@@ -13301,7 +13402,7 @@ function IsLandRetreatUnfinished(oUnit)
     return true
 end
 
-function IssueLandTacticalMove(oUnit, tPosition, iReissueDistance, sDescription, bSupport, tAvoidance, oEnemy, bAssault)
+function IssueLandTacticalMove(oUnit, tPosition, iReissueDistance, sDescription, bSupport, tAvoidance, oEnemy, bAssault, tObjectiveDefenses)
     if oUnit[M28UnitInfo.refbSpecialMicroActive] then return false end
     if ShouldPreserveArtilleryEngagement(oUnit) then return false end
     if not(bSupport) and IsLandRetreatUnfinished(oUnit) then return false end
@@ -13333,15 +13434,18 @@ function IssueLandTacticalMove(oUnit, tPosition, iReissueDistance, sDescription,
     local bFireInPlace = not(bSupport) and M28UnitInfo.IsUnitValid(oEnemy)
         and M28Utilities.GetDistanceBetweenPositions(tPositionNow,tPosition) < 1
     -- Formation offsets must honor the decision to enter PD range, while retaining terrain checks.
-    if bAssault then tAvoidance = nil end
-    -- Use the assembly footprint while travelling a nominal objective waypoint.
+    -- Only the synchronous objective owner supplies its freshly checked risks.
+    -- Later pursuit or other tactical callers cannot inherit an old permission.
+    if bAssault or tObjectiveDefenses then tAvoidance = nil end
+    -- The objective's selected wave owns PD admission; validate its actual
+    -- spread route against the remaining risks instead of restoring a PD veto.
     local iSpreadRadius = oUnit.M28LandObjective and not(bSupport or bAssault) and 4 or nil
     local tFinalPosition = bFireInPlace and tPosition or M28Orders.GetSpreadPositionForUnit(oUnit,tPosition,iSpreadRadius,tAvoidance)
     -- Pursuing a mobile target is not permission to assault its covering PD.
     -- Deliberate assaults are admitted by the assembled wave's threat decision.
     if not(bSupport or bAssault or bFireInPlace)
-            and EntityCategoryContains(categories.LAND * categories.MOBILE - categories.EXPERIMENTAL - categories.COMMAND - categories.ENGINEER - categories.SCOUT,oUnit.UnitId)
-            and not(IsLandRouteOutsideKnownDefenses(oUnit,tFinalPosition,GetKnownLandDefenses(oUnit:GetAIBrain(),
+            and (tObjectiveDefenses or EntityCategoryContains(categories.LAND * categories.MOBILE - categories.EXPERIMENTAL - categories.COMMAND - categories.ENGINEER - categories.SCOUT,oUnit.UnitId))
+            and not(IsLandRouteOutsideKnownDefenses(oUnit,tFinalPosition,tObjectiveDefenses or GetKnownLandDefenses(oUnit:GetAIBrain(),
                 EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery,oUnit.UnitId)),8,true)) then
         if oUnit.M28LandObjective then oUnit.M28LandObjective.cancelled = true; oUnit.M28LandObjective = nil end
         oUnit.M28LandTacticalMove = nil

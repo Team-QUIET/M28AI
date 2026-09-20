@@ -2516,6 +2516,7 @@ function HaveEnoughThreatToAttack(iPlateau, iLandZone, tLZData, tLZTeamData, iOu
     elseif bOptionalUseSlightlyLowerThreatRatio then iDefaultThreatRatioWanted = 0.85
     else iDefaultThreatRatioWanted = 0.90
     end
+    iDefaultThreatRatioWanted = math.max(0.8,iDefaultThreatRatioWanted - math.min(0.15,M28Land.GetLandStrategicAttackAdjustment(iTeam)))
 
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Deciding if have enough combat threat to attack, iOurCombatThreat='..iOurCombatThreat..'; iEnemyCombatThreat='..iEnemyCombatThreat..'; iFirebaseThreatAdjust='..iFirebaseThreatAdjust..'; bHaveSignificantCombatCloserToFirebase='..tostring(bHaveSignificantCombatCloserToFirebase)..'; iTeam='..(iTeam or 'nil')..'; LZ value='..tLZTeamData[M28Map.subrefLZTValue]..'; Map size='..M28Map.iMapSize..'; Time='..GetGameTimeSeconds()..'; subrefLZSValue='..tLZTeamData[M28Map.subrefLZSValue]..'; tLZTeamData[M28Map.refiModDistancePercent]='..tLZTeamData[M28Map.refiModDistancePercent]) end
     if iOurCombatThreat > iEnemyCombatThreat * iDefaultThreatRatioWanted then
