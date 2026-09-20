@@ -95,6 +95,7 @@ local iAirAAMoveTargetReissueDistance = 20
 local iAirAAPreTurnCooldown = 6
 local tiAirAALastSharedPreTurn = {}
 local refCategoryAirAAPriorityRetainedTarget = M28UnitInfo.refCategoryBomber + M28UnitInfo.refCategoryTorpBomber + M28UnitInfo.refCategoryTransport + M28UnitInfo.refCategoryCzar
+local refbLandArmyBomberInterception = 'M28LandBmInt'
 local refiBomberFighterAvoidanceUntil = 'M28BmFtrHold'
 local refiTorpFighterAvoidanceUntil = 'M28TpFtrHold'
 local refiGunshipFighterAvoidanceUntil = 'M28GsFtrHold'
@@ -3813,6 +3814,7 @@ function ShouldAvoidAirAAPursuit(oFighter, oTarget, tTargetPosition)
     local oProtected = tSubteam[refoUrgentEscortProtectedUnit]
     if M28UnitInfo.IsUnitValid(oProtected) and M28Utilities.GetDistanceBetweenPositions(oProtected:GetPosition(),tTargetPosition)<=90
             and IsAttackAirApproachingProtectedUnit(oTarget,oProtected) then iAllowance=math.max(iAllowance,iOwn*0.35) end
+    if oFighter[refbLandArmyBomberInterception] and iEnemy > 0 and iEnemy * 1.15 >= iOwn then return true end
     return iGroundRisk > iAllowance or iEnemy > math.max(250,iOwn*1.2)
 end
 
@@ -4267,6 +4269,7 @@ function TargetUnitWithAirAA(oAirAA, oEnemyUnit, iOptionalClosestDist)
         local tFallback = GetSafeAirAAStagingPoint({oAirAA},aiBrain.M28AirSubteam,
             M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.reftAirSubSupportPoint])
         oAirAA[refoAirAACurTarget] = nil
+        oAirAA[refbLandArmyBomberInterception] = nil
         if tFallback then M28Orders.IssueTrackedMove(oAirAA,tFallback,20,false,'AAReform',false) end
         M28Profiler.FunctionProfiler(sFunctionRef,M28Profiler.refProfilerEnd)
         return false
@@ -4401,7 +4404,7 @@ function UpdateOrdersForExistingAirAATargets(tInCombatUnits, bReturnTableOfAssig
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
-function AssignAirAATargets(tAvailableAirAA, tEnemyTargets, iTeam, iAirSubteam, tExistingThreatAssignedByUnitRef, bLastEnemiesToTarget, tOptionalStartPoint)
+function AssignAirAATargets(tAvailableAirAA, tEnemyTargets, iTeam, iAirSubteam, tExistingThreatAssignedByUnitRef, bLastEnemiesToTarget, tOptionalStartPoint, bProtectLandArmy)
     --bLastEnemiesToTarget - if this is true, then will assign more air units than normal to deal with the threat
     local sFunctionRef = 'AssignAirAATargets'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
@@ -4440,7 +4443,13 @@ function AssignAirAATargets(tAvailableAirAA, tEnemyTargets, iTeam, iAirSubteam, 
         iCurLoopCount = 0
         iCurValueAssigned = (tExistingThreatAssignedByUnitRef[oEnemyUnit.EntityId] or 0)
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering enemy unit '..oEnemyUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oEnemyUnit)..'; iThreatToAssign='..iThreatToAssign) end
-        local tBasePosition = oEnemyUnit:GetPosition()
+        local tBasePosition
+        if bProtectLandArmy then
+            tBasePosition = M28Intel.GetKnownThreatPosition(M28Team.GetFirstActiveM28Brain(iTeam), oEnemyUnit, 12)
+        else
+            tBasePosition = oEnemyUnit:GetPosition()
+        end
+        if not(tBasePosition) then return end
         while iCurValueAssigned < iThreatToAssign do
             iCurLoopCount = iCurLoopCount + 1
             if iCurLoopCount > iMaxLoopCount then break end
@@ -4450,7 +4459,8 @@ function AssignAirAATargets(tAvailableAirAA, tEnemyTargets, iTeam, iAirSubteam, 
             iClosestAARef = nil
             for iAAUnit, oAAUnit in tAvailableAirAA do
                 iCurDist = GetRoughDistanceBetweenPositions(tBasePosition, oAAUnit:GetPosition())
-                if iCurDist < iClosestUnitDist then
+                if iCurDist < iClosestUnitDist
+                        and (not(bProtectLandArmy) or IsAirAAOperationalForLocalEscort(iAirSubteam, oAAUnit)) then
                     iClosestUnitDist = iCurDist
                     oClosestUnit = oAAUnit
                     iClosestAARef = iAAUnit
@@ -4462,6 +4472,7 @@ function AssignAirAATargets(tAvailableAirAA, tEnemyTargets, iTeam, iAirSubteam, 
                 LOG(sFunctionRef..': iClosestUnitDist='..iClosestUnitDist..'; oClosestUnit='..oClosestUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oClosestUnit)..'; will issue attack order if far away and have visibility; iEnemyPlateauOrZero='..iEnemyPlateauOrZero..'; iEnemyLandOrWaterZone='..iEnemyLandOrWaterZone..' tBasePosition='..repru(tBasePosition)..'; In playable area='..tostring(M28Conditions.IsLocationInPlayableArea(tBasePosition))..'; Can see enemy='..tostring(M28UnitInfo.CanSeeUnit(oClosestUnit:GetAIBrain(), oEnemyUnit))..'; enemy unit pos='..repru(oEnemyUnit:GetPosition())..'; terrain height='..GetTerrainHeight(oEnemyUnit:GetPosition()[1],oEnemyUnit:GetPosition()[3])..'; currentlayer='..oEnemyUnit:GetCurrentLayer())
             end
             if not(oClosestUnit.Dead) then --redundancy
+                oClosestUnit[refbLandArmyBomberInterception] = bProtectLandArmy or nil
                 TargetUnitWithAirAA(oClosestUnit, oEnemyUnit, iClosestUnitDist)
             end
             if oClosestUnit[refoAirAACurTarget] == oEnemyUnit then
@@ -4488,7 +4499,13 @@ function AssignAirAATargets(tAvailableAirAA, tEnemyTargets, iTeam, iAirSubteam, 
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to cycle through each enemy target, iEnemyTargetSize='..iEnemyTargetSize) end
         local tiDistPerTarget = {}
         for iCurEnemyUnit = 1, iEnemyTargetSize do
-            tiDistPerTarget[iCurEnemyUnit] = M28Utilities.GetDistanceBetweenPositions(tEnemyTargets[iCurEnemyUnit]:GetPosition(), tStartPoint)
+            local tPosition
+            if bProtectLandArmy then
+                tPosition = M28Intel.GetKnownThreatPosition(M28Team.GetFirstActiveM28Brain(iTeam), tEnemyTargets[iCurEnemyUnit], 12)
+            else
+                tPosition = tEnemyTargets[iCurEnemyUnit]:GetPosition()
+            end
+            tiDistPerTarget[iCurEnemyUnit] = tPosition and M28Utilities.GetDistanceBetweenPositions(tPosition, tStartPoint) or 100000
         end
         for iEntry, iDist in M28Utilities.SortTableByValue(tiDistPerTarget, false) do
             local oEnemyUnit = tEnemyTargets[iEntry]
@@ -5162,6 +5179,63 @@ function IsAttackAirApproachingProtectedUnit(oEnemy, oProtectedUnit)
     return iX * iX + iZ * iZ <= iStrikeRadius * iStrikeRadius
 end
 
+local function GetLandArmyBomberTargets(iTeam)
+    local tTargets, tbActiveTargets = {}, {}
+    local aiBrain = M28Team.GetFirstActiveM28Brain(iTeam)
+    if not(aiBrain) then return tTargets, tbActiveTargets end
+    -- One allied-army query per known bomber, never a map-wide scan per fighter.
+    local refLandArmy = M28UnitInfo.refCategoryLandCombat + M28UnitInfo.refCategoryIndirect
+    for _, oEnemy in M28Team.tTeamData[iTeam][M28Team.reftoEnemyAirToGround] or {} do
+        if M28UnitInfo.IsUnitValid(oEnemy) and EntityCategoryContains(M28UnitInfo.refCategoryBomber, oEnemy.UnitId)
+                and not(oEnemy:IsUnitState('Attached')) and not(tbActiveTargets[oEnemy.EntityId]) then
+            local tKnown, _, iAge = M28Intel.GetKnownThreatPosition(aiBrain, oEnemy, 12)
+            if tKnown and M28Conditions.IsLocationInPlayableArea(tKnown) then
+                for _, oAlly in aiBrain:GetUnitsAroundPoint(refLandArmy, tKnown, 280, 'Ally') do
+                    if M28UnitInfo.IsUnitValid(oAlly) and oAlly:GetFractionComplete() == 1 and not(oAlly:IsUnitState('Attached'))
+                            and (M28Utilities.GetDistanceBetweenPositions(tKnown, oAlly:GetPosition()) <= 90
+                                or (iAge == 0 and IsAttackAirApproachingProtectedUnit(oEnemy, oAlly))) then
+                        table.insert(tTargets, oEnemy)
+                        tbActiveTargets[oEnemy.EntityId] = true
+                        break
+                    end
+                end
+            end
+        end
+    end
+    return tTargets, tbActiveTargets
+end
+
+local function IsLowPriorityAirAAContact(oTarget)
+    return M28UnitInfo.IsUnitValid(oTarget)
+        and EntityCategoryContains(M28UnitInfo.refCategoryAirScout + M28UnitInfo.refCategoryTransport, oTarget.UnitId)
+        and not(EntityCategoryContains(categories.ANTIAIR + categories.BOMBER + categories.GROUNDATTACK, oTarget.UnitId))
+        and (not(oTarget.GetCargo) or M28Utilities.IsTableEmpty(oTarget:GetCargo()))
+end
+
+local function RefreshLandArmyInterceptions(tAvailableAirAA, tInCombatUnits, tbActiveTargets)
+    -- Re-enter normal allocation so emergency defense can preempt army protection.
+    -- Service/special-micro units are deliberately absent from both input lists.
+    for iUnit = table.getn(tInCombatUnits), 1, -1 do
+        local oFighter = tInCombatUnits[iUnit]
+        local bPeelLowPriority = not(M28Utilities.IsTableEmpty(tbActiveTargets))
+            and IsLowPriorityAirAAContact(oFighter[refoAirAACurTarget])
+            and IsAirAAOperationalForLocalEscort(oFighter:GetAIBrain().M28AirSubteam, oFighter)
+        if oFighter[refbLandArmyBomberInterception] or bPeelLowPriority then
+            table.remove(tInCombatUnits, iUnit)
+            table.insert(tAvailableAirAA, oFighter)
+        end
+    end
+    for _, oFighter in tAvailableAirAA do
+        local oTarget = oFighter[refoAirAACurTarget]
+        if oFighter[refbLandArmyBomberInterception]
+                and (not(M28UnitInfo.IsUnitValid(oTarget)) or not(tbActiveTargets[oTarget.EntityId])) then
+            oFighter[refbLandArmyBomberInterception] = nil
+            oFighter[refoAirAACurTarget] = nil
+            M28Orders.IssueTrackedClearCommands(oFighter)
+        end
+    end
+end
+
 function ManageAirAAUnits(iTeam, iAirSubteam)
     local sFunctionRef = 'ManageAirAAUnits'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
@@ -5171,6 +5245,8 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
 
     --Get available airAA units (owned by M28 brains in our subteam):
     local tAvailableAirAA, tAirForRefueling, tUnavailableUnits, tInCombatUnits = GetAvailableLowFuelAndInUseAirUnits(iTeam, iAirSubteam, M28UnitInfo.refCategoryAirAA)
+    local tLandArmyBomberTargets, tbLandArmyBomberTargets = GetLandArmyBomberTargets(iTeam)
+    RefreshLandArmyInterceptions(tAvailableAirAA, tInCombatUnits, tbLandArmyBomberTargets)
     --Keep one shallow view of centrally managed combat-capable AirAA. Assignment removes units from tAvailableAirAA, but the shared pre-turn check runs after all targeting decisions.
     local tManagedAirAA = {}
     local tbManagedAirAA = {}
@@ -6301,9 +6377,20 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
 
                 --Assign available air units to targets
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': FInished checking for neemies around all start positions, is tEnemyAirTargets empty='..tostring(M28Utilities.IsTableEmpty(tEnemyAirTargets))) end
+                -- Do not spend reclaimed defenders on the harmless contact they just left.
+                if not(M28Utilities.IsTableEmpty(tLandArmyBomberTargets)) then
+                    for iTarget = table.getn(tEnemyAirTargets), 1, -1 do
+                        if IsLowPriorityAirAAContact(tEnemyAirTargets[iTarget]) then table.remove(tEnemyAirTargets, iTarget) end
+                    end
+                end
                 if M28Utilities.IsTableEmpty(tEnemyAirTargets) == false then
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will assign AirAA targets') end
                     AssignAirAATargets(tAvailableAirAA, tEnemyAirTargets, iTeam, iAirSubteam, tExistingThreatAssignedByUnitRef)
+                end
+                -- Protect actual allied armies anywhere on the map, after immediate emergencies/core defense.
+                -- The normal allocator retains service ownership, local fighter strength and full-route ground-AA checks.
+                if not(M28Utilities.IsTableEmpty(tAvailableAirAA)) and not(M28Utilities.IsTableEmpty(tLandArmyBomberTargets)) then
+                    AssignAirAATargets(tAvailableAirAA, tLandArmyBomberTargets, iTeam, iAirSubteam, tExistingThreatAssignedByUnitRef, false, nil, true)
                 end
                 --Consider bomber targets if we have t3 bombers (partly for simplicity so we can reference the front bomber as the unit we are protecting, even though it might not be)
                 if M28Utilities.IsTableEmpty(tAvailableAirAA) == false then
