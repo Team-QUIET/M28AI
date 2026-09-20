@@ -3198,61 +3198,52 @@ GetMaxT1MAACount = function()
     return 20
 end
 
-local function GetCombatLandScoutDFEquivalentCount(aiBrain, bUseLifetimeCount)
-    local iCombatScoutThreshold = aiBrain[M28Overseer.refiCombatLandScoutThreshold] or 0
-    if iCombatScoutThreshold <= 0 then return 0 end
-
-    local iScoutCount
-    if bUseLifetimeCount then
-        iScoutCount = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryLandScout)
-    else
-        iScoutCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryLandScout)
+local function GetEarlyT1IndirectBuildAllowance(aiBrain, oFactory, tLZTeamData)
+    if not(EntityCategoryContains(M28UnitInfo.refCategoryLandFactory * categories.TECH1, oFactory.UnitId))
+            or (aiBrain[M28Economy.refiOurHighestLandFactoryTech] or 1) > 1
+            or (M28Team.tTeamData[aiBrain.M28Team][M28Team.subrefiHighestFriendlyLandFactoryTech] or 1) > 1 then
+        return nil
     end
-    return math.min(iCombatScoutThreshold, iScoutCount)
-end
-
-local function GetEarlyT1DFEquivalentCount(aiBrain, bUseLifetimeCount)
-    local iDFCount
-    if bUseLifetimeCount then
-        iDFCount = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryMobileDFLand * categories.TECH1)
-    else
-        iDFCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand * categories.TECH1)
+    local iIndirectCategory = M28UnitInfo.refCategoryIndirect * categories.TECH1
+    local iDirectCategory = (M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher
+        - M28UnitInfo.refCategoryLightAttackBot - M28UnitInfo.refCategoryMAA - iIndirectCategory
+        - categories.ENGINEER - categories.COMMAND - categories.SCOUT) * categories.TECH1
+    local iDirect, iIndirect = 0, 0
+    for _, oUnit in aiBrain:GetListOfUnits(iDirectCategory + iIndirectCategory, false, true) do
+        if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 then
+            if EntityCategoryContains(iIndirectCategory, oUnit.UnitId) then iIndirect = iIndirect + 1
+            else iDirect = iDirect + 1 end
+        end
     end
-    return iDFCount + GetCombatLandScoutDFEquivalentCount(aiBrain, bUseLifetimeCount)
+    -- Completed survivors fund the screen; issued orders and pending refills reserve its guns once.
+    for _, oOtherFactory in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryMobileLandFactory, false, true) do
+        if M28UnitInfo.IsUnitValid(oOtherFactory) then
+            iIndirect = iIndirect + GetFactoryPendingBuildCountByCategory(oOtherFactory, iIndirectCategory)
+        end
+    end
+    return math.max(0, math.floor(iDirect / 3) - iIndirect)
 end
 
 local function ShouldRedirectEarlyT1IndirectPick(aiBrain, oFactory, tLZTeamData, sBPIDToBuild)
     if not(sBPIDToBuild) or not(EntityCategoryContains(M28UnitInfo.refCategoryIndirect * categories.TECH1, sBPIDToBuild)) then
         return false
     end
-    if not(EntityCategoryContains(M28UnitInfo.refCategoryLandFactory * categories.TECH1, oFactory.UnitId)) then
-        return false
-    end
-
-    local iCurrentT1Indirect = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryIndirect * categories.TECH1)
-    local iCurrentT1DFEquivalent = GetEarlyT1DFEquivalentCount(aiBrain, false)
-    local iLifetimeT1Indirect = M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryIndirect * categories.TECH1)
-    local iLifetimeT1DFEquivalent = GetEarlyT1DFEquivalentCount(aiBrain, true)
-    local bUrgentLocalIndirectNeed = (tLZTeamData[M28Map.subrefLZThreatEnemyBestStructureDFRange] or 0) > 0
-        or GetGameTimeSeconds() - (tLZTeamData[M28Map.subrefiTimeOfMMLFiringNearTMDOrShield] or -100) <= 30
-        or M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftoAllNearbyEnemyT2ArtiUnits]) == false
-    local iFreeIndirectAllowance = 1
-    if bUrgentLocalIndirectNeed then iFreeIndirectAllowance = 2 end
-
-    if iCurrentT1Indirect < iFreeIndirectAllowance or iLifetimeT1Indirect < iFreeIndirectAllowance then
-        return false
-    end
-
-    local iProjectedCurrentIndirect = iCurrentT1Indirect + 1
-    local iProjectedLifetimeIndirect = iLifetimeT1Indirect + 1
-    local iDFPerIndirectWanted = 3
-    local bCurrentDFRatioHealthy = iCurrentT1DFEquivalent >= iProjectedCurrentIndirect * iDFPerIndirectWanted
-    local bLifetimeDFRatioHealthy = iLifetimeT1DFEquivalent >= iProjectedLifetimeIndirect * iDFPerIndirectWanted
-    return not(bCurrentDFRatioHealthy or bLifetimeDFRatioHealthy)
+    local iAllowance = GetEarlyT1IndirectBuildAllowance(aiBrain, oFactory, tLZTeamData)
+    return iAllowance ~= nil and iAllowance < 1
 end
 
 local function GetPreferredEarlyT1DirectFallbackCategory(aiBrain, oFactory, tLZTeamData)
     return M28UnitInfo.refCategoryMobileDFLand * categories.TECH1 - M28UnitInfo.refCategorySkirmisher
+end
+
+local function GetProactiveT1IndirectBlueprint(aiBrain, oFactory, tLZTeamData, sBlueprint)
+    if not(sBlueprint) or tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]
+            or not(EntityCategoryContains((M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher
+                - M28UnitInfo.refCategoryLightAttackBot - M28UnitInfo.refCategoryMAA - M28UnitInfo.refCategoryIndirect
+                - categories.ENGINEER - categories.COMMAND - categories.SCOUT) * categories.TECH1, sBlueprint)) then return nil end
+    local iAllowance = GetEarlyT1IndirectBuildAllowance(aiBrain, oFactory, tLZTeamData)
+    if not(iAllowance) or iAllowance < 1 then return nil end
+    return GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryIndirect * categories.TECH1, oFactory)
 end
 
 local function ShouldAllowGenericAmphibiousLandFallback(aiBrain)
@@ -4057,24 +4048,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
             if sBPIDToBuild then
                 sBPIDToBuild = AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamData, iFactoryTechLevel)
             end
-            if sBPIDToBuild and ShouldRedirectEarlyT1IndirectPick(aiBrain, oFactory, tLZTeamData, sBPIDToBuild) then
-                local iFallbackCategory = GetPreferredEarlyT1DirectFallbackCategory(aiBrain, oFactory, tLZTeamData)
-                local sFallbackBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, iFallbackCategory, oFactory, nil, nil, nil, nil, false)
-                if sFallbackBlueprint then
-                    sFallbackBlueprint = AdjustBlueprintForOverrides(aiBrain, oFactory, sFallbackBlueprint, tLZTeamData, iFactoryTechLevel)
-                end
-                if sFallbackBlueprint and not(EntityCategoryContains(M28UnitInfo.refCategoryIndirect * categories.TECH1, sFallbackBlueprint)) then
-                    if bDebugMessages == true then
-                        LOG(sFunctionRef .. ': Redirecting early T1 indirect into DF fallback. Original=' .. sBPIDToBuild .. '; Fallback=' .. sFallbackBlueprint)
-                    end
-                    sBPIDToBuild = sFallbackBlueprint
-                else
-                    if bDebugMessages == true then
-                        LOG(sFunctionRef .. ': Blocking overrepresented early T1 indirect build. Original=' .. sBPIDToBuild .. '; Fallback=' .. (sFallbackBlueprint or 'nil'))
-                    end
-                    sBPIDToBuild = nil
-                end
-            end
             if sBPIDToBuild and iFactoryTechLevel == 1 and EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBPIDToBuild) then
                 if bOpeningCombatWanted == nil then bOpeningCombatWanted, iOpeningEngineers, iOpeningCombat = ShouldPrioritizeOpeningLandCombat(aiBrain) end
                 if bShareCombatWanted == nil then bShareCombatWanted, iEngineerFactories, iEngineerFactoryLimit = ShouldReserveLandFactoryForCombat(aiBrain, oFactory, tLZTeamData) end
@@ -4112,6 +4085,30 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                 end
                 if sFallbackBlueprint then
                     sBPIDToBuild = AdjustBlueprintForOverrides(aiBrain, oFactory, sFallbackBlueprint, tLZTeamData, iFactoryTechLevel)
+                end
+            end
+            -- Request the missing T1 guns, not merely permission for an occasional indirect pick.
+            local sIndirectBlueprint = GetProactiveT1IndirectBlueprint(aiBrain, oFactory, tLZTeamData, sBPIDToBuild)
+            if sIndirectBlueprint then
+                sIndirectBlueprint = AdjustBlueprintForOverrides(aiBrain, oFactory, sIndirectBlueprint, tLZTeamData, iFactoryTechLevel)
+                if sIndirectBlueprint then sBPIDToBuild = sIndirectBlueprint end
+            end
+            if sBPIDToBuild and ShouldRedirectEarlyT1IndirectPick(aiBrain, oFactory, tLZTeamData, sBPIDToBuild) then
+                local iFallbackCategory = GetPreferredEarlyT1DirectFallbackCategory(aiBrain, oFactory, tLZTeamData)
+                local sFallbackBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, iFallbackCategory, oFactory, nil, nil, nil, nil, false)
+                if sFallbackBlueprint then
+                    sFallbackBlueprint = AdjustBlueprintForOverrides(aiBrain, oFactory, sFallbackBlueprint, tLZTeamData, iFactoryTechLevel)
+                end
+                if sFallbackBlueprint and not(EntityCategoryContains(M28UnitInfo.refCategoryIndirect * categories.TECH1, sFallbackBlueprint)) then
+                    if bDebugMessages == true then
+                        LOG(sFunctionRef .. ': Redirecting early T1 indirect into DF fallback. Original=' .. sBPIDToBuild .. '; Fallback=' .. sFallbackBlueprint)
+                    end
+                    sBPIDToBuild = sFallbackBlueprint
+                else
+                    if bDebugMessages == true then
+                        LOG(sFunctionRef .. ': Blocking overrepresented early T1 indirect build. Original=' .. sBPIDToBuild .. '; Fallback=' .. (sFallbackBlueprint or 'nil'))
+                    end
+                    sBPIDToBuild = nil
                 end
             end
             if sBPIDToBuild then
