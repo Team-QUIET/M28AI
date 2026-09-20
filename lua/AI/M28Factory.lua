@@ -605,7 +605,7 @@ local function GetFactoryMAAQueueState(oFactory, iTeam)
         local tLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][iTeam]
         iLocalAirToGroundThreat = tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0
         iLocalMAAWanted = tLZTeamData[M28Map.subrefLZMAAThreatWanted] or 0
-        iLocalGroundAAThreat = (tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0) + (tLZTeamData.M28IncomingMAA or 0)
+        iLocalGroundAAThreat = (tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0) + M28Land.GetIncomingMAAThreat(tLZTeamData)
         iLowTechGunshipCount, iLowTechGunshipPressure = GetLowTechGunshipPressureAgainstLand(tLZTeamData)
     end
 
@@ -3123,7 +3123,7 @@ local function GetMainLandFactoryMAAIntent(oFactory, iTeam, tContext)
     if tContext.bAllowHighPriorityAirBuilder and not(tContext.bDontConsiderBuildingMAA) then
         local tZone = tContext.tLZTeamData
         local iShortfall = (tZone[M28Map.subrefLZMAAThreatWanted] or 0)
-            - (tZone[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0) - (tZone.M28IncomingMAA or 0)
+            - (tZone[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0) - M28Land.GetIncomingMAAThreat(tZone)
         if iShortfall >= 50 and not(tZone[M28Map.subrefbDangerousEnemiesInThisLZ])
                 and DoesT1LandFactoryPassAttackAirGate(iFactoryTechLevel, tContext.bNearbyAttackAirPresent, tContext.iNearbyAttackAirThreat or 0) then
             local iPending = 0
