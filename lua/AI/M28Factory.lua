@@ -352,6 +352,60 @@ local function GetLandSpecialistBuildAllowance(oFactory, sBlueprint, bIssuedOnly
     return math.max(0, iAllowance - iPending), iRegularCategory
 end
 
+local function GetOrdinaryT3LandCategory()
+    return M28UnitInfo.refCategoryMobileDFLand * categories.TECH3 - M28UnitInfo.refCategorySkirmisher
+        - M28UnitInfo.refCategoryProtectorBot - M28UnitInfo.refCategoryAbsolver
+        - M28UnitInfo.refCategoryMobileLandShield - M28UnitInfo.refCategoryMobileLandStealth
+        - categories.INDIRECTFIRE - categories.SILO - categories.ENGINEER - categories.COMMAND - categories.EXPERIMENTAL
+end
+
+local function GetT3LandHeavyShare(aiBrain)
+    local iShare = aiBrain.M28T3LandHeavyShare or 0.35
+    if iShare == 1 then return iShare end
+    local iCompleted = aiBrain.M28CompletedOrdinaryT3LandBuilds or 0
+    local iIncome = aiBrain[M28Economy.refiGrossMassBaseIncome] or 0
+    if aiBrain:GetEconomyStoredRatio('ENERGY') >= 0.1 or (aiBrain[M28Economy.refiNetEnergyBaseIncome] or 0) >= 0 then
+        if iCompleted >= 24 and iIncome >= 18 then iShare = 1
+        elseif iCompleted >= 16 and iIncome >= 14 then iShare = math.max(iShare, 0.75)
+        elseif iCompleted >= 8 and iIncome >= 10 then iShare = math.max(iShare, 0.5) end
+    end
+    -- Production maturity survives casualties and temporary stalls; admission still funds each order.
+    aiBrain.M28T3LandHeavyShare = iShare
+    return iShare
+end
+
+local function GetHeavyLandReplacementCategory(aiBrain, oFactory, sBlueprint, bRequireFunding)
+    if not(sBlueprint) or ScenarioInfo.Options.M28PrioritiseBPs == 2
+            or not(EntityCategoryContains(GetOrdinaryT3LandCategory() - M28UnitInfo.refCategoryT35Units, sBlueprint)) then return nil end
+    if bRequireFunding then
+        local _, tZone = M28Map.GetLandOrWaterZoneData(oFactory:GetPosition(), true, aiBrain.M28Team)
+        if tZone and tZone[M28Map.subrefbDangerousEnemiesInThisLZ] then return nil end
+    end
+    local iHeavyCategory = GetOrdinaryT3LandCategory() * M28UnitInfo.refCategoryT35Units
+    -- A cross-water request must not become a land-only unit after selection.
+    if EntityCategoryContains(M28UnitInfo.refCategoryAmphibious + categories.HOVER, sBlueprint) then
+        iHeavyCategory = iHeavyCategory * (M28UnitInfo.refCategoryAmphibious + categories.HOVER)
+    end
+    local tBlacklist = M28Team.tLandSubteamData[aiBrain.M28LandSubteam][M28Team.subrefBlueprintBlacklist]
+    local iEligibleCategory, sBudgetBlueprint
+    for _, sCandidate in EntityCategoryGetUnitList(iHeavyCategory) do
+        if (aiBrain[reftBlueprintPriorityOverride][sCandidate] or 0) >= 0 and not(tBlacklist[sCandidate])
+                and oFactory:CanBuild(sCandidate) and not(M28UnitInfo.IsUnitRestricted(sCandidate, aiBrain:GetArmyIndex()))
+                and (not(bRequireFunding) or GetFactoryProductionAdmission(aiBrain, oFactory, sCandidate)) then
+            iEligibleCategory = iEligibleCategory and iEligibleCategory + categories[sCandidate] or categories[sCandidate]
+            if not(sBudgetBlueprint) or sCandidate < sBudgetBlueprint then sBudgetBlueprint = sCandidate end
+        end
+    end
+    return iEligibleCategory, sBudgetBlueprint
+end
+
+local function IsObsoleteLightT3LandBlueprint(aiBrain, oFactory, sBlueprint)
+    if ScenarioInfo.Options.M28PrioritiseBPs == 2
+            or not(EntityCategoryContains(GetOrdinaryT3LandCategory() - M28UnitInfo.refCategoryT35Units, sBlueprint))
+            or GetT3LandHeavyShare(aiBrain) < 1 then return false end
+    return GetHeavyLandReplacementCategory(aiBrain, oFactory, sBlueprint, true) ~= nil
+end
+
 function GetIntermediateLandBuildAllowance(oFactory, sBlueprint, bIssuedOnly, bReplaceQueue)
     local iSupportAllowance, iSupportRegularCategory = GetLandSpecialistBuildAllowance(oFactory, sBlueprint, bIssuedOnly, bReplaceQueue)
     if iSupportAllowance then return iSupportAllowance, iSupportRegularCategory end
@@ -359,6 +413,8 @@ function GetIntermediateLandBuildAllowance(oFactory, sBlueprint, bIssuedOnly, bR
     if not(iSpecialCategory) then return nil end
     if EntityCategoryContains(categories.TECH3, sBlueprint) then
         local aiBrain = oFactory:GetAIBrain()
+        local iHeavyShare = GetT3LandHeavyShare(aiBrain)
+        if iHeavyShare == 1 then return math.huge, iRegularCategory, math.huge end
         local iRegularMass, iHeavyMass, iRegularCount = 0, 0, 0
         for _, oUnit in aiBrain:GetListOfUnits(iRegularCategory + iSpecialCategory, false, true) do
             if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 then
@@ -367,7 +423,7 @@ function GetIntermediateLandBuildAllowance(oFactory, sBlueprint, bIssuedOnly, bR
                 else iRegularMass, iRegularCount = iRegularMass + iMass, iRegularCount + 1 end
             end
         end
-        -- Preserve a light opening, then replace losses with an economy-funded mix.
+        -- Preserve a light opening, then grow the heavy share with completed production and economy.
         -- Count every factory's pending heavy units so parallel queues share the allowance.
         for _, oOther in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory, false, true) do
             if M28UnitInfo.IsUnitValid(oOther) and not(bReplaceQueue and oOther == oFactory) then
@@ -379,9 +435,7 @@ function GetIntermediateLandBuildAllowance(oFactory, sBlueprint, bIssuedOnly, bR
                 end
             end
         end
-        if iRegularCount < 5 then return 0, iRegularCategory, 0 end
-        local iHeavyShare = 0.35
-        if iRegularMass >= 4000 and (aiBrain[M28Economy.refiGrossMassBaseIncome] or 0) >= 10 then iHeavyShare = 0.5 end
+        if iRegularCount < 5 and (aiBrain.M28CompletedOrdinaryT3LandBuilds or 0) < 5 then return 0, iRegularCategory, 0 end
         local iMassAllowance = iRegularMass * iHeavyShare / (1 - iHeavyShare) - iHeavyMass
         return math.max(0, math.floor(iMassAllowance / __blueprints[sBlueprint].Economy.BuildCostMass)), iRegularCategory, iMassAllowance
     end
@@ -430,16 +484,8 @@ local function AdjustIntermediateLandBlueprint(aiBrain, oFactory, sBlueprint)
         end
         if sProtector and (GetIntermediateLandBuildAllowance(oFactory, sProtector) or 0) >= 1 then return sProtector end
     end
-    if EntityCategoryContains(categories.TECH3 - M28UnitInfo.refCategoryT35Units, sBlueprint) then
-        local iHeavyCategory = M28UnitInfo.refCategoryT35Units * M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher
-        local iEligibleCategory, sBudgetBlueprint
-        for _, sCandidate in EntityCategoryGetUnitList(iHeavyCategory) do
-            if (aiBrain[reftBlueprintPriorityOverride][sCandidate] or 0) >= 0 and oFactory:CanBuild(sCandidate)
-                    and not(M28UnitInfo.IsUnitRestricted(sCandidate, aiBrain:GetArmyIndex())) then
-                iEligibleCategory = iEligibleCategory and iEligibleCategory + categories[sCandidate] or categories[sCandidate]
-                if not(sBudgetBlueprint) or sCandidate < sBudgetBlueprint then sBudgetBlueprint = sCandidate end
-            end
-        end
+    if EntityCategoryContains(GetOrdinaryT3LandCategory() - M28UnitInfo.refCategoryT35Units, sBlueprint) then
+        local iEligibleCategory, sBudgetBlueprint = GetHeavyLandReplacementCategory(aiBrain, oFactory, sBlueprint, GetT3LandHeavyShare(aiBrain) == 1)
         if sBudgetBlueprint then
             -- Eligibility checks must not consume a random choice or select a cheap
             -- discouraged unit before the requested heavy mix is affordable.
@@ -554,7 +600,7 @@ local function GetFactoryMAAQueueState(oFactory, iTeam)
         local tLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone][M28Map.subrefLZTeamData][iTeam]
         iLocalAirToGroundThreat = tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0
         iLocalMAAWanted = tLZTeamData[M28Map.subrefLZMAAThreatWanted] or 0
-        iLocalGroundAAThreat = tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0
+        iLocalGroundAAThreat = (tLZTeamData[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0) + (tLZTeamData.M28IncomingMAA or 0)
         iLowTechGunshipCount, iLowTechGunshipPressure = GetLowTechGunshipPressureAgainstLand(tLZTeamData)
     end
 
@@ -579,10 +625,10 @@ local function GetFactoryMAAQueueState(oFactory, iTeam)
     if iLocalMAAShortfall > 0 then
         iCap = math.max(iCap, math.min(12, 2 + math.ceil(iLocalMAAShortfall / 175)))
     end
-    -- Reassess expensive escorts individually; batch only an uncovered local air attack.
+    -- Reassess expensive escorts individually; reserve a small pair for known approaching demand.
     if EntityCategoryContains(categories.TECH2 + categories.TECH3, oFactory.UnitId)
             and math.max(iLocalAirToGroundThreat, iLowTechGunshipPressure) <= iLocalGroundAAThreat then
-        iCap = 1
+        iCap = iLocalMAAShortfall >= 150 and 2 or 1
     end
 
     return {
@@ -2771,8 +2817,8 @@ GetPreferredLandMAACategory = function(oFactory, iTeam, bPreferT2Flak, bAllowT1M
     local bPreferT3MAA = false
     if iFactoryTechLevel >= 3 then
         bPreferT3MAA = M28Conditions.WantT3MAAInsteadOfT2(oFactory, iTeam)
-            or (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3 and M28Conditions.TeamIsFarBehindOnAir(iTeam))
-            or (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0) >= 1500
+            or M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] >= 3
+            or (M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0) >= 1000
     end
 
     if bPreferT3MAA then
@@ -3069,6 +3115,23 @@ end
 local function GetMainLandFactoryMAAIntent(oFactory, iTeam, tContext)
     local iFactoryTechLevel = M28UnitInfo.GetUnitTechLevel(oFactory)
 
+    if tContext.bAllowHighPriorityAirBuilder and not(tContext.bDontConsiderBuildingMAA) then
+        local tZone = tContext.tLZTeamData
+        local iShortfall = (tZone[M28Map.subrefLZMAAThreatWanted] or 0)
+            - (tZone[M28Map.subrefLZOrWZThreatAllyGroundAA] or 0) - (tZone.M28IncomingMAA or 0)
+        if iShortfall >= 50 and not(tZone[M28Map.subrefbDangerousEnemiesInThisLZ])
+                and DoesT1LandFactoryPassAttackAirGate(iFactoryTechLevel, tContext.bNearbyAttackAirPresent, tContext.iNearbyAttackAirThreat or 0) then
+            local iPending = 0
+            local aiBrain = oFactory:GetAIBrain()
+            for _, oOther in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryMobileLandFactory, false, true) do
+                if M28UnitInfo.IsUnitValid(oOther) then iPending = iPending + GetFactoryPendingBuildCountByCategory(oOther, M28UnitInfo.refCategoryMAA) end
+            end
+            if iPending < math.min(2, math.ceil(iShortfall / 175)) then
+                return {iCategoryWanted = GetPreferredLandMAACategory(oFactory, iTeam, true, false), sReason = 'ProactiveZoneDemand'}
+            end
+            return nil
+        end
+    end
     if tContext.bAllowHighPriorityAirBuilder then
         if (not(tContext.bDontConsiderBuildingMAA) or not(tContext.tLZTeamData[M28Map.subrefLZbCoreBase]))
             and (not(tContext.tLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ]) or tContext.tLZTeamData[M28Map.subrefLZbCoreBase]) then
@@ -3099,7 +3162,7 @@ local function GetMainLandFactoryMAAIntent(oFactory, iTeam, tContext)
                             if (iFactoryTechLevel > 1 or bT1NearbyAttackAirGatePassed)
                                 and (M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] < 3 or iFactoryTechLevel >= 3) then
                                 return {
-                                    iCategoryWanted = M28UnitInfo.refCategoryMAA - categories.TECH3,
+                                    iCategoryWanted = GetPreferredLandMAACategory(oFactory, iTeam, true, false),
                                     sReason = 'HighPriorityAirDefense',
                                 }
                             end
@@ -3151,16 +3214,16 @@ local function GetMainLandFactoryMAAIntent(oFactory, iTeam, tContext)
         if iFactoryTechLevel >= 2
             or M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftoAllEnemyAir]) == false
             or M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] >= 5 then
-            local iThreatFactor = 20
+            local iThreatFactor = 16
             if M28Team.tAirSubteamData[tContext.iAirSubteam][M28Team.refbFarBehindOnAir]
                 and M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 4000 then
-                iThreatFactor = 8
+                iThreatFactor = 7
             elseif not(M28Team.tAirSubteamData[tContext.iAirSubteam][M28Team.refbHaveAirControl])
                 and (
                     M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 2000
                     or M28Team.tAirSubteamData[tContext.iAirSubteam][M28Team.refbFarBehindOnAir]
                 ) then
-                iThreatFactor = 13
+                iThreatFactor = 11
             end
             if M28Team.tTeamData[iTeam][M28Team.subrefiAlliedDFThreat] + (M28Team.tTeamData[iTeam][M28Team.subrefiAlliedIndirectThreat] + tContext.iUnderConstructionIndirect)
                 > M28Team.tTeamData[iTeam][M28Team.subrefiAlliedMAAThreat] * iThreatFactor then
@@ -3191,7 +3254,7 @@ GetLandFactoryMAAIntent = function(oFactory, iTeam, tContext)
 end
 
 DoesT1LandFactoryPassAttackAirGate = function(iFactoryTechLevel, bAttackAirPresent, iAttackAirThreat)
-    return iFactoryTechLevel >= 2 or (bAttackAirPresent and iAttackAirThreat >= 750)
+    return iFactoryTechLevel >= 2 or (bAttackAirPresent and iAttackAirThreat >= 450)
 end
 
 GetMaxT1MAACount = function()
@@ -3357,11 +3420,12 @@ function GetLandArmyMAAFloorCategory(oFactory)
             end
         end
     end
-    if iCombat < 8 and iExperimentals == 0 then return nil end
+    if iCombat < 6 and iExperimentals == 0 then return nil end
     local sBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryWanted, oFactory)
     if not(sBlueprint) then return nil end
     local iEscortMass = __blueprints[sBlueprint].Economy.BuildCostMass or 1
-    local iWanted = math.min(16, math.ceil(iCombat / 10) + iExperimentals * 2, math.max(1, math.ceil(iCombatMass * 0.08 / math.max(1, iEscortMass))))
+    local iMassShare = bPreferT3 and 0.13 or 0.10
+    local iWanted = math.min(20, math.ceil(iCombat / 8) + iExperimentals * 2, math.max(1, math.ceil(iCombatMass * iMassShare / math.max(1, iEscortMass))))
     if iMAA >= iWanted then return nil end
     for _, oOtherFactory in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryMobileLandFactory, false, true) do
         if M28UnitInfo.IsUnitValid(oOtherFactory) then
@@ -7544,6 +7608,9 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
     if HasUnusedT1LandStockpile(aiBrain, oFactory, sBlueprint) then
         return FinishAdmission(false, 'UnusedT1LandStockpile')
     end
+    if IsObsoleteLightT3LandBlueprint(aiBrain, oFactory, sBlueprint) then
+        return FinishAdmission(false, 'MatureHeavyT3Replacement')
+    end
 
     if IsLandAttackerBlueprint(oFactory, sBlueprint)
             and M28UnitInfo.GetBlueprintTechLevel(sBlueprint) < GetLandProductionTech(oFactory)
@@ -8216,7 +8283,7 @@ local function GetFactoryQueuePreemptingMAABlueprint(aiBrain, oFactory)
     end
 
     local tMAAQueueState = GetFactoryMAAQueueState(oFactory, aiBrain.M28Team)
-    if tMAAQueueState.iCap < 6 then
+    if tMAAQueueState.iCap < 4 and tMAAQueueState.iLocalMAAShortfall < 150 then
         return nil
     end
 
@@ -8228,7 +8295,8 @@ local function GetFactoryQueuePreemptingMAABlueprint(aiBrain, oFactory)
     local sBlueprintToBuild, bEnhancement = DetermineWhatToBuild(aiBrain, oFactory)
     if bEnhancement or not(sBlueprintToBuild) or not(EntityCategoryContains(M28UnitInfo.refCategoryMAA, sBlueprintToBuild)) then
         return nil
-    elseif not(DoesFactoryQueueHaveRoomForBlueprint(oFactory, sBlueprintToBuild)) then
+    elseif not(DoesFactoryQueueHaveRoomForBlueprint(oFactory, sBlueprintToBuild))
+            or not(GetFactoryProductionAdmission(aiBrain, oFactory, sBlueprintToBuild)) then
         return nil
     end
 
@@ -8248,8 +8316,15 @@ local function ClearFactoryProductionQueue(oFactory)
 end
 
 local function ClearCompletedObsoleteLandQueue(oFactory, sBlueprint)
-    if not(IsLandAttackerBlueprint(oFactory, sBlueprint))
-            or M28UnitInfo.GetBlueprintTechLevel(sBlueprint) >= GetLandProductionTech(oFactory) then return false end
+    local aiBrain = oFactory:GetAIBrain()
+    local bObsolete = IsLandAttackerBlueprint(oFactory, sBlueprint)
+        and M28UnitInfo.GetBlueprintTechLevel(sBlueprint) < GetLandProductionTech(oFactory)
+    if not(bObsolete) then
+        local tQueued = GetQueuedFactoryBlueprints(oFactory)
+        bObsolete = IsObsoleteLightT3LandBlueprint(aiBrain, oFactory, sBlueprint)
+            or (tQueued and tQueued[1] and IsObsoleteLightT3LandBlueprint(aiBrain, oFactory, tQueued[1]))
+    end
+    if not(bObsolete) then return false end
     local sUpgrade = GetQueuedFactoryUpgradeBlueprint(oFactory)
     if sUpgrade then RecordPendingFactoryUpgrade(oFactory, sUpgrade) end
     -- Keep the completed unit and admitted upgrade; retire the remaining old-tech queue.
@@ -8420,6 +8495,11 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
     local iDesiredPlanLength = iTargetQueueDepth + GetFactoryQueueRefillFloor(iTargetQueueDepth)
     local bFactoryActivelyBuilding = IsFactoryActivelyBuilding(oFactory)
 
+    -- Drop obsolete speculative lights; issued work is retired after its current completion.
+    for iEntry = table.getn(tBuildPlan or {}), iIssuedCount + 1, -1 do
+        if IsObsoleteLightT3LandBlueprint(aiBrain, oFactory, tBuildPlan[iEntry]) then table.remove(tBuildPlan, iEntry) end
+    end
+
     if iTargetQueueDepth <= 1 then
         TrimFactoryBuildPlanToIssuedOrders(oFactory)
         if bDebugMessages == true then
@@ -8551,6 +8631,11 @@ function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
     end
     iBuildOrders = math.max(iBuildOrders, GetFactoryActualBuildOrderCount(oFactory) or 0)
     local bFactoryActivelyBuilding = IsFactoryActivelyBuilding(oFactory)
+    if not(bFactoryActivelyBuilding) and tIssuedBlueprints and tIssuedBlueprints[1]
+            and IsObsoleteLightT3LandBlueprint(aiBrain, oFactory, tIssuedBlueprints[1]) then
+        ClearCompletedObsoleteLandQueue(oFactory, tIssuedBlueprints[1])
+        return false
+    end
     local sPendingUpgradeBlueprint = GetPendingFactoryUpgradeBlueprint(oFactory)
     if sPendingUpgradeBlueprint then
         if iBuildOrders > 0 then
@@ -11920,6 +12005,10 @@ function RegisterCompletedFactoryBuild(oFactory, sBlueprint)
     end
     oFactory[refiBuildCountByBlueprint][sBlueprint] = (oFactory[refiBuildCountByBlueprint][sBlueprint] or 0) + 1
     oFactory[refsLastBlueprintBuilt] = sBlueprint
+    if EntityCategoryContains(GetOrdinaryT3LandCategory(), sBlueprint) then
+        local aiBrain = oFactory:GetAIBrain()
+        aiBrain.M28CompletedOrdinaryT3LandBuilds = (aiBrain.M28CompletedOrdinaryT3LandBuilds or 0) + 1
+    end
     if M28Diagnostics.Enabled('Factory') then
         local iArmy = oFactory:GetAIBrain():GetArmyIndex()
         if M28Diagnostics.ShouldLog('Factory', iArmy, 'completed:'..oFactory.EntityId) then
