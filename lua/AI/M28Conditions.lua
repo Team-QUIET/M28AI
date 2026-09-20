@@ -1714,39 +1714,20 @@ function ShouldRushT3AirForNaval(iTeam)
     return true
 end
 
-function ShouldRushT3AirForTechDisparity(iTeam)
-    --Returns true if we should prioritize rushing T3 air factory due to enemy having T3 air while we don't
-    --This is a more aggressive response than the normal upgrade logic, designed to counter tech rushing
-    local sFunctionRef = 'ShouldRushT3AirForTechDisparity'
-    local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelConditions, sFunctionRef)
-
-    --Already have T3 air factory - no need to rush
-    if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] >= 3 then
-        return false
+function ShouldRushT3AirForTechDisparity(iTeam, aiBrain)
+    -- Strategic demand survives a temporary stall; admission funds each transition.
+    -- An allied HQ cannot unlock this army's fighters, including its T1 -> T2 bridge.
+    local tTeam = M28Team.tTeamData[iTeam]
+    if (tTeam[M28Team.subrefiHighestEnemyAirTech] or 0) < 3 then return false end
+    if aiBrain then
+        local iAirTech = aiBrain[M28Economy.refiOurHighestAirFactoryTech] or 0
+        return iAirTech > 0 and iAirTech < 3
     end
-
-    --Need at least T2 air factory to upgrade
-    if M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] < 2 then
-        return false
+    for _, oBrain in tTeam[M28Team.subreftoFriendlyActiveM28Brains] do
+        local iAirTech = oBrain[M28Economy.refiOurHighestAirFactoryTech] or 0
+        if iAirTech > 0 and iAirTech < 3 then return true end
     end
-
-    --Enemy doesn't have T3 air - no tech disparity
-    if M28Team.tTeamData[iTeam][M28Team.subrefiHighestEnemyAirTech] < 3 then
-        return false
-    end
-
-    --Check economic constraints
-    if M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] then
-        return false
-    end
-
-    --Need reasonable economy to support T3 air production
-    if (M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossMass] or 0) < 3 then
-        return false
-    end
-
-    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Returning true - enemy has T3 air tech disparity, rushing T3 air factory') end
-    return true
+    return false
 end
 
 function ShouldPrioritizeEmergencyAA(iTeam)
@@ -3944,6 +3925,27 @@ function CheckIfNeedMoreEngineersOrSnipeUnitsBeforeUpgrading(oFactory)
         if not(aiBrain[M28Overseer.refbCloseToUnitCap]) and iFactoryTechLevel < 3 then
             local iTeam = aiBrain.M28Team
             local tLZOrWZData, tLZOrWZTeamData = M28Map.GetLandOrWaterZoneData(oFactory:GetPosition(), true, iTeam)
+
+            if EntityCategoryContains(M28UnitInfo.refCategoryAirHQ, oFactory.UnitId)
+                    and iFactoryTechLevel == (aiBrain[M28Economy.refiOurHighestAirFactoryTech] or 0)
+                    and ShouldRushT3AirForTechDisparity(iTeam, aiBrain) then
+                -- Keep a live workforce, not arbitrary mex tiers or factory lifetime output.
+                -- Per-upgrade mass/energy projection is enforced by the admission owner.
+                local iWorkers, iSourceTechWorkers = 0, 0
+                for _, oEngineer in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryEngineer, false, true) do
+                    if M28UnitInfo.IsUnitValid(oEngineer) and oEngineer:GetFractionComplete() == 1 then
+                        iWorkers = iWorkers + 1
+                        if M28UnitInfo.GetUnitTechLevel(oEngineer) >= iFactoryTechLevel then
+                            iSourceTechWorkers = iSourceTechWorkers + 1
+                        end
+                    end
+                end
+                bWantMoreEngineers = iWorkers < 5 or iSourceTechWorkers < 1
+                oFactory[M28Factory.refbWantMoreEngineersBeforeUpgrading] = bWantMoreEngineers
+                M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                return bWantMoreEngineers
+            end
+
 
             local iBuildCountAdjust = 0
 
