@@ -14,6 +14,8 @@ M28AIBrainClass = AIBrain
 AIBrain = Class(M28AIBrainClass) {
 
     OnDefeat = function(self)
+        -- Only mark the lifecycle owned here; FAF M28 brains have their own override.
+        if M28Utilities.bSteamActive then self.M28IsDefeated = true end
         M28AIBrainClass.OnDefeat(self)
         if M28Utilities.bSteamActive then
             ForkThread(M28Events.OnPlayerDefeated, self)

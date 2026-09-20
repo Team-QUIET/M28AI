@@ -17,6 +17,8 @@ NewAIBrain = Class(StandardBrain) {
     end,
 
     OnDefeat = function(self)
+        -- Stop shared assignments before native defeat retires the brain.
+        self.M28IsDefeated = true
         StandardBrain.OnDefeat(self)
         ForkThread(M28Events.OnPlayerDefeated, self)
 
