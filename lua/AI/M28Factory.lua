@@ -385,12 +385,23 @@ function GetIntermediateLandBuildAllowance(oFactory, sBlueprint, bIssuedOnly, bR
         local iMassAllowance = iRegularMass * iHeavyShare / (1 - iHeavyShare) - iHeavyMass
         return math.max(0, math.floor(iMassAllowance / __blueprints[sBlueprint].Economy.BuildCostMass)), iRegularCategory, iMassAllowance
     end
-    local iRegular = M28Conditions.GetFactoryLifetimeCount(oFactory, iRegularCategory)
-    local iSpecial = M28Conditions.GetFactoryLifetimeCount(oFactory, iSpecialCategory)
-    local iPending
-    if bReplaceQueue then iPending = 0
-    elseif bIssuedOnly then iPending = GetFactoryActualBuildOrderCount(oFactory, iSpecialCategory) or 0
-    else iPending = GetFactoryPendingBuildCountByCategory(oFactory, iSpecialCategory) end
+    local aiBrain = oFactory:GetAIBrain()
+    local iRegular, iSpecial, iPending = 0, 0, 0
+    for _, oUnit in aiBrain:GetListOfUnits(iRegularCategory + iSpecialCategory, false, true) do
+        if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 then
+            if EntityCategoryContains(iSpecialCategory, oUnit.UnitId) then iSpecial = iSpecial + 1
+            else iRegular = iRegular + 1 end
+        end
+    end
+    for _, oOther in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory, false, true) do
+        if M28UnitInfo.IsUnitValid(oOther) and not(bReplaceQueue and oOther == oFactory) then
+            if bIssuedOnly and oOther == oFactory then
+                iPending = iPending + (GetFactoryActualBuildOrderCount(oOther, iSpecialCategory) or 0)
+            else
+                iPending = iPending + GetFactoryPendingBuildCountByCategory(oOther, iSpecialCategory)
+            end
+        end
+    end
     return math.max(0, math.floor(iRegular / 5) - iSpecial - iPending), iRegularCategory
 end
 
@@ -1470,31 +1481,80 @@ function GetProactiveFighterThreatTarget(iAirSubteam, iEnemyAirAA, iEnemyAirToGr
     return math.max(iEnemyAirAA * math.max(1.1, iControlFactor), iEnemyAirToGround * 0.55)
 end
 
-function GetSiegeArtilleryBlueprint(aiBrain, oFactory)
-    if M28UnitInfo.GetUnitTechLevel(oFactory) < 3 then return nil end
-    local iDirectFire = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand * categories.TECH3 - M28UnitInfo.refCategorySkirmisher)
+local function GetLandFactoryScreenState(aiBrain, oFactory)
+    local iDirect, iDirectMass, iSupport = 0, 0, 0
+    local iSupportCategory = M28UnitInfo.refCategorySkirmisher + M28UnitInfo.refCategoryIndirect
+        + M28UnitInfo.refCategoryMML + M28UnitInfo.refCategoryMAA + M28UnitInfo.refCategoryMobileLandShield
+        + M28UnitInfo.refCategoryMobileLandStealth + M28UnitInfo.refCategoryAbsolver
+    local iDirectCategory = M28UnitInfo.refCategoryMobileDFLand - iSupportCategory
+        - categories.ENGINEER - categories.COMMAND - categories.SCOUT - categories.EXPERIMENTAL
+    local tFactoryPosition = oFactory:GetPosition()
+    for _, oUnit in aiBrain:GetListOfUnits(iDirectCategory + iSupportCategory, false, true) do
+        if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1
+                and M28Utilities.GetDistanceBetweenPositions(tFactoryPosition, oUnit:GetPosition()) <= 600
+                and NavUtils.CanPathTo(M28Map.refPathingTypeLand, tFactoryPosition, oUnit:GetPosition()) then
+            if EntityCategoryContains(iDirectCategory, oUnit.UnitId) then
+                iDirect = iDirect + 1
+                iDirectMass = iDirectMass + __blueprints[oUnit.UnitId].Economy.BuildCostMass
+            else iSupport = iSupport + 1 end
+        end
+    end
+    return iDirect, iDirectMass, iSupport
+end
+
+function GetSiegeArtilleryBlueprint(aiBrain, oFactory, bIgnoreOwnQueue)
+    if M28UnitInfo.GetUnitTechLevel(oFactory) < 2 then return nil end
+    local iDirectFire, iScreenMass = GetLandFactoryScreenState(aiBrain, oFactory)
     if iDirectFire < 4 then return nil end
-    local sBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryT3MobileArtillery, oFactory)
-    if not(sBlueprint) then return nil end
-    local iRange = M28UnitInfo.GetBlueprintMaxGroundRange(__blueprints[sBlueprint])
-    local iDefenses = 0
+    local tFactoryPosition = oFactory:GetPosition()
+    local iRequiredRange, iDefenses = 0, 0
     for _, tDefense in M28Land.GetKnownLandDefenses(aiBrain) do
-        if tDefense.range >= 45 and tDefense.range + 12 <= iRange
-                and M28Utilities.GetDistanceBetweenPositions(oFactory:GetPosition(), tDefense.position) <= 600
-                and NavUtils.CanPathTo(M28Map.refPathingTypeLand, oFactory:GetPosition(), tDefense.position) then
+        if M28Utilities.GetDistanceBetweenPositions(tFactoryPosition, tDefense.position) <= 600
+                and NavUtils.CanPathTo(M28Map.refPathingTypeLand, tFactoryPosition, tDefense.position) then
+            iRequiredRange = math.max(iRequiredRange, tDefense.range)
             iDefenses = iDefenses + 1
         end
     end
     if iDefenses == 0 then return nil end
+    local iSiegeCategory = M28UnitInfo.refCategoryIndirect + M28UnitInfo.refCategoryMML
+    local tSiegeBlueprints = EntityCategoryGetUnitList(iSiegeCategory)
+    local sBlueprint, iCost
+    for _, sCandidate in tSiegeBlueprints do
+        local tBlueprint = __blueprints[sCandidate]
+        -- A tech/category label is not evidence that a weapon can reach this line.
+        if not(EntityCategoryContains(categories.TECH1, sCandidate)) and M28UnitInfo.GetBlueprintMaxGroundRange(tBlueprint) > iRequiredRange
+                and oFactory:CanBuild(sCandidate) and not(M28UnitInfo.IsUnitRestricted(sCandidate, aiBrain:GetArmyIndex()))
+                and (bIgnoreOwnQueue or not(IsFactoryBuildPlanTemporarilyBlacklisted(oFactory, sCandidate))) then
+            local iCandidateCost = tBlueprint.Economy.BuildCostMass
+            if not(iCost) or iCandidateCost < iCost or (iCandidateCost == iCost and sCandidate < sBlueprint) then
+                sBlueprint, iCost = sCandidate, iCandidateCost
+            end
+        end
+    end
+    if not(sBlueprint) then return nil end
     local iWanted = math.min(4, math.max(2, math.floor(iDirectFire * 0.2)), iDefenses + 1)
-    local iCommitted = 0
-    for _, oUnit in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryT3MobileArtillery, false, true) do
-        if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 then iCommitted = iCommitted + 1 end
+    local iCommitted, iCommittedMass = 0, 0
+    for _, oUnit in aiBrain:GetListOfUnits(iSiegeCategory, false, true) do
+        if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1
+                and NavUtils.CanPathTo(M28Map.refPathingTypeLand, tFactoryPosition, oUnit:GetPosition()) then
+            local tBlueprint = __blueprints[oUnit.UnitId]
+            iCommittedMass = iCommittedMass + tBlueprint.Economy.BuildCostMass
+            if M28UnitInfo.GetBlueprintMaxGroundRange(tBlueprint) > iRequiredRange then iCommitted = iCommitted + 1 end
+        end
     end
     for _, oOtherFactory in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory, false, true) do
-        iCommitted = iCommitted + GetFactoryPendingBuildCountByCategory(oOtherFactory, M28UnitInfo.refCategoryT3MobileArtillery)
+        if M28UnitInfo.IsUnitValid(oOtherFactory) and not(bIgnoreOwnQueue and oOtherFactory == oFactory)
+                and NavUtils.CanPathTo(M28Map.refPathingTypeLand, tFactoryPosition, oOtherFactory:GetPosition()) then
+            for _, sPending in tSiegeBlueprints do
+                local iPending = GetFactoryPendingBuildCountByCategory(oOtherFactory, categories[sPending])
+                local tBlueprint = __blueprints[sPending]
+                iCommittedMass = iCommittedMass + iPending * tBlueprint.Economy.BuildCostMass
+                if M28UnitInfo.GetBlueprintMaxGroundRange(tBlueprint) > iRequiredRange then iCommitted = iCommitted + iPending end
+            end
+        end
     end
-    if iCommitted < iWanted then return sBlueprint end
+    -- Existing short-ranged guns do not meet siege demand, but still need a screen.
+    if iCommitted < iWanted and (iCommittedMass + iCost) * 2 <= iScreenMass then return sBlueprint end
     return nil
 end
 
@@ -1736,7 +1796,7 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
         if sBPIDToBuild and (EntityCategoryContains(M28UnitInfo.refCategorySniperBot * categories.TECH3, sBPIDToBuild) or EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, sBPIDToBuild)) then
             local bCanAddT3Sniper, bCanAddT3MobileArti = GetLongRangeT3BuildAllowance(aiBrain, iTeam, tLZTeamData)
             local bShouldReplaceWithDF = (EntityCategoryContains(M28UnitInfo.refCategorySniperBot * categories.TECH3, sBPIDToBuild) and not(bCanAddT3Sniper))
-                or (EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, sBPIDToBuild) and not(bCanAddT3MobileArti))
+                or (EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, sBPIDToBuild) and not(bCanAddT3MobileArti or GetSiegeArtilleryBlueprint(aiBrain, oFactory) == sBPIDToBuild))
             if bShouldReplaceWithDF then
                 local sFallbackBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher, oFactory)
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Replacing overrepresented long-range T3 pick with DF if possible. Original='..sBPIDToBuild..'; Fallback='..(sFallbackBlueprint or 'nil')) end
@@ -7448,7 +7508,8 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
     end
 
     if IsLandAttackerBlueprint(oFactory, sBlueprint)
-            and M28UnitInfo.GetBlueprintTechLevel(sBlueprint) < GetLandProductionTech(oFactory) then
+            and M28UnitInfo.GetBlueprintTechLevel(sBlueprint) < GetLandProductionTech(oFactory)
+            and GetSiegeArtilleryBlueprint(aiBrain, oFactory, true) ~= sBlueprint then
         return FinishAdmission(false, 'ObsoleteLandAttacker')
     end
 
@@ -7783,6 +7844,13 @@ local function AdjustLandFactoryBlueprintForQueueComposition(aiBrain, oFactory, 
             bForceDirectFire = true
             sReason = 'SupportNeedsRecentDirect'
         end
+    end
+
+    local iLiveDirect, _, iLiveSupport = GetLandFactoryScreenState(aiBrain, oFactory)
+    local bUrgentAA = EntityCategoryContains(M28UnitInfo.refCategoryMAA, sBlueprint) and GetFactoryMAAQueueCap(oFactory) >= 4
+    if not(bUrgentAA) and iLiveDirect < math.min(4, iLiveSupport) then
+        bForceDirectFire = true
+        sReason = 'ReplaceLostFrontline'
     end
 
     if not(bForceDirectFire) then
