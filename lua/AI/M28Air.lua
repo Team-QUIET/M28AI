@@ -62,6 +62,7 @@ iReclaimWantedForTransportDrop = 250 --i.e. amount of reclaim in amss to conside
     refiLastIslandDrop = 'M28ALstIsD' --When a unit is dropped by a transport, it should be assigned the island ref the transport was trying to drop to
     refiTimeLastDropped = 'M28ATimLstD' --Time that a unit was last dropped by a living transport
     refbCombatDrop = 'M28ATrCmD' --true if transport is doing or planning on doing a combat drop (i.e. not just dropping engineers to expand)
+    refbNavalReclaimDrop = 'M28ANavRecDr' --Engineer delivery to a reclaim field; cancelled if its work disappears or becomes unsafe
     reftCombatDropPlateauAndZone = 'M28ACmDrU' --against combat unit, the plateau and land zone it is assigned to when waiting to load onto a transport
     refoPriorityTargetOverride = 'M28NvxTOvrd' --e.g. used against novax satellite, for if want to add logic similar to M27 where attacks on high value targets are coordinated
     refiTimeOfLastOverride = 'M28TimLastOvrd' --e.g. could be used against novax satellite in combination with above - see M27 logic
@@ -11686,6 +11687,42 @@ function UpdateTransportShortlistForPondDrops(iTeam, tbPlateausWithPlayerStartOr
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
 end
 
+local function IsNavalReclaimDropNeeded(iTeam, iWaterZone, tWZData)
+    local iMass = tWZData[M28Map.subrefTotalSignificantMassReclaim] or 0
+    local tTeamData = tWZData[M28Map.subrefWZTeamData][iTeam]
+    if iMass < 1000 or not(tTeamData) or (tTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) > 50
+        or (tTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) > 0
+        or GetGameTimeSeconds() - (tTeamData[M28Map.refiTimeLastRunFromEnemyLand] or -60) < 30
+        or not(M28Utilities.IsTableEmpty(tTeamData[M28Map.subrefTEngineersTravelingHere])) then return false end
+    local tFailures = M28Team.tTeamData[iTeam][M28Team.refiLastFailedWaterZoneDropTime]
+    if tFailures and GetGameTimeSeconds() - (tFailures[iWaterZone] or -300) < 300 then return false end
+    local iBuildPower = 0
+    for _, oEngineer in EntityCategoryFilterDown(M28UnitInfo.refCategoryEngineer, tTeamData[M28Map.subreftoLZOrWZAlliedUnits] or {}) do
+        if M28UnitInfo.IsUnitValid(oEngineer) and oEngineer:GetFractionComplete() == 1 and not(oEngineer:IsUnitState('Attached')) then
+            iBuildPower = iBuildPower + oEngineer:GetBuildRate()
+        end
+    end
+    return iBuildPower < 5 * math.min(3, math.ceil(iMass / 4000))
+end
+
+local function GetNavalReclaimLandingPosition(iWaterZone, tWZData)
+    local iBestMass = 0
+    local tBestPosition
+    for _, tSegment in tWZData[M28Map.subrefReclaimSegments] or {} do
+        local tReclaim = M28Map.tReclaimAreas[tSegment[1]][tSegment[2]]
+        local iMass = tReclaim[M28Map.refReclaimTotalSignificantMass] or 0
+        if iMass > iBestMass then
+            local tPosition = tReclaim[M28Map.refReclaimSegmentMidpoint]
+            if GetTerrainHeight(tPosition[1], tPosition[3]) < M28Map.iMapWaterHeight and M28Map.GetWaterZoneFromPosition(tPosition) == iWaterZone
+                and M28Conditions.IsLocationInPlayableArea(tPosition) then
+                iBestMass = iMass
+                tBestPosition = tPosition
+            end
+        end
+    end
+    return tBestPosition
+end
+
 function UpdateTransportPlateauDropLocationShortlist(iTeam, bUpdateCombatDropShortlist)
     local sFunctionRef = 'UpdateTransportPlateauDropLocationShortlist'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
@@ -11696,6 +11733,20 @@ function UpdateTransportPlateauDropLocationShortlist(iTeam, bUpdateCombatDropSho
     M28Team.tTeamData[iTeam][M28Team.refiTimeOfLastTransportShortlistUpdate] = GetGameTimeSeconds()
     M28Team.tTeamData[iTeam][M28Team.reftTransportIslandDropShortlist] = {}
     local tbPlateausWithPlayerStartOrIslandDrop = {}
+    local tReclaimDrops = {}
+    M28Team.tTeamData[iTeam][M28Team.reftTransportNavalReclaimDrops] = tReclaimDrops
+    for iPond, tPond in M28Map.tPondDetails or {} do
+        for iWaterZone, tWZData in tPond[M28Map.subrefPondWaterZones] or {} do
+            if (tWZData[M28Map.subrefTotalSignificantMassReclaim] or 0) >= 1000 then
+                if GetGameTimeSeconds() - (tWZData[M28Map.subrefLastReclaimRefresh] or 0) >= 30 then
+                    M28Map.RefreshLandOrWaterZoneReclaimValue(iPond, iWaterZone, true, true)
+                end
+                if IsNavalReclaimDropNeeded(iTeam, iWaterZone, tWZData) then
+                    tReclaimDrops[iWaterZone] = GetNavalReclaimLandingPosition(iWaterZone, tWZData)
+                end
+            end
+        end
+    end
 
     --First record (once per game) potential islands to consider dropping for this team
     if not(M28Team.tTeamData[iTeam][M28Team.reftiPotentialDropIslandsByPlateau]) then
@@ -11819,9 +11870,10 @@ function UpdateTransportPlateauDropLocationShortlist(iTeam, bUpdateCombatDropSho
         local iSignificantReclaimValue
 
         for iPlateau, tIslands in M28Team.tTeamData[iTeam][M28Team.reftiPotentialDropIslandsByPlateau] do
-            iZonesWithMexesAndNoEnemyThreatOrFriendlyEngis = 0
             for iEntry, iIsland in tIslands do
-                --Have we not had a recent failed drop?
+                iZonesWithSignificantThreat = 0
+                iZonesWithMexesAndNoEnemyThreatOrFriendlyEngis = 0
+                iMexesAlreadyBuiltOn = 0
                 bDontHaveLocationInPlayableArea = not(bDontCheckPlayableArea)
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering the iIsland='..iIsland..' in iPlateau '..iPlateau..'; Time of last failed drop='..(M28Team.tTeamData[iTeam][M28Team.refiLastFailedIslandDropTime][iIsland] or 'nil')) end
                 if GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiLastFailedIslandDropTime][iIsland] or -600) >= 300 then --at least 5m since we last attempted a drop
@@ -11835,7 +11887,6 @@ function UpdateTransportPlateauDropLocationShortlist(iTeam, bUpdateCombatDropSho
                         local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
                         if M28Utilities.IsTableEmpty(tLZData[M28Map.subreftoUnitsToCapture]) == false then iSignificantReclaimValue = iSignificantReclaimValue + M28UnitInfo.GetMassCostOfUnits(tLZData[M28Map.subreftoUnitsToCapture]) * 0.7 end
                         if bDontHaveLocationInPlayableArea then bDontHaveLocationInPlayableArea = not(M28Conditions.IsLocationInPlayableArea(tLZData[M28Map.subrefMidpoint])) end
-                        iMexesAlreadyBuiltOn = 0
                         iRecentDropCount = iRecentDropCount + (tLZTeamData[M28Map.refiTransportRecentUnloadCount] or 0)
                         iMexesAlreadyBuiltOn = iMexesAlreadyBuiltOn + tLZTeamData[M28Map.subrefMexCountByTech][1] + tLZTeamData[M28Map.subrefMexCountByTech][2] + tLZTeamData[M28Map.subrefMexCountByTech][3]
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering iLandZone='..iLandZone..' in the island, enemy threat='..tLZTeamData[M28Map.subrefTThreatEnemyCombatTotal]..'; Is table of enemy engineers traveling here empty='..tostring(M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subrefTEngineersTravelingHere]))..'; iMexesAlreadyBuiltOn='..iMexesAlreadyBuiltOn) end
@@ -12080,6 +12131,7 @@ function GetIslandPlateauAndLandZoneForTransportToTravelTo(iTeam, oUnit)
             local iCurPlateauOrZero, iCurLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnit:GetPosition())
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Closest plateau and land or water zone to unit position: Unit position='..repru(oUnit:GetPosition())..'; oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iCurPlateauOrZero='..(iCurPlateauOrZero or 'nil')..'; iCurLandOrWaterZone='..(iCurLandOrWaterZone or 'nil')) end
             local iAdjustedMexesInClosestZone = 0
+            local bBestEarlyIsland = false
             local iCurAdjustedIslandMexValue
             local iDistToOurStart, iDistToCurBrainStart, iClosestBrainDist
             for iEntry, tiPlateauAndIsland in tShortlist do
@@ -12130,10 +12182,16 @@ function GetIslandPlateauAndLandZoneForTransportToTravelTo(iTeam, oUnit)
                     if not(DoesEnemyHaveAAThreatAlongPath(iTeam, iCurPlateauOrZero, iCurLandOrWaterZone, tiPlateauAndIsland[1], iClosestLZ, false, 60,          nil,                     false,         iAirSubteam,         true, nil, oUnit:GetPosition())) then
                         iCurIslandDist = iClosestDist
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurIslandDist='..iCurIslandDist..'; iClosestIslandDist='..iClosestIslandDist..'; iCurAdjustedIslandMexValue='..iCurAdjustedIslandMexValue) end
-                        --Adjust mexes for mod distance
-                        if iCurAdjustedIslandMexValue >= iAdjustedMexesInClosestZone then
+                        local bEarlyIsland = false
+                        do
                             local tLZData = M28Map.tAllPlateaus[tiPlateauAndIsland[1]][M28Map.subrefPlateauLandZones][iClosestLZ]
                             local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
+                            local tPlayableArea = M28Map.rMapPlayableArea
+                            local tMidpoint = tLZData[M28Map.subrefMidpoint]
+                            bEarlyIsland = GetGameTimeSeconds() <= 420 and iCurAdjustedIslandMexValue >= 2
+                                and tLZTeamData[M28Map.refiModDistancePercent] >= 0.3 and tLZTeamData[M28Map.refiModDistancePercent] <= 0.65
+                                and VDist2(tMidpoint[1], tMidpoint[3], (tPlayableArea[1] + tPlayableArea[3]) * 0.5,
+                                    (tPlayableArea[2] + tPlayableArea[4]) * 0.5) <= M28Map.iMapSize * 0.25
                             if tLZTeamData[M28Map.refiModDistancePercent] >= 0.65 then
                                 iCurAdjustedIslandMexValue = iCurAdjustedIslandMexValue * 0.2
                             elseif tLZTeamData[M28Map.refiModDistancePercent] >= 0.5 then iCurAdjustedIslandMexValue = iCurAdjustedIslandMexValue * 0.35
@@ -12143,7 +12201,7 @@ function GetIslandPlateauAndLandZoneForTransportToTravelTo(iTeam, oUnit)
                                 --Do nothing - will multiply by 1
                             end
                             --Make sure if we are on a team we dont have the furthest M28 from the island choosing to go there
-                            if iCurAdjustedIslandMexValue >= iAdjustedMexesInClosestZone and M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] > 1 then
+                            if (bEarlyIsland or iCurAdjustedIslandMexValue >= iAdjustedMexesInClosestZone) and M28Team.tTeamData[iTeam][M28Team.subrefiActiveM28BrainCount] > 1 then
                                 --Check if there is a friendly base closer to it than the base of the brain owning the transport
                                 local oTransportBrain = oUnit:GetAIBrain()
                                 iDistToOurStart = M28Utilities.GetDistanceBetweenPositions(tLZData[M28Map.subrefMidpoint], M28Map.GetPlayerStartPosition(oTransportBrain))
@@ -12168,8 +12226,11 @@ function GetIslandPlateauAndLandZoneForTransportToTravelTo(iTeam, oUnit)
                             end
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurAdjustedIslandMexValue after adjustments for mod dist and closer teammates='..iCurAdjustedIslandMexValue..'; Mod dist='..tLZTeamData[M28Map.refiModDistancePercent]) end
                         end
-                        if iCurAdjustedIslandMexValue >= iAdjustedMexesInClosestZone and (iCurAdjustedIslandMexValue > iAdjustedMexesInClosestZone or iCurIslandDist < iClosestIslandDist) then
+                        if (bEarlyIsland and not(bBestEarlyIsland)) or (bEarlyIsland == bBestEarlyIsland
+                            and iCurAdjustedIslandMexValue >= iAdjustedMexesInClosestZone
+                            and (iCurAdjustedIslandMexValue > iAdjustedMexesInClosestZone or iCurIslandDist < iClosestIslandDist)) then
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..'; Updating preferred rop location based on mexes and distance, iClosestIslandDist='..iClosestIslandDist) end
+                            bBestEarlyIsland = bEarlyIsland
                             iAdjustedMexesInClosestZone = iCurAdjustedIslandMexValue
                             iClosestIslandDist = iCurIslandDist
                             iTargetIsland = tiPlateauAndIsland[2]
@@ -12584,7 +12645,8 @@ function GetTransportDemandForDrops(iTeam)
     end
 
     local iTransportsWanted = 0
-    if iDifIslandDropLocations + iSameIslandDropLocations + iHighTechEngiDropLocations + iCombatDropLocations > 0 then
+    if iDifIslandDropLocations + iSameIslandDropLocations + iHighTechEngiDropLocations + iCombatDropLocations > 0
+        or not(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftTransportNavalReclaimDrops])) then
         iTransportsWanted = 1
     end
 
@@ -12619,13 +12681,45 @@ function GetTransportDemandForDrops(iTeam)
     return iTransportsWanted, iPreferredTransportTech, iCombatDropLocations, iDifIslandDropLocations, iSameIslandDropLocations, iHighTechEngiDropLocations
 end
 
-function GetWaterZoneForTransportToTravelTo(iTeam, oUnit)
-    --Returns island, plateau and land zone that we want to drop at (or nil if there are none)
+function GetWaterZoneForTransportToTravelTo(iTeam, oUnit, bReclaimOnly)
+    --Returns a water zone and, for naval reclaim, a landing point beside the work.
     local sFunctionRef = 'GetWaterZoneForTransportToTravelTo'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    local iTargetWaterZone
+    local iTargetWaterZone = nil
+    local tReclaimPosition
+    local iBestReclaimScore = 0
+    if (not(oUnit[refbCombatDrop]) or M28Utilities.IsTableEmpty(oUnit:GetCargo())) and not(oUnit[refiTransMinEngiTechLevel]) then
+        local iSourcePlateau, iSourceZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnit:GetPosition())
+        for iWaterZone, tPosition in M28Team.tTeamData[iTeam][M28Team.reftTransportNavalReclaimDrops] or {} do
+            local tWZData = M28Map.tPondDetails[M28Map.tiPondByWaterZone[iWaterZone]][M28Map.subrefPondWaterZones][iWaterZone]
+            if IsNavalReclaimDropNeeded(iTeam, iWaterZone, tWZData) then
+                local bReserved = false
+                for _, oBrain in M28Team.tTeamData[iTeam][M28Team.subreftoFriendlyActiveM28Brains] do
+                    for _, oTransport in oBrain:GetListOfUnits(M28UnitInfo.refCategoryTransport * categories.AIR * categories.MOBILE, false, true) do
+                        if oTransport ~= oUnit and M28UnitInfo.IsUnitValid(oTransport) and oTransport[refiTargetPlateauForDrop] == 0
+                            and oTransport[refiTargetZoneForDrop] == iWaterZone
+                            and ((oTransport[refiEngisWanted] or 0) > 0 or not(M28Utilities.IsTableEmpty(oTransport:GetCargo()))) then
+                            bReserved = true
+                            break
+                        end
+                    end
+                    if bReserved then break end
+                end
+                local iScore = tWZData[M28Map.subrefTotalSignificantMassReclaim] / math.max(40, M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tPosition))
+                if not(bReserved) and iScore > iBestReclaimScore and not(DoesEnemyHaveAAThreatAlongPath(iTeam, iSourcePlateau, iSourceZone, 0, iWaterZone, false, 60)) then
+                    iBestReclaimScore = iScore
+                    iTargetWaterZone = iWaterZone
+                    tReclaimPosition = tPosition
+                end
+            end
+        end
+    end
+    if iTargetWaterZone or bReclaimOnly then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return iTargetWaterZone, tReclaimPosition
+    end
     if not(oUnit[refbCombatDrop]) or M28Utilities.IsTableEmpty(oUnit:GetCargo()) then
         local tShortlist = M28Team.tTeamData[iTeam][M28Team.reftiPotentialPondDropZones]
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code for shortlist, time='..GetGameTimeSeconds()..', is shortlist empty='..tostring(M28Utilities.IsTableEmpty(tShortlist))) end
@@ -12827,13 +12921,17 @@ function ManageTransports(iTeam, iAirSubteam)
                 local bDropNow, bAlwaysDropAtTarget, bAbortDrop = ShouldTransportDropEarlyOrAlwaysDropAtTarget(oUnit, iTeam, false)
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering transport with a cargo, oUnit='..(oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit))..'; owned by '..oUnit:GetAIBrain().Nickname..'; bDropNow='..tostring(bDropNow)..'; oUnit[refbCombatDrop]='..tostring(oUnit[refbCombatDrop] or false)..'; Unit state='..M28UnitInfo.GetUnitState(oUnit)..'; LastOrder subreftOrderPosition='..repru(oUnit[M28Orders.reftiLastOrders][1][M28Orders.subreftOrderPosition])..'; Cur unit position='..repru(oUnit:GetPosition())..'; Transport target drop=P'..(oUnit[refiTargetPlateauForDrop] or 'nil')..'Z'..(oUnit[refiTargetZoneForDrop] or 'nil')..'; bRemoveFromShortlist='..tostring(bRemoveFromShortlist or false)) end
                 if bDropNow then
-                    --Drop early
+                    oUnit[refbNavalReclaimDrop] = nil
                     M28Orders.IssueTrackedTransportUnload(oUnit, oUnit:GetPosition(), 8, false, 'EmergBDr', false)
                     oUnit[refbEmergencyDropActive] = true
                     if bRemoveFromTableIfEmergencyDrop then table.remove(tUnitsToConsider, iUnit) end
                     --Transports that are about to do a combat drop in range of enemy PD that have just detected - adjust drop location slightly
                 elseif bAbortDrop then
-                    --Go to the nearest base
+                    oUnit[refbNavalReclaimDrop] = nil
+                    oUnit[refiTargetPlateauForDrop] = nil
+                    oUnit[refiTargetIslandForDrop] = nil
+                    oUnit[refiTargetZoneForDrop] = nil
+                    oUnit[refiEngisWanted] = 0
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Will abort and return to base') end
                     local tNewDropLocation
                     local tCurLZData, tCurLZTeamData = M28Map.GetLandOrWaterZoneData(oUnit:GetPosition(), true, iTeam)
@@ -12938,8 +13036,8 @@ function ManageTransports(iTeam, iAirSubteam)
         if M28Utilities.IsTableEmpty(tAvailableTransports) == false then
             --Cycle through each transport, and decide the best island to try and drop to - first sort transports by distance so are less likely to have a far away transport go to a aplteau that a closer one can reach
 
-            if table.getn(tAvailableTransports) > 1 then
-                --Multiple transports can have issues with being stuck in a loop depending on the location of the drop target; therefore want to exclude any avaialble tranpsorts that have been given an unload order
+            do
+                -- Keep a loaded flight committed even when it is the only transport.
                 local bRemovedEntry
                 for iCurTransportEntry = table.getn(tAvailableTransports), 1, -1 do
                     bRemovedEntry = false
@@ -12947,7 +13045,9 @@ function ManageTransports(iTeam, iAirSubteam)
                     M28Orders.UpdateRecordedOrders(oTransport)
                     local tLastOrder = oTransport[M28Orders.reftiLastOrders][oTransport[M28Orders.refiOrderCount]]
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering available oTransport='..oTransport.UnitId..M28UnitInfo.GetUnitLifetimeCount(oTransport)..' owned by brain '..oTransport:GetAIBrain().Nickname..'; last order type='..(tLastOrder[M28Orders.subrefiOrderType] or 'nil')..'; refiTargetZoneForDrop='..(oTransport[refiTargetZoneForDrop] or 'nil')) end
-                    if tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderUnloadTransport and oTransport[refiTargetZoneForDrop] and M28Utilities.IsTableEmpty(tLastOrder[M28Orders.subreftOrderPosition]) == false then
+                    if tLastOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderUnloadTransport and oTransport[refiTargetZoneForDrop]
+                        and not(oTransport:IsIdleState()) and not(M28Utilities.IsTableEmpty(oTransport:GetCargo()))
+                        and not(M28Utilities.IsTableEmpty(tLastOrder[M28Orders.subreftOrderPosition])) then
                         local iTargetPlateau, iTargetZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tLastOrder[M28Orders.subreftOrderPosition])
                         if iTargetZone == oTransport[refiTargetZoneForDrop] then
                             bRemovedEntry = RemoveDropFromShortlist((oTransport[refiTargetPlateauForDrop] or NavUtils.GetTerrainLabel(M28Map.refPathingTypeHover, tLastOrder[M28Orders.subreftOrderPosition])), (oTransport[refiTargetIslandForDrop] or NavUtils.GetTerrainLabel(M28Map.refPathingTypeLand, tLastOrder[M28Orders.subreftOrderPosition])), oTransport[refiTargetZoneForDrop])
@@ -13019,21 +13119,27 @@ function ManageTransports(iTeam, iAirSubteam)
             for iUnitRef, iDistance in M28Utilities.SortTableByValue(tiTransportDistance, true) do --sort high to low, with thel ogic that rally is likely close to our base, so high dist is likely closer to enemy/plateau
                 local oUnit = tAvailableTransports[iUnitRef]
                 local bTravelToSameIsland = false
-                local iWaterZoneToTravelTo
+                local iWaterZoneToTravelTo, tWaterDropPosition
                 iMinUnitTechLevel = nil
-                iIslandToTravelTo, iPlateauToTravelTo, iLandZoneToTravelTo = GetIslandPlateauAndLandZoneForTransportToTravelTo(iTeam, oUnit)
+                bIsEngiSupportDrop = false
+                iIslandToTravelTo, iPlateauToTravelTo, iLandZoneToTravelTo = nil, nil, nil
+                if GetGameTimeSeconds() >= 420 then
+                    iWaterZoneToTravelTo, tWaterDropPosition = GetWaterZoneForTransportToTravelTo(iTeam, oUnit, true)
+                end
+                if iWaterZoneToTravelTo then iPlateauToTravelTo = 0
+                else iIslandToTravelTo, iPlateauToTravelTo, iLandZoneToTravelTo = GetIslandPlateauAndLandZoneForTransportToTravelTo(iTeam, oUnit) end
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iUnitRef='..iUnitRef..'; Considering transport '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by brain '..oUnit:GetAIBrain().Nickname..'; iDistance to rally point='..iDistance..'; iIslandToTravelTo='..(iIslandToTravelTo or 'nil')..'; iPlateauToTravelTo='..(iPlateauToTravelTo or 'nil')..'; iLandZoneToTravelTo='..(iLandZoneToTravelTo or 'nil')) end
-                if not(iIslandToTravelTo) then
+                if not(iIslandToTravelTo) and not(iWaterZoneToTravelTo) then
 
                     iIslandToTravelTo, iPlateauToTravelTo, iLandZoneToTravelTo = GetFarAwayLandZoneOnCurrentIslandForTransportToTravelTo(iTeam, oUnit)
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Transport doesnt have an island to travel to, will see if have far away land zones we want to travel to instead, iIslandToTravelTo after check='..(iIslandToTravelTo or 'nil')) end
                     if iIslandToTravelTo then bTravelToSameIsland = true
                     else
-                        iWaterZoneToTravelTo = GetWaterZoneForTransportToTravelTo(iTeam, oUnit)
+                        iWaterZoneToTravelTo, tWaterDropPosition = GetWaterZoneForTransportToTravelTo(iTeam, oUnit)
                         iLandZoneToTravelTo = nil --redundancy
                         iPlateauToTravelTo = 0 --redundancy
                     end
-                else
+                elseif iIslandToTravelTo then
                     --Consider far away land zones with 3+ mexes in them if the target plateau only has 1 mex and not lots of reclaim
                     local tCurTargetLZData = M28Map.tAllPlateaus[iPlateauToTravelTo][M28Map.subrefPlateauLandZones][iLandZoneToTravelTo]
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Mexes in target island='..(M28Map.tAllPlateaus[iPlateauToTravelTo][M28Map.subrefPlateauIslandMexCount][iIslandToTravelTo] or 'nil')..'; P'..iPlateauToTravelTo..'Z'..iLandZoneToTravelTo..'; subrefTotalSignificantMassReclaim='..(tCurTargetLZData[M28Map.subrefTotalSignificantMassReclaim] or 'nil')) end
@@ -13106,7 +13212,7 @@ function ManageTransports(iTeam, iAirSubteam)
                     oUnit[refiTargetZoneForDrop] = iLandZoneToTravelTo or iWaterZoneToTravelTo
 
                     --Decide how many engineers or combat units we want to drop on this LZ
-                    local iCargoTechLevelWanted = iTechLevel
+                    local iCargoTechLevelWanted = iMinUnitTechLevel or 1
                     if oUnit[refbCombatDrop] then iCargoTechLevelWanted = GetTransportCombatDropUnitTechLevelWanted(iTeam, oUnit) end
                     iEngisHave, iEngiRemainingCapacity = GetTransportEngiCargoAndRemainingCapacity(oUnit, iCargoTechLevelWanted)
                     if iEngisHave >= 4 or iEngiRemainingCapacity < 0 or (iEngiRemainingCapacity == 1 and iEngisHave >= 3) then
@@ -13129,6 +13235,9 @@ function ManageTransports(iTeam, iAirSubteam)
                                 end
                             end
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Transport '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' iExtraEngisWanted='..iExtraEngisWanted..'; iEngisHave='..iEngisHave..'; Time spent waiting='..(oUnit[refiTransportTimeSpentWaiting] or 0)) end
+                        elseif GetGameTimeSeconds() <= 420 and iIslandToTravelTo and not(bTravelToSameIsland) then
+                            --Start the expansion with the first T1 engineer instead of waiting for a full load.
+                            iExtraEngisWanted = math.min(iEngiRemainingCapacity, math.max(0, 1 - iEngisHave))
                         else
                             --First calculate how many we want (ignoring ones we already have):
                             local iBuildRate = math.max(1, (oUnit:GetAIBrain()[M28Economy.refiBrainBuildRateMultiplier] or 1))
@@ -13317,13 +13426,13 @@ function ManageTransports(iTeam, iAirSubteam)
                         oUnit[refiTargetPlateauForDrop] = iPlateauToTravelTo
                         oUnit[refiTargetIslandForDrop] = iIslandToTravelTo
                         oUnit[refiTargetZoneForDrop] = iLandZoneToTravelTo or iWaterZoneToTravelTo --must set before calling the transportunload order
-                        M28Orders.IssueTrackedTransportUnload(oUnit, tLZOrWZData[M28Map.subrefMidpoint], 10, false, 'TRLZUnlP'..(iPlateauToTravelTo or 'x')..'I'..(iIslandToTravelTo or 0)..'Z'..(iLandZoneToTravelTo or iWaterZoneToTravelTo), false)
+                        oUnit[refbNavalReclaimDrop] = tWaterDropPosition ~= nil
+                        M28Orders.IssueTrackedTransportUnload(oUnit, tWaterDropPosition or tLZOrWZData[M28Map.subrefMidpoint], 10, false, 'TRLZUnlP'..(iPlateauToTravelTo or 'x')..'I'..(iIslandToTravelTo or 0)..'Z'..(iLandZoneToTravelTo or iWaterZoneToTravelTo), false)
                         --Set this as an expansion zone if it is in same isalnd (as normal logic wont flag it as an expansion)
                         if bDebugMessages == true then
-                            LOG(sFunctionRef..': Just tried to send order for transport to go to iIslandToTravelTo='..iIslandToTravelTo..'; iLandZoneToTravelTo='..iLandZoneToTravelTo..'; LZ midpoint='..repru(tLZOrWZData[M28Map.subrefMidpoint]))
+                            LOG(sFunctionRef..': Issued transport drop to P'..(iPlateauToTravelTo or 0)..'Z'..(iLandZoneToTravelTo or iWaterZoneToTravelTo))
                         end
-                        local tTargetLZData =  M28Map.tAllPlateaus[iPlateauToTravelTo][M28Map.subrefPlateauLandZones][iLandZoneToTravelTo]
-                        local tLZTeamData = tTargetLZData[M28Map.subrefLZTeamData][iTeam]
+                        local tLZTeamData = iIslandToTravelTo and tLZOrWZData[M28Map.subrefLZTeamData][iTeam] or nil
                         if bTravelToSameIsland and tLZTeamData then
                             if not(tLZTeamData[M28Map.subrefLZCoreExpansion]) and (tLZOrWZData[M28Map.subrefLZOrWZMexCount] >= 3 or (M28Map.bIsCampaignMap and (M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subreftoUnitsToRepair]) == false or M28Utilities.IsTableEmpty(tLZOrWZData[M28Map.subreftoUnitsToCapture]) == false))) then
                                 tLZTeamData[M28Map.subrefLZExpansionOverride] = true
@@ -13331,12 +13440,12 @@ function ManageTransports(iTeam, iAirSubteam)
                         end
 
                         --Also set expansion flag for 2+ mex land zone locations where we are dropping engineers if not many mexes on map and it's not too close to enemy (so not just throwing away mass by trying to fortify more)
-                        if tLZTeamData and not(tLZTeamData[M28Map.subrefLZExpansionOverride]) and (tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0) >= 2 and tLZOrWZData[M28Map.refiModDistancePercent] <= 0.6 then
+                        if tLZTeamData and not(tLZTeamData[M28Map.subrefLZExpansionOverride]) and (tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0) >= 2 and tLZTeamData[M28Map.refiModDistancePercent] <= 0.6 then
                             --Decide if we want to treat a low mex location as still valuable - consider for lowish mex maps
                             local iMapMexCount = table.getn(M28Map.tMassPoints)
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering whether to also set expansion override for P'..iPlateauToTravelTo..'; iIslandToTravelTo='..iIslandToTravelTo..'; iLandZoneToTravelTo='..(iLandZoneToTravelTo or 'nil')..'; iMapMexCount='..iMapMexCount..'; Players at game tsart='..M28Team.iPlayersAtGameStart..'; Island mex count='..(M28Map.tAllPlateaus[iPlateauToTravelTo][M28Map.subrefPlateauIslandMexCount][iIslandToTravelTo] or 0)) end
                             if iMapMexCount / M28Team.iPlayersAtGameStart <= 13 then --13 or less mexes per player, so 2 mex islands will be of more value
-                                if (tLZOrWZData[M28Map.subrefLZOrWZMexCount] >= 2 or M28Map.tAllPlateaus[iPlateauToTravelTo][M28Map.subrefPlateauIslandMexCount][iIslandToTravelTo] or 0) >= 2 then
+                                if math.max(tLZOrWZData[M28Map.subrefLZOrWZMexCount] or 0, M28Map.tAllPlateaus[iPlateauToTravelTo][M28Map.subrefPlateauIslandMexCount][iIslandToTravelTo] or 0) >= 2 then
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Setting expansion override flag to true') end
                                     tLZTeamData[M28Map.subrefLZExpansionOverride] = true
                                 end
@@ -13516,6 +13625,20 @@ function ShouldTransportDropEarlyOrAlwaysDropAtTarget(oUnit, iTeam, bJustConside
                         end
                     end
                 end
+            end
+        end
+        if oUnit[refbNavalReclaimDrop] then
+            local tTargetData, tTargetTeamData = M28Map.GetLandOrWaterZoneData(tLastOrder[M28Orders.subreftOrderPosition], true, iTeam)
+            if (tTargetData[M28Map.subrefTotalSignificantMassReclaim] or 0) < iReclaimWantedForTransportDrop
+                or (tTargetTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0) > 50
+                or (tTargetTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) > 0 then
+                M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                return false, false, true
+            end
+            local iSourcePlateau, iSourceZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnit:GetPosition())
+            if DoesEnemyHaveAAThreatAlongPath(iTeam, iSourcePlateau, iSourceZone, 0, oUnit[refiTargetZoneForDrop], false, 60) then
+                M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                return false, false, true
             end
         end
         --We arent worried about a nearby AirAA threat; what about groundAA threat?
