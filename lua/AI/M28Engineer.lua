@@ -5292,6 +5292,7 @@ function TryAssignEngineerConstruction(oEngineer, sKind, oTarget, sBlueprint, tP
     -- Admission, native orders and ownership form one non-yielding transition.
     -- Rejection changes no orders, reservations or build-power accounting.
     if not(CanEngineerAcceptWork(oEngineer)) then return false end
+    if iAction == refActionAssistAirFactory and (not(bSpare) or not(M28Factory.CanAssistAirFactoryProduction(oTarget, oEngineer))) then return false end
     if sKind == 'build' then
         if not(sBlueprint and tPosition) or not(oEngineer:CanBuild(sBlueprint)) then return false end
     elseif sKind == 'repair' or sKind == 'guard' then
@@ -11288,6 +11289,7 @@ end
 
 function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowerWanted, vOptionalVariable, bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting, iCurPriority, tLZOrWZData, tLZOrWZTeamData, iTeam, iPlateauOrPond, iLandOrWaterZone, toAvailableEngineersByTech, toAssignedEngineers, bIsWaterZone, iSpecificFactionRequiredOverride, bDontUseLowerTechEngineersToAssist, bMarkAsSpare, bPowerRecovery)
     if iActionToAssign == refActionBuildT3MassFab and M28Conditions.HaveLowPower(iTeam) then return end
+    if iActionToAssign == refActionAssistAirFactory and not(bMarkAsSpare) then return end
     local iRequestedPowerTech = IsPowerBuildAction(iActionToAssign) and iMinTechWanted or 0
     --vOptionalVariable can be a table, nil or a value; used to pass info specific to the action if it needs it
     local sFunctionRef = 'ConsiderActionToAssign'
@@ -12195,6 +12197,8 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                         if oBestProgress then
                             while iTotalBuildPowerWanted > 0 and iEngiCount > 0 do
                                 if not(M28Factory.CanAssistLandFactoryUpgrade(oBestProgress, tEngineersOfTechWanted[iEngiCount])) then break end
+                                if EntityCategoryContains(M28UnitInfo.refCategoryAirFactory, oBestProgress.UnitId)
+                                        and (not(bMarkAsSpare) or not(M28Factory.CanAssistAirFactoryProduction(oBestProgress, tEngineersOfTechWanted[iEngiCount]))) then break end
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to tell engineer '..tEngineersOfTechWanted[iEngiCount].UnitId..M28UnitInfo.GetUnitLifetimeCount(tEngineersOfTechWanted[iEngiCount])..' to assist unit '..oBestProgress.UnitId..M28UnitInfo.GetUnitLifetimeCount(oBestProgress)) end
                                 M28Orders.IssueTrackedGuard(tEngineersOfTechWanted[iEngiCount], oBestProgress, false, sOrderRef)
                                 TrackEngineerAction(tEngineersOfTechWanted[iEngiCount], iActionToAssign, false, iCurPriority, nil, nil, bMarkAsSpare)
@@ -18506,8 +18510,9 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
         end
 
         iCurPriority = iCurPriority + 1
-        --Spare engi action - assist air factory if it isnt idle and we dont have low mass
-        if iHighestTechEngiAvailable > 0 and not(bHaveLowPower) and not(bHaveLowMass) and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] > 0 and GetGameTimeSeconds() - (tLZTeamData[M28Map.subrefiTimeAirFacHadNothingToBuild] or -100) <= 5 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] >= 0.35 then
+        -- Only spare workers remain after economy, land construction and expansion requests.
+        -- The shared production forecast bounds each helper, rather than a storage-percent threshold.
+        if iHighestTechEngiAvailable > 0 and M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyAirFactoryTech] > 0 then
             local tAirFactories = EntityCategoryFilterDown(M28UnitInfo.refCategoryAirFactory, tLZTeamData[M28Map.subreftoLZOrWZAlliedUnits])
             if M28Utilities.IsTableEmpty(tAirFactories) == false then
                 --Get the factory  closest to the midpoint
@@ -18517,7 +18522,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
                 local iCurDist, iCurTech
                 for iUnit, oUnit in tAirFactories do
                     iCurTech = M28UnitInfo.GetUnitTechLevel(oUnit)
-                    if iCurTech >= iHighestTech then
+                    if iCurTech >= iHighestTech and M28Factory.CanAssistAirFactoryProduction(oUnit) then
                         if iCurTech > iHighestTech then
                             iHighestTech = iCurTech
                             iClosestDistOfHighestTech = 100000

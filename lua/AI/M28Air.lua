@@ -5367,6 +5367,14 @@ function ManageAirAAUnits(iTeam, iAirSubteam)
     end
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl]='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbHaveAirControl])..'; M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir]='..tostring(M28Team.tAirSubteamData[iAirSubteam][M28Team.refbFarBehindOnAir])..'; refiEnemyAirAAThreat='..M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat]..'; subrefiHighestFriendlyFactoryTech='..M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]..'; OurAAThreat='..M28Team.tAirSubteamData[iAirSubteam][M28Team.subrefiOurAirAAThreat]..'; iAirControlFactor='..iAirControlFactor) end
 
+    -- Production requires continuously observed control, not an old factory decision.
+    local tProductionAir = M28Team.tAirSubteamData[iAirSubteam]
+    if tProductionAir[M28Team.refbHaveAirControl] and not(tProductionAir[M28Team.refbFarBehindOnAir]) then
+        tProductionAir.M28AirProductionControlSince = tProductionAir.M28AirProductionControlSince or GetGameTimeSeconds()
+    else
+        tProductionAir.M28AirProductionControlSince = nil
+    end
+
     --Comprehensive air AA debug logging with cooldown (every 30 seconds per air subteam)
     if bDebugMessages == true then
         local iCurTime = GetGameTimeSeconds()

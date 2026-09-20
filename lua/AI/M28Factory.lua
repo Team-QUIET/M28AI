@@ -76,11 +76,11 @@ local iManagedFactoryCategory = M28UnitInfo.refCategoryFactory + M28UnitInfo.ref
 local iAirProducingFactoryCategory = M28UnitInfo.refCategoryAirFactory + M28UnitInfo.refCategoryMobileAircraftFactory
 local iFactoryEnergyStorageReserveRatio = 0.15
 local iFactoryMassStorageReserveRatio = 0.025
-local iEmergencyAirMinimumEnergyRatio = 0.35
+
 local iFactoryNetEnergyReservePerBrain = 2
 local iFactoryNetMassReservePerBrain = 0.1
 local iFactoryGrossResourceReserveRatio = 0.03
-local refsFactoryAdmissionDrainCache = 'M28FacEcoDrain'
+
 local tFactoryEcoStateCacheByTeam = {}
 
 local DoesT1LandFactoryPassAttackAirGate
@@ -88,6 +88,7 @@ local GetMaxT1MAACount
 local GetPreferredLandMAACategory
 local GetPreferredLowTechGunshipResponseMAACategory
 local GetFactoryProductionAdmission
+local GetFactoryAssistedCombatDrain
 local GetEngineerProductionAllocation
 local GetLandSupportFactoryTransition
 local GetEconomyAdmittedFactoryProductionBlueprint
@@ -199,6 +200,10 @@ local function CanRepeatFactoryQueueCombatBlueprint(sBlueprint)
 end
 
 local function IsCombatQueueRefillSuppressed(sBlueprint, oFactory)
+    if sBlueprint and oFactory and EntityCategoryContains(M28UnitInfo.refCategoryAirFactory, oFactory.UnitId)
+            and EntityCategoryContains(M28UnitInfo.refCategoryAirAA + M28UnitInfo.refCategoryBomber, sBlueprint) then
+        return false
+    end
     if sBlueprint and oFactory and not(M28Map.bIsCampaignMap) and oFactory:GetAIBrain()[M28Map.refbCanPathToEnemyBaseWithLand]
             and EntityCategoryContains(M28UnitInfo.refCategoryLandFactory * categories.TECH1, oFactory.UnitId)
             and EntityCategoryContains((M28UnitInfo.refCategoryMobileDFLand - categories.ENGINEER - categories.COMMAND) * categories.TECH1, sBlueprint) then
@@ -363,24 +368,20 @@ local function GetT3LandHeavyShare(aiBrain)
     local iShare = aiBrain.M28T3LandHeavyShare or 0.35
     if iShare == 1 then return iShare end
     local iCompleted = aiBrain.M28CompletedOrdinaryT3LandBuilds or 0
-    local iIncome = aiBrain[M28Economy.refiGrossMassBaseIncome] or 0
-    if aiBrain:GetEconomyStoredRatio('ENERGY') >= 0.1 or (aiBrain[M28Economy.refiNetEnergyBaseIncome] or 0) >= 0 then
-        if iCompleted >= 24 and iIncome >= 18 then iShare = 1
-        elseif iCompleted >= 16 and iIncome >= 14 then iShare = math.max(iShare, 0.75)
-        elseif iCompleted >= 8 and iIncome >= 10 then iShare = math.max(iShare, 0.5) end
-    end
-    -- Production maturity survives casualties and temporary stalls; admission still funds each order.
+    local iNow = GetGameTimeSeconds()
+    if iCompleted > 0 then aiBrain.M28T3LandProductionStarted = aiBrain.M28T3LandProductionStarted or iNow end
+    local iElapsed = iNow - (aiBrain.M28T3LandProductionStarted or iNow)
+    if iCompleted >= 24 or iElapsed >= 360 then iShare = 1
+    elseif iCompleted >= 16 or iElapsed >= 240 then iShare = math.max(iShare, 0.75)
+    elseif iCompleted >= 8 or iElapsed >= 120 then iShare = math.max(iShare, 0.5) end
+    -- Maturity survives casualties and stalls; admission, not progression, funds each order.
     aiBrain.M28T3LandHeavyShare = iShare
     return iShare
 end
 
 local function GetHeavyLandReplacementCategory(aiBrain, oFactory, sBlueprint, bRequireFunding)
-    if not(sBlueprint) or ScenarioInfo.Options.M28PrioritiseBPs == 2
+    if not(sBlueprint)
             or not(EntityCategoryContains(GetOrdinaryT3LandCategory() - M28UnitInfo.refCategoryT35Units, sBlueprint)) then return nil end
-    if bRequireFunding then
-        local _, tZone = M28Map.GetLandOrWaterZoneData(oFactory:GetPosition(), true, aiBrain.M28Team)
-        if tZone and tZone[M28Map.subrefbDangerousEnemiesInThisLZ] then return nil end
-    end
     local iHeavyCategory = GetOrdinaryT3LandCategory() * M28UnitInfo.refCategoryT35Units
     -- A cross-water request must not become a land-only unit after selection.
     if EntityCategoryContains(M28UnitInfo.refCategoryAmphibious + categories.HOVER, sBlueprint) then
@@ -400,10 +401,9 @@ local function GetHeavyLandReplacementCategory(aiBrain, oFactory, sBlueprint, bR
 end
 
 local function IsObsoleteLightT3LandBlueprint(aiBrain, oFactory, sBlueprint)
-    if ScenarioInfo.Options.M28PrioritiseBPs == 2
-            or not(EntityCategoryContains(GetOrdinaryT3LandCategory() - M28UnitInfo.refCategoryT35Units, sBlueprint))
+    if not(sBlueprint) or not(EntityCategoryContains(GetOrdinaryT3LandCategory() - M28UnitInfo.refCategoryT35Units, sBlueprint))
             or GetT3LandHeavyShare(aiBrain) < 1 then return false end
-    return GetHeavyLandReplacementCategory(aiBrain, oFactory, sBlueprint, true) ~= nil
+    return true
 end
 
 function GetIntermediateLandBuildAllowance(oFactory, sBlueprint, bIssuedOnly, bReplaceQueue)
@@ -423,7 +423,7 @@ function GetIntermediateLandBuildAllowance(oFactory, sBlueprint, bIssuedOnly, bR
                 else iRegularMass, iRegularCount = iRegularMass + iMass, iRegularCount + 1 end
             end
         end
-        -- Preserve a light opening, then grow the heavy share with completed production and economy.
+        -- Preserve a light opening, then grow the heavy share with production and time.
         -- Count every factory's pending heavy units so parallel queues share the allowance.
         for _, oOther in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory, false, true) do
             if M28UnitInfo.IsUnitValid(oOther) and not(bReplaceQueue and oOther == oFactory) then
@@ -460,7 +460,7 @@ function GetIntermediateLandBuildAllowance(oFactory, sBlueprint, bIssuedOnly, bR
 end
 
 local function AdjustIntermediateLandBlueprint(aiBrain, oFactory, sBlueprint)
-    if not(sBlueprint) or ScenarioInfo.Options.M28PrioritiseBPs == 2 then return sBlueprint end
+    if not(sBlueprint) or (ScenarioInfo.Options.M28PrioritiseBPs == 2 and not(IsObsoleteLightT3LandBlueprint(aiBrain, oFactory, sBlueprint))) then return sBlueprint end
     local iAllowance, iRegularCategory = GetIntermediateLandBuildAllowance(oFactory, sBlueprint)
     if iAllowance and iAllowance < 1 then
         local sFallback = GetBlueprintThatCanBuildOfCategory(aiBrain, iRegularCategory, oFactory)
@@ -485,16 +485,19 @@ local function AdjustIntermediateLandBlueprint(aiBrain, oFactory, sBlueprint)
         if sProtector and (GetIntermediateLandBuildAllowance(oFactory, sProtector) or 0) >= 1 then return sProtector end
     end
     if EntityCategoryContains(GetOrdinaryT3LandCategory() - M28UnitInfo.refCategoryT35Units, sBlueprint) then
-        local iEligibleCategory, sBudgetBlueprint = GetHeavyLandReplacementCategory(aiBrain, oFactory, sBlueprint, GetT3LandHeavyShare(aiBrain) == 1)
+        local bMature = GetT3LandHeavyShare(aiBrain) == 1
+        local iEligibleCategory, sBudgetBlueprint = GetHeavyLandReplacementCategory(aiBrain, oFactory, sBlueprint, bMature)
         if sBudgetBlueprint then
             -- Eligibility checks must not consume a random choice or select a cheap
             -- discouraged unit before the requested heavy mix is affordable.
             local _, _, iMassBudget = GetIntermediateLandBuildAllowance(oFactory, sBudgetBlueprint)
+            if bMature then iMassBudget = math.huge end
             if iMassBudget and iMassBudget > 0 then
                 local sHeavy = GetBlueprintThatCanBuildOfCategory(aiBrain, iEligibleCategory, oFactory, nil, nil, nil, nil, false, nil, nil, nil, iMassBudget)
-                if sHeavy then sBlueprint = sHeavy end
+                if sHeavy then return sHeavy end
             end
         end
+        if bMature then return nil end
     end
     return sBlueprint
 end
@@ -509,20 +512,45 @@ local function GetAirQueuePriorityState(aiBrain)
     local bFarBehindOnAir = tAirSubteamData[M28Team.refbFarBehindOnAir] or false
     local sPriorityReason
 
-    local iTarget = GetProactiveFighterThreatTarget(aiBrain.M28AirSubteam, iEnemyAirAAThreat, iEnemyAirToGroundThreat)
-    if iOurAirAAThreat >= iTarget then
+    -- Only an actual interception deficit may erase an admitted attack-air mix.
+    -- The larger proactive control target still funds the remaining fighter slots.
+    if iOurAirAAThreat >= GetProactiveFighterThreatTarget(aiBrain.M28AirSubteam, iEnemyAirAAThreat, iEnemyAirToGroundThreat) then
         return nil, iOurAirAAThreat, iEnemyAirAAThreat, iEnemyAirToGroundThreat, bHaveAirControl, bFarBehindOnAir
     elseif bFarBehindOnAir then
         sPriorityReason = 'FarBehindOnAir'
-    elseif iEnemyAirAAThreat > 0 and iOurAirAAThreat < iEnemyAirAAThreat * 1.5 then
+    elseif iOurAirAAThreat < iEnemyAirAAThreat * 0.75 then
         sPriorityReason = 'EnemyAirAAAdvantage'
-    elseif iEnemyAirToGroundThreat > 0 then
+    elseif iOurAirAAThreat < iEnemyAirToGroundThreat * 0.6 then
         sPriorityReason = 'EnemyAirToGroundThreat'
-    else
-        sPriorityReason = 'AirControlReserve'
     end
 
     return sPriorityReason, iOurAirAAThreat, iEnemyAirAAThreat, iEnemyAirToGroundThreat, bHaveAirControl, bFarBehindOnAir
+end
+
+local function GetFactoryAirCombatProductionCount(oFactory, iCategory)
+    local iPending = GetFactoryPendingBuildCountByCategory(oFactory, iCategory)
+    local oFocus = oFactory:GetFocusUnit()
+    if M28UnitInfo.IsUnitValid(oFocus) and oFocus:GetFractionComplete() < 1 and EntityCategoryContains(iCategory, oFocus.UnitId) then
+        iPending = math.max(1, iPending)
+    end
+    return M28Conditions.GetFactoryLifetimeCount(oFactory, iCategory) + iPending
+end
+
+local function GetFactoryAttackAirMixCategories(oFactory, iBomberCategory)
+    local iBombers = GetFactoryAirCombatProductionCount(oFactory, M28UnitInfo.refCategoryBomber)
+    local iFighters = GetFactoryAirCombatProductionCount(oFactory, M28UnitInfo.refCategoryAirAA - M28UnitInfo.refCategoryBomber - M28UnitInfo.refCategoryGunship)
+    local tAir = M28Team.tAirSubteamData[oFactory:GetAIBrain().M28AirSubteam]
+    local iBomberShare = 0.2
+    if tAir[M28Team.refbHaveAirControl] and not(GetAirQueuePriorityState(oFactory:GetAIBrain())) then
+        local iControlDuration = GetGameTimeSeconds() - (tAir.M28AirProductionControlSince or GetGameTimeSeconds())
+        iBomberShare = 0.4
+        if iControlDuration >= 300 then iBomberShare = 0.65
+        elseif iControlDuration >= 120 then iBomberShare = 0.5 end
+    end
+    -- Completed output and queued commitments share one ratio; even established
+    -- dominance retains fighter production instead of stopping at a threat cap.
+    if iFighters == 0 or iBombers >= (iFighters + iBombers) * iBomberShare then return nil end
+    return iBomberCategory
 end
 
 local function GetFactoryAttackAirQueueCap(oFactory)
@@ -904,12 +932,6 @@ local function GetFactoryAttackAirQueueRunLength(oFactory, iRemainingPlanDepth)
     local iPendingAttackAir = GetFactoryPendingBuildCountByCategory(oFactory, iFactoryAttackAirQueueCategory)
     local iAttackAirCap = GetFactoryAttackAirQueueCap(oFactory)
     return math.min(iRemainingPlanDepth, 2, math.max(0, iAttackAirCap - iPendingAttackAir))
-end
-
-local function GetFactoryAirAAQueueRunLength(oFactory, iRemainingPlanDepth)
-    local iPendingAirAA = GetFactoryPendingBuildCountByCategory(oFactory, M28UnitInfo.refCategoryAirAA)
-    local iAirAACap = GetFactoryAirAAQueueCap(oFactory)
-    return math.min(iRemainingPlanDepth, math.max(0, iAirAACap - iPendingAirAA))
 end
 
 local function GetFactoryLiveQueueCapForBlueprint(oFactory, sBlueprint)
@@ -1628,31 +1650,40 @@ end
 
 local function GetLongRangeT3BuildAllowance(aiBrain, iTeam, tLZTeamData)
     --Returns whether we can add more T3 sniper or T3 mobile artillery without skewing armies away from direct-fire.
-    local iT3DFCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryMobileDFLand * categories.TECH3 - M28UnitInfo.refCategorySkirmisher)
-    local iT3SniperCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategorySniperBot * categories.TECH3)
-    local iT3MobileArtiCount = aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryT3MobileArtillery)
-    local iT3SniperUnderConstruction = 0
-    local iT3MobileArtiUnderConstruction = 0
+    local iDirectCategory = M28UnitInfo.refCategoryMobileDFLand * categories.TECH3 - M28UnitInfo.refCategorySkirmisher
+    local iSniperCategory = M28UnitInfo.refCategorySniperBot * categories.TECH3
+    local iArtilleryCategory = M28UnitInfo.refCategoryT3MobileArtillery
+    local iT3DFCount, iT3SniperCount, iT3MobileArtiCount = 0, 0, 0
+    for _, oUnit in aiBrain:GetListOfUnits(iDirectCategory + iSniperCategory + iArtilleryCategory, false, true) do
+        if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 then
+            if EntityCategoryContains(iSniperCategory, oUnit.UnitId) then iT3SniperCount = iT3SniperCount + 1
+            elseif EntityCategoryContains(iArtilleryCategory, oUnit.UnitId) then iT3MobileArtiCount = iT3MobileArtiCount + 1
+            else iT3DFCount = iT3DFCount + 1 end
+        end
+    end
+    -- The pending owner merges issued and planned orders; active builds are not also counted above.
+    for _, oOther in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory, false, true) do
+        if M28UnitInfo.IsUnitValid(oOther) then
+            iT3SniperCount = iT3SniperCount + GetFactoryPendingBuildCountByCategory(oOther, iSniperCategory)
+            iT3MobileArtiCount = iT3MobileArtiCount + GetFactoryPendingBuildCountByCategory(oOther, iArtilleryCategory)
+        end
+    end
     local iEnemyT3MobileArtiCount = GetEnemyT3MobileArtilleryCount(iTeam)
     local iNearbyEnemySniperCount = GetNearbyEnemyLongRangeSniperCount(tLZTeamData)
-    if tLZTeamData then
-        iT3SniperUnderConstruction = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategorySniperBot * categories.TECH3, false)
-        iT3MobileArtiUnderConstruction = M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryT3MobileArtillery, false)
-    end
     local bEnemyHasLandExperimental = M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftEnemyLandExperimentals]) == false
     local bEnemyHasNearbyFirebase = tLZTeamData and M28Utilities.IsTableEmpty(tLZTeamData[M28Map.subreftEnemyFirebasesInRange]) == false
 
     local iMaxSnipersWanted = math.max(2, math.floor(iT3DFCount * (bEnemyHasLandExperimental and 0.35 or 0.28)))
-    local iMaxT3MobileArtiWanted = math.max((bEnemyHasNearbyFirebase and 2 or 1), math.floor(iT3DFCount * (bEnemyHasNearbyFirebase and 0.22 or 0.16)))
+    local iMaxT3MobileArtiWanted = math.max((bEnemyHasNearbyFirebase and 2 or 1), math.floor(iT3DFCount * (bEnemyHasNearbyFirebase and 0.33 or 0.25)))
     if iEnemyT3MobileArtiCount > 0 then
         iMaxT3MobileArtiWanted = math.max(iMaxT3MobileArtiWanted, math.min(iT3DFCount, iEnemyT3MobileArtiCount))
     end
     if iNearbyEnemySniperCount > 0 then
-        iMaxT3MobileArtiWanted = math.max(iMaxT3MobileArtiWanted, math.max(2, math.floor(iT3DFCount * 0.22)))
+        iMaxT3MobileArtiWanted = math.max(iMaxT3MobileArtiWanted, math.max(2, math.floor(iT3DFCount * 0.33)))
     end
 
-    local bCanAddT3Sniper = iT3DFCount >= 8 and (iT3SniperCount + iT3SniperUnderConstruction) < iMaxSnipersWanted
-    local bCanAddT3MobileArti = iT3DFCount >= 10 and (iT3MobileArtiCount + iT3MobileArtiUnderConstruction) < iMaxT3MobileArtiWanted
+    local bCanAddT3Sniper = iT3DFCount >= 8 and iT3SniperCount < iMaxSnipersWanted
+    local bCanAddT3MobileArti = iT3DFCount >= 10 and iT3MobileArtiCount < iMaxT3MobileArtiWanted
     return bCanAddT3Sniper, bCanAddT3MobileArti
 end
 
@@ -1728,6 +1759,7 @@ local function GetPreferredGenericT3LongRangeLandCategory(aiBrain, oFactory, tLZ
         end
     end
 
+    if bCanBuildT3MobileArti then return M28UnitInfo.refCategoryT3MobileArtillery end
     return nil
 end
 
@@ -1736,6 +1768,15 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
     local sFunctionRef = 'AdjustBlueprintForOverrides'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelFactory, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
+
+    -- Mature ordinary lights retire even when explicit blueprint preferences are enabled.
+    if IsObsoleteLightT3LandBlueprint(aiBrain, oFactory, sBPIDToBuild) then
+        sBPIDToBuild = AdjustIntermediateLandBlueprint(aiBrain, oFactory, sBPIDToBuild)
+        if not(sBPIDToBuild) then
+            M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+            return nil
+        end
+    end
 
     local iTeam = aiBrain.M28Team
     local iCurTime = GetGameTimeSeconds()
@@ -1858,6 +1899,10 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
             if M28Utilities.bQuietModActive then
                 local iTeam = aiBrain.M28Team
                 sBPIDToBuild = AdjustIntermediateLandBlueprint(aiBrain, oFactory, sBPIDToBuild)
+                if not(sBPIDToBuild) then
+                    M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+                    return nil
+                end
 
                 -- Cap Aeon T2 snipers at 5 live units (centralized enforcement to catch all build paths)
                 if EntityCategoryContains(categories.ual0204, sBPIDToBuild) then
@@ -7053,8 +7098,20 @@ local function GetFactoryCurrentProductionResourceDrain(oFactory)
     end
     -- Team net income already includes actual consumption, not nominal blueprint
     -- drain. Crediting full build speed during a stall invents available resources.
-    return math.max(0, oFactory:GetConsumptionPerSecondMass()) * 0.1,
-        math.max(0, oFactory:GetConsumptionPerSecondEnergy()) * 0.1
+    local iMass = math.max(0, oFactory:GetConsumptionPerSecondMass())
+    local iEnergy = math.max(0, oFactory:GetConsumptionPerSecondEnergy())
+    local tSeen = {[oFactory] = true}
+    for _, oTarget in {oFactory, oFocusUnit} do
+        for _, oGuard in oTarget:GetGuards() or {} do
+            if not(tSeen[oGuard]) and M28UnitInfo.IsUnitValid(oGuard) and not(oGuard:IsUnitState('Attached'))
+                    and oGuard:GetAIBrain().M28Team == oFactory:GetAIBrain().M28Team then
+                tSeen[oGuard] = true
+                iMass = iMass + math.max(0, oGuard:GetConsumptionPerSecondMass())
+                iEnergy = iEnergy + math.max(0, oGuard:GetConsumptionPerSecondEnergy())
+            end
+        end
+    end
+    return iMass * 0.1, iEnergy * 0.1
 end
 
 local function GetTeamManagedFactories(aiBrain, iTeam)
@@ -7080,41 +7137,6 @@ local function GetTeamManagedFactories(aiBrain, iTeam)
     return toFactories, tFriendlyBrains
 end
 
-local tFactoryFighterBlueprintThreat = {}
-local function GetFactoryFighterBlueprintThreat(sBlueprint)
-    if not(sBlueprint) or not(EntityCategoryContains(iAirAAProductionCategory, sBlueprint)) then return 0 end
-    if not(tFactoryFighterBlueprintThreat[sBlueprint]) then
-        tFactoryFighterBlueprintThreat[sBlueprint] = M28UnitInfo.GetAirThreatLevel({{UnitId = sBlueprint}}, false, true, false, false, false, false, true)
-    end
-    return tFactoryFighterBlueprintThreat[sBlueprint]
-end
-
-local function GetCommittedFighterThreat(aiBrain, oExcludedFactory, bIssuedOnly)
-    local iThreat = M28Team.tAirSubteamData[aiBrain.M28AirSubteam][M28Team.subrefiOurAirAAThreat] or 0
-    for _, oOther in GetTeamManagedFactories(aiBrain, aiBrain.M28Team) do
-        if oOther ~= oExcludedFactory and oOther:GetAIBrain().M28AirSubteam == aiBrain.M28AirSubteam
-                and not(oOther:IsPaused() or oOther[M28UnitInfo.refbPaused])
-                and not(oOther[refsPendingFactoryUpgradeBlueprint] or oOther:IsUnitState('Upgrading') or oOther:IsUnitState('BeingUpgraded')) then
-            local iPlanned, iIssued, iActive = 0, 0, 0
-            if not(bIssuedOnly) then
-                for _, sBlueprint in oOther[reftFactoryBuildPlan] or {} do
-                    iPlanned = iPlanned + GetFactoryFighterBlueprintThreat(sBlueprint)
-                end
-            end
-            for _, sBlueprint in GetQueuedFactoryBlueprints(oOther) do
-                iIssued = iIssued + GetFactoryFighterBlueprintThreat(sBlueprint)
-            end
-            local oFocus = oOther:GetFocusUnit()
-            if M28UnitInfo.IsUnitValid(oFocus) and oFocus:GetFractionComplete() < 1 then
-                iActive = GetFactoryFighterBlueprintThreat(oFocus.UnitId)
-            end
-            -- Plans mirror issued orders, whose head includes the active aircraft.
-            iThreat = iThreat + math.max(iPlanned, iIssued, iActive)
-        end
-    end
-    return iThreat
-end
-
 local function GetFactoryCommittedBlueprint(oFactory)
     local sUpgrade = oFactory[refsPendingFactoryUpgradeBlueprint]
     if sUpgrade then return sUpgrade end
@@ -7130,26 +7152,26 @@ local function GetFactoryCommittedBlueprint(oFactory)
 end
 
 local function GetTeamPendingFactoryResourceDrain(aiBrain, iTeam, oCandidateFactory)
-    local iCacheTime = math.floor(GetGameTimeSeconds() * 2)
-    local tCachedDrain = oCandidateFactory and oCandidateFactory[refsFactoryAdmissionDrainCache]
-    if tCachedDrain and tCachedDrain.iTime == iCacheTime then
-        return tCachedDrain.iMassDrain, tCachedDrain.iEnergyDrain, tCachedDrain.iMassStorageCapacity, tCachedDrain.iEnergyStorageCapacity
-    end
-
+    -- Queue and helper reservations change without yielding; each admission sees them immediately.
     local iPendingMassDrain = 0
     local iPendingEnergyDrain = 0
     local iMassStorageCapacity = 0
     local iEnergyStorageCapacity = 0
     local toFactories, tFriendlyBrains = GetTeamManagedFactories(aiBrain, iTeam)
     for _, oFactory in toFactories do
-        if oFactory ~= oCandidateFactory and not(oFactory[M28UnitInfo.refbPaused] or oFactory:IsPaused()) and not(IsFactoryActivelyBuilding(oFactory)) then
+        if oFactory ~= oCandidateFactory and not(oFactory[M28UnitInfo.refbPaused] or oFactory:IsPaused()) then
             local sQueuedBlueprint = GetFactoryCommittedBlueprint(oFactory)
             if sQueuedBlueprint then
                 if IsManagedFactoryProductionBlueprint(oFactory, sQueuedBlueprint)
                         or EntityCategoryContains(M28UnitInfo.refCategoryFactory, sQueuedBlueprint) then
                     local iQueuedMassDrain, iQueuedEnergyDrain = GetFactoryBlueprintResourceProfile(oFactory, sQueuedBlueprint)
-                    iPendingMassDrain = iPendingMassDrain + (iQueuedMassDrain or 0)
-                    iPendingEnergyDrain = iPendingEnergyDrain + (iQueuedEnergyDrain or 0)
+                    if iQueuedMassDrain and iQueuedEnergyDrain then
+                        iQueuedMassDrain, iQueuedEnergyDrain = GetFactoryAssistedCombatDrain(oFactory, sQueuedBlueprint, iQueuedMassDrain, iQueuedEnergyDrain)
+                        local iCurrentMass, iCurrentEnergy = GetFactoryCurrentProductionResourceDrain(oFactory)
+                        -- Net income includes actual spending; reserve the unfunded part of active and travelling commitments.
+                        iPendingMassDrain = iPendingMassDrain + math.max(0, iQueuedMassDrain - iCurrentMass)
+                        iPendingEnergyDrain = iPendingEnergyDrain + math.max(0, iQueuedEnergyDrain - iCurrentEnergy)
+                    end
                 end
             end
         end
@@ -7160,26 +7182,11 @@ local function GetTeamPendingFactoryResourceDrain(aiBrain, iTeam, oCandidateFact
             iEnergyStorageCapacity = iEnergyStorageCapacity + (M28Economy.GetEnergyStorageMaximum(oBrain) or 0)
         end
     end
-    if oCandidateFactory then
-        oCandidateFactory[refsFactoryAdmissionDrainCache] = {
-            iTime = iCacheTime,
-            iMassDrain = iPendingMassDrain,
-            iEnergyDrain = iPendingEnergyDrain,
-            iMassStorageCapacity = iMassStorageCapacity,
-            iEnergyStorageCapacity = iEnergyStorageCapacity,
-        }
-    end
+
     return iPendingMassDrain, iPendingEnergyDrain, iMassStorageCapacity, iEnergyStorageCapacity
 end
 
-local function GetTeamIssuedAirAACount(aiBrain, iTeam)
-    local iIssuedAirAA = 0
-    local toFactories = GetTeamManagedFactories(aiBrain, iTeam)
-    for _, oFactory in toFactories do
-        iIssuedAirAA = iIssuedAirAA + GetFactoryIssuedQueueCountByCategory(oFactory, iAirAAProductionCategory)
-    end
-    return iIssuedAirAA
-end
+
 
 local function GetProjectedFactoryResourceAdmission(iCandidateDrain, iPendingDrain, iBuildDurationTicks, iNetIncome, iGrossIncome, iStoredResource, iStorageCapacity, iStorageReserveRatio, iNetReservePerBrain, iActiveBrains, iResourceMultiplier)
     local iNetReserve = math.max(iNetReservePerBrain * iActiveBrains * iResourceMultiplier, iGrossIncome * iFactoryGrossResourceReserveRatio)
@@ -7189,23 +7196,37 @@ local function GetProjectedFactoryResourceAdmission(iCandidateDrain, iPendingDra
     return iRequiredStoredResource <= iSpareStoredResource, iNetReserve, iRequiredStoredResource, iSpareStoredResource
 end
 
-local function GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iMassDrain, iEnergyDrain)
+GetFactoryAssistedCombatDrain = function(oFactory, sBlueprint, iMassDrain, iEnergyDrain, oAdditionalEngineer)
     local tEconomy = __blueprints[string.lower(sBlueprint)].Economy
     local iAssistRate = 0
     local tSeen = {}
     local oFocus = oFactory:GetFocusUnit()
     for _, oTarget in {oFactory, oFocus} do
         if M28UnitInfo.IsUnitValid(oTarget) then
-            for _, oGuard in oTarget:GetGuards() or {} do
-                if oGuard ~= oFactory and not(tSeen[oGuard]) and M28UnitInfo.IsUnitValid(oGuard) and oGuard:GetFractionComplete() == 1
-                        and not(oGuard:IsUnitState('Attached')) and oGuard:GetAIBrain().M28Team == oFactory:GetAIBrain().M28Team then
-                    tSeen[oGuard] = true
-                    iAssistRate = iAssistRate + oGuard:GetEconomyBuildRate()
+            for iGroup, tGuards in {oTarget:GetGuards() or {}, oTarget[M28UnitInfo.reftoUnitsAssistingThis] or {}} do
+                for _, oGuard in tGuards do
+                    if oGuard ~= oFactory and not(tSeen[oGuard]) and M28UnitInfo.IsUnitValid(oGuard) and oGuard:GetFractionComplete() == 1
+                            and not(oGuard:IsUnitState('Attached')) and oGuard:GetAIBrain().M28Team == oFactory:GetAIBrain().M28Team then
+                        local bAssigned = iGroup == 1
+                        if not(bAssigned) then
+                            for _, tOrder in oGuard[M28Orders.reftiLastOrders] or {} do
+                                if tOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueGuard
+                                        and tOrder[M28Orders.subrefoOrderUnitTarget] == oTarget then bAssigned = true; break end
+                            end
+                        end
+                        if bAssigned then
+                            tSeen[oGuard] = true
+                            iAssistRate = iAssistRate + oGuard:GetEconomyBuildRate()
+                        end
+                    end
                 end
             end
         end
     end
-    -- Reserve the attached builders' potential drain, including while mass-starved.
+    if oAdditionalEngineer and not(tSeen[oAdditionalEngineer]) then
+        iAssistRate = iAssistRate + oAdditionalEngineer:GetEconomyBuildRate()
+    end
+    -- Reserve assigned builders at full speed, including while travelling or starved.
     return iMassDrain + 0.1 * tEconomy.BuildCostMass * iAssistRate / tEconomy.BuildTime,
         iEnergyDrain + 0.1 * tEconomy.BuildCostEnergy * iAssistRate / tEconomy.BuildTime
 end
@@ -7254,9 +7275,14 @@ function GetFactoryUpgradeDrain(oFactory, sUpgrade, oAdditionalEngineer)
                         for _, oGuard in tGuards do
                             if oGuard ~= oOther and M28UnitInfo.IsUnitValid(oGuard) and not(tSeenEngineers[oGuard])
                                     and not(oGuard:IsUnitState('Attached')) and oGuard:GetFractionComplete() == 1 then
-                                local tOrder = (oGuard[M28Orders.reftiLastOrders] or {})[1]
-                                if iGroup == 1 or (tOrder and tOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueGuard
-                                        and tOrder[M28Orders.subrefoOrderUnitTarget] == oTarget) then
+                                local bAssigned = iGroup == 1
+                                if not(bAssigned) then
+                                    for _, tOrder in oGuard[M28Orders.reftiLastOrders] or {} do
+                                        if tOrder[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueGuard
+                                                and tOrder[M28Orders.subrefoOrderUnitTarget] == oTarget then bAssigned = true; break end
+                                    end
+                                end
+                                if bAssigned then
                                     tSeenEngineers[oGuard] = true
                                     iRate = iRate + oGuard:GetEconomyBuildRate()
                                 end
@@ -7292,7 +7318,7 @@ function CanFundFactoryUpgrade(oFactory, sUpgrade, oAdditionalEngineer)
 
     local iCandidateMass, iCandidateEnergy, iDuration = GetFactoryBlueprintResourceProfile(oFactory, sUpgrade)
     if not(iCandidateMass) or not(iCandidateEnergy) then return false end
-    iCandidateMass, iCandidateEnergy = GetFactoryAssistedCombatDrain(oFactory, sUpgrade, iCandidateMass, iCandidateEnergy)
+    iCandidateMass, iCandidateEnergy = GetFactoryAssistedCombatDrain(oFactory, sUpgrade, iCandidateMass, iCandidateEnergy, oAdditionalEngineer)
     local iCurrentMass, iCurrentEnergy = GetFactoryCurrentProductionResourceDrain(oFactory)
     local iPendingMass, iPendingEnergy, iMassCapacity, iEnergyCapacity = GetTeamPendingFactoryResourceDrain(aiBrain, aiBrain.M28Team, oFactory)
     local tTeam = M28Team.tTeamData[aiBrain.M28Team]
@@ -7469,14 +7495,14 @@ GetLandSupportFactoryTransition = function(aiBrain, oFactory)
     return sUpgrade
 end
 
-local function IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iMassDrain, iEnergyDrain)
+local function IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iMassDrain, iEnergyDrain, oAdditionalEngineer)
     local iCategory = categories.LAND * categories.MOBILE * (categories.DIRECTFIRE + categories.INDIRECTFIRE)
-        + M28UnitInfo.refCategoryMAA + iAirAAProductionCategory
+        + M28UnitInfo.refCategoryMAA + categories.AIR * (categories.ANTIAIR + categories.BOMBER + categories.GROUNDATTACK)
     iCategory = iCategory - categories.ENGINEER - categories.SCOUT - categories.EXPERIMENTAL
-    if EntityCategoryContains(iAirAAProductionCategory, sBlueprint) then
-        iCategory = iCategory + M28UnitInfo.refCategoryFactory
-    end
-    iMassDrain, iEnergyDrain = GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iMassDrain, iEnergyDrain)
+    local bAir = EntityCategoryContains(categories.AIR, sBlueprint)
+    if bAir then iCategory = iCategory + M28UnitInfo.refCategoryFactory end
+    iMassDrain, iEnergyDrain = GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iMassDrain, iEnergyDrain, oAdditionalEngineer)
+    local iLandMass = bAir and 0 or iMassDrain
     for _, oOther in GetTeamManagedFactories(aiBrain, aiBrain.M28Team) do
         if oOther ~= oFactory and not(oOther[M28UnitInfo.refbPaused] or oOther:IsPaused()) then
             local sOther = GetFactoryCommittedBlueprint(oOther)
@@ -7484,14 +7510,20 @@ local function IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iM
                 local iMass, iEnergy = GetFactoryBlueprintResourceProfile(oOther, sOther)
                 if not(iMass) or not(iEnergy) then return false end
                 iMass, iEnergy = GetFactoryAssistedCombatDrain(oOther, sOther, iMass, iEnergy)
-                iMassDrain = iMassDrain + math.max(iMass, oOther:GetConsumptionPerSecondMass() * 0.1)
+                iMass = math.max(iMass, oOther:GetConsumptionPerSecondMass() * 0.1)
+                if not(EntityCategoryContains(categories.AIR + M28UnitInfo.refCategoryFactory, sOther)) then iLandMass = iLandMass + iMass end
+                iMassDrain = iMassDrain + iMass
                 iEnergyDrain = iEnergyDrain + math.max(iEnergy, oOther:GetConsumptionPerSecondEnergy() * 0.1)
             end
         end
     end
     local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
-    local bMassAvailable = iMassDrain <= (tTeamData[M28Team.subrefiTeamGrossMass] or 0) * 0.45
-    return bMassAvailable and iEnergyDrain <= (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * 0.55, bMassAvailable
+    local iGrossMass = tTeamData[M28Team.subrefiTeamGrossMass] or 0
+    -- Air may use spare resources, not the land stream's still-unused production share.
+    local iLandHeadroom = bAir and aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] and math.max(0, iGrossMass * 0.35 - iLandMass) or 0
+    local bMassAvailable = iMassDrain + iLandHeadroom <= iGrossMass * 0.45
+    local bEnergyAvailable = iEnergyDrain <= (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * 0.55
+    return bMassAvailable and bEnergyAvailable, bMassAvailable, iLandHeadroom, bEnergyAvailable
 end
 
 local function CanReserveContinuousLandProduction(aiBrain, oFactory, sBlueprint, iMassDrain, iEnergyDrain)
@@ -7552,32 +7584,7 @@ local function CanReserveInitialT3CombatProduction(aiBrain, oFactory, sBlueprint
     return true
 end
 
-local function CanReserveFighterRecoveryProduction(aiBrain, oFactory, sBlueprint, iMassDrain, iEnergyDrain)
-    if not(EntityCategoryContains(iAirAAProductionCategory, sBlueprint)) then return false end
-    local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
-    local iThreatWanted = GetProactiveFighterThreatTarget(aiBrain.M28AirSubteam,
-        tTeamData[M28Team.refiEnemyAirAAThreat] or 0, tTeamData[M28Team.refiEnemyAirToGroundThreat] or 0)
-    if iThreatWanted <= 0 or GetCommittedFighterThreat(aiBrain, oFactory) >= iThreatWanted
-            or (tTeamData[M28Team.subrefiTeamAverageEnergyPercentStored] or 0) < 0.5 then return false end
-    if not(IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iMassDrain, iEnergyDrain)) then return false end
-    iMassDrain, iEnergyDrain = GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iMassDrain, iEnergyDrain)
-    for _, oOther in GetTeamManagedFactories(aiBrain, aiBrain.M28Team) do
-        if oOther ~= oFactory and not(oOther:IsPaused() or oOther[M28UnitInfo.refbPaused]) then
-            local sOther = GetFactoryCommittedBlueprint(oOther)
-            if sOther and EntityCategoryContains(iAirAAProductionCategory + M28UnitInfo.refCategoryFactory, sOther) then
-                local iMass, iEnergy = GetFactoryBlueprintResourceProfile(oOther, sOther)
-                if not(iMass) or not(iEnergy) then return false end
-                iMass, iEnergy = GetFactoryAssistedCombatDrain(oOther, sOther, iMass, iEnergy)
-                iMassDrain = iMassDrain + math.max(iMass, oOther:GetConsumptionPerSecondMass() * 0.1)
-                iEnergyDrain = iEnergyDrain + math.max(iEnergy, oOther:GetConsumptionPerSecondEnergy() * 0.1)
-            end
-        end
-    end
-    -- Fund parallel fighter streams by actual drain, not one queue per brain.
-    -- Owned HQ upgrades consume this share first; projected energy still gates issuance.
-    return iMassDrain <= (tTeamData[M28Team.subrefiTeamGrossMass] or 0) * 0.3
-        and iEnergyDrain <= (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * 0.4
-end
+
 
 function GetCombatProductionEnergyDemand(iTeam)
     local tTeamData = M28Team.tTeamData[iTeam]
@@ -7631,7 +7638,8 @@ local function HasUnusedT1LandStockpile(aiBrain, oFactory, sBlueprint)
     return iUnusedMass >= math.max(400, (aiBrain[M28Economy.refiGrossMassBaseIncome] or 0) * 450 * 0.2)
 end
 
-GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
+GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint, oAdditionalEngineer)
+    if sBlueprint and EntityCategoryContains(M28UnitInfo.refCategoryGunship, sBlueprint) then return false, 'DisabledGunship' end
     -- Fire Beetles are excluded even when a saved plan requests them directly.
     if sBlueprint and string.lower(sBlueprint) == 'xrl0302' then return false, 'DisabledMobileBomb' end
     if not(sBlueprint) or not(__blueprints[string.lower(sBlueprint)]) then
@@ -7661,7 +7669,7 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
         iSpareStoredMass = 0,
         iSpareStoredEnergy = 0,
         iEnergyRatio = tTeamData and (tTeamData[M28Team.subrefiTeamAverageEnergyPercentStored] or 0) or 0,
-        iIssuedEmergencyAirAA = 0,
+
         iActiveBrains = tTeamData and math.max(1, tTeamData[M28Team.subrefiActiveM28BrainCount] or 1) or 1,
     }
 
@@ -7674,7 +7682,7 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
                  spare_energy = tDetails.iSpareStoredEnergy, energy_ratio = tDetails.iEnergyRatio})
         end
         if bDebugMessages == true then
-            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Factory='..(oFactory and oFactory.UnitId or 'nil')..'; Blueprint='..(sBlueprint or 'nil')..'; Allowed='..tostring(bAllowed)..'; Reason='..sReason..'; CandidateMassDrainPerTick='..tDetails.iCandidateMassDrain..'; CandidateEnergyDrainPerTick='..tDetails.iCandidateEnergyDrain..'; CurrentMassDrainPerTick='..tDetails.iCurrentMassDrain..'; CurrentEnergyDrainPerTick='..tDetails.iCurrentEnergyDrain..'; PendingMassDrainPerTick='..tDetails.iPendingMassDrain..'; PendingEnergyDrainPerTick='..tDetails.iPendingEnergyDrain..'; TeamNetMass='..(tTeamData and (tTeamData[M28Team.subrefiTeamNetMass] or 0) or 0)..'; TeamNetEnergy='..(tTeamData and (tTeamData[M28Team.subrefiTeamNetEnergy] or 0) or 0)..'; MassNetReserve='..tDetails.iMassNetReserve..'; EnergyNetReserve='..tDetails.iEnergyNetReserve..'; RequiredStoredMass='..tDetails.iRequiredStoredMass..'; SpareStoredMassAbove2_5Pct='..tDetails.iSpareStoredMass..'; RequiredStoredEnergy='..tDetails.iRequiredStoredEnergy..'; SpareStoredEnergyAbove15Pct='..tDetails.iSpareStoredEnergy..'; TeamEnergyRatio='..tDetails.iEnergyRatio..'; IssuedEmergencyAirAA='..tDetails.iIssuedEmergencyAirAA..'/'..tDetails.iActiveBrains..'; Time='..GetGameTimeSeconds())
+            M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Factory='..(oFactory and oFactory.UnitId or 'nil')..'; Blueprint='..(sBlueprint or 'nil')..'; Allowed='..tostring(bAllowed)..'; Reason='..sReason..'; CandidateMassDrainPerTick='..tDetails.iCandidateMassDrain..'; CandidateEnergyDrainPerTick='..tDetails.iCandidateEnergyDrain..'; CurrentMassDrainPerTick='..tDetails.iCurrentMassDrain..'; CurrentEnergyDrainPerTick='..tDetails.iCurrentEnergyDrain..'; PendingMassDrainPerTick='..tDetails.iPendingMassDrain..'; PendingEnergyDrainPerTick='..tDetails.iPendingEnergyDrain..'; TeamNetMass='..(tTeamData and (tTeamData[M28Team.subrefiTeamNetMass] or 0) or 0)..'; TeamNetEnergy='..(tTeamData and (tTeamData[M28Team.subrefiTeamNetEnergy] or 0) or 0)..'; MassNetReserve='..tDetails.iMassNetReserve..'; EnergyNetReserve='..tDetails.iEnergyNetReserve..'; RequiredStoredMass='..tDetails.iRequiredStoredMass..'; SpareStoredMassAbove2_5Pct='..tDetails.iSpareStoredMass..'; RequiredStoredEnergy='..tDetails.iRequiredStoredEnergy..'; SpareStoredEnergyAbove15Pct='..tDetails.iSpareStoredEnergy..'; TeamEnergyRatio='..tDetails.iEnergyRatio..'; Time='..GetGameTimeSeconds())
         end
         return bAllowed, sReason
     end
@@ -7705,8 +7713,13 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
     if not(iCandidateMassDrain) or not(iCandidateEnergyDrain) or not(iBuildDurationTicks) then
         return FinishAdmission(false, 'InvalidResourceProfile')
     end
-    tDetails.iCandidateMassDrain = iCandidateMassDrain
-    tDetails.iCandidateEnergyDrain = iCandidateEnergyDrain
+    tDetails.iCandidateMassDrain, tDetails.iCandidateEnergyDrain = GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain, oAdditionalEngineer)
+    local bCombatAir = EntityCategoryContains(categories.AIR * (categories.ANTIAIR + categories.BOMBER), sBlueprint)
+    local bAirMassAvailable, iAirLandHeadroom, bAirEnergyAvailable = false, 0, true
+    if bCombatAir then
+        local bAirBudget
+        bAirBudget, bAirMassAvailable, iAirLandHeadroom, bAirEnergyAvailable = IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain, oAdditionalEngineer)
+    end
     local bEngineerReserve, sEngineerReason, bRecoveryEngineer
     if EntityCategoryContains(M28UnitInfo.refCategoryEngineer, sBlueprint) then
         bEngineerReserve, sEngineerReason, bRecoveryEngineer = GetEngineerProductionAllocation(aiBrain, oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain)
@@ -7714,19 +7727,18 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
         if bRecoveryEngineer then return FinishAdmission(true, sEngineerReason) end
     end
     local bInitialT3CombatReserve = CanReserveInitialT3CombatProduction(aiBrain, oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain)
-    local bFighterRecoveryReserve = CanReserveFighterRecoveryProduction(aiBrain, oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain)
+
     local bContinuousLandReserve, bContinuousLandMassAvailable = CanReserveContinuousLandProduction(aiBrain, oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain)
     local function RecordCombatEnergyDemand()
-        if bInitialT3CombatReserve or bFighterRecoveryReserve or bContinuousLandMassAvailable then
-            local _, iEnergy = GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain)
-            oFactory.M28CombatEnergyDemand = {time = GetGameTimeSeconds(), energy = iEnergy}
+        if bInitialT3CombatReserve or bContinuousLandMassAvailable or bAirMassAvailable then
+            oFactory.M28CombatEnergyDemand = {time = GetGameTimeSeconds(), energy = tDetails.iCandidateEnergyDrain}
         end
     end
-    if tFactoryEco.bStallingEnergy and not(bEngineerReserve or bInitialT3CombatReserve or bFighterRecoveryReserve or bContinuousLandReserve) then
+    if tFactoryEco.bStallingEnergy and not(bCombatAir or bEngineerReserve or bInitialT3CombatReserve or bContinuousLandReserve) then
         RecordCombatEnergyDemand()
         return FinishAdmission(false, 'EnergyStall')
     end
-    if tFactoryEco.bStallingMass and not(bEngineerReserve or bInitialT3CombatReserve or bFighterRecoveryReserve or bContinuousLandReserve) then
+    if tFactoryEco.bStallingMass and not(bCombatAir or bEngineerReserve or bInitialT3CombatReserve or bContinuousLandReserve) then
         return FinishAdmission(false, 'MassStall')
     end
     tDetails.iCurrentMassDrain, tDetails.iCurrentEnergyDrain = GetFactoryCurrentProductionResourceDrain(oFactory)
@@ -7748,10 +7760,22 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
         tDetails.iActiveBrains,
         iResourceMultiplier
     )
-    if not(bMassAllowed) and not(bEngineerReserve or bInitialT3CombatReserve or bFighterRecoveryReserve or bContinuousLandReserve) then
+    if bCombatAir and not(bAirMassAvailable) then
+        -- Above the ordinary combat share, only real surplus may fund air while
+        -- leaving the full unused land stream and economy reserve available.
+        bAirMassAvailable = tDetails.iCandidateMassDrain - tDetails.iCurrentMassDrain
+            + tDetails.iPendingMassDrain + iAirLandHeadroom + tDetails.iMassNetReserve
+            <= (tTeamData[M28Team.subrefiTeamNetMass] or 0)
+        if not(bAirMassAvailable) then return FinishAdmission(false, 'AirCombatMassBudget') end
+    end
+    if not(bMassAllowed) and (bCombatAir or not(bEngineerReserve or bInitialT3CombatReserve or bContinuousLandReserve)) then
         return FinishAdmission(false, 'ProjectedMassShortfall')
     end
 
+    if bCombatAir and not(bAirEnergyAvailable) then
+        RecordCombatEnergyDemand()
+        return FinishAdmission(false, 'AirCombatEnergyBudget')
+    end
     local bEnergyAllowed
     bEnergyAllowed, tDetails.iEnergyNetReserve, tDetails.iRequiredStoredEnergy, tDetails.iSpareStoredEnergy = GetProjectedFactoryResourceAdmission(
         tDetails.iCandidateEnergyDrain - tDetails.iCurrentEnergyDrain,
@@ -7769,21 +7793,30 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint)
     if bEnergyAllowed then
         oFactory.M28CombatEnergyDemand = nil
         return FinishAdmission(true, bEngineerReserve and sEngineerReason or bMassAllowed and not(tFactoryEco.bStallingMass) and 'ProjectedAffordable'
-            or (bFighterRecoveryReserve and 'FighterRecoveryReserve' or bInitialT3CombatReserve and 'InitialT3CombatReserve' or 'ContinuousLandReserve'))
+            or (bCombatAir and 'ContinuousAirFunded' or bInitialT3CombatReserve and 'InitialT3CombatReserve' or 'ContinuousLandReserve'))
     end
 
     RecordCombatEnergyDemand()
 
-    if EntityCategoryContains(iAirAAProductionCategory, sBlueprint) then
-        local sAirPriorityReason = GetAirQueuePriorityState(aiBrain)
-        tDetails.iIssuedEmergencyAirAA = GetTeamIssuedAirAACount(aiBrain, iTeam)
-        if sAirPriorityReason
-                and tDetails.iEnergyRatio >= iEmergencyAirMinimumEnergyRatio
-                and tDetails.iIssuedEmergencyAirAA < tDetails.iActiveBrains then
-            return FinishAdmission(true, 'EmergencyAirAA-'..sAirPriorityReason)
-        end
-    end
+    -- Even an emergency fighter cannot spend energy committed to the economy or land.
     return FinishAdmission(false, 'ProjectedEnergyShortfall')
+end
+
+function CanAssistAirFactoryProduction(oFactory, oEngineer)
+    if not(M28UnitInfo.IsUnitValid(oFactory)) or oFactory:GetFractionComplete() < 1
+            or not(EntityCategoryContains(M28UnitInfo.refCategoryAirFactory, oFactory.UnitId))
+            or oFactory:IsPaused() or oFactory[M28UnitInfo.refbPaused] then return false end
+    local aiBrain = oFactory:GetAIBrain()
+    if aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryEngineer) < 8 then return false end
+    local sBlueprint = GetFactoryCommittedBlueprint(oFactory)
+    if not(sBlueprint) then return false end
+    if EntityCategoryContains(M28UnitInfo.refCategoryFactory, sBlueprint) then
+        return CanFundFactoryUpgrade(oFactory, sBlueprint, oEngineer)
+    end
+    if not(EntityCategoryContains(categories.AIR * (categories.ANTIAIR + categories.BOMBER), sBlueprint)) then return false end
+    -- Optional helpers use the same complete forecast as issuing the next aircraft.
+
+    return GetFactoryProductionAdmission(aiBrain, oFactory, sBlueprint, oEngineer)
 end
 
 local function ShouldRequireT3AirAA(aiBrain, oFactory)
@@ -7871,13 +7904,7 @@ function CanIssueFactoryBlueprintToQueue(oFactory, sBlueprint, bAddToExistingQue
 
     local aiBrain = oFactory:GetAIBrain()
     if IsObsoleteAirAABlueprint(aiBrain, oFactory, sBlueprint) then return false end
-    if ScenarioInfo.Options.M28PrioritiseBPs ~= 2 and EntityCategoryContains(iAirAAProductionCategory, sBlueprint) then
-        local tTeam = M28Team.tTeamData[aiBrain.M28Team]
-        local iTarget = GetProactiveFighterThreatTarget(aiBrain.M28AirSubteam, tTeam[M28Team.refiEnemyAirAAThreat] or 0, tTeam[M28Team.refiEnemyAirToGroundThreat] or 0)
-        local oExcludedFactory
-        if not(bAddToExistingQueue) then oExcludedFactory = oFactory end
-        if iTarget > 0 and GetCommittedFighterThreat(aiBrain, oExcludedFactory, true) >= iTarget then return false end
-    end
+    if EntityCategoryContains(M28UnitInfo.refCategoryGunship, sBlueprint) then return false end
 
     -- Final issuance counts only orders already sent; planned entries include this candidate.
     local iAllowance = GetIntermediateLandBuildAllowance(oFactory, sBlueprint, true, not(bAddToExistingQueue))
@@ -8427,8 +8454,10 @@ local function ClearCompletedObsoleteLandQueue(oFactory, sBlueprint)
         local tQueued = GetQueuedFactoryBlueprints(oFactory)
         bObsolete = IsObsoleteLightT3LandBlueprint(aiBrain, oFactory, sBlueprint)
             or IsObsoleteAirAABlueprint(aiBrain, oFactory, sBlueprint)
+            or EntityCategoryContains(M28UnitInfo.refCategoryGunship, sBlueprint)
             or (tQueued and tQueued[1] and (IsObsoleteLightT3LandBlueprint(aiBrain, oFactory, tQueued[1])
-                or IsObsoleteAirAABlueprint(aiBrain, oFactory, tQueued[1])))
+                or IsObsoleteAirAABlueprint(aiBrain, oFactory, tQueued[1])
+                or EntityCategoryContains(M28UnitInfo.refCategoryGunship, tQueued[1])))
     end
     if not(bObsolete) then return false end
     local sUpgrade = GetQueuedFactoryUpgradeBlueprint(oFactory)
@@ -8561,19 +8590,11 @@ local function GetFactoryBuildPlanRunLength(oFactory, sBlueprint, iRemainingPlan
             return math.min(iRemainingPlanDepth, 2, GetFactoryEngineerQueueRunLength(oFactory, iRemainingPlanDepth))
         end
         return GetFactoryEngineerQueueRunLength(oFactory, iRemainingPlanDepth)
+    elseif EntityCategoryContains(M28UnitInfo.refCategoryBomber + M28UnitInfo.refCategoryAirAA, sBlueprint) then
+        -- Reconsider the ratio for every planned aircraft, not each identical batch.
+        return math.min(iRemainingPlanDepth, 1)
     elseif EntityCategoryContains(iFactoryAttackAirQueueCategory, sBlueprint) then
         return GetFactoryAttackAirQueueRunLength(oFactory, iRemainingPlanDepth)
-    elseif EntityCategoryContains(M28UnitInfo.refCategoryAirAA, sBlueprint) then
-        local iRunLength = GetFactoryAirAAQueueRunLength(oFactory, iRemainingPlanDepth)
-        if ScenarioInfo.Options.M28PrioritiseBPs == 2 then return iRunLength end
-        local aiBrain = oFactory:GetAIBrain()
-        local tTeam = M28Team.tTeamData[aiBrain.M28Team]
-        local iTarget = GetProactiveFighterThreatTarget(aiBrain.M28AirSubteam, tTeam[M28Team.refiEnemyAirAAThreat] or 0, tTeam[M28Team.refiEnemyAirToGroundThreat] or 0)
-        local iThreat = GetFactoryFighterBlueprintThreat(sBlueprint)
-        if iTarget > 0 and iThreat > 0 then
-            iRunLength = math.min(iRunLength, math.ceil(math.max(0, iTarget - GetCommittedFighterThreat(aiBrain)) / iThreat))
-        end
-        return iRunLength
     elseif EntityCategoryContains(M28UnitInfo.refCategoryMAA, sBlueprint) then
         return GetFactoryMAAQueueRunLength(oFactory, iRemainingPlanDepth)
     elseif GetFactoryBuildPlanBlacklistCategory(sBlueprint) then
@@ -8610,9 +8631,11 @@ local function EnsureFactoryBuildPlanCoverage(aiBrain, oFactory, sReferenceBluep
     local iDesiredPlanLength = iTargetQueueDepth + GetFactoryQueueRefillFloor(iTargetQueueDepth)
     local bFactoryActivelyBuilding = IsFactoryActivelyBuilding(oFactory)
 
-    -- Drop obsolete speculative lights; issued work is retired after its current completion.
+    -- Retire speculative obsolete production without scrapping a unit in progress.
     for iEntry = table.getn(tBuildPlan or {}), iIssuedCount + 1, -1 do
-        if IsObsoleteLightT3LandBlueprint(aiBrain, oFactory, tBuildPlan[iEntry]) then table.remove(tBuildPlan, iEntry) end
+        if IsObsoleteLightT3LandBlueprint(aiBrain, oFactory, tBuildPlan[iEntry])
+                or IsObsoleteAirAABlueprint(aiBrain, oFactory, tBuildPlan[iEntry])
+                or EntityCategoryContains(M28UnitInfo.refCategoryGunship, tBuildPlan[iEntry]) then table.remove(tBuildPlan, iEntry) end
     end
 
     if iTargetQueueDepth <= 1 then
@@ -8748,7 +8771,8 @@ function TryManageActiveFactoryBuildQueue(aiBrain, oFactory)
     local bFactoryActivelyBuilding = IsFactoryActivelyBuilding(oFactory)
     if not(bFactoryActivelyBuilding) and tIssuedBlueprints and tIssuedBlueprints[1]
             and (IsObsoleteLightT3LandBlueprint(aiBrain, oFactory, tIssuedBlueprints[1])
-                or IsObsoleteAirAABlueprint(aiBrain, oFactory, tIssuedBlueprints[1])) then
+                or IsObsoleteAirAABlueprint(aiBrain, oFactory, tIssuedBlueprints[1])
+                or EntityCategoryContains(M28UnitInfo.refCategoryGunship, tIssuedBlueprints[1])) then
         ClearCompletedObsoleteLandQueue(oFactory, tIssuedBlueprints[1])
         return false
     end
@@ -8851,9 +8875,7 @@ function DecideAndBuildUnitForFactory(aiBrain, oFactory, bDontWait)
             oFactory.M28FactoryNoBuildSince = nil
         end
     end
-    -- Reuse admission scans within this decision, never across other factories'
-    -- intervening queue changes.
-    oFactory[refsFactoryAdmissionDrainCache] = nil
+
     --If factory is idle then gets it to build something; if its not idle then keeps checking for up to 20 seconds, but will abort if the factory appears to be building something
     -- ForkThread exits must return no values; an explicit nil triggers a native yield warning.
     local sFunctionRef = 'DecideAndBuildUnitForFactory'
@@ -9318,6 +9340,7 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
     --subfunctions to mean we can do away with the 'current condition == 1, == 2.....==999 type approach making it much easier to add to
     function ConsiderBuildingCategory(iCategoryToBuild, bRequireFunding)
         --GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryCondition, oFactory, bGetSlowest, bGetFastest, bGetCheapest, iOptionalCategoryThatMustBeAbleToBuild, bIgnoreTechDifferences)
+        iCategoryToBuild = iCategoryToBuild - M28UnitInfo.refCategoryGunship
         sBPIDToBuild = GetBlueprintThatCanBuildOfCategory(aiBrain, iCategoryToBuild, oFactory, nil,             nil,        nil,        nil,                                    false)
 
         if bDebugMessages == true then
@@ -9326,6 +9349,11 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
         if sBPIDToBuild then
             sBPIDToBuild = AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamData, iFactoryTechLevel)
         end
+        if sBPIDToBuild and EntityCategoryContains(M28UnitInfo.refCategoryGunship, sBPIDToBuild) then sBPIDToBuild = nil end
+        if sBPIDToBuild and EntityCategoryContains(M28UnitInfo.refCategoryBomber, sBPIDToBuild)
+                and not(aiBrain[M28Overseer.refbFirstBomber] and M28Conditions.GetLifetimeBuildCount(aiBrain, M28UnitInfo.refCategoryBomber) == 0)
+                and not(GetFactoryAttackAirMixCategories(oFactory, M28UnitInfo.refCategoryBomber)) then sBPIDToBuild = nil end
+        if sBPIDToBuild and EntityCategoryContains(M28UnitInfo.refCategoryBomber + M28UnitInfo.refCategoryAirAA, sBPIDToBuild) then bRequireFunding = true end
         if sBPIDToBuild and bRequireFunding then
             sBPIDToBuild = GetEconomyAdmittedFactoryProductionBlueprint(aiBrain, oFactory, sBPIDToBuild)
         end
@@ -9383,11 +9411,9 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
         return nil
     end
 
-    local iEnemyAirAA = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirAAThreat] or 0
-    local iEnemyAirToGround = M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] or 0
     local bZoneUnderAirAttack = (tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0) > 0
+        or (tLZTeamData[M28Map.refiEnemyAirAAThreat] or 0) > 0
     local function ConsiderFighterResponse()
-        if GetCommittedFighterThreat(aiBrain) >= GetProactiveFighterThreatTarget(iAirSubteam, iEnemyAirAA, iEnemyAirToGround) then return false end
         local iCategory = M28UnitInfo.refCategoryAirAA
         if iFactoryTechLevel >= 3 then iCategory = iCategory * categories.TECH3 end
         sProductionDecisionReason = 'Funded fighter response to known air threat'
@@ -9436,6 +9462,14 @@ function GetBlueprintToBuildForAirFactory(aiBrain, oFactory)
             or not(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftiHighTechEngiDropPlateauAndZones]))
             or not(M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.reftTransportNavalReclaimDrops]))
             or M28Team.tTeamData[iTeam][M28Team.refbEnemyBaseInCombatDropShortlist])
+    if not(bZoneUnderAirAttack or bPriorityTransportPending or bHaveLowPower or bSaveMassDueToEnemyFirebaseOrOurExperimental or bAirToGroundIsIneffective)
+            and not(GetAirQueuePriorityState(aiBrain)) then
+        local iFirstAttackCategory = GetFactoryAttackAirMixCategories(oFactory, iNormalBomberCategoryToBuild)
+        if iFirstAttackCategory then
+            sProductionDecisionReason = 'Funded fighter and bomber production mix'
+            if ConsiderBuildingCategory(iFirstAttackCategory, true) then return sBPIDToBuild end
+        end
+    end
     if (bZoneUnderAirAttack or not(bPriorityTransportPending)) and ConsiderFighterResponse() then return sBPIDToBuild end
 
     --Low power - only consider building engineers (if have lots of mass) unless enemies already attacking
@@ -12123,6 +12157,7 @@ function RegisterCompletedFactoryBuild(oFactory, sBlueprint)
     if EntityCategoryContains(GetOrdinaryT3LandCategory(), sBlueprint) then
         local aiBrain = oFactory:GetAIBrain()
         aiBrain.M28CompletedOrdinaryT3LandBuilds = (aiBrain.M28CompletedOrdinaryT3LandBuilds or 0) + 1
+        aiBrain.M28T3LandProductionStarted = aiBrain.M28T3LandProductionStarted or GetGameTimeSeconds()
     end
     if M28Diagnostics.Enabled('Factory') then
         local iArmy = oFactory:GetAIBrain():GetArmyIndex()
