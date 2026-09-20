@@ -1073,8 +1073,7 @@ function OnUnitDeath(oUnit)
 --end
 
 function OnEnhancementStarted(self, work)
-    --e.g. returns log like OnEhancementStarted start, self.UnitId==url0001; work="CoolingUpgrade"
-    if M28Utilities.bM28AIInGame then
+    if M28Utilities.bM28AIInGame and self:GetBlueprint().Enhancements and self:GetBlueprint().Enhancements[work] then
         local sFunctionRef = 'OnEnhancementStarted'
         local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEvents, sFunctionRef)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -1100,6 +1099,17 @@ function OnEnhancementStarted(self, work)
             self[M28ACU.reftiUpgradingHealthData] = {}
             M28ACU.UpdateACUUpgradingHealth(self)
         end
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+    end
+end
+
+function OnEnhancementWorkEnded(oUnit, sEnhancement)
+    -- A late callback for replaced work must not erase the new upgrade's samples.
+    if oUnit[M28UnitInfo.refsLastEnhancementStarted] and (not(sEnhancement) or oUnit[M28UnitInfo.refsLastEnhancementStarted] == sEnhancement) then
+        oUnit[M28UnitInfo.refsLastEnhancementStarted] = nil
+        oUnit[M28ACU.refiHealthWhenStartedUpgrade] = nil
+        oUnit[M28ACU.reftiUpgradingHealthData] = nil
+        oUnit[M28ACU.refbWantsPriorityUpgrade] = nil
     end
 end
 
@@ -1109,12 +1119,13 @@ function OnEnhancementComplete(oUnit, sEnhancement)
         local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEvents, sFunctionRef)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
+        if not(oUnit[M28UnitInfo.reftiTimeOfLastEnhancementComplete]) then oUnit[M28UnitInfo.reftiTimeOfLastEnhancementComplete] = {} end
         --Check we haven't just run this
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, Time we last completed sEnhancmeent '..sEnhancement..' for oUnit owned by player '..oUnit:GetAIBrain().Nickname..'='..GetGameTimeSeconds() - (oUnit[M28UnitInfo.reftiTimeOfLastEnhancementComplete][sEnhancement] or -100)..'; Upgrade count before update='..(oUnit[M28ACU.refiUpgradeCount] or 'nil')) end
         if GetGameTimeSeconds() - (oUnit[M28UnitInfo.reftiTimeOfLastEnhancementComplete][sEnhancement] or -100) >= 0.5 then
             --Clear micro flag as we set it to true for some units to avoid orders overriding
             if oUnit[M28UnitInfo.refbSpecialMicroActive] then oUnit[M28UnitInfo.refbSpecialMicroActive] = nil end
-            if not(oUnit[M28UnitInfo.reftiTimeOfLastEnhancementComplete]) then oUnit[M28UnitInfo.reftiTimeOfLastEnhancementComplete] = {} end
+
             if oUnit[M28ACU.refbWantsPriorityUpgrade] then oUnit[M28ACU.refbWantsPriorityUpgrade] = nil end
             oUnit[M28UnitInfo.reftiTimeOfLastEnhancementComplete][sEnhancement] = GetGameTimeSeconds()
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Enhancement completed for self='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' owned by '..oUnit:GetAIBrain().Nickname..'; sEnhancement='..reprs(sEnhancement)..'; Has enhancement for this='..tostring(oUnit:HasEnhancement(sEnhancement))..'; Unit DF range pre upgrade='..(oUnit[M28UnitInfo.refiDFRange] or 'nil')) end
@@ -1205,7 +1216,7 @@ function OnEnhancementComplete(oUnit, sEnhancement)
                 if EntityCategoryContains(categories.COMMAND, oUnit.UnitId) then
                     --Consider being more aggressive with ACU again (mainly relevant for team games)
                     oUnit[M28ACU.refbUseACUAggressively] = M28ACU.DoWeStillWantToBeAggressiveWithACU(oUnit)
-                    if oUnit[M28ACU.reftiUpgradingHealthData] then oUnit[M28ACU.reftiUpgradingHealthData] = nil end
+
                 end
                 --Flag that enemy has a dangerous ACU if they have multiple combat upgrades
                 if oUnit[M28ACU.refiUpgradeCount] >= 2 and (oUnit[M28UnitInfo.refiDFMassThreatOverride] or 0) - M28UnitInfo.iBaseACUThreat >= 1600 and (oUnit:GetMaxHealth() >= M28UnitInfo.iBaseACUExpectedHealth + 2000 or (oUnit.MyShield and oUnit.MyShield:GetMaxHealth() > 0) or oUnit:HasEnhancement('StealthGenerator')) then

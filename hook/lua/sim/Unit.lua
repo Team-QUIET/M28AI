@@ -265,10 +265,23 @@ do --Per Balthazaar - encasing the code in do .... end means that you dont have 
             M28Events.OnUnitDeath(self) --Any custom code we want to run
             if M28OldUnit.OnDestroy then M28OldUnit.OnDestroy(self) end --Normal code end
         end,
-        --[[OnWorkEnd = function(self, work)
-            M28Events.OnWorkEnd(self, work)
-            M28OldUnit.OnWorkEnd(self, work)
-        end,--]]
+        OnWorkBegin = function(self, work)
+            local result = M28OldUnit.OnWorkBegin(self, work)
+            -- QUIET returns nil on success, false when the slot/prerequisite rejects work.
+            local enhancements = self:GetBlueprint().Enhancements
+            if result ~= false and enhancements and enhancements[work] then
+                M28Events.OnEnhancementStarted(self, work)
+            end
+            return result
+        end,
+        OnWorkEnd = function(self, work)
+            M28Events.OnEnhancementWorkEnded(self, work)
+            return M28OldUnit.OnWorkEnd(self, work)
+        end,
+        OnWorkFail = function(self, work)
+            M28Events.OnEnhancementWorkEnded(self, work)
+            return M28OldUnit.OnWorkFail(self, work)
+        end,
         OnDamage = function(self, instigator, amount, vector, damageType)
             if M28OldUnit.OnDamage then M28OldUnit.OnDamage(self, instigator, amount, vector, damageType) end
             M28Events.DispatchOnDamaged(self, instigator) --Want this after just incase our code messes things up
@@ -325,6 +338,8 @@ do --Per Balthazaar - encasing the code in do .... end means that you dont have 
             if M28OldUnit.OnCreate then M28Events.DispatchOnCreate(self) end
         end,
         CreateEnhancement = function(self, enh)
+            -- WorkingState.OnWorkEnd bypasses Unit.OnWorkEnd in native QUIET.
+            M28Events.OnEnhancementWorkEnded(self, enh)
             ForkThread(M28Events.OnEnhancementComplete, self, enh)
             if M28OldUnit.CreateEnhancement then return M28OldUnit.CreateEnhancement(self, enh) end
         end,
