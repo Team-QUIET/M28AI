@@ -242,7 +242,73 @@ function GetLandObjectiveResponse(tZone, iPlateau, iTeam)
     return iResponse+iUncertainty, iResponse
 end
 
-function GetLandObjectiveEdge(tStart, tEnd, tLayers, tDefenses, tCache, iMargin)
+local iLandDefenseCellSize = 64
+
+local function CreateLandDefenseIndex(tDefenses)
+    if table.getn(tDefenses) < 2 then return nil end
+    local tIndex, tColumns = {}, {}
+    for _, tDefense in tDefenses do
+        if M28UnitInfo.IsUnitValid(tDefense.unit) and not(tDefense.unit:BeenDestroyed()) then
+            local tPoint, iRange = tDefense.position, tDefense.range
+            local iX = math.floor(tPoint[1]/iLandDefenseCellSize)
+            local iZ = math.floor(tPoint[3]/iLandDefenseCellSize)
+            local tColumn = tColumns[iX]
+            if not(tColumn) then tColumn={}; tColumns[iX]=tColumn end
+            local tCell = tColumn[iZ]
+            if not(tCell) then
+                tCell = {defenses={}, minX=tPoint[1]-iRange, maxX=tPoint[1]+iRange, minZ=tPoint[3]-iRange, maxZ=tPoint[3]+iRange}
+                tColumn[iZ] = tCell
+                table.insert(tIndex,tCell)
+            else
+                tCell.minX, tCell.maxX = math.min(tCell.minX,tPoint[1]-iRange), math.max(tCell.maxX,tPoint[1]+iRange)
+                tCell.minZ, tCell.maxZ = math.min(tCell.minZ,tPoint[3]-iRange), math.max(tCell.maxZ,tPoint[3]+iRange)
+            end
+            table.insert(tCell.defenses,tDefense)
+        end
+    end
+    return tIndex
+end
+
+local function IsLandEdgeSegmentSafe(tStart, tEnd, tDefenses, iMargin, tDefenseIndex)
+    if not(tDefenseIndex) then return IsLandSegmentOutsideKnownDefenses(tStart,tEnd,tDefenses,iMargin,true) end
+    local iExpand = iMargin+1
+    local iMinX, iMaxX = math.min(tStart[1],tEnd[1])-iExpand, math.max(tStart[1],tEnd[1])+iExpand
+    local iMinZ, iMaxZ = math.min(tStart[3],tEnd[3])-iExpand, math.max(tStart[3],tEnd[3])+iExpand
+    -- Each cell bounds its weapons, not just their centers. A long-range weapon
+    -- cannot hide in a distant cell or widen every other cell's query.
+    for _, tCell in tDefenseIndex do
+        if tCell.minX <= iMaxX and tCell.maxX >= iMinX and tCell.minZ <= iMaxZ and tCell.maxZ >= iMinZ then
+            if not(IsLandSegmentOutsideKnownDefenses(tStart,tEnd,tCell.defenses,iMargin,true)) then return false end
+        end
+    end
+    return true
+end
+
+local function GetDefensesNearLandPath(tStart, tEnd, tPath, tDefenses, iMargin)
+    if table.getn(tDefenses) < 2 then return tDefenses end
+    local iMinX, iMaxX = math.min(tStart[1],tEnd[1]), math.max(tStart[1],tEnd[1])
+    local iMinZ, iMaxZ = math.min(tStart[3],tEnd[3]), math.max(tStart[3],tEnd[3])
+    -- Include native detours, not just the graph endpoints. Rebuild the nearby
+    -- set for each path so cached geometry still sees changed threats.
+    for _, tPoint in tPath do
+        iMinX, iMaxX = math.min(iMinX,tPoint[1]), math.max(iMaxX,tPoint[1])
+        iMinZ, iMaxZ = math.min(iMinZ,tPoint[3]), math.max(iMaxZ,tPoint[3])
+    end
+    local tNearby = {}
+    for _, tDefense in tDefenses do
+        if M28UnitInfo.IsUnitValid(tDefense.unit) and not(tDefense.unit:BeenDestroyed()) then
+            local tPoint = tDefense.position
+            local iBound = tDefense.range+iMargin+1
+            if tPoint[1] >= iMinX-iBound and tPoint[1] <= iMaxX+iBound
+                    and tPoint[3] >= iMinZ-iBound and tPoint[3] <= iMaxZ+iBound then
+                table.insert(tNearby,tDefense)
+            end
+        end
+    end
+    return tNearby
+end
+
+function GetLandObjectiveEdge(tStart, tEnd, tLayers, tDefenses, tCache, iMargin, tDefenseIndex)
     local tResult
     for sLayer, _ in tLayers do
         local tPath = tCache and tCache[sLayer]
@@ -253,12 +319,14 @@ function GetLandObjectiveEdge(tStart, tEnd, tLayers, tDefenses, tCache, iMargin)
             if tCache then tCache[sLayer] = tPath end
         end
         if not(tPath) then return nil end
+        local tPathDefenses = tDefenses
+        if not(tDefenseIndex) then tPathDefenses = GetDefensesNearLandPath(tStart,tEnd,tPath,tDefenses,iMargin or 10) end
         local tPrevious = tStart
         for _, tPoint in tPath do
-            if not(IsLandSegmentOutsideKnownDefenses(tPrevious, tPoint, tDefenses, iMargin or 10, true)) then return nil end
+            if not(IsLandEdgeSegmentSafe(tPrevious, tPoint, tPathDefenses, iMargin or 10, tDefenseIndex)) then return nil end
             tPrevious = tPoint
         end
-        if not(IsLandSegmentOutsideKnownDefenses(tPrevious, tEnd, tDefenses, iMargin or 10, true)) then return nil end
+        if not(IsLandEdgeSegmentSafe(tPrevious, tEnd, tPathDefenses, iMargin or 10, tDefenseIndex)) then return nil end
         if not(tResult) then
             tResult = {}
             for _, tPoint in tPath do table.insert(tResult, tPoint) end
@@ -480,6 +548,9 @@ function SelectLandSupportObjective(tUnits, iPlateau, iSource, iTeam, tPrevious,
     end
     -- Dijkstra over existing adjacency, validating every native edge rather than
     -- selecting an attractive endpoint and then sending the army through the center.
+    -- Threat geometry is a snapshot for this synchronous search only. Never
+    -- retain its index on cached native edges or across objective reviews.
+    local tDefenseIndex = CreateLandDefenseIndex(tDefenses)
     local tCost, tParent, tEdges, tClosed = {[iSource]=0}, {}, {}, {}
     local bPathUnavailable = false
     local iSourceForward = tZones[iSource][M28Map.subrefLZTeamData][iTeam][M28Map.refiModDistancePercent] or 0
@@ -555,7 +626,7 @@ function SelectLandSupportObjective(tUnits, iPlateau, iSource, iTeam, tPrevious,
                     tZone.M28LandObjectiveEdges[iAdjacent] = tZone.M28LandObjectiveEdges[iAdjacent] or {}
                     tCache = tZone.M28LandObjectiveEdges[iAdjacent]
                 end
-                local tEdge, bUnavailable = GetLandObjectiveEdge(tFrom, tNext[M28Map.subrefMidpoint], tLayers, tDefenses, tCache)
+                local tEdge, bUnavailable = GetLandObjectiveEdge(tFrom, tNext[M28Map.subrefMidpoint], tLayers, tDefenses, tCache, nil, tDefenseIndex)
                 bPathUnavailable = bPathUnavailable or bUnavailable
                 if tEdge then
                     local iDistance, tLast = 0, tFrom
@@ -14184,19 +14255,30 @@ end
 function IsLandSegmentOutsideKnownDefenses(tStart, tEnd, tDefenses, iMargin, bAllowEscape)
     local dx, dz = tEnd[1]-tStart[1], tEnd[3]-tStart[3]
     local iLengthSquared = dx*dx+dz*dz
+    local iMinX, iMaxX = math.min(tStart[1],tEnd[1]), math.max(tStart[1],tEnd[1])
+    local iMinZ, iMaxZ = math.min(tStart[3],tEnd[3]), math.max(tStart[3],tEnd[3])
     for _, tDefense in tDefenses do
         if M28UnitInfo.IsUnitValid(tDefense.unit) and not(tDefense.unit:BeenDestroyed()) then
             local tPoint = tDefense.position
-            local iAlong = iLengthSquared > 0 and math.max(0, math.min(1,
-                ((tPoint[1]-tStart[1])*dx+(tPoint[3]-tStart[3])*dz)/iLengthSquared)) or 0
-            local px, pz = tStart[1]+dx*iAlong-tPoint[1], tStart[3]+dz*iAlong-tPoint[3]
-            local iClosest = math.sqrt(px*px+pz*pz)
-            local iStart = M28Utilities.GetDistanceBetweenPositions(tStart,tPoint)
-            local iEnd = M28Utilities.GetDistanceBetweenPositions(tEnd,tPoint)
-            local iRadius, iMinimum = tDefense.range+iMargin, math.max(0,(tDefense.minimum or 0)-iMargin)
-            local bEscaping = bAllowEscape and iStart <= iRadius and iStart >= iMinimum
-                and ((iEnd > iStart+0.25 and iClosest >= iStart-0.25) or (iMinimum > 0 and iEnd < iMinimum))
-            if iClosest <= iRadius and math.max(iStart,iEnd) >= iMinimum and not(bEscaping) then return false end
+            local iRadius = tDefense.range+iMargin
+            -- Broad phase only: the extra unit keeps rounding at a bounding edge
+            -- out of the exact contact/minimum-range/escape decision below.
+            local iBound = iRadius+1
+            if tPoint[1] >= iMinX-iBound and tPoint[1] <= iMaxX+iBound
+                    and tPoint[3] >= iMinZ-iBound and tPoint[3] <= iMaxZ+iBound then
+                local iAlong = iLengthSquared > 0 and math.max(0, math.min(1,
+                    ((tPoint[1]-tStart[1])*dx+(tPoint[3]-tStart[3])*dz)/iLengthSquared)) or 0
+                local px, pz = tStart[1]+dx*iAlong-tPoint[1], tStart[3]+dz*iAlong-tPoint[3]
+                local iClosest = math.sqrt(px*px+pz*pz)
+                if iClosest <= iRadius then
+                    local iStart = M28Utilities.GetDistanceBetweenPositions(tStart,tPoint)
+                    local iEnd = M28Utilities.GetDistanceBetweenPositions(tEnd,tPoint)
+                    local iMinimum = math.max(0,(tDefense.minimum or 0)-iMargin)
+                    local bEscaping = bAllowEscape and iStart <= iRadius and iStart >= iMinimum
+                        and ((iEnd > iStart+0.25 and iClosest >= iStart-0.25) or (iMinimum > 0 and iEnd < iMinimum))
+                    if math.max(iStart,iEnd) >= iMinimum and not(bEscaping) then return false end
+                end
+            end
         end
     end
     return true
