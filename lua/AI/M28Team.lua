@@ -1478,6 +1478,9 @@ function UpdateUnitLastKnownPosition(aiBrain, oUnit, bDontCheckIfCanSeeUnit, bIn
         oUnit[M28UnitInfo.reftLastContactTimeByTeam] = oUnit[M28UnitInfo.reftLastContactTimeByTeam] or {}
         oUnit[M28UnitInfo.reftLastKnownPositionByTeam][iTeam] = {tPosition[1], tPosition[2], tPosition[3]}
         oUnit[M28UnitInfo.reftLastContactTimeByTeam][iTeam] = GetGameTimeSeconds()
+        if aiBrain.M28AI and IsEnemy(aiBrain:GetArmyIndex(), oUnitBrain:GetArmyIndex()) then
+            UpdateEnemyTechTracking(iTeam, oUnit)
+        end
         if EntityCategoryContains(M28UnitInfo.refCategoryGroundAA, oUnit.UnitId) then
             tTeamData[iTeam][reftoKnownGroundAA] = tTeamData[iTeam][reftoKnownGroundAA] or {}
             tTeamData[iTeam][reftoKnownGroundAA][oUnit.EntityId] = oUnit
@@ -2446,7 +2449,6 @@ function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAl
 
                     if not(bAlreadyUpdatedPosition) then
                         UpdateUnitLastKnownPosition(aiBrain, oUnit, true)
-                        if IsEnemy(aiBrain:GetArmyIndex(), oUnit:GetAIBrain():GetArmyIndex()) and aiBrain.M28AI then UpdateEnemyTechTracking(aiBrain.M28Team, oUnit) end
                     end
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': aiBrain '..aiBrain.Nickname..' is Considering how to assign unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' that is owned by brain '..oUnit:GetAIBrain().Nickname..' at time '..GetGameTimeSeconds()..'; bPreviouslyConsidered='..tostring(bPreviouslyConsidered or false)) end
 
@@ -3204,9 +3206,9 @@ local function GetHQGrossMassPerBrain(iSourceTech, sMassBufferBypassReason, iFac
             elseif bUrgentBypass then iMassPerSecond = 50 end
             return iMassPerSecond * 0.1
         end
-        if bProductionMaturity then return 60 end
+        -- Match land/air T3 thresholds in the economy owner's mass-per-tick units.
         if bUrgentBypass then return 5 end
-        return 80
+        return (bProductionMaturity and 60 or 80) * 0.1
     end
     return nil
 end
@@ -3760,7 +3762,8 @@ function ConsiderPriorityNavalFactoryUpgrades(iM28Team, bIntentOnly)
 
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Start of code, time='..GetGameTimeSeconds()..'; tTeamData[iM28Team][subrefiHighestFriendlyNavalFactoryTech]='..tTeamData[iM28Team][subrefiHighestFriendlyNavalFactoryTech]) end
 
-    if tTeamData[iM28Team][subrefiHighestFriendlyNavalFactoryTech] > 0 and tTeamData[iM28Team][subrefiHighestFriendlyNavalFactoryTech] < 3 then
+    local iLowestSourceTech = GetLowestFriendlyHQSourceTech(iM28Team, M28UnitInfo.refCategoryNavalFactory)
+    if iLowestSourceTech > 0 and iLowestSourceTech < 3 then
         local bUpgradeStarted = false
         for iBrain, oBrain in tTeamData[iM28Team][subreftoFriendlyActiveM28Brains] do
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering brain '..oBrain.Nickname..'; Highest naval tech='..oBrain[M28Economy.refiOurHighestNavalFactoryTech]..'; Highest air tech='..oBrain[M28Economy.refiOurHighestAirFactoryTech]..'; Highest enemy naval tech='..tTeamData[iM28Team][subrefiHighestEnemyNavyTech]) end

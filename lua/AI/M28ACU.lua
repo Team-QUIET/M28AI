@@ -81,112 +81,114 @@ local function HasMeaningfulUpgradeLeadForACUStrength(oACU, iTeam, iRequiredHeal
     return iOurUpgrades >= 2 and iOurUpgrades - iEnemyMaxUpgrades >= (iMinimumUpgradeLead or 1) and M28UnitInfo.GetUnitHealthPercent(oACU) >= (iRequiredHealthPercent or 0.9)
 end
 
-local function GetBestFriendlyArmyAnchorForACURetreat(oACU, iTeam, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oOptionalPrimaryEnemy)
-    if iPlateauOrZero <= 0 or iLandOrWaterZone <= 0 or not(tLZOrWZData[M28Map.subrefLZPathingToOtherLandZones]) then
-        return nil, -100000
+local function VisitACUNearbyThreatZones(iPlateauOrZero, tZoneData, tZoneTeamData, iTeam, fnVisit)
+    fnVisit(tZoneTeamData)
+    local function VisitLand(iPlateau, iZone)
+        fnVisit(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iZone][M28Map.subrefLZTeamData][iTeam])
     end
+    local function VisitWater(iZone)
+        fnVisit(M28Map.tPondDetails[M28Map.tiPondByWaterZone[iZone]][M28Map.subrefPondWaterZones][iZone][M28Map.subrefWZTeamData][iTeam])
+    end
+    if iPlateauOrZero > 0 then
+        for _, iZone in tZoneData[M28Map.subrefLZAdjacentLandZones] or {} do VisitLand(iPlateauOrZero, iZone) end
+        for _, tAdjacent in tZoneData[M28Map.subrefAdjacentWaterZones] or {} do VisitWater(tAdjacent[M28Map.subrefAWZRef]) end
+    else
+        for _, tAdjacent in tZoneData[M28Map.subrefAdjacentLandZones] or {} do
+            local tLand = tAdjacent[M28Map.subrefWPlatAndLZNumber]
+            VisitLand(tLand[1], tLand[2])
+        end
+        for _, iZone in tZoneData[M28Map.subrefWZAdjacentWaterZones] or {} do VisitWater(iZone) end
+    end
+    for _, tLand in tZoneData[M28Map.subrefDangerousNearbyPlateauAndZones] or {} do VisitLand(tLand[1], tLand[2]) end
+end
 
-    local iACUThreat = oACU[M28UnitInfo.refiDFMassThreatOverride] or M28UnitInfo.GetCombatThreatRating({oACU}, false) or 0
-    local iCurrentModDist = tLZOrWZTeamData[M28Map.refiModDistancePercent] or 0
+local function GetACUPhysicalScreenThreat(oACU, tPosition, iRadius, tRequiredPosition)
+    local iCategory = categories.LAND * categories.MOBILE * (categories.DIRECTFIRE + categories.INDIRECTFIRE) - categories.COMMAND - categories.ENGINEER - categories.SCOUT
+    local tSupport = {}
+    for _, oUnit in oACU:GetAIBrain():GetUnitsAroundPoint(iCategory, tPosition, iRadius, 'Ally') or {} do
+        if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 and not(oUnit:IsUnitState('Attached'))
+                and (not(tRequiredPosition) or M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tRequiredPosition) <= iRadius) then
+            local sPathing = M28UnitInfo.GetUnitPathingType(oUnit)
+            local iLabel = NavUtils.GetTerrainLabel(sPathing, oUnit:GetPosition())
+            if iLabel and iLabel > 0 and iLabel == NavUtils.GetTerrainLabel(sPathing, tPosition) then table.insert(tSupport, oUnit) end
+        end
+    end
+    return M28UnitInfo.GetCombatThreatRating(tSupport, false, false) or 0
+end
+
+local function GetBestFriendlyArmyAnchorForACURetreat(oACU, iTeam, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, oOptionalPrimaryEnemy)
+    if iPlateauOrZero <= 0 or iLandOrWaterZone <= 0 or not(tLZOrWZData[M28Map.subrefLZPathingToOtherLandZones]) then return nil, -100000 end
+    local tPosition = oACU:GetPosition()
     local tPrimaryEnemyPosition
     if M28UnitInfo.IsUnitValid(oOptionalPrimaryEnemy) then
-        tPrimaryEnemyPosition = oOptionalPrimaryEnemy:GetPosition()
+        tPrimaryEnemyPosition = M28Intel.GetKnownThreatPosition(oACU:GetAIBrain(), oOptionalPrimaryEnemy, 60)
     end
-
     local function ScoreZoneAsArmyAnchor(tZoneData, tZoneTeamData, iTravelDist)
-        local iAllyMobileThreat = tZoneTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0
-        local iAllyCombatThreat = tZoneTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
-        local iEnemyCombatThreat = tZoneTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
-        local bCoreBase = tZoneTeamData[M28Map.subrefLZbCoreBase] or tZoneTeamData[M28Map.subrefWZbCoreBase]
-        if iAllyMobileThreat < 300 and iAllyCombatThreat < 700 and not(bCoreBase) then
-            return nil, -100000
-        end
-
-        local iScore = iAllyMobileThreat * 0.45 + iAllyCombatThreat * 0.08
-        if tZoneTeamData[M28Map.subrefbLZWantsDFSupport] then iScore = iScore + 220 end
-        if tZoneTeamData[M28Map.refbACUInTrouble] then iScore = iScore + 200 end
-        if bCoreBase then iScore = iScore + 280 end
-        iScore = iScore - iEnemyCombatThreat * 0.7 - iTravelDist * 2.2
-        if tZoneTeamData[M28Map.subrefbDangerousEnemiesInThisLZ] and iEnemyCombatThreat > iAllyMobileThreat + iACUThreat * 0.35 then
-            iScore = iScore - 450
-        end
-        if (tZoneTeamData[M28Map.refiModDistancePercent] or 0) > iCurrentModDist + 0.08 and iEnemyCombatThreat > iAllyMobileThreat then
-            iScore = iScore - 250
-        end
-        if tPrimaryEnemyPosition and not(bCoreBase) and M28Utilities.GetDistanceBetweenPositions(tZoneData[M28Map.subrefMidpoint], tPrimaryEnemyPosition) + 2 < M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tPrimaryEnemyPosition) then
-            iScore = iScore - 350
-        end
-
-        local tAnchorPosition = tZoneData[M28Map.subrefMidpoint]
-        if M28Utilities.IsTableEmpty(tZoneTeamData[M28Map.subreftoLZOrWZAlliedUnits]) == false then
-            local tCombatUnits = EntityCategoryFilterDown(M28UnitInfo.refCategoryLandCombat - M28UnitInfo.refCategoryLandScout - M28UnitInfo.refCategoryEngineer, tZoneTeamData[M28Map.subreftoLZOrWZAlliedUnits])
-            if M28Utilities.IsTableEmpty(tCombatUnits) == false then
-                local oAnchorUnit = M28Utilities.GetNearestUnit(tCombatUnits, oACU:GetPosition())
-                if M28UnitInfo.IsUnitValid(oAnchorUnit) then
-                    tAnchorPosition = oAnchorUnit:GetPosition()
-                    iScore = iScore + 120
+        -- A regional total (which includes commanders) cannot stand in for an actual screen.
+        local tCombatUnits = EntityCategoryFilterDown(categories.LAND * categories.MOBILE * (categories.DIRECTFIRE + categories.INDIRECTFIRE)
+                - categories.COMMAND - categories.ENGINEER - categories.SCOUT, tZoneTeamData[M28Map.subreftoLZOrWZAlliedUnits] or {})
+        local oAnchorUnit, iNearest = nil, math.huge
+        for _, oUnit in tCombatUnits do
+            if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 and not(oUnit:IsUnitState('Attached')) then
+                local tAnchor = oUnit:GetPosition()
+                local iDistance = M28Utilities.GetDistanceBetweenPositions(tPosition, tAnchor)
+                if iDistance > 8 and iDistance < iNearest and (not(tPrimaryEnemyPosition)
+                        or M28Utilities.GetDistanceBetweenPositions(tAnchor, tPrimaryEnemyPosition) >= M28Utilities.GetDistanceBetweenPositions(tPosition, tPrimaryEnemyPosition) + 5)
+                        and M28Utilities.GetTravelDistanceBetweenPositions(tPosition, tAnchor, M28Map.refPathingTypeHover) then
+                    oAnchorUnit, iNearest = oUnit, iDistance
                 end
             end
         end
+        if not(oAnchorUnit) then return nil, -100000 end
+        local tAnchorPosition = oAnchorUnit:GetPosition()
+        local bUnsupported, iScreen, iEnemy = GetACUAdvanceSupport(oACU, nil, iPlateauOrZero, tZoneData, tZoneTeamData, tAnchorPosition)
+        if bUnsupported or iScreen < math.max(300, iEnemy * 0.6) then return nil, -100000 end
+        local iScore = iScreen * 0.45 - iEnemy * 0.7 - math.max(iTravelDist, iNearest) * 2.2
+        if tZoneTeamData[M28Map.subrefLZbCoreBase] then iScore = iScore + 280 end
         return {tAnchorPosition[1], tAnchorPosition[2], tAnchorPosition[3]}, iScore
     end
-
-    local tBestAnchor
-    local iBestScore = -100000
-    local tCurrentAnchor, iCurrentScore = ScoreZoneAsArmyAnchor(tLZOrWZData, tLZOrWZTeamData, 0)
-    if iCurrentScore > iBestScore then
-        tBestAnchor = tCurrentAnchor
-        iBestScore = iCurrentScore
-    end
-
+    local tBestAnchor, iBestScore = ScoreZoneAsArmyAnchor(tLZOrWZData, tLZOrWZTeamData, 0)
     local iTravelThreshold = 180
     if M28UnitInfo.GetUnitHealthPercent(oACU) <= 0.65 then iTravelThreshold = 130 end
     for _, tPathData in tLZOrWZData[M28Map.subrefLZPathingToOtherLandZones] do
         if tPathData[M28Map.subrefLZTravelDist] > iTravelThreshold then break end
-        local iAdjLZ = tPathData[M28Map.subrefLZNumber]
-        local tAdjLZData = M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iAdjLZ]
-        local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][iTeam]
-        local tCurAnchor, iCurScore = ScoreZoneAsArmyAnchor(tAdjLZData, tAdjLZTeamData, tPathData[M28Map.subrefLZTravelDist])
-        if iCurScore > iBestScore then
-            tBestAnchor = tCurAnchor
-            iBestScore = iCurScore
-        end
+        local tZoneData = M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][tPathData[M28Map.subrefLZNumber]]
+        local tAnchor, iScore = ScoreZoneAsArmyAnchor(tZoneData, tZoneData[M28Map.subrefLZTeamData][iTeam], tPathData[M28Map.subrefLZTravelDist])
+        if iScore > iBestScore then tBestAnchor, iBestScore = tAnchor, iScore end
     end
     return tBestAnchor, iBestScore
 end
 
 local function ResolveACURetreatPoint(oACU, iTeam, iPlateauOrZero, iLandOrWaterZone, tLZOrWZData, tLZOrWZTeamData, tDefaultRallyPoint, oOptionalPrimaryEnemy, bPreferBase)
     local tClosestFriendlyBase = tLZOrWZTeamData[M28Map.reftClosestFriendlyBase]
+    local bBaseReachable = M28Conditions.BaseIsSafeToRetreatTo(tClosestFriendlyBase, iTeam)
+            and M28Utilities.GetTravelDistanceBetweenPositions(oACU:GetPosition(), tClosestFriendlyBase, M28Map.refPathingTypeHover)
     if M28Utilities.IsTableEmpty(tDefaultRallyPoint) then
-        if M28Conditions.BaseIsSafeToRetreatTo(tClosestFriendlyBase, iTeam) then
+        if bBaseReachable then
             return {tClosestFriendlyBase[1], tClosestFriendlyBase[2], tClosestFriendlyBase[3]}, 'BaseFallback', true
         end
         return nil, 'NoRetreatPoint', true
     end
 
     local tResolvedPoint = {tDefaultRallyPoint[1], tDefaultRallyPoint[2], tDefaultRallyPoint[3]}
-    local iACUThreat = oACU[M28UnitInfo.refiDFMassThreatOverride] or M28UnitInfo.GetCombatThreatRating({oACU}, false) or 0
     local iHealthPercent = M28UnitInfo.GetUnitHealthPercent(oACU)
     local bDefaultUnsafe = false
 
-    local _, tDefaultZoneTeamData = M28Map.GetLandOrWaterZoneData(tResolvedPoint, true, iTeam)
+    local tDefaultZoneData, tDefaultZoneTeamData = M28Map.GetLandOrWaterZoneData(tResolvedPoint, true, iTeam)
     if tDefaultZoneTeamData then
-        local iDefaultEnemyThreat = tDefaultZoneTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0
-        local iDefaultAllyCombat = tDefaultZoneTeamData[M28Map.subrefLZTThreatAllyCombatTotal] or 0
-        local iDefaultAllyMobile = tDefaultZoneTeamData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0
+        local iDefaultPlateau = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tResolvedPoint)
+        local bUnsupported, iScreen = GetACUAdvanceSupport(oACU, nil, iDefaultPlateau, tDefaultZoneData, tDefaultZoneTeamData, tResolvedPoint)
         local bDefaultCoreBase = tDefaultZoneTeamData[M28Map.subrefLZbCoreBase] or tDefaultZoneTeamData[M28Map.subrefWZbCoreBase]
-        if not(bDefaultCoreBase) and iDefaultEnemyThreat > math.max(600, iDefaultAllyCombat + iACUThreat * 0.25) then
-            bDefaultUnsafe = true
-        end
-        if iDefaultAllyMobile < 250 and iDefaultAllyCombat < 450 and M28Utilities.GetDistanceBetweenPositions(tResolvedPoint, tClosestFriendlyBase) >= 55 and not(bDefaultCoreBase) then
-            bDefaultUnsafe = true
-        end
+        bDefaultUnsafe = bUnsupported or (not(bDefaultCoreBase) and iScreen < 300
+                and tClosestFriendlyBase and M28Utilities.GetDistanceBetweenPositions(tResolvedPoint, tClosestFriendlyBase) >= 55)
     end
-    if M28UnitInfo.IsUnitValid(oOptionalPrimaryEnemy) and M28Utilities.GetDistanceBetweenPositions(tResolvedPoint, oOptionalPrimaryEnemy:GetPosition()) + 4 < M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), oOptionalPrimaryEnemy:GetPosition()) then
-        bDefaultUnsafe = true
+    if not(M28Utilities.GetTravelDistanceBetweenPositions(oACU:GetPosition(), tResolvedPoint, M28Map.refPathingTypeHover)) then bDefaultUnsafe = true end
+    if M28UnitInfo.IsUnitValid(oOptionalPrimaryEnemy) then
+        local tKnown = M28Intel.GetKnownThreatPosition(oACU:GetAIBrain(), oOptionalPrimaryEnemy, 60)
+        if tKnown and M28Utilities.GetDistanceBetweenPositions(tResolvedPoint, tKnown) + 4 < M28Utilities.GetDistanceBetweenPositions(oACU:GetPosition(), tKnown) then bDefaultUnsafe = true end
     end
 
-    if (bPreferBase or iHealthPercent <= 0.55) and M28Conditions.BaseIsSafeToRetreatTo(tClosestFriendlyBase, iTeam) then
+    if (bPreferBase or iHealthPercent <= 0.55) and bBaseReachable then
         return {tClosestFriendlyBase[1], tClosestFriendlyBase[2], tClosestFriendlyBase[3]}, 'BaseLowHealth', true
     end
 
@@ -194,7 +196,7 @@ local function ResolveACURetreatPoint(oACU, iTeam, iPlateauOrZero, iLandOrWaterZ
     if tArmyAnchor and iHealthPercent > 0.45 and (bDefaultUnsafe or iArmyAnchorScore >= 420) then
         return tArmyAnchor, 'ArmyAnchor', bDefaultUnsafe
     end
-    if bDefaultUnsafe and M28Conditions.BaseIsSafeToRetreatTo(tClosestFriendlyBase, iTeam) then
+    if bDefaultUnsafe and bBaseReachable then
         return {tClosestFriendlyBase[1], tClosestFriendlyBase[2], tClosestFriendlyBase[3]}, 'BaseUnsafeRally', true
     end
     return tResolvedPoint, 'Default', bDefaultUnsafe
@@ -413,7 +415,7 @@ end
 local function GetCommittedACURetreatPoint(oACU, iPlateauOrZero, tLZOrWZData, tLZOrWZTeamData)
     local tGoal = oACU[reftLastRallyPointRanTo]
     local iNow = GetGameTimeSeconds()
-    if iPlateauOrZero <= 0 or not(tGoal) or iNow >= (oACU.M28ACURetreatUntil or 0) or iNow - (oACU[refiTimeLastWantedToRun] or -100) > 12 then return nil end
+    if not(tGoal) or iNow >= (oACU.M28ACURetreatUntil or 0) or iNow - (oACU[refiTimeLastWantedToRun] or -100) > 12 then return nil end
     local tPosition = oACU:GetPosition()
     local iX, iZ = tGoal[1] - tPosition[1], tGoal[3] - tPosition[3]
     local iLengthSquared = iX * iX + iZ * iZ
@@ -437,10 +439,11 @@ local function GetCommittedACURetreatPoint(oACU, iPlateauOrZero, tLZOrWZData, tL
         end
         return false
     end
-    if IsCorridorExposed(tLZOrWZTeamData) then return nil end
-    for _, iAdjacent in tLZOrWZData[M28Map.subrefLZAdjacentLandZones] or {} do
-        if IsCorridorExposed(M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iAdjacent][M28Map.subrefLZTeamData][iTeam]) then return nil end
-    end
+    local bExposed = false
+    VisitACUNearbyThreatZones(iPlateauOrZero, tLZOrWZData, tLZOrWZTeamData, iTeam, function(tZoneTeamData)
+        if not(bExposed) and IsCorridorExposed(tZoneTeamData) then bExposed = true end
+    end)
+    if bExposed then return nil end
     return tGoal
 end
 
@@ -4453,29 +4456,21 @@ function IsACUAdvanceUnsupported(iFriendlyThreat, iEnemyThreat, iACUThreat, iHea
     return iEnemyThreat >= iSoloThreatLimit and iFriendlyThreat < math.max(250, iEnemyThreat * 0.6)
 end
 
-function GetACUAdvanceSupport(oACU, oTarget, iPlateau, tLZData, tLZTeamData)
-    if iPlateau <= 0 then return false, 0, 0 end
+function GetACUAdvanceSupport(oACU, oTarget, iPlateau, tLZData, tLZTeamData, tOptionalPosition)
     local aiBrain = oACU:GetAIBrain()
     local tPosition = oACU:GetPosition()
     local tBase = tLZTeamData[M28Map.reftClosestFriendlyBase]
-    if tBase and M28Utilities.GetDistanceBetweenPositions(tPosition, tBase) <= 35
+    if not(tOptionalPosition) and tBase and M28Utilities.GetDistanceBetweenPositions(tPosition, tBase) <= 35
             and M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.7 then return false, 0, 0 end
-    local tTarget = oTarget and oTarget:GetPosition() or tPosition
+    local tTarget = oTarget and M28Intel.GetKnownThreatPosition(aiBrain, oTarget, 60) or tPosition
+    tTarget = tTarget or tPosition
     local iDistance = M28Utilities.GetDistanceBetweenPositions(tPosition, tTarget)
     local iStep = math.min(20, math.max(0, iDistance - (oACU[M28UnitInfo.refiDFRange] or 24) + 2))
     local iScale = iStep / math.max(1, iDistance)
     local tApproach = {tPosition[1] + (tTarget[1] - tPosition[1]) * iScale, tPosition[2], tPosition[3] + (tTarget[3] - tPosition[3]) * iScale}
     local iCategory = categories.LAND * categories.MOBILE * (categories.DIRECTFIRE + categories.INDIRECTFIRE) - categories.COMMAND - categories.ENGINEER - categories.SCOUT
-    local tSupport = {}
-    -- Count troops that can support the next approach, rather than an entire zone's army.
-    for _, oUnit in aiBrain:GetUnitsAroundPoint(iCategory, tPosition, 40, 'Ally') or {} do
-        if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1 and not(oUnit:IsUnitState('Attached'))
-                and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tApproach) <= 40 then
-            local sPathing = M28UnitInfo.GetUnitPathingType(oUnit)
-            local iLabel = NavUtils.GetTerrainLabel(sPathing, oUnit:GetPosition())
-            if iLabel and iLabel > 0 and iLabel == NavUtils.GetTerrainLabel(sPathing, tApproach) then table.insert(tSupport, oUnit) end
-        end
-    end
+    if tOptionalPosition then tApproach = tOptionalPosition end
+    local iFriendly = GetACUPhysicalScreenThreat(oACU, tApproach, 40, not(tOptionalPosition) and tPosition or nil)
     local tEnemies, tSeen = {}, {}
     local iRememberedThreat = 0
     local iEnemyCategory = iCategory + M28UnitInfo.refCategoryPD
@@ -4492,12 +4487,8 @@ function GetACUAdvanceSupport(oACU, oTarget, iPlateau, tLZData, tLZTeamData)
             end
         end
     end
-    AddKnownEnemies(tLZTeamData)
+    VisitACUNearbyThreatZones(iPlateau, tLZData, tLZTeamData, aiBrain.M28Team, AddKnownEnemies)
     AddKnownEnemies({[M28Map.subrefTEnemyUnits] = aiBrain:GetUnitsAroundPoint(iEnemyCategory, tApproach, 80, 'Enemy')})
-    for _, iAdjacent in tLZData[M28Map.subrefLZAdjacentLandZones] or {} do
-        AddKnownEnemies(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjacent][M28Map.subrefLZTeamData][aiBrain.M28Team])
-    end
-    local iFriendly = M28UnitInfo.GetCombatThreatRating(tSupport, false, false) or 0
     local iEnemy = (M28UnitInfo.GetCombatThreatRating(tEnemies, false, false) or 0) + iRememberedThreat
     if iRememberedThreat >= 250 then
         local iTargetPlateau, iTargetZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tApproach)
@@ -5283,8 +5274,17 @@ function GetACUArmyAdvanceBonus(iHealth, iFriendlyMobile, iEnemyThreat, iPDThrea
     return math.min(900, 300 + iFriendlyMobile * 0.3) / (1 + iTravelDistance / 225)
 end
 
+local function CanACUAdvanceToZone(oACU, iPlateau, tZoneData, tZoneTeamData)
+    local tDestination = tZoneData[M28Map.subrefMidpoint]
+    if not(M28Utilities.GetTravelDistanceBetweenPositions(oACU:GetPosition(), tDestination, M28Map.refPathingTypeHover)) then return false end
+    local bUnsupported, iScreen, iLocalEnemy = GetACUAdvanceSupport(oACU, nil, iPlateau, tZoneData, tZoneTeamData, tDestination)
+    local iKnownEnemy = math.max(iLocalEnemy, tZoneTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)
+    local iACUThreat = oACU[M28UnitInfo.refiDFMassThreatOverride] or M28UnitInfo.GetCombatThreatRating({oACU}, false, false)
+    return not(bUnsupported) and not(IsACUAdvanceUnsupported(iScreen, iKnownEnemy, iACUThreat, M28UnitInfo.GetUnitHealthPercent(oACU)))
+end
+
 function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
-    --COnsiders the land zone we want to support with the ACU - get the LZ within 175 travel distance that has the greatest value, wants DF support, and has less than 800 enemy threat in it
+    -- Rank support and economic opportunities only after admitting the physical destination screen.
     local sFunctionRef = 'MoveToOtherLandZone'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelACU, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -5406,7 +5406,7 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
             if tPathingDetails[M28Map.subrefLZTravelDist] < iHighValueDistanceThreshold then
                 local tAdjLZTeamData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam]
                 local tAdjLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ]
-                if tAdjLZTeamData[M28Map.subrefbLZWantsDFSupport] then
+                if tAdjLZTeamData[M28Map.subrefbLZWantsDFSupport] and CanACUAdvanceToZone(oACU, iPlateau, tAdjLZData, tAdjLZTeamData) then
                     iCurValue = tAdjLZTeamData[M28Map.subrefLZTValue]
                     local iArmyCallBonus, iEnemyACUThreat, iClosestEnemyACUDist = GetArmyCallBonusForACUZone(tAdjLZData, tAdjLZTeamData, iAdjLZ)
                     if iArmyCallBonus > 0 then
@@ -5424,7 +5424,7 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
                         local bZoneHasNoEnemies = M28Utilities.IsTableEmpty(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam][M28Map.subrefTEnemyUnits])
                         if not(oACU[reftiTimeLastRanFromZoneByPlateau][iPlateau][iAdjLZ]) or GetGameTimeSeconds() - oACU[reftiTimeLastRanFromZoneByPlateau][iPlateau][iAdjLZ] > iSecondsToIgnoreZonesRecentlyRunFrom or bZoneHasNoEnemies then
                             if not(oACU[refiLastPlateauAndZoneToAttackUnitIn][2] == iAdjLZ) or not(oACU[refiLastPlateauAndZoneToAttackUnitIn][1] == iPlateau) or GetGameTimeSeconds() - (oACU[refiTimeLastToldToAttackUnitInOtherZone] or -100) > 30 then
-                                iHighestValueAmount = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ][M28Map.subrefLZTeamData][iTeam][M28Map.subrefLZTValue]
+                                iHighestValueAmount = iCurValue
                                 iLZToMoveTo = iAdjLZ
                             end
                         end
@@ -5449,6 +5449,7 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
                 local iCurValue = 0
                 local tAdjLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iAdjLZ]
                 local tAdjLZTeamData = tAdjLZData[M28Map.subrefLZTeamData][iTeam]
+                if not(CanACUAdvanceToZone(oACU, iPlateau, tAdjLZData, tAdjLZTeamData)) then return 0 end
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering zone '..iAdjLZ..'; Travel dist='..iCurTravelDist..'; Dangerous enemies here='..tostring(tAdjLZTeamData[M28Map.subrefbDangerousEnemiesInThisLZ])..'; tAdjLZTeamData[M28Map.subrefbLZWantsDFSupport]='..tostring(tAdjLZTeamData[M28Map.subrefbLZWantsDFSupport] or false)..'; Is table of unbuilt mexes empty='..tostring(M28Utilities.IsTableEmpty(tAdjLZData[M28Map.subrefMexUnbuiltLocations]))..'; Core base='..tostring(tAdjLZTeamData[M28Map.subrefLZbCoreBase])..'; iNearestPotentialExpansionPoint='..(iNearestPotentialExpansionPoint or 'nil')..'; Total mass reclaim='..(tAdjLZData[M28Map.subrefTotalMassReclaim] or 'nil')..'; subrefTThreatEnemyCombatTotal='..(tAdjLZTeamData[M28Map.subrefTThreatEnemyCombatTotal] or 0)..'; Mod dist%='..tAdjLZTeamData[M28Map.refiModDistancePercent]) end
 
                 local iFactoryCount = 0
@@ -5767,7 +5768,9 @@ function MoveToOtherLandZone(iPlateau, tLZData, iLandZone, oACU)
         end
     end
     if iLZToMoveTo then
-        if M28Overseer.bNoRushActive and not(M28Conditions.IsLocationInNoRushArea(M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLZToMoveTo][M28Map.subrefMidpoint])) then
+        local tDestinationData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLZToMoveTo]
+        if not(CanACUAdvanceToZone(oACU, iPlateau, tDestinationData, tDestinationData[M28Map.subrefLZTeamData][iTeam]))
+                or (M28Overseer.bNoRushActive and not(M28Conditions.IsLocationInNoRushArea(tDestinationData[M28Map.subrefMidpoint]))) then
             iLZToMoveTo = nil
         else
             M28Orders.IssueTrackedMove(oACU, M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLZToMoveTo][M28Map.subrefMidpoint], 6, false, 'ACMLZ'..iLZToMoveTo, false)
@@ -8585,26 +8588,26 @@ end
 
 
 function GetACUKnownLandThreatTiming(iPlateauOrZero, tLZOrWZData, tLZOrWZTeamData, oACU)
-    if iPlateauOrZero <= 0 then return nil end
     local iTeam = oACU:GetAIBrain().M28Team
     local tPosition = oACU:GetPosition()
     local tRetreatPosition = tLZOrWZTeamData[M28Map.reftClosestFriendlyBase]
+    if tRetreatPosition and (not(M28Conditions.BaseIsSafeToRetreatTo(tRetreatPosition, iTeam))
+            or not(M28Utilities.GetTravelDistanceBetweenPositions(tPosition, tRetreatPosition, M28Map.refPathingTypeHover))) then tRetreatPosition = nil end
     local iSpeed = math.max(1, oACU:GetBlueprint().Physics.MaxSpeed or 1)
-    -- Match the existing retreat owner's local withdrawal and bounded base travel margin.
+    -- Match the existing retreat owner
     local iEscapeSeconds = 20 / iSpeed
     if tRetreatPosition then
         iEscapeSeconds = math.max(iEscapeSeconds, math.min(45, M28Utilities.GetDistanceBetweenPositions(tPosition, tRetreatPosition) / iSpeed))
     end
     local iHorizon = math.max(15, iEscapeSeconds)
-    local tContacts, tSeenEnemies, tSeenAllies, tOneUnit = {}, {}, {}, {}
-    local iScreenThreat = 0
+    local tContacts, tSeenEnemies, tOneUnit = {}, {}, {}
+    local iScreenThreat = GetACUPhysicalScreenThreat(oACU, tPosition, 35)
     local function ConsiderZone(tZoneTeamData)
         for _, oEnemy in tZoneTeamData[M28Map.reftoNearestCombatEnemies] or {} do
             if not(tSeenEnemies[oEnemy]) and M28UnitInfo.IsUnitValid(oEnemy) and EntityCategoryContains(categories.MOBILE * categories.LAND, oEnemy.UnitId) then
                 tSeenEnemies[oEnemy] = true
                 -- Never sample a hidden unit's live position/velocity to anticipate its approach.
-                local tKnown = oEnemy[M28UnitInfo.reftLastKnownPositionByTeam]
-                tKnown = tKnown and tKnown[iTeam]
+                local tKnown, iConfidence = M28Intel.GetKnownThreatPosition(oACU:GetAIBrain(), oEnemy, 60)
                 local iRange = math.max(oEnemy[M28UnitInfo.refiDFRange] or 0, oEnemy[M28UnitInfo.refiIndirectRange] or 0)
                 if tKnown and iRange > 0 then
                     local iGap = math.max(0, M28Utilities.GetDistanceBetweenPositions(tPosition, tKnown) - iRange)
@@ -8615,26 +8618,13 @@ function GetACUKnownLandThreatTiming(iPlateauOrZero, tLZOrWZData, tLZOrWZTeamDat
                     end
                     if iContact <= iHorizon then
                         tOneUnit[1] = oEnemy
-                        table.insert(tContacts, {seconds = iContact, threat = M28UnitInfo.GetCombatThreatRating(tOneUnit, true, false)})
+                        table.insert(tContacts, {seconds = iContact, threat = M28UnitInfo.GetCombatThreatRating(tOneUnit, true, false) * iConfidence})
                     end
                 end
             end
         end
-        for _, oAlly in tZoneTeamData[M28Map.subreftoLZOrWZAlliedUnits] or {} do
-            if oAlly ~= oACU and not(tSeenAllies[oAlly]) and M28UnitInfo.IsUnitValid(oAlly) and oAlly:GetFractionComplete() == 1 and EntityCategoryContains(categories.MOBILE * categories.LAND, oAlly.UnitId) then
-                tSeenAllies[oAlly] = true
-                -- Nearby screen only; land defense separately admits reinforcements by travel time.
-                if M28Utilities.GetDistanceBetweenPositions(tPosition, oAlly:GetPosition()) <= 35 then
-                    tOneUnit[1] = oAlly
-                    iScreenThreat = iScreenThreat + M28UnitInfo.GetCombatThreatRating(tOneUnit, false, false)
-                end
-            end
-        end
     end
-    ConsiderZone(tLZOrWZTeamData)
-    for _, iAdjacent in tLZOrWZData[M28Map.subrefLZAdjacentLandZones] or {} do
-        ConsiderZone(M28Map.tAllPlateaus[iPlateauOrZero][M28Map.subrefPlateauLandZones][iAdjacent][M28Map.subrefLZTeamData][iTeam])
-    end
+    VisitACUNearbyThreatZones(iPlateauOrZero, tLZOrWZData, tLZOrWZTeamData, iTeam, ConsiderZone)
     local iThreatRatio = 0.8
     if oACU[refbUseACUAggressively] then iThreatRatio = 1.1 end
     if M28UnitInfo.GetUnitHealthPercent(oACU) >= 0.75 then iThreatRatio = iThreatRatio * 1.26 end

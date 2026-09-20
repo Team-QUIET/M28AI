@@ -489,42 +489,59 @@ end
 function GetLandCommanderSupportPlan(tUnits, iPlateau, iSource, iTeam, tLayers, tDefenses, iForce, tPrevious, tExcluded)
     local iNow = GetGameTimeSeconds()
     local tBest, tRequestedZones
-    for iZone, tZone in M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones] do
+    local tZones = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones]
+    local tCommanders, tRetreatOnly = {}, {}
+    for iZone, tZone in tZones do
+        for _, oACU in tZone[M28Map.subrefLZTeamData][iTeam][M28Map.subrefAlliedACU] or {} do
+            tCommanders[oACU] = iZone
+        end
+    end
+    -- A water-zone ACU can still need a screen at its actual land retreat.
+    -- Keep that rendezvous in this allocator and its existing incoming ledger.
+    for _, oACU in M28Team.tTeamData[iTeam][M28Team.reftM28ACUs] or {} do
+        local tRequest = M28UnitInfo.IsUnitValid(oACU) and oACU[M28ACU.reftEmergencySupportRequest]
+        if not(tCommanders[oACU]) and tRequest and tRequest.retreatPosition then
+            local iRetreatPlateau, iRetreatZone = M28Map.GetPlateauAndLandZoneReferenceFromPosition(tRequest.retreatPosition)
+            if iRetreatPlateau == iPlateau and tZones[iRetreatZone] then
+                tCommanders[oACU], tRetreatOnly[oACU] = iRetreatZone, true
+            end
+        end
+    end
+    for oACU, iZone in tCommanders do
+        local tZone = tZones[iZone]
         local tData = tZone[M28Map.subrefLZTeamData][iTeam]
-        for _, oACU in tData[M28Map.subrefAlliedACU] or {} do
-            local tRequest = M28UnitInfo.IsUnitValid(oACU) and oACU[M28ACU.reftEmergencySupportRequest]
-            if tRequest and not(tZone[M28Map.subrefbPacifistArea]) then
-                tRequestedZones = tRequestedZones or {}
-                tRequestedZones[iZone] = true
-                local iIncoming = 0
-                for tGroup, _ in tData.M28LandSupportGroups or {} do
-                    if tGroup ~= tPrevious and tGroup.commander == oACU and UpdateLandObjectiveProgress(tGroup) then
-                        iIncoming = iIncoming + tGroup.arrivingThreat
-                    end
+        local tRequest = M28UnitInfo.IsUnitValid(oACU) and oACU[M28ACU.reftEmergencySupportRequest]
+        if tRequest and not(tZone[M28Map.subrefbPacifistArea]) then
+            tRequestedZones = tRequestedZones or {}
+            tRequestedZones[iZone] = true
+            local iIncoming = 0
+            for tGroup, _ in tData.M28LandSupportGroups or {} do
+                if tGroup ~= tPrevious and tGroup.commander == oACU and UpdateLandObjectiveProgress(tGroup) then
+                    iIncoming = iIncoming + tGroup.arrivingThreat
                 end
-                local iNeeded = tRequest.threat - iIncoming
-                if iNeeded > 0 and iForce >= iNeeded and not(tExcluded and tExcluded[iZone]) then
-                    -- Try the current screen first, then a rendezvous on the ACU's actual retreat.
-                    for iGoal = 1, 2 do
-                        local tGoal = iGoal == 1 and tRequest.position or tRequest.retreatPosition
-                        local iDeadline = GetLandCommanderSupportDeadline(oACU,tRequest,iGoal==2)
-                        if tGoal and iDeadline > iNow
-                                and (not(M28Map.bIsCampaignMap) or M28Conditions.IsLocationInPlayableArea(tGoal)) then
-                            local tPath = GetLandObjectiveEdge(tUnits[1]:GetPosition(),tGoal,tLayers,tDefenses)
-                            local iArrival = tPath and GetLandObjectiveArrivalSeconds(tUnits,tPath)
-                            if iArrival and iNow+iArrival <= iDeadline then
-                                if not(tBest) or tRequest.deadline < tBest.contactDeadline
-                                        or tRequest.deadline == tBest.contactDeadline and iArrival < tBest.arrivalSeconds then
-                                    local tPathZones = {}
-                                    for i = 1, table.getn(tPath) do tPathZones[i] = iZone end
-                                    tBest = {target=iZone,source=iSource,plateau=iPlateau,team=iTeam,required=iNeeded,
-                                        defense=M28ACU.GetValueIncreaseForACUInTrouble(iTeam),response=tRequest.threat,
-                                        path=tPath,pathZones=tPathZones,progress={},origin=tUnits[1]:GetPosition(),advance=true,
-                                        commander=oACU,arrivalDeadline=iDeadline,contactDeadline=tRequest.deadline,
-                                        arrivalSeconds=iArrival,retreatRendezvous=iGoal==2}
-                                end
-                                break
+            end
+            local iNeeded = tRequest.threat - iIncoming
+            if iNeeded > 0 and iForce >= iNeeded and not(tExcluded and tExcluded[iZone]) then
+                -- Try the current screen first, then a rendezvous on the ACU's actual retreat.
+                for iGoal = tRetreatOnly[oACU] and 2 or 1, 2 do
+                    local tGoal = iGoal == 1 and tRequest.position or tRequest.retreatPosition
+                    local iDeadline = GetLandCommanderSupportDeadline(oACU,tRequest,iGoal==2)
+                    if tGoal and iDeadline > iNow
+                            and (not(M28Map.bIsCampaignMap) or M28Conditions.IsLocationInPlayableArea(tGoal)) then
+                        local tPath = GetLandObjectiveEdge(tUnits[1]:GetPosition(),tGoal,tLayers,tDefenses)
+                        local iArrival = tPath and GetLandObjectiveArrivalSeconds(tUnits,tPath)
+                        if iArrival and iNow+iArrival <= iDeadline then
+                            if not(tBest) or tRequest.deadline < tBest.contactDeadline
+                                    or tRequest.deadline == tBest.contactDeadline and iArrival < tBest.arrivalSeconds then
+                                local tPathZones = {}
+                                for i = 1, table.getn(tPath) do tPathZones[i] = iZone end
+                                tBest = {target=iZone,source=iSource,plateau=iPlateau,team=iTeam,required=iNeeded,
+                                    defense=M28ACU.GetValueIncreaseForACUInTrouble(iTeam),response=tRequest.threat,
+                                    path=tPath,pathZones=tPathZones,progress={},origin=tUnits[1]:GetPosition(),advance=true,
+                                    commander=oACU,arrivalDeadline=iDeadline,contactDeadline=tRequest.deadline,
+                                    arrivalSeconds=iArrival,retreatRendezvous=iGoal==2}
                             end
+                            break
                         end
                     end
                 end
@@ -677,6 +694,28 @@ function HasLandObjectiveLocalWork(oUnit, iPlateau, iSource, iTeam)
     return false
 end
 
+function InitializeLandObjectiveProgress(tGroup, tUnits)
+    tGroup.units = tUnits
+    tGroup.untilTime = GetGameTimeSeconds() + 90
+    tGroup.travelProgress = {}
+    for _, oUnit in tUnits do
+        local tPoint, iPoint = GetLandObjectiveWaypoint(tGroup,oUnit)
+        tGroup.travelProgress[oUnit] = {point=iPoint, distance=tPoint and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(),tPoint) or 0, untilTime=tGroup.untilTime}
+    end
+end
+
+function ReleaseStalledLandObjectiveOrder(oUnit, tGroup)
+    local tProgress = tGroup.travelProgress[oUnit]
+    if tProgress and GetGameTimeSeconds() >= (tProgress.untilTime or tGroup.untilTime)
+            and tProgress.order and (oUnit[M28Orders.reftiLastOrders] or {})[1] == tProgress.order
+            and IsLandObjectiveMemberAvailable(oUnit) and not(ShouldPreserveArtilleryEngagement(oUnit)) then
+        -- Cancellation must reach the native queue: a same-goal replacement is
+        -- otherwise suppressed by the tracked move's normal deduplication.
+        M28Orders.IssueTrackedClearCommands(oUnit)
+        oUnit.M28AssemblyOrder = nil
+    end
+end
+
 function UpdateLandObjectiveProgress(tGroup)
     if tGroup.cancelled then return false end
     local iNow = GetGameTimeSeconds()
@@ -692,7 +731,7 @@ function UpdateLandObjectiveProgress(tGroup)
     local bActive = false
     local iPreviousExpiry = tGroup.untilTime
     for _, oUnit in tGroup.units do
-        if oUnit.M28LandObjective == tGroup and IsLandObjectiveMemberAvailable(oUnit) then
+        if (oUnit.M28LandObjective == tGroup or tGroup.assembly and oUnit.M28LandAssemblyRoute == tGroup) and IsLandObjectiveMemberAvailable(oUnit) then
             bActive = true
             local tPoint, iPoint = GetLandObjectiveWaypoint(tGroup,oUnit)
             local iDistance = tPoint and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(),tPoint) or 0
@@ -704,7 +743,7 @@ function UpdateLandObjectiveProgress(tGroup)
                 tGroup.untilTime = math.max(tGroup.untilTime, tProgress.untilTime)
             end
             -- A moving peer cannot keep a physically stalled member committed.
-            if iNow >= (tProgress.untilTime or iPreviousExpiry) then
+            if (tPoint or not(tGroup.assembly)) and iNow >= (tProgress.untilTime or iPreviousExpiry) then
                 tGroup.cancelled = true
                 return false
             end
@@ -716,7 +755,7 @@ function UpdateLandObjectiveProgress(tGroup)
         tGroup.arrivingThreat = iThreat
         if iNow+iArrival > tGroup.arrivalDeadline then tGroup.cancelled = true end
     end
-    if not(bActive) or iNow >= tGroup.untilTime then tGroup.cancelled = true end
+    if not(bActive) or not(tGroup.assembly) and iNow >= tGroup.untilTime then tGroup.cancelled = true end
     return not(tGroup.cancelled)
 end
 
@@ -768,6 +807,16 @@ function GetLandObjectiveAssignments(tUnits, iPlateau, iSource, iTeam)
                     -- Commander rescue is rechecked by actual arrival, not only a changed score.
                     tGroup.defensePressure[iZone] = iPressure > 500 and iPressure or nil
                 end
+                if not(bUrgentDefense) and not(tGroup.commander) then
+                    -- Water-zone requests have no land-zone trouble flag. The
+                    -- selector still admits only a timely, safe land rendezvous.
+                    for _, oACU in M28Team.tTeamData[iTeam][M28Team.reftM28ACUs] or {} do
+                        if M28UnitInfo.IsUnitValid(oACU) and oACU[M28ACU.reftEmergencySupportRequest] then
+                            bUrgentDefense = true
+                            break
+                        end
+                    end
+                end
                 if not(tGroup.cancelled) and bUrgentDefense then
                     local tLeadZone = tMembers[1][M28UnitInfo.reftAssignedPlateauAndLandZoneByTeam][iTeam]
                     local tPlan = SelectLandSupportObjective(tMembers,iPlateau,tLeadZone[2],iTeam,tGroup)
@@ -782,6 +831,7 @@ function GetLandObjectiveAssignments(tUnits, iPlateau, iSource, iTeam)
     end
     for _, oUnit in tUnits do
         if oUnit.M28LandObjective and oUnit.M28LandObjective.cancelled then
+            ReleaseStalledLandObjectiveOrder(oUnit,oUnit.M28LandObjective)
             oUnit.M28LandObjective = nil
             ClearLandCombatIntent(oUnit)
             if oUnit.M28LandTacticalMove and not(oUnit.M28LandTacticalMove.support) then oUnit.M28LandTacticalMove = nil end
@@ -844,15 +894,8 @@ function GetLandObjectiveAssignments(tUnits, iPlateau, iSource, iTeam)
                 else table.insert(tRemaining,oUnit) end
             end
         end
-        tPlan.units = tSelected
-        -- The lease bounds stalled travel, not total journey duration. Allocate
-        -- progress records once; every later check updates them in place.
-        tPlan.untilTime = GetGameTimeSeconds() + 90
-        tPlan.travelProgress = {}
-        for _, oUnit in tSelected do
-            local tPoint, iPoint = GetLandObjectiveWaypoint(tPlan,oUnit)
-            tPlan.travelProgress[oUnit] = {point=iPoint, distance=tPoint and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(),tPoint) or 0}
-        end
+        -- Each member's physical progress, not a moving peer, renews its lease.
+        InitializeLandObjectiveProgress(tPlan,tSelected)
         table.insert(tAssignments,tPlan)
         tAvailable = tRemaining
         for _, oUnit in tRemaining do if tReady[oUnit] then tTried[oUnit] = nil end end
@@ -871,7 +914,7 @@ function IssueLandAssemblyOrder(oUnit, tPosition, sDescription, bTravelling, tAv
         and IsLandSegmentOutsideKnownDefenses(oUnit:GetPosition(),tLastPosition,tKnownDefenses,10,true)
     if bCurrentSafe and tPrevious and tPrevious.description == sDescription and tLast and tLast[M28Orders.subrefsOrderDesc] == tPrevious.engineDescription
             and M28Utilities.GetDistanceBetweenPositions(tPrevious.position, tPosition) <= 6
-            and (iDistance <= 18 or (iNow - tPrevious.time < 12 and not(oUnit:IsIdleState()))) then return false end
+            and (iDistance <= 12 or (iNow - tPrevious.time < 12 and not(oUnit:IsIdleState()))) then return false end
     if not(bTravelling) and iDistance <= 12 and oUnit:IsIdleState() then return false end
     -- Validate the issued formation point, not just the nominal rendezvous.
     local tIssuedPosition, iSpread = tPosition, bTravelling and 4 or nil
@@ -1002,8 +1045,7 @@ function GetLandForwardAssembly(tUnits, iPlateau, iSource, iTeam, tDefenses)
     for _,oUnit in tUnits do tLayers[M28UnitInfo.GetUnitPathingType(oUnit)] = true end
     -- Gathering does not count a dispersed army as already fighting together.
     tDefenses = tDefenses or GetLandObjectiveAvoidance(tUnits,iPlateau,iTeam,0)
-
-    if tPrevious and tPrevious.plateau==iPlateau then
+    if tPrevious and tPrevious.plateau==iPlateau and UpdateLandObjectiveProgress(tPrevious) then
         local bSafe, iFirst = true, table.getn(tPrevious.path)+1
         for sLayer,_ in tLayers do if not(tPrevious.layers[sLayer]) then bSafe=false end end
         for _,oUnit in tUnits do
@@ -1066,8 +1108,10 @@ function GetLandForwardAssembly(tUnits, iPlateau, iSource, iTeam, tDefenses)
             end
         end
         if tPath then
-            return {path=tPath,progress={},origin={tOrigin[1],tOrigin[2],tOrigin[3]},layers=tLayers,
-                plateau=iPlateau,team=iTeam,target=tCandidate.zone}
+            local tAssembly = {path=tPath,progress={},origin={tOrigin[1],tOrigin[2],tOrigin[3]},layers=tLayers,
+                plateau=iPlateau,team=iTeam,target=tCandidate.zone,assembly=true}
+            InitializeLandObjectiveProgress(tAssembly,tUnits)
+            return tAssembly
         end
     end
     return nil
@@ -1096,13 +1140,21 @@ function IssueLandForwardGathering(tUnits, iPlateau, iLandZone, iTeam, tSpreadAv
             and M28UnitInfo.GetCombatThreatRating(tCohort)>=GetLandObjectiveResponse(
                 M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone],iPlateau,iTeam)*1.35
         for _,oUnit in tCohort do
+            local tPrevious = oUnit.M28LandAssemblyRoute
+            if tPrevious and tPrevious.cancelled then ReleaseStalledLandObjectiveOrder(oUnit,tPrevious) end
             local tPoint = tAssembly and (GetLandObjectiveWaypoint(tAssembly,oUnit) or tAssembly.path[table.getn(tAssembly.path)])
             if bLocalReady then
                 oUnit.M28LandAssemblyRoute = nil
             elseif tPoint and IsLandSegmentOutsideKnownDefenses(oUnit:GetPosition(),tPoint,tAvoidance,10,true) then
+                if not(tAssembly.travelProgress[oUnit]) then
+                    local _, iPoint = GetLandObjectiveWaypoint(tAssembly,oUnit)
+                    table.insert(tAssembly.units,oUnit)
+                    tAssembly.travelProgress[oUnit] = {point=iPoint, distance=M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(),tPoint), untilTime=GetGameTimeSeconds()+90}
+                end
                 oUnit.M28LandAssemblyRoute = tAssembly
                 IssueLandAssemblyOrder(oUnit,tPoint,'DFGather'..tAssembly.target,true,tSpreadAvoidance,tAvoidance)
                 local tOrder = (oUnit[M28Orders.reftiLastOrders] or {})[1]
+                tAssembly.travelProgress[oUnit].order = tOrder
                 local tAssemblyOrder = oUnit.M28AssemblyOrder
                 tGathered[oUnit] = tOrder and tAssemblyOrder and tOrder[M28Orders.subrefsOrderDesc]==tAssemblyOrder.engineDescription
             elseif bHoldUnassigned then
@@ -6055,6 +6107,7 @@ function ManageCombatUnitsInLandZone(tLZData, tLZTeamData, iTeam, iPlateau, iLan
                     oUnit.M28LandObjective = tGroup
                     oUnit.M28LandAssemblyRoute = nil
                     if IssueLandTacticalMove(oUnit,tWaypoint,6,'DFFwdLZ'..tGroup.target..'From'..iLandZone,false,tFixedDFSpreadAvoidanceAreaTables) then
+                        tGroup.travelProgress[oUnit].order = (oUnit[M28Orders.reftiLastOrders] or {})[1]
                         SetLandCombatIntent(oUnit,iPlateau,tGroup.target,iLandSupportOrderIntentSeconds,'DFFwd')
                         tObjectiveOrders[oUnit] = true
                         bAccepted = true

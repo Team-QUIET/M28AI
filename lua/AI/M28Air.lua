@@ -62,6 +62,7 @@ iReclaimWantedForTransportDrop = 250 --i.e. amount of reclaim in amss to conside
     refiLastIslandDrop = 'M28ALstIsD' --When a unit is dropped by a transport, it should be assigned the island ref the transport was trying to drop to
     refiTimeLastDropped = 'M28ATimLstD' --Time that a unit was last dropped by a living transport
     refbCombatDrop = 'M28ATrCmD' --true if transport is doing or planning on doing a combat drop (i.e. not just dropping engineers to expand)
+    refbLastTransportDispatchWasCombat = 'M28ATrLastCm' --Team turn, advanced only by a loaded departure
     refbNavalReclaimDrop = 'M28ANavRecDr' --Engineer delivery to a reclaim field; cancelled if its work disappears or becomes unsafe
     reftCombatDropPlateauAndZone = 'M28ACmDrU' --against combat unit, the plateau and land zone it is assigned to when waiting to load onto a transport
     refoPriorityTargetOverride = 'M28NvxTOvrd' --e.g. used against novax satellite, for if want to add logic similar to M27 where attacks on high value targets are coordinated
@@ -12381,7 +12382,7 @@ function GetFarAwayLandZoneOnCurrentIslandForTransportToTravelTo(iTeam, oUnit)
     return iTargetIsland, iTargetPlateau, iTargetLandZone
 end
 
-function GetCombatDropPlateauAndLandZoneEntryRefForTransport(iTeam, oUnit)
+function GetCombatDropPlateauAndLandZoneEntryRefForTransport(iTeam, oUnit, tPickupPosition)
     local sFunctionRef = 'GetCombatDropPlateauAndLandZoneEntryRefForTransport'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
@@ -12395,7 +12396,8 @@ function GetCombatDropPlateauAndLandZoneEntryRefForTransport(iTeam, oUnit)
         local iClosestEntryRef
 
 
-        local iStartPlateauOrZero, iStartLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(oUnit:GetPosition())
+        local tStartPosition = tPickupPosition or oUnit:GetPosition()
+        local iStartPlateauOrZero, iStartLandOrWaterZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tStartPosition)
         local tEnemyStartZonesByPlateau
         if M28Team.tTeamData[iTeam][M28Team.refbEnemyBaseInCombatDropShortlist] then
             tEnemyStartZonesByPlateau = {}
@@ -12446,7 +12448,7 @@ function GetCombatDropPlateauAndLandZoneEntryRefForTransport(iTeam, oUnit)
                         end
                     end
                 end
-                if not(DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, tiPlateauAndZone[1], tiPlateauAndZone[2], false, iGroundAAThreshold, 0, false, iAirSubteam, true, false, oUnit:GetPosition(), false)) then
+                if not(DoesEnemyHaveAAThreatAlongPath(iTeam, iStartPlateauOrZero, iStartLandOrWaterZone, tiPlateauAndZone[1], tiPlateauAndZone[2], false, iGroundAAThreshold, 0, false, iAirSubteam, true, false, tStartPosition, false)) then
                     iClosestDist = iModDist
                     iClosestEntryRef = iEntry
                 end
@@ -12480,8 +12482,8 @@ function GetCombatDropLoadCategoryForTech(iTechLevel)
     return M28UnitInfo.refCategoryLandCombat * categories.TECH1
 end
 
-function IsCombatDropUnitAvailableForPickup(iTeam, oUnit, tLZTeamData)
-    if not(M28UnitInfo.IsUnitValid(oUnit)) then
+function IsCombatDropUnitAvailableForPickup(iTeam, oUnit, tLZTeamData, oTransport)
+    if not(M28UnitInfo.IsUnitValid(oUnit)) or not(oUnit:GetAIBrain().M28AI) then
         return false
     end
     if EntityCategoryContains(M28UnitInfo.refCategoryEngineer + M28UnitInfo.refCategoryLandScout + M28UnitInfo.refCategoryMAA, oUnit.UnitId) then
@@ -12491,7 +12493,10 @@ function IsCombatDropUnitAvailableForPickup(iTeam, oUnit, tLZTeamData)
         return false
     end
     if oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionLoadOntoTransport then
-        return false
+        if not(oTransport and oTransport[refbCombatDrop] and oUnit[reftCombatDropPlateauAndZone]) then return false end
+        local tOrder = (oUnit[M28Orders.reftiLastOrders] or {})[oUnit[M28Orders.refiOrderCount] or 1]
+        local oTarget = tOrder and tOrder[M28Orders.subrefoOrderUnitTarget]
+        if M28UnitInfo.IsUnitValid(oTarget) and oTarget ~= oTransport then return false end
     end
     if GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiLastWeaponEvent] or -100) <= 8 or GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiTimeLastDamaged] or -100) <= 10 then
         return false
@@ -12809,8 +12814,8 @@ function GetTransportEngiCargoAndRemainingCapacity(oUnit, iEngiTechLevel)
             else
                 --Find the next largest clamp and reset
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Dont have enough of the smallest clamp type, iCurClampType='..iCurClampType..'; tiClampsByType='..repru(tiClampsByType)) end
-                for iClampType, iClampsAvailable in tiClampsByType do
-                    if iClampsAvailable > 0 then
+                for iClampType = iCurClampType + 1, M28UnitInfo.refClampExperimental do
+                    if tiClampsByType[iClampType] > 0 then
                         tiClampsByType[iClampType] = tiClampsByType[iClampType] - 1
                         if iClampType == M28UnitInfo.refClampMedium then
                             --if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Splitting medium out as it can take 2 small units') end
@@ -12824,6 +12829,7 @@ function GetTransportEngiCargoAndRemainingCapacity(oUnit, iEngiTechLevel)
                                 tiClampsByType[M28UnitInfo.refClampMedium] = tiClampsByType[M28UnitInfo.refClampMedium] + 1
                             end
                         end
+                        break
                     end
                 end
             end
@@ -12849,6 +12855,41 @@ function GetTransportEngiCargoAndRemainingCapacity(oUnit, iEngiTechLevel)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
     return iCargoSize, iCurLevelCapacity
     --return iCargoSize, iTotalCapacity - iCargoSize
+end
+
+function GetReadyCombatDropEntryForTransport(iTeam, oTransport)
+    -- Share the sole transport at empty mission boundaries, never by interrupting
+    -- loaded flights or a worker boarding for opening expansion/reclaim.
+    if GetGameTimeSeconds() <= 420 or M28Team.tTeamData[iTeam][refbLastTransportDispatchWasCombat] ~= false
+        or not(M28Utilities.IsTableEmpty(oTransport:GetCargo())) then return nil end
+    local oLoading = oTransport[refoTransportUnitTryingToLoad]
+    if M28UnitInfo.IsUnitValid(oLoading) and not(oLoading:IsUnitState('Attached'))
+        and EntityCategoryContains(M28UnitInfo.refCategoryEngineer, oLoading.UnitId) then return nil end
+    local tPickupPosition = oTransport:GetPosition()
+    local iSourcePlateau, iSourceZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tPickupPosition)
+    local _, tPickupTeamData = M28Map.GetLandOrWaterZoneData(tPickupPosition, true, iTeam)
+    if not(tPickupTeamData[M28Map.subrefLZbCoreBase]) then
+        tPickupPosition = tPickupTeamData[M28Map.reftClosestFriendlyBase]
+        if M28Utilities.IsTableEmpty(tPickupPosition) then return nil end
+        local iPickupPlateau, iPickupZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tPickupPosition)
+        if DoesEnemyHaveAAThreatAlongPath(iTeam, iSourcePlateau, iSourceZone, iPickupPlateau, iPickupZone, false, 60) then return nil end
+        _, tPickupTeamData = M28Map.GetLandOrWaterZoneData(tPickupPosition, true, iTeam)
+    end
+    if not(tPickupTeamData[M28Map.subrefLZbCoreBase]) then return nil end
+    local iReady = 0
+    local tiReadyByTech = {0, 0, 0}
+    for _, oCandidate in tPickupTeamData[M28Map.subreftoLZOrWZAlliedUnits] or {} do
+        if IsCombatDropUnitAvailableForPickup(iTeam, oCandidate, tPickupTeamData, oTransport)
+            and IsCombatDropUnitSuitableForTransport(iTeam, oTransport, oCandidate, true) then
+            iReady = iReady + 1
+            local iTech = math.min(3, M28UnitInfo.GetUnitTechLevel(oCandidate))
+            tiReadyByTech[iTech] = tiReadyByTech[iTech] + 1
+            local _, iCapacity = GetTransportEngiCargoAndRemainingCapacity(oTransport, iTech)
+            if iReady >= 3 or tiReadyByTech[iTech] >= iCapacity then
+                return GetCombatDropPlateauAndLandZoneEntryRefForTransport(iTeam, oTransport, tPickupPosition)
+            end
+        end
+    end
 end
 
 function ManageTransports(iTeam, iAirSubteam)
@@ -13118,6 +13159,7 @@ function ManageTransports(iTeam, iAirSubteam)
             local iTechLevel = M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]
             for iUnitRef, iDistance in M28Utilities.SortTableByValue(tiTransportDistance, true) do --sort high to low, with thel ogic that rally is likely close to our base, so high dist is likely closer to enemy/plateau
                 local oUnit = tAvailableTransports[iUnitRef]
+                local iReadyCombatEntry = GetReadyCombatDropEntryForTransport(iTeam, oUnit)
                 local bTravelToSameIsland = false
                 local iWaterZoneToTravelTo, tWaterDropPosition
                 iMinUnitTechLevel = nil
@@ -13200,6 +13242,14 @@ function ManageTransports(iTeam, iAirSubteam)
                     end
                 else
                     oUnit[refbCombatDrop] = false
+                end
+                if iReadyCombatEntry then
+                    local tCombatTarget = M28Team.tTeamData[iTeam][M28Team.reftTransportCombatPlateauLandZoneDropShortlist][iReadyCombatEntry]
+                    iPlateauToTravelTo, iLandZoneToTravelTo = tCombatTarget[1], tCombatTarget[2]
+                    iIslandToTravelTo = M28Map.tAllPlateaus[iPlateauToTravelTo][M28Map.subrefPlateauLandZones][iLandZoneToTravelTo][M28Map.subrefLZIslandRef]
+                    iWaterZoneToTravelTo, tWaterDropPosition, iMinUnitTechLevel = nil, nil, nil
+                    bIsEngiSupportDrop, bTravelToSameIsland = false, false
+                    oUnit[refbCombatDrop] = true
                 end
                 oUnit[refiTransMinEngiTechLevel] = iMinUnitTechLevel
                 if iIslandToTravelTo or iWaterZoneToTravelTo then
@@ -13308,9 +13358,9 @@ function ManageTransports(iTeam, iAirSubteam)
                             --Get more engis/combat units
                             if tCurLZOrWZTeamData[M28Map.subrefLZbCoreBase] then
 
-                                if M28UnitInfo.IsUnitValid(oUnit[refoTransportUnitTryingToLoad]) and not(oUnit[refoTransportUnitTryingToLoad]:IsUnitState('Attached')) and oUnit[M28Engineer.refiAssignedAction] == M28Engineer.refActionLoadOntoTransport then
+                                if M28UnitInfo.IsUnitValid(oUnit[refoTransportUnitTryingToLoad]) and not(oUnit[refoTransportUnitTryingToLoad]:IsUnitState('Attached')) and oUnit[refoTransportUnitTryingToLoad][M28Engineer.refiAssignedAction] == M28Engineer.refActionLoadOntoTransport then
                                     --Do nothing re orders if transport already has an engineer assigned to load onto it (as dont want to override transport orders incase engineers are trying to load onto it)
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Already have an engineer assigned to load onto this transport='..oUnit[refoTransportUnitTryingToLoad].UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit[refoTransportUnitTryingToLoad])..'; Engineer action='..oUnit[M28Engineer.refiAssignedAction]) end
+                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Already have an engineer assigned to load onto this transport='..oUnit[refoTransportUnitTryingToLoad].UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit[refoTransportUnitTryingToLoad])..'; Engineer action='..oUnit[refoTransportUnitTryingToLoad][M28Engineer.refiAssignedAction]) end
                                 else
                                     --Find the closest engineer to us that has an order to load onto a transport, if there is one, otherwise move to the midpoint
                                     local tHoldingLocation
@@ -13428,6 +13478,9 @@ function ManageTransports(iTeam, iAirSubteam)
                         oUnit[refiTargetZoneForDrop] = iLandZoneToTravelTo or iWaterZoneToTravelTo --must set before calling the transportunload order
                         oUnit[refbNavalReclaimDrop] = tWaterDropPosition ~= nil
                         M28Orders.IssueTrackedTransportUnload(oUnit, tWaterDropPosition or tLZOrWZData[M28Map.subrefMidpoint], 10, false, 'TRLZUnlP'..(iPlateauToTravelTo or 'x')..'I'..(iIslandToTravelTo or 0)..'Z'..(iLandZoneToTravelTo or iWaterZoneToTravelTo), false)
+                        if iEngisHave > 0 then
+                            M28Team.tTeamData[iTeam][refbLastTransportDispatchWasCombat] = oUnit[refbCombatDrop] or false
+                        end
                         --Set this as an expansion zone if it is in same isalnd (as normal logic wont flag it as an expansion)
                         if bDebugMessages == true then
                             LOG(sFunctionRef..': Issued transport drop to P'..(iPlateauToTravelTo or 0)..'Z'..(iLandZoneToTravelTo or iWaterZoneToTravelTo))

@@ -13352,7 +13352,7 @@ function GetEngisWantedForTransports(tLZTeamData, bIncludeAttachedEngineers)
             end
         end
     end
-    return iEngisWanted
+    return iEngisWanted, iMinTechLevelWanted
 end
 
 function GetZoneAndFactionForPriorityEngineerTravel(tBaseLZTeamData, iTeam, iBaseLandZone, iBasePlateau)
@@ -15559,7 +15559,7 @@ function ConsiderCoreBaseLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau
             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': want engineers to load onto transport') end
             --iActionToAssign,      iMinTechLevelWanted, i  BuildPowerWanted,                                                                       vOptionalVariable,  bDontIncreaseLZBPWanted, bBPIsInAdditionToExisting
             --BP wanted - engineers already attached shouldn't be treated as available, however want BP wanted to be total not additional to avoid multiple unattached engineers being given the same order
-            HaveActionToAssign(refActionLoadOntoTransport, (1 or iMinTechLevel), iEngisWantedForTransports * tiBPByTech[M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]], nil, false,false) --Max 5 BP to make sure we only try loading 1 engi at a time
+            HaveActionToAssign(refActionLoadOntoTransport, (iMinTechLevel or 1), iEngisWantedForTransports * tiBPByTech[M28Team.tTeamData[iTeam][M28Team.subrefiHighestFriendlyFactoryTech]], nil, false,false) --Max 5 BP to make sure we only try loading 1 engi at a time
         end
     end
 
