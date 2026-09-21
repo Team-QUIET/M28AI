@@ -2521,8 +2521,12 @@ function AssignUnitToLandZoneOrPond(aiBrain, oUnit, bAlreadyUpdatedPosition, bAl
                                         iPlateau, iAltLandZone = M28Map.GetClosestPlateauOrZeroAndZoneToPosition(tAssignmentPosition)
                                         if (iAltLandZone or 0) > 0 then iLandZone = iAltLandZone end
                                     end
-                                    if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adding unit to iLandZone '..iLandZone..' for plateau '..iPlateau..' and team '..aiBrain.M28Team) end
-                                    AddUnitToLandZoneForBrain(aiBrain, oUnit, iPlateau, iLandZone)
+                                    if iPlateau == 0 then
+                                        AddUnitToWaterZoneForBrain(aiBrain, oUnit, iLandZone)
+                                    else
+                                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Adding unit to iLandZone '..iLandZone..' for plateau '..iPlateau..' and team '..aiBrain.M28Team) end
+                                        AddUnitToLandZoneForBrain(aiBrain, oUnit, iPlateau, iLandZone)
+                                    end
                                 elseif iPlateau > 0 then
                                     --Is the unit in a water zone (or a unit that can move in water and is on a beach/right by the water zone start)?
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iWaterZone='..(iWaterZone or 'nil')..'; Unit terrain height='..GetTerrainHeight(tAssignmentPosition[1], tAssignmentPosition[3])..'; iMapWaterHeight='..M28Map.iMapWaterHeight) end

@@ -1720,10 +1720,15 @@ function MoveUnassignedLandUnits(tWZData, tWZTeamData, iPond, iWaterZone, iTeam,
             local tOrders = oUnit[M28Orders.reftiLastOrders] or {}
             local tLast = tOrders[table.getn(tOrders)]
             local tPrevious = tLast and tLast[M28Orders.subreftOrderPosition]
+            local tLandGroup = oUnit.M28LandObjective
+            if not(tLandGroup) or tLandGroup.cancelled then tLandGroup = oUnit.M28LandAssemblyRoute end
+            local tLandProgress = tLandGroup and tLandGroup.travelProgress and tLandGroup.travelProgress[oUnit]
+            local bLiveLandRoute = tLandProgress and not(tLandGroup.cancelled) and tLandGroup.team == iTeam
+                and GetGameTimeSeconds() < (tLandProgress.untilTime or tLandGroup.untilTime)
             local bKeep = false
             local bNativeMove = tLast and tLast[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueMove
             if tPrevious and (bNativeMove or tLast[M28Orders.subrefiOrderType] == M28Orders.refiOrderIssueAggressiveMove)
-                    and M28Map.GetLandZoneFromPosition(tPrevious) and not(Blocked(oUnit,tPrevious)) and Route(tPrevious)
+                    and (M28Map.GetLandZoneFromPosition(tPrevious) or bLiveLandRoute) and not(Blocked(oUnit,tPrevious)) and Route(tPrevious)
                     and NavUtils.CanPathTo(tGroup.layer,oUnit:GetPosition(),tPrevious) then
                 bKeep = UpdateWaterTransitProgress(oUnit,tPrevious,tGroup.layer)
                 if bKeep and bNativeMove and not(oUnit:IsIdleState()) then
@@ -2764,6 +2769,7 @@ function AssignNavalOpportunities(tWZData, iPond, iWaterZone, iTeam, tCombat, tS
         tReserve.anti = (tHome[M28Map.subrefWZThreatEnemySubmersible] or 0) * 1.35
         tReserve.aa = (tHome[M28Map.refiEnemyAirToGroundThreat] or 0) * 0.8
     end
+    local bOnlySubs = GetNavalOpportunityForce(tPool).surface == 0
     local tCandidates, tTargetsSeen, tIncoming = {}, {}, {}
     for iZone, tZone in tZones do
         local tData = tZone[M28Map.subrefWZTeamData][iTeam]
@@ -2797,8 +2803,10 @@ function AssignNavalOpportunities(tWZData, iPond, iWaterZone, iTeam, tCombat, tS
         if not(tZone[M28Map.subrefbPacifistArea]) then
             if tData[M28Map.subrefbWZWantsSupport] and iZone ~= iWaterZone then
                 local iWanted = tData[M28Map.subrefWZCombatThreatWanted] or 0
-                local iPresent = tData[M28Map.subrefWZTThreatAllyCombatTotal] or 0
-                if iWanted > iPresent then table.insert(tCandidates, {zone = iZone, position = tZone[M28Map.subrefMidpoint], value = 200, demand = iWanted - iPresent, emergency = tData[M28Map.subrefWZbCoreBase], onlyHover = tData[M28Map.subrefbWZOnlyHoverEnemies]}) end
+                local bSubSupport = not(tData[M28Map.subrefbWZOnlyHoverEnemies])
+                    and (bOnlySubs or tData[M28Map.subrefbWZOnlySubmersibleEnemies])
+                local iPresent = tData[bSubSupport and M28Map.subrefWZThreatAlliedAntiNavy or M28Map.subrefWZTThreatAllyCombatTotal] or 0
+                if iWanted > iPresent then table.insert(tCandidates, {zone = iZone, position = tZone[M28Map.subrefMidpoint], value = 200, demand = iWanted - iPresent, emergency = tData[M28Map.subrefWZbCoreBase], subSupport = bSubSupport}) end
             end
             if not(tData.M28NavalObjectives) then RefreshNavalObjectives(tZone, iTeam) end
             for _, tObjective in tData.M28NavalObjectives do
@@ -2808,11 +2816,10 @@ function AssignNavalOpportunities(tWZData, iPond, iWaterZone, iTeam, tCombat, tS
     end
     -- One bounded coherent assignment per source pass; other zones see it immediately.
     local tBest, tBestUnits, tBestRoute, tBestPosition, iBestScore
-    local bOnlySubs = GetNavalOpportunityForce(tPool).surface == 0
     for _, tObjective in tCandidates do
         local iKey = tObjective.unit or tObjective.zone
         local iWanted = tObjective.demand or math.max(120, math.min(1200, tObjective.value * 0.25))
-        local bSubSupport = bOnlySubs and not(tObjective.unit) and not(tObjective.onlyHover)
+        local bSubSupport = tObjective.subSupport
         local iInbound = tIncoming[iKey] and (bSubSupport and tIncoming[iKey].anti or tIncoming[iKey].surface) or 0
         if iInbound < iWanted and (not(bOnlySubs) or bSubSupport) then
             local tRoute, tPosition = GetNavalObjectiveApproach(tObjective, tStart, iPond, iTeam, tPool, tEnemies, tEdgeCache)
@@ -2841,7 +2848,7 @@ function AssignNavalOpportunities(tWZData, iPond, iWaterZone, iTeam, tCombat, tS
             -- Prospective strength must be together, and every actual transit must be safe.
             local tRoute = GetNavalOpportunityRoute(oUnit:GetPosition(), tBestPosition, iPond, iTeam, tEnemies, tEdgeCache)
             if M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tBestUnits[1]:GetPosition()) > 60 or not(tRoute)
-                    or tRoute.surface > (bOnlySubs and tForce.anti or tForce.surface) or tRoute.anti > tForce.anti or tRoute.aa > tForce.aa then
+                    or tRoute.surface > (tBest.subSupport and tForce.anti or tForce.surface) or tRoute.anti > tForce.anti or tRoute.aa > tForce.aa then
                 tBest = nil
                 break
             end

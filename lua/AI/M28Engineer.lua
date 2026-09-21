@@ -12180,7 +12180,9 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                             local iBestProgress = -0.4 --so we wont assist a t3 land fac upgrade in the air slot initially even if no other upgrades
                             local iCurProgress
                             for iUnit, oUnit in tLZOrWZTeamData[M28Map.subreftoActiveUpgrades] do
-                                if M28UnitInfo.IsUnitValid(oUnit) and oUnit.GetWorkProgress then
+                                if M28UnitInfo.IsUnitValid(oUnit) and oUnit.GetWorkProgress
+                                        and (not(EntityCategoryContains(M28UnitInfo.refCategoryAirFactory, oUnit.UnitId))
+                                            or (bMarkAsSpare and M28Factory.CanAssistAirFactoryProduction(oUnit, tEngineersOfTechWanted[iEngiCount]))) then
                                     iCurProgress = (oUnit:GetWorkProgress() or 0)
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': iCurProgress='..iCurProgress..' for upgrading unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; iMexProgressAdust='..iMexProgressAdjust) end
                                     if iMexProgressAdjust and EntityCategoryContains(M28UnitInfo.refCategoryMex, oUnit.UnitId) then iCurProgress = iCurProgress + iMexProgressAdjust

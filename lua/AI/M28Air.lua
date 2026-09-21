@@ -5211,7 +5211,7 @@ local function IsLowPriorityAirAAContact(oTarget)
     return M28UnitInfo.IsUnitValid(oTarget)
         and EntityCategoryContains(M28UnitInfo.refCategoryAirScout + M28UnitInfo.refCategoryTransport, oTarget.UnitId)
         and not(EntityCategoryContains(categories.ANTIAIR + categories.BOMBER + categories.GROUNDATTACK, oTarget.UnitId))
-        and (not(oTarget.GetCargo) or M28Utilities.IsTableEmpty(oTarget:GetCargo()))
+        and (not(EntityCategoryContains(M28UnitInfo.refCategoryTransport, oTarget.UnitId)) or M28Utilities.IsTableEmpty(oTarget:GetCargo()))
 end
 
 local function RefreshLandArmyInterceptions(tAvailableAirAA, tInCombatUnits, tbActiveTargets)
@@ -8592,9 +8592,9 @@ function AssignTorpOrBomberTargets(tAvailableAircraft, tCandidateEntries, iAirSu
         for _, tCandidate in tCandidates do
             if not(tRejected[tCandidate]) and M28Utilities.GetDistanceBetweenPositions(tTarget, tCandidate.oUnit:GetPosition()) <= 30 then
                 table.insert(tLocal, tCandidate)
-                tRejected[tCandidate] = true
             end
         end
+        tRejected[tAnchor] = true
         table.sort(tLocal, function(a,b)
             if a==tAnchor or b==tAnchor then return a==tAnchor end
             local da = M28Utilities.GetDistanceBetweenPositions(tCenter,a.oUnit:GetPosition())
@@ -8660,6 +8660,7 @@ function AssignTorpOrBomberTargets(tAvailableAircraft, tCandidateEntries, iAirSu
             end
         end
         if bSafe then
+            for _, tCandidate in tLocal do tRejected[tCandidate] = true end
             for _, tOrder in tPlan do
                 local oAircraft, tCandidate = tOrder.oAircraft, tOrder.tCandidate
                 local oTarget = tCandidate.oUnit

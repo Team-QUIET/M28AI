@@ -7188,15 +7188,20 @@ end
 
 
 
-local function GetProjectedFactoryResourceAdmission(iCandidateDrain, iPendingDrain, iBuildDurationTicks, iNetIncome, iGrossIncome, iStoredResource, iStorageCapacity, iStorageReserveRatio, iNetReservePerBrain, iActiveBrains, iResourceMultiplier)
+local function GetProjectedFactoryResourceAdmission(iCandidateDrain, iPendingDrain, iBuildDurationTicks, iNetIncome, iGrossIncome, iStoredResource, iStorageCapacity, iStorageReserveRatio, iNetReservePerBrain, iActiveBrains, iResourceMultiplier, iUnassistedDurationTicks, iCurrentDrain)
     local iNetReserve = math.max(iNetReservePerBrain * iActiveBrains * iResourceMultiplier, iGrossIncome * iFactoryGrossResourceReserveRatio)
     local iShortfallPerTick = math.max(0, iCandidateDrain + iPendingDrain + iNetReserve - iNetIncome)
     local iRequiredStoredResource = iShortfallPerTick * iBuildDurationTicks
+    if iUnassistedDurationTicks then
+        -- Helpers may still be travelling; unrelated deficits must survive the slower build too.
+        local iOtherShortfall = math.max(0, iPendingDrain + iNetReserve - iNetIncome - iCurrentDrain)
+        iRequiredStoredResource = iRequiredStoredResource + iOtherShortfall * (iUnassistedDurationTicks - iBuildDurationTicks)
+    end
     local iSpareStoredResource = math.max(0, iStoredResource - iStorageCapacity * iStorageReserveRatio)
     return iRequiredStoredResource <= iSpareStoredResource, iNetReserve, iRequiredStoredResource, iSpareStoredResource
 end
 
-GetFactoryAssistedCombatDrain = function(oFactory, sBlueprint, iMassDrain, iEnergyDrain, oAdditionalEngineer)
+GetFactoryAssistedCombatDrain = function(oFactory, sBlueprint, iMassDrain, iEnergyDrain, oAdditionalEngineer, iBuildDurationTicks)
     local tEconomy = __blueprints[string.lower(sBlueprint)].Economy
     local iAssistRate = 0
     local tSeen = {}
@@ -7227,8 +7232,15 @@ GetFactoryAssistedCombatDrain = function(oFactory, sBlueprint, iMassDrain, iEner
         iAssistRate = iAssistRate + oAdditionalEngineer:GetEconomyBuildRate()
     end
     -- Reserve assigned builders at full speed, including while travelling or starved.
-    return iMassDrain + 0.1 * tEconomy.BuildCostMass * iAssistRate / tEconomy.BuildTime,
-        iEnergyDrain + 0.1 * tEconomy.BuildCostEnergy * iAssistRate / tEconomy.BuildTime
+    iMassDrain = iMassDrain + 0.1 * tEconomy.BuildCostMass * iAssistRate / tEconomy.BuildTime
+    iEnergyDrain = iEnergyDrain + 0.1 * tEconomy.BuildCostEnergy * iAssistRate / tEconomy.BuildTime
+    if iBuildDurationTicks then
+        -- The same build power determines duration, so assistance does not multiply the cost.
+        local iBaseBuildRate = tEconomy.BuildTime * 10 / iBuildDurationTicks
+        iBuildDurationTicks = tEconomy.BuildTime * 10 / (iBaseBuildRate + iAssistRate)
+        return iMassDrain, iEnergyDrain, iBuildDurationTicks
+    end
+    return iMassDrain, iEnergyDrain
 end
 
 function HasLandArmyInvestmentDeficit(aiBrain)
@@ -7318,7 +7330,8 @@ function CanFundFactoryUpgrade(oFactory, sUpgrade, oAdditionalEngineer)
 
     local iCandidateMass, iCandidateEnergy, iDuration = GetFactoryBlueprintResourceProfile(oFactory, sUpgrade)
     if not(iCandidateMass) or not(iCandidateEnergy) then return false end
-    iCandidateMass, iCandidateEnergy = GetFactoryAssistedCombatDrain(oFactory, sUpgrade, iCandidateMass, iCandidateEnergy, oAdditionalEngineer)
+    local iUnassistedDuration = iDuration
+    iCandidateMass, iCandidateEnergy, iDuration = GetFactoryAssistedCombatDrain(oFactory, sUpgrade, iCandidateMass, iCandidateEnergy, oAdditionalEngineer, iDuration)
     local iCurrentMass, iCurrentEnergy = GetFactoryCurrentProductionResourceDrain(oFactory)
     local iPendingMass, iPendingEnergy, iMassCapacity, iEnergyCapacity = GetTeamPendingFactoryResourceDrain(aiBrain, aiBrain.M28Team, oFactory)
     local tTeam = M28Team.tTeamData[aiBrain.M28Team]
@@ -7329,11 +7342,11 @@ function CanFundFactoryUpgrade(oFactory, sUpgrade, oAdditionalEngineer)
     return GetProjectedFactoryResourceAdmission(iCandidateMass - iCurrentMass, iPendingMass, iDuration,
         tTeam[M28Team.subrefiTeamNetMass] or 0, tTeam[M28Team.subrefiTeamGrossMass] or 0,
         tTeam[M28Team.subrefiTeamMassStored] or 0, iMassCapacity, iFactoryMassStorageReserveRatio,
-        iFactoryNetMassReservePerBrain, iBrains, iMultiplier)
+        iFactoryNetMassReservePerBrain, iBrains, iMultiplier, iUnassistedDuration, iCurrentMass)
         and GetProjectedFactoryResourceAdmission(iCandidateEnergy - iCurrentEnergy, iPendingEnergy, iDuration,
             tTeam[M28Team.subrefiTeamNetEnergy] or 0, tTeam[M28Team.subrefiTeamGrossEnergy] or 0,
             tTeam[M28Team.subrefiTeamEnergyStored] or 0, iEnergyCapacity, iFactoryEnergyStorageReserveRatio,
-            iFactoryNetEnergyReservePerBrain, iBrains, iMultiplier)
+            iFactoryNetEnergyReservePerBrain, iBrains, iMultiplier, iUnassistedDuration, iCurrentEnergy)
 end
 
 function CanAssistLandFactoryUpgrade(oFactory, oEngineer)
@@ -7713,7 +7726,8 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint, oAdditio
     if not(iCandidateMassDrain) or not(iCandidateEnergyDrain) or not(iBuildDurationTicks) then
         return FinishAdmission(false, 'InvalidResourceProfile')
     end
-    tDetails.iCandidateMassDrain, tDetails.iCandidateEnergyDrain = GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain, oAdditionalEngineer)
+    local iUnassistedDurationTicks = iBuildDurationTicks
+    tDetails.iCandidateMassDrain, tDetails.iCandidateEnergyDrain, iBuildDurationTicks = GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain, oAdditionalEngineer, iBuildDurationTicks)
     local bCombatAir = EntityCategoryContains(categories.AIR * (categories.ANTIAIR + categories.BOMBER), sBlueprint)
     local bAirMassAvailable, iAirLandHeadroom, bAirEnergyAvailable = false, 0, true
     if bCombatAir then
@@ -7758,7 +7772,7 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint, oAdditio
         iFactoryMassStorageReserveRatio,
         iFactoryNetMassReservePerBrain,
         tDetails.iActiveBrains,
-        iResourceMultiplier
+        iResourceMultiplier, iUnassistedDurationTicks, tDetails.iCurrentMassDrain
     )
     if bCombatAir and not(bAirMassAvailable) then
         -- Above the ordinary combat share, only real surplus may fund air while
@@ -7788,7 +7802,7 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint, oAdditio
         iFactoryEnergyStorageReserveRatio,
         iFactoryNetEnergyReservePerBrain,
         tDetails.iActiveBrains,
-        iResourceMultiplier
+        iResourceMultiplier, iUnassistedDurationTicks, tDetails.iCurrentEnergyDrain
     )
     if bEnergyAllowed then
         oFactory.M28CombatEnergyDemand = nil
