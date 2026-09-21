@@ -4716,7 +4716,7 @@ function DecideOnExperimentalToBuild(iActionToAssign, aiBrain, tbEngineersOfFact
                         end
                         if not(bHaveBrainWithoutParagon) then bExcludeParagon = true end
                     end
-                    if bExcludeParagon then
+                    if bExcludeParagon and iCategoryWanted then
                         if iCategoryWanted == M28UnitInfo.refCategoryParagon then iCategoryWanted = M28UnitInfo.refCategoryGameEnder end
                         iCategoryWanted = iCategoryWanted - M28UnitInfo.refCategoryParagon
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Switching from paragon to gameender') end
