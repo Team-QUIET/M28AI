@@ -403,7 +403,9 @@ end
 local function IsObsoleteLightT3LandBlueprint(aiBrain, oFactory, sBlueprint)
     if not(sBlueprint) or not(EntityCategoryContains(GetOrdinaryT3LandCategory() - M28UnitInfo.refCategoryT35Units, sBlueprint))
             or GetT3LandHeavyShare(aiBrain) < 1 then return false end
-    return true
+    -- Maturity only retires the light unit when this factory has an eligible heavy
+    -- (not restricted/blacklisted, matching amphibious/hover layer).
+    return GetHeavyLandReplacementCategory(aiBrain, oFactory, sBlueprint, false) ~= nil
 end
 
 function GetIntermediateLandBuildAllowance(oFactory, sBlueprint, bIssuedOnly, bReplaceQueue)
@@ -497,7 +499,7 @@ local function AdjustIntermediateLandBlueprint(aiBrain, oFactory, sBlueprint)
                 if sHeavy then return sHeavy end
             end
         end
-        if bMature then return nil end
+        if bMature and IsObsoleteLightT3LandBlueprint(aiBrain, oFactory, sBlueprint) then return nil end
     end
     return sBlueprint
 end
