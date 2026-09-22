@@ -5806,7 +5806,13 @@ function CleanInvalidACUsFromZone(tLZOrWZTeamData)
         end
     end
     local iLivingACUCount = toAlliedACUs and table.getn(toAlliedACUs) or 0
-    if iLivingACUCount == 0 then tLZOrWZTeamData[M28Map.refbACUInTrouble] = false end
+    -- Only a recorded ACU's live request keeps the zone flagged; a departed
+    -- or non-M28 commander must not hold the defense priority indefinitely.
+    local bInTrouble = false
+    for iACU = 1, iLivingACUCount do
+        if toAlliedACUs[iACU][reftEmergencySupportRequest] then bInTrouble = true break end
+    end
+    tLZOrWZTeamData[M28Map.refbACUInTrouble] = bInTrouble
     return iLivingACUCount
 end
 
