@@ -1575,62 +1575,6 @@ local function GetLandFactoryScreenState(aiBrain, oFactory)
     return iDirect, iDirectMass, iSupport
 end
 
-function GetSiegeArtilleryBlueprint(aiBrain, oFactory, bIgnoreOwnQueue)
-    if M28UnitInfo.GetUnitTechLevel(oFactory) < 2 then return nil end
-    local iDirectFire, iScreenMass = GetLandFactoryScreenState(aiBrain, oFactory)
-    if iDirectFire < 4 then return nil end
-    local tFactoryPosition = oFactory:GetPosition()
-    local iRequiredRange, iDefenses = 0, 0
-    for _, tDefense in M28Land.GetKnownLandDefenses(aiBrain) do
-        if M28Utilities.GetDistanceBetweenPositions(tFactoryPosition, tDefense.position) <= 600
-                and NavUtils.CanPathTo(M28Map.refPathingTypeLand, tFactoryPosition, tDefense.position) then
-            iRequiredRange = math.max(iRequiredRange, tDefense.range)
-            iDefenses = iDefenses + 1
-        end
-    end
-    if iDefenses == 0 then return nil end
-    local iSiegeCategory = M28UnitInfo.refCategoryIndirect + M28UnitInfo.refCategoryMML
-    local tSiegeBlueprints = EntityCategoryGetUnitList(iSiegeCategory)
-    local sBlueprint, iCost
-    for _, sCandidate in tSiegeBlueprints do
-        local tBlueprint = __blueprints[sCandidate]
-        -- A tech/category label is not evidence that a weapon can reach this line.
-        if not(EntityCategoryContains(categories.TECH1, sCandidate)) and M28UnitInfo.GetBlueprintMaxGroundRange(tBlueprint) > iRequiredRange
-                and oFactory:CanBuild(sCandidate) and not(M28UnitInfo.IsUnitRestricted(sCandidate, aiBrain:GetArmyIndex()))
-                and (bIgnoreOwnQueue or not(IsFactoryBuildPlanTemporarilyBlacklisted(oFactory, sCandidate))) then
-            local iCandidateCost = tBlueprint.Economy.BuildCostMass
-            if not(iCost) or iCandidateCost < iCost or (iCandidateCost == iCost and sCandidate < sBlueprint) then
-                sBlueprint, iCost = sCandidate, iCandidateCost
-            end
-        end
-    end
-    if not(sBlueprint) then return nil end
-    local iWanted = math.min(4, math.max(2, math.floor(iDirectFire * 0.2)), iDefenses + 1)
-    local iCommitted, iCommittedMass = 0, 0
-    for _, oUnit in aiBrain:GetListOfUnits(iSiegeCategory, false, true) do
-        if M28UnitInfo.IsUnitValid(oUnit) and oUnit:GetFractionComplete() == 1
-                and NavUtils.CanPathTo(M28Map.refPathingTypeLand, tFactoryPosition, oUnit:GetPosition()) then
-            local tBlueprint = __blueprints[oUnit.UnitId]
-            iCommittedMass = iCommittedMass + tBlueprint.Economy.BuildCostMass
-            if M28UnitInfo.GetBlueprintMaxGroundRange(tBlueprint) > iRequiredRange then iCommitted = iCommitted + 1 end
-        end
-    end
-    for _, oOtherFactory in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory, false, true) do
-        if M28UnitInfo.IsUnitValid(oOtherFactory) and not(bIgnoreOwnQueue and oOtherFactory == oFactory)
-                and NavUtils.CanPathTo(M28Map.refPathingTypeLand, tFactoryPosition, oOtherFactory:GetPosition()) then
-            for _, sPending in tSiegeBlueprints do
-                local iPending = GetFactoryPendingBuildCountByCategory(oOtherFactory, categories[sPending])
-                local tBlueprint = __blueprints[sPending]
-                iCommittedMass = iCommittedMass + iPending * tBlueprint.Economy.BuildCostMass
-                if M28UnitInfo.GetBlueprintMaxGroundRange(tBlueprint) > iRequiredRange then iCommitted = iCommitted + iPending end
-            end
-        end
-    end
-    -- Existing short-ranged guns do not meet siege demand, but still need a screen.
-    if iCommitted < iWanted and (iCommittedMass + iCost) * 2 <= iScreenMass then return sBlueprint end
-    return nil
-end
-
 local function GetEnemyT3MobileArtilleryCount(iTeam)
     local iEnemyT3MobileArtiCount = 0
     if M28Utilities.IsTableEmpty(M28Team.tTeamData[iTeam][M28Team.subreftoEnemyBrains]) == false then
@@ -1888,7 +1832,7 @@ function AdjustBlueprintForOverrides(aiBrain, oFactory, sBPIDToBuild, tLZTeamDat
         if sBPIDToBuild and (EntityCategoryContains(M28UnitInfo.refCategorySniperBot * categories.TECH3, sBPIDToBuild) or EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, sBPIDToBuild)) then
             local bCanAddT3Sniper, bCanAddT3MobileArti = GetLongRangeT3BuildAllowance(aiBrain, iTeam, tLZTeamData)
             local bShouldReplaceWithDF = (EntityCategoryContains(M28UnitInfo.refCategorySniperBot * categories.TECH3, sBPIDToBuild) and not(bCanAddT3Sniper))
-                or (EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, sBPIDToBuild) and not(bCanAddT3MobileArti or GetSiegeArtilleryBlueprint(aiBrain, oFactory) == sBPIDToBuild))
+                or (EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, sBPIDToBuild) and not(bCanAddT3MobileArti))
             if bShouldReplaceWithDF then
                 local sFallbackBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher, oFactory)
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Replacing overrepresented long-range T3 pick with DF if possible. Original='..sBPIDToBuild..'; Fallback='..(sFallbackBlueprint or 'nil')) end
@@ -4714,13 +4658,6 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     if bHaveNearbyPriorityUnitWantingMobileStealth and not(bHaveLowMass) and M28Conditions.GetNumberOfUnitsMeetingCategoryUnderConstructionInLandOrWaterZone(tLZTeamData, M28UnitInfo.refCategoryMobileLandStealth, false) == 0 then
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Getting mobile stealth as none under construction in this zone and bHaveNearbyPriorityUnitWantingMobileStealth is true') end
         if ConsiderBuildingCategory(M28UnitInfo.refCategoryMobileLandStealth) then return sBPIDToBuild end
-    end
-
-    --A defended front needs guns that outrange it before more short-range tanks.
-    --Queued guns count toward the small siege detachment, preserving its screen.
-    if FactoryEcoAllowsHighTechProduction(tFactoryEco) then
-        local sSiegeBlueprint = GetSiegeArtilleryBlueprint(aiBrain, oFactory)
-        if sSiegeBlueprint and ConsiderBuildingCategory(categories[sSiegeBlueprint]) then return sBPIDToBuild end
     end
 
     --Upgrade toward T3 long-range land when the generic long-range owner wants sniper/artillery access.
@@ -7712,8 +7649,7 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint, oAdditio
     end
 
     if IsLandAttackerBlueprint(oFactory, sBlueprint)
-            and M28UnitInfo.GetBlueprintTechLevel(sBlueprint) < GetLandProductionTech(oFactory)
-            and GetSiegeArtilleryBlueprint(aiBrain, oFactory, true) ~= sBlueprint then
+            and M28UnitInfo.GetBlueprintTechLevel(sBlueprint) < GetLandProductionTech(oFactory) then
         return FinishAdmission(false, 'ObsoleteLandAttacker')
     end
 

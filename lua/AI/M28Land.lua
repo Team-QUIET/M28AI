@@ -13636,11 +13636,6 @@ function IssueLandTacticalMove(oUnit, tPosition, iReissueDistance, sDescription,
     if oUnit[M28UnitInfo.refbSpecialMicroActive] then return false end
     if ShouldPreserveArtilleryEngagement(oUnit) then return false end
     if not(bSupport) and IsLandRetreatUnfinished(oUnit) then return false end
-    if not(bSupport or bAssault) and ShouldScreenActiveLandSiege(oUnit, tPosition, tObjectiveAssault) then
-        ClearLandCombatIntent(oUnit)
-        M28Orders.IssueTrackedMove(oUnit, oUnit:GetPosition(), 3, false, 'SiegeScreen', false)
-        return false
-    end
     local tPrevious = oUnit.M28LandTacticalMove
     local iNow = GetGameTimeSeconds()
     local tPositionNow = oUnit:GetPosition()
@@ -13668,26 +13663,13 @@ function IssueLandTacticalMove(oUnit, tPosition, iReissueDistance, sDescription,
     -- Only the synchronous objective owner supplies its freshly checked risks.
     -- Later pursuit or other tactical callers cannot inherit an old permission.
     if bAssault or tObjectiveDefenses then tAvoidance = nil end
-    -- The objective's selected wave owns PD admission; validate its actual
-    -- spread route against the remaining risks instead of restoring a PD veto.
+    -- The objective's selected wave owns PD admission; a late per-unit veto
+    -- only parked units in place (PDHold) without a replacement order.
     local iSpreadRadius = oUnit.M28LandObjective and not(bSupport or bAssault) and 4 or nil
     local bAttackPD = bAssault and M28UnitInfo.IsUnitValid(oEnemy)
         and EntityCategoryContains(M28UnitInfo.refCategoryPD, oEnemy.UnitId)
         and M28Utilities.GetDistanceBetweenPositions(tPositionNow, tPosition) > 1
     local tFinalPosition = (bFireInPlace or bAttackPD) and tPosition or M28Orders.GetSpreadPositionForUnit(oUnit,tPosition,iSpreadRadius,tAvoidance)
-    -- Pursuing a mobile target is not permission to assault its covering PD.
-    -- Deliberate assaults are admitted by the assembled wave's threat decision.
-    if not(bSupport or bFireInPlace)
-            and (tObjectiveDefenses or not(bAssault) and EntityCategoryContains(categories.LAND * categories.MOBILE - categories.EXPERIMENTAL - categories.COMMAND - categories.ENGINEER - categories.SCOUT,oUnit.UnitId))
-            and not(IsLandRouteOutsideKnownDefenses(oUnit,tFinalPosition,tObjectiveDefenses or GetKnownLandDefenses(oUnit:GetAIBrain(),
-                EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery,oUnit.UnitId)),8,true)) then
-        if oUnit.M28LandObjective then oUnit.M28LandObjective.cancelled = true; oUnit.M28LandObjective = nil end
-        oUnit.M28LandTacticalMove = nil
-        oUnit.M28LandObjectiveArrival = nil
-        ClearLandCombatIntent(oUnit)
-        M28Orders.IssueTrackedMove(oUnit,tPositionNow,3,false,'PDHold',false)
-        return false
-    end
     -- Keep the original expiry when the same advance is refreshed.
     local iStarted = tPrevious and tPrevious.support == bSupport and iNow - tPrevious.time < 8 and tPrevious.time or iNow
     if bFireInPlace or bAttackPD then
@@ -14134,11 +14116,9 @@ function ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
                                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering physical-zone combat unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; previous owner='..repru(oUnit[refiCurrentAssignmentPlateauAndLZ])..'; Unit mass cost='..(oUnit[M28UnitInfo.refiUnitMassCost] or M28UnitInfo.GetUnitMassCost(oUnit))..'; iMobileShieldMassThreshold='..iMobileShieldMassThreshold) end
                                     local bExperimentalAirWithdrawal = EntityCategoryContains(M28UnitInfo.refCategoryLandExperimental, oUnit.UnitId) and ShouldWithdrawLandExperimentalFromAir(oUnit)
                                     local bPreservationRetreat = ShouldPreserveLandExperimental(oUnit) or bExperimentalAirWithdrawal
-                                    local bSiegeActive, bArtilleryRetreat
-                                    if not(bPreservationRetreat) then bSiegeActive, bArtilleryRetreat = TryLandArtillerySiege(oUnit) end
-                                    bPreservationRetreat = bPreservationRetreat or bArtilleryRetreat
+                                    bPreservationRetreat = bPreservationRetreat or ShouldRetreatLandArtillery(oUnit)
                                     if bPreservationRetreat then ClearLandCombatIntent(oUnit) end
-                                    local bLandIntentLocked = not(bPreservationRetreat) and (bSiegeActive or IsLandCombatIntentLocked(oUnit, iPlateau, iLandZone))
+                                    local bLandIntentLocked = not(bPreservationRetreat) and IsLandCombatIntentLocked(oUnit, iPlateau, iLandZone)
                                     if bLandIntentLocked then
                                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Skipping unit due to active land combat intent, oUnit='..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..'; owner='..(oUnit[refsLandCombatIntentOwner] or 'nil')..'; targetPlateau='..(oUnit[refiLandCombatIntentPlateau] or 'nil')..'; targetLZ='..(oUnit[refiLandCombatIntentTargetLZ] or 'nil')..'; until='..(oUnit[refiLandCombatIntentUntil] or 'nil')) end
                                         table.insert(tUnavailableUnitsInThisLZ, oUnit)
@@ -14829,26 +14809,6 @@ function ShouldPreserveLandExperimental(oUnit)
         and (iMaxShield or 0) > 0 and (iShield or 0) < iMaxShield * 0.35
 end
 
-function ShouldScreenActiveLandSiege(oUnit, tAdvancePosition, tAdmitted)
-    if not(EntityCategoryContains(categories.LAND * categories.MOBILE * categories.DIRECTFIRE
-            - categories.ENGINEER - categories.COMMAND - categories.EXPERIMENTAL - M28UnitInfo.refCategorySkirmisher, oUnit.UnitId)) then return false end
-    local iNow = GetGameTimeSeconds()
-    local aiBrain, tPosition = oUnit:GetAIBrain(), oUnit:GetPosition()
-    for _, oGun in aiBrain:GetUnitsAroundPoint(M28UnitInfo.refCategoryT3MobileArtillery, tPosition, 60, 'Ally') do
-        local tSiege = oGun.M28SiegeOrder
-        if tSiege and not(tAdmitted and tAdmitted[tSiege.target])
-                and M28UnitInfo.IsUnitValid(tSiege.target) and not(tSiege.target:BeenDestroyed())
-                and iNow - (oGun[M28UnitInfo.refiLastWeaponEvent] or -100) <= math.max(15, (oGun[M28UnitInfo.refiTimeBetweenIFShots] or 8.5) + 5) then
-            local tKnown = M28Intel.GetKnownThreatPosition(aiBrain, tSiege.target)
-            local iRange = tSiege.target[M28UnitInfo.refiDFRange] or 0
-            if tKnown and iRange > (oUnit[M28UnitInfo.refiDFRange] or 0) + 12
-                    and M28Utilities.GetDistanceBetweenPositions(tPosition, tKnown) > iRange + 6
-                    and M28Utilities.GetDistanceBetweenPositions(tAdvancePosition, tKnown) <= iRange + 6 then return true end
-        end
-    end
-    return false
-end
-
 function GetNearbyArtilleryMobileThreats(oUnit)
     local aiBrain = oUnit:GetAIBrain()
     local tThreats = {}
@@ -14868,74 +14828,20 @@ function GetNearbyArtilleryMobileThreats(oUnit)
     return tThreats
 end
 
-function TryLandArtillerySiege(oUnit)
+function ShouldRetreatLandArtillery(oUnit)
     if not(EntityCategoryContains(M28UnitInfo.refCategoryT3MobileArtillery, oUnit.UnitId))
             or oUnit[M28UnitInfo.refbSpecialMicroActive] or oUnit:IsUnitState('Attached') then return false end
-    local iNow = GetGameTimeSeconds()
-    local aiBrain = oUnit:GetAIBrain()
     local tPosition = oUnit:GetPosition()
-    local iRange = oUnit[M28UnitInfo.refiIndirectRange] or 0
-    local tDefenses = GetKnownLandDefenses(aiBrain, true)
-    local tThreats = GetNearbyArtilleryMobileThreats(oUnit)
-    if not(IsPositionOutsideKnownLandDefenses(tPosition, tDefenses, 6))
-            or not(IsPositionOutsideKnownLandDefenses(tPosition, tThreats, 0))
-            or iNow - (oUnit[M28UnitInfo.refiTimeLastDamaged] or -100) < 3
+    if not(IsPositionOutsideKnownLandDefenses(tPosition, GetKnownLandDefenses(oUnit:GetAIBrain(), true), 6))
+            or not(IsPositionOutsideKnownLandDefenses(tPosition, GetNearbyArtilleryMobileThreats(oUnit), 0))
+            or GetGameTimeSeconds() - (oUnit[M28UnitInfo.refiTimeLastDamaged] or -100) < 3
             or IsLandRetreatUnfinished(oUnit) then
-        oUnit.M28SiegeOrder = nil
         oUnit.M28ArtilleryDeployStarted = nil
         ClearLandCombatIntent(oUnit)
-        -- The zone owner chooses and issues the retreat, not a siege order writer.
-        return false, true
+        -- The zone owner chooses and issues the retreat.
+        return true
     end
-    if iNow < (oUnit.M28SiegeRetryAfter or -1) then return false end
-    for _, tDefense in tDefenses do table.insert(tThreats, tDefense) end
-    local tBest, tApproach, iBestDistance
-    for _, tDefense in tDefenses do
-        local iDistance = M28Utilities.GetDistanceBetweenPositions(tPosition, tDefense.position)
-        -- A cached contact can die before the one-second cache expires.
-        if M28UnitInfo.IsUnitValid(tDefense.unit) and not(tDefense.unit:BeenDestroyed()) and tDefense.unit:GetFractionComplete() == 1
-                and not(tDefense.indirect) and iRange >= tDefense.range + 12 and iDistance <= iRange + 60
-                and (not(iBestDistance) or iDistance < iBestDistance) then
-            local tFiringPosition = tPosition
-            if iDistance >= iRange - 3 then
-                tFiringPosition = M28Utilities.MoveInDirection(tDefense.position,
-                    M28Utilities.GetAngleFromAToB(tDefense.position, tPosition), iRange - 4, true, false, true)
-            end
-            if IsLandRouteOutsideKnownDefenses(oUnit, tFiringPosition, tThreats, 6) then
-                tBest, tApproach, iBestDistance = tDefense, tFiringPosition, iDistance
-            end
-        end
-    end
-    if not(tBest) then oUnit.M28SiegeOrder = nil return false end
-    local tPrevious = oUnit.M28SiegeOrder
-    if not(tPrevious) or tPrevious.target ~= tBest.unit then
-        tPrevious = {target=tBest.unit, started=iNow}
-        oUnit.M28SiegeOrder = tPrevious
-    end
-    if not(tPrevious.travelAllowance) then
-        tPrevious.travelAllowance = math.max(0, iBestDistance - iRange + 4) / math.max(1, (oUnit:GetBlueprint().Physics or {}).MaxSpeed or 1)
-    end
-    local iLastShot = oUnit[M28UnitInfo.refiLastWeaponEvent] or -100
-    local iTravelTime = iLastShot >= tPrevious.started and 0 or tPrevious.travelAllowance
-    local iWindow = math.max(15, (oUnit[M28UnitInfo.refiTimeBetweenIFShots] or 8.5) + 5)
-    if iNow - math.max(tPrevious.started, iLastShot) > iWindow + iTravelTime then
-        -- Release blocked guns for normal repositioning; retry later, without
-        -- repeatedly packing a gun that is making progress against the defense.
-        oUnit.M28SiegeOrder = nil
-        oUnit.M28SiegeRetryAfter = iNow + 10
-        return false
-    end
-    ClearLandCombatIntent(oUnit)
-    if iBestDistance < iRange - 2 then
-        if M28UnitInfo.CanSeeUnit(aiBrain, tBest.unit) then
-            M28Orders.IssueTrackedAttack(oUnit, tBest.unit, false, 'SiegePD', false)
-        else
-            M28Orders.IssueTrackedGroundAttack(oUnit, tBest.position, 3, false, 'SiegeKnownPD', false)
-        end
-    else
-        M28Orders.IssueTrackedMove(oUnit, tApproach, 3, false, 'SiegeApproach', false)
-    end
-    return true
+    return false
 end
 
 
