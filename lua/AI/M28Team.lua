@@ -4740,10 +4740,9 @@ function ConsiderGettingUpgrades(iM28Team)
     MaintainTeamHQUpgradeDesires(iM28Team)
     tTeamData[iM28Team][subrefiMassUpgradesStartedThisCycle] = 0
     tTeamData[iM28Team][subrefiEnergyUpgradesStartedThisCycle] = 0
-    if M28Conditions.ShouldRushT3AirForTechDisparity(iM28Team) then
-        -- Shared admission and candidate projection replace the ordinary storage/timing gate.
-        ConsiderPriorityAirFactoryUpgrades(iM28Team)
-    end
+    -- Shared admission and candidate projection replace the ordinary storage/timing gate.
+    local bAirCatchupConsidered = M28Conditions.ShouldRushT3AirForTechDisparity(iM28Team)
+    if bAirCatchupConsidered then ConsiderPriorityAirFactoryUpgrades(iM28Team) end
     ConsiderPriorityLandFactoryUpgrades(iM28Team)
     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Time='..GetGameTimeSeconds()..'; AvgEnergy%='..tTeamData[iM28Team][subrefiTeamAverageEnergyPercentStored]..'; Stalling energy='..tostring(tTeamData[iM28Team][subrefbTeamIsStallingEnergy])..'; CatastrophicEnergyCrash='..tostring(bCatastrophicEnergyCrash)..'; GeneralUpgradeEnergyGate='..tostring(bPassesGeneralUpgradeEnergyGate)..'; MexUpgradeEnergyGate='..tostring(bPassesMexUpgradeEnergyGate)..'; Stalling mass='..tostring(tTeamData[iM28Team][subrefbTeamIsStallingMass])..'; GrossMass='..tTeamData[iM28Team][subrefiTeamGrossMass]..'; GrossEnergy='..tTeamData[iM28Team][subrefiTeamGrossEnergy]..'; StoredMass='..tTeamData[iM28Team][subrefiTeamMassStored]..'; AvgMass%='..tTeamData[iM28Team][subrefiTeamAverageMassPercentStored]..'; NetEnergy='..tTeamData[iM28Team][subrefiTeamNetEnergy]) end
     if bPassesGeneralUpgradeEnergyGate then
@@ -4753,7 +4752,7 @@ function ConsiderGettingUpgrades(iM28Team)
 
             --Priority upgrades even with poor eco:
             if (not(tTeamData[iM28Team][subrefbTeamIsStallingMass]) or (M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingHQs]) and M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]))) then
-                ConsiderPriorityAirFactoryUpgrades(iM28Team)
+                if not(bAirCatchupConsidered) then ConsiderPriorityAirFactoryUpgrades(iM28Team) end
 
                 ConsiderPriorityNavalFactoryUpgrades(iM28Team)
 
@@ -4765,7 +4764,7 @@ function ConsiderGettingUpgrades(iM28Team)
                 --Want to keep upgrading mexes even if stalling mass
                 --Also still consider upgrading HQ if have no upgrading HQs
                 if M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingHQs]) and M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingMexes]) == false and tTeamData[iM28Team][subrefiTeamGrossMass] >= 4 * tTeamData[iM28Team][subrefiActiveM28BrainCount] * tTeamData[iM28Team][subrefiHighestFriendlyFactoryTech] then
-                    ConsiderPriorityAirFactoryUpgrades(iM28Team)
+                    if not(bAirCatchupConsidered) then ConsiderPriorityAirFactoryUpgrades(iM28Team) end
                     if M28Utilities.IsTableEmpty(tTeamData[iM28Team][subreftTeamUpgradingHQs]) then
                         ConsiderPriorityNavalFactoryUpgrades(iM28Team)
                     end

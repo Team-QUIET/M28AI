@@ -8596,7 +8596,8 @@ function AssignTorpOrBomberTargets(tAvailableAircraft, tCandidateEntries, iAirSu
         end
         tRejected[tAnchor] = true
         table.sort(tLocal, function(a,b)
-            if a==tAnchor or b==tAnchor then return a==tAnchor end
+            if a==tAnchor then return b~=tAnchor end
+            if b==tAnchor then return false end
             local da = M28Utilities.GetDistanceBetweenPositions(tCenter,a.oUnit:GetPosition())
             local db = M28Utilities.GetDistanceBetweenPositions(tCenter,b.oUnit:GetPosition())
             if da == db then return a.iEntityId < b.iEntityId end
@@ -8806,12 +8807,20 @@ function GetUnitNearestEnemyBase(tUnitsToConsider, iTeam, tOptionalEnemyBaseOver
     return oClosestUnit
 end
 
+local function ClearGunshipObjective(oUnit)
+    local tCommitment = oUnit.M28GunshipObjective
+    if tCommitment and tCommitment.target.M28GunshipObjectiveCommitments then
+        tCommitment.target.M28GunshipObjectiveCommitments[oUnit] = nil
+    end
+    oUnit.M28GunshipObjective = nil
+end
+
 function GetGunshipsToMoveToTarget(tAvailableGunships, tTarget, oOptionalTarget)
     local sFunctionRef = 'GetGunshipsToMoveToTarget'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelAir, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
     for _,oUnit in tAvailableGunships do
-        if not(oOptionalTarget) then oUnit.M28GunshipObjective=nil end
+        if not(oOptionalTarget) then ClearGunshipObjective(oUnit) end
     end
     local iGunshipMoveTolerance = 3 --If last move target was within 2.5 of current move target then wont move
     --Dist adjust - note this is a square, so e.g. if typical gunship range is 20+, then if are at +15x +15z from this, means will be 21 away, i.e. dont want to go further than +/- 15
@@ -9148,6 +9157,7 @@ function AssignGunshipObjectives(tAvailable, tTargets, iTeam, iAirSubteam, bSnip
                     oAircraft[M28UnitInfo.refbUsingDefaultWeaponPriority]=not(bSnipe or bShield)
                     local tCommitment=oAircraft.M28GunshipObjective
                     if not(tCommitment) or tCommitment.target~=tAnchor.oUnit or tCommitment.untilTime<=iNow then
+                        ClearGunshipObjective(oAircraft)
                         local tBP=oAircraft:GetBlueprint()
                         local iSpeed=math.max(1,(tBP.Air or {}).MaxAirspeed or (tBP.Physics or {}).MaxSpeed or 1)
                         tCommitment={target=tAnchor.oUnit,untilTime=iNow+math.min(90,20+M28Utilities.GetDistanceBetweenPositions(oAircraft:GetPosition(),tAnchor.tPosition)/iSpeed),threat=M28UnitInfo.GetAirThreatLevel({oAircraft},false,false,false,true,false,false)}
@@ -9164,7 +9174,7 @@ function AssignGunshipObjectives(tAvailable, tTargets, iTeam, iAirSubteam, bSnip
         end
     end
     if not(M28Utilities.IsTableEmpty(tRemaining)) then
-        for _,oAircraft in tRemaining do oAircraft.M28GunshipObjective=nil end
+        for _,oAircraft in tRemaining do ClearGunshipObjective(oAircraft) end
         local tFallback=GetProactiveAirFallbackPoint(iAirSubteam)
         if not(M28Utilities.IsTableEmpty(tFallback)) then GetGunshipsToMoveToTarget(tRemaining,tFallback) end
         if bFighterRejected and not(bOrdered) then StartStrikeAircraftFighterAvoidanceHold(iAirSubteam,refiGunshipFighterAvoidanceUntil) end
@@ -10732,7 +10742,7 @@ function ManageGunships(iTeam, iAirSubteam)
     end
 
     --Clear assignment flags for any refueling gunships
-    for _,oUnit in tGunshipsForRefueling do oUnit.M28GunshipObjective=nil end
+    for _,oUnit in tGunshipsForRefueling do ClearGunshipObjective(oUnit) end
     if M28Utilities.IsTableEmpty(tGunshipsForRefueling) == false then
         for iUnit, oUnit in tGunshipsForRefueling do
             oUnit[refiGunshipPlacement] = 10000
