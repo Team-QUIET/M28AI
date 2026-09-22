@@ -46,13 +46,14 @@ end
 
 function GetKnownThreatPosition(aiBrain, oUnit, iMaxAge)
     if not(aiBrain) or not(M28UnitInfo.IsUnitValid(oUnit)) then return nil, 0, 0 end
+    local tTimes = oUnit[M28UnitInfo.reftLastContactTimeByTeam]
+    local iTeam = aiBrain.M28Team
     if M28UnitInfo.CanSeeUnit(aiBrain, oUnit) then
-        M28Team.UpdateUnitLastKnownPosition(aiBrain, oUnit, true)
+        -- The recorded position is already current if written this tick.
+        if not(tTimes and tTimes[iTeam] == GetGameTimeSeconds()) then M28Team.UpdateUnitLastKnownPosition(aiBrain, oUnit, true) end
         return oUnit:GetPosition(), 1, 0
     end
     local tPositions = oUnit[M28UnitInfo.reftLastKnownPositionByTeam]
-    local tTimes = oUnit[M28UnitInfo.reftLastContactTimeByTeam]
-    local iTeam = aiBrain.M28Team
     local tPosition = tPositions and tPositions[iTeam]
     local iSeen = tTimes and tTimes[iTeam]
     if not(tPosition) or type(tPosition[1]) ~= 'number' or type(tPosition[3]) ~= 'number' or not(iSeen) then return nil, 0, 0 end

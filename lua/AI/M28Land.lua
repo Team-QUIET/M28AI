@@ -201,28 +201,28 @@ function HasLandObjectiveSupportingTail(oArrived, tGroup)
     return false
 end
 
+local GetLandObjectiveThreatSnapshot
+
 function IsLandObjectiveEmergency(oUnit, iPlateau, iZone, tAdmitted)
     if not(IsLandObjectiveMemberAvailable(oUnit)) then return true end
     local aiBrain = oUnit:GetAIBrain()
-    local tZones = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones]
-    local tZone = tZones[iZone]
+    local tZone = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iZone]
+    local tByZone = GetLandObjectiveThreatSnapshot(aiBrain, iPlateau, aiBrain.M28Team).byZone
+    local tPosition = oUnit:GetPosition()
     local bAdmittedContact = false
-    local function ThreatCanIntercept(tData)
-        for _, oEnemy in tData[M28Map.subrefLZTeamData][aiBrain.M28Team][M28Map.subrefTEnemyUnits] or {} do
-            if M28UnitInfo.IsUnitValid(oEnemy) then
-                local tKnown = M28Intel.GetKnownThreatPosition(aiBrain, oEnemy)
-                local iRange = math.max(oEnemy[M28UnitInfo.refiDFRange] or 0, oEnemy[M28UnitInfo.refiIndirectRange] or 0)
-                if tKnown and iRange > 0 and M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tKnown) <= iRange + 18 then
-                    if not(tAdmitted and tAdmitted[oEnemy]) then return true end
-                    bAdmittedContact = true
-                end
+    local function ThreatCanIntercept(iThreatZone)
+        local tEntry = tByZone[iThreatZone]
+        for _, tThreat in tEntry and tEntry.threats or {} do
+            if M28Utilities.GetDistanceBetweenPositions(tPosition, tThreat.position) <= tThreat.range + 18 then
+                if not(tAdmitted and tAdmitted[tThreat.unit]) then return true end
+                bAdmittedContact = true
             end
         end
         return false
     end
-    if ThreatCanIntercept(tZone) then return true end
+    if ThreatCanIntercept(iZone) then return true end
     for _, iAdjacent in tZone[M28Map.subrefLZAdjacentLandZones] or {} do
-        if ThreatCanIntercept(tZones[iAdjacent]) then return true end
+        if ThreatCanIntercept(iAdjacent) then return true end
     end
     -- Expected return fire cannot cancel an affordable assault at its first shot.
     -- The caller refreshes admission from live, available members before this check.
@@ -274,7 +274,7 @@ end
 
 local iLandDefenseCellSize = 64
 
-local function CreateLandDefenseIndex(tDefenses)
+function CreateLandDefenseIndex(tDefenses)
     if table.getn(tDefenses) < 2 then return nil end
     local tIndex, tColumns = {}, {}
     for _, tDefense in tDefenses do
@@ -299,7 +299,7 @@ local function CreateLandDefenseIndex(tDefenses)
     return tIndex
 end
 
-local function IsLandEdgeSegmentSafe(tStart, tEnd, tDefenses, iMargin, tDefenseIndex)
+function IsLandEdgeSegmentSafe(tStart, tEnd, tDefenses, iMargin, tDefenseIndex)
     if not(tDefenseIndex) then return IsLandSegmentOutsideKnownDefenses(tStart,tEnd,tDefenses,iMargin,true) end
     local iExpand = iMargin+1
     local iMinX, iMaxX = math.min(tStart[1],tEnd[1])-iExpand, math.max(tStart[1],tEnd[1])+iExpand
@@ -401,8 +401,10 @@ function GetLandStrategicAttackAdjustment(iTeam)
         and ((tTeam[M28Team.subrefiTeamNetMass] or 0) >= 0 or (tTeam[M28Team.subrefiTeamAverageMassPercentStored] or 0) >= 0.15)
         and ((tTeam[M28Team.subrefiTeamNetEnergy] or 0) >= 0 or (tTeam[M28Team.subrefiTeamAverageEnergyPercentStored] or 0) >= 0.2)
     local iNow = GetGameTimeSeconds()
-    local tSnapshot = tTeam.M28LandStrategicAggression
-    if tSnapshot and iNow - tSnapshot.time < 5 and tSnapshot.funded == bFunded then return tSnapshot.adjustment end
+    -- Cache each funding state separately so a flickering stall flag cannot force rescans.
+    tTeam.M28LandStrategicAggression = tTeam.M28LandStrategicAggression or {}
+    local tSnapshot = tTeam.M28LandStrategicAggression[bFunded]
+    if tSnapshot and iNow - tSnapshot.time < 5 then return tSnapshot.adjustment end
 
     -- Global superiority changes the required local margin, never the strength
     -- actually present in a wave. Only recorded enemy intel enters this estimate.
@@ -452,52 +454,94 @@ function GetLandStrategicAttackAdjustment(iTeam)
     local iLandBonus = iEnemy > 0 and math.max(0,math.min(1,iAlly/math.max(200,iEnemy)-1))*0.25 or 0
     local iProductionBonus = iEnemyBuildRate > 0 and math.max(0,math.min(1,iAllyBuildRate/iEnemyBuildRate-1))*0.15 or 0
     local iAdjustment = (iLandBonus+iProductionBonus)*iIntelScale
-    tTeam.M28LandStrategicAggression = {time=iNow,funded=bFunded,adjustment=iAdjustment}
+    tTeam.M28LandStrategicAggression[bFunded] = {time=iNow,adjustment=iAdjustment}
     return iAdjustment
 end
 
-function GetLandObjectiveAvoidance(tUnits, iPlateau, iTeam, iOptionalForce)
-    local tZones = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones]
-    local iForce = iOptionalForce or M28UnitInfo.GetCombatThreatRating(tUnits)
-    local aiBrain = tUnits[1]:GetAIBrain()
-    local tDefenses, tAssaultable = {}, iForce > 0 and {}
-    -- A native edge can detour outside its graph endpoints. Strong known mobile
-    -- screens along that detour must reject it just like fixed weapon coverage.
-    for _, tZone in tZones do
+GetLandObjectiveThreatSnapshot = function(aiBrain, iPlateau, iTeam)
+    -- Zone threat, fixed responses and known mobile positions do not change within
+    -- a tick; every objective review in that tick shares one plateau scan.
+    local tPlateau = M28Map.tAllPlateaus[iPlateau]
+    local iNow = GetGameTimeSeconds()
+    tPlateau.M28ObjectiveThreat = tPlateau.M28ObjectiveThreat or {}
+    local tSnapshot = tPlateau.M28ObjectiveThreat[iTeam]
+    if tSnapshot and tSnapshot.time == iNow then return tSnapshot end
+    tSnapshot = {time=iNow, zones={}, byZone={}, known=GetKnownLandDefenses(aiBrain,true)}
+    local tZones = tPlateau[M28Map.subrefPlateauLandZones]
+    for iZone, tZone in tZones do
         local tData = tZone[M28Map.subrefLZTeamData][iTeam]
-        local iMobile = (tData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0) + (tData[M28Map.subrefLZThreatEnemyMobileIndirectTotal] or 0)
-        if iForce > 0 and (tData[M28Map.subrefThreatEnemyDFStructures] or 0) > 0 then
+        local tEntry = {mobile=(tData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0) + (tData[M28Map.subrefLZThreatEnemyMobileIndirectTotal] or 0), mobileEntries={}, threats={}}
+        tSnapshot.byZone[iZone] = tEntry
+        if (tData[M28Map.subrefThreatEnemyDFStructures] or 0) > 0 then
             local iResponse = GetLandObjectiveResponse(tZone,iPlateau,iTeam)
             -- Adjacent emplacements can cover the same approach; do not admit
             -- each battery as an isolated fight against the whole wave.
             for _,iAdjacent in tZone[M28Map.subrefLZAdjacentLandZones] or {} do
-                local tAdjacent = tZones[iAdjacent][M28Map.subrefLZTeamData][iTeam]
-                iResponse = iResponse + GetLandObjectiveFixedResponse(tAdjacent)
+                iResponse = iResponse + GetLandObjectiveFixedResponse(tZones[iAdjacent][M28Map.subrefLZTeamData][iTeam])
             end
-            if iForce >= math.max(200,iResponse*(1.35-GetLandStrategicAttackAdjustment(iTeam))) then
-                for _,oEnemy in tData[M28Map.subrefTEnemyUnits] or {} do
-                    if M28UnitInfo.IsUnitValid(oEnemy) and EntityCategoryContains(M28UnitInfo.refCategoryPD,oEnemy.UnitId) then
-                        tAssaultable[oEnemy] = true
+            tEntry.response, tEntry.pd = iResponse, {}
+        end
+        for _, oEnemy in tData[M28Map.subrefTEnemyUnits] or {} do
+            if M28UnitInfo.IsUnitValid(oEnemy) then
+                if tEntry.pd and EntityCategoryContains(M28UnitInfo.refCategoryPD,oEnemy.UnitId) then
+                    table.insert(tEntry.pd,oEnemy)
+                end
+                local iRange = math.max(oEnemy[M28UnitInfo.refiDFRange] or 0,oEnemy[M28UnitInfo.refiIndirectRange] or 0)
+                local tKnown = iRange > 0 and M28Intel.GetKnownThreatPosition(aiBrain,oEnemy)
+                if tKnown then
+                    -- Any armed contact can intercept an objective member (IsLandObjectiveEmergency).
+                    table.insert(tEntry.threats,{unit=oEnemy,position=tKnown,range=iRange})
+                    if EntityCategoryContains(categories.LAND * categories.MOBILE,oEnemy.UnitId) then
+                        table.insert(tEntry.mobileEntries,{unit=oEnemy,position=tKnown,range=iRange+((oEnemy:GetBlueprint().Physics or {}).MaxSpeed or 0)*5})
                     end
                 end
             end
         end
-        if iForce == 0 or iMobile * (1.35-GetLandStrategicAttackAdjustment(iTeam)) > iForce then
-            for _, oEnemy in tData[M28Map.subrefTEnemyUnits] or {} do
-                if M28UnitInfo.IsUnitValid(oEnemy) and EntityCategoryContains(categories.LAND * categories.MOBILE,oEnemy.UnitId) then
-                    local tKnown = M28Intel.GetKnownThreatPosition(aiBrain,oEnemy)
-                    local iRange = math.max(oEnemy[M28UnitInfo.refiDFRange] or 0,oEnemy[M28UnitInfo.refiIndirectRange] or 0)
-                    if tKnown and iRange > 0 then
-                        table.insert(tDefenses,{unit=oEnemy,position=tKnown,range=iRange+((oEnemy:GetBlueprint().Physics or {}).MaxSpeed or 0)*5})
-                    end
-                end
+        table.insert(tSnapshot.zones,tEntry)
+    end
+    tPlateau.M28ObjectiveThreat[iTeam] = tSnapshot
+    return tSnapshot
+end
+
+function GetLandObjectiveAvoidance(tUnits, iPlateau, iTeam, iOptionalForce)
+    local iForce = iOptionalForce or M28UnitInfo.GetCombatThreatRating(tUnits)
+    local tSnapshot = GetLandObjectiveThreatSnapshot(tUnits[1]:GetAIBrain(),iPlateau,iTeam)
+    local iRatio = 1.35-GetLandStrategicAttackAdjustment(iTeam)
+    -- Forces with the same per-zone admission get identical risks this tick; share
+    -- the list, admitted set and spatial index (all read-only for callers).
+    local tAssault, tMobile, tKey = {}, {}, {iForce > 0 and 'f' or 'z'}
+    for iEntry, tZone in tSnapshot.zones do
+        tAssault[iEntry] = iForce > 0 and tZone.pd and iForce >= math.max(200,tZone.response*iRatio)
+        tMobile[iEntry] = iForce == 0 or tZone.mobile * iRatio > iForce
+        tKey[iEntry+1] = (tAssault[iEntry] and 'a' or '-')..(tMobile[iEntry] and 'm' or '-')
+    end
+    local sKey = table.concat(tKey)
+    tSnapshot.avoidance = tSnapshot.avoidance or {}
+    local tCached = tSnapshot.avoidance[sKey]
+    if not(tCached) then
+        local tDefenses, tAssaultable = {}, iForce > 0 and {}
+        -- A native edge can detour outside its graph endpoints. Strong known mobile
+        -- screens along that detour must reject it just like fixed weapon coverage.
+        for iEntry, tZone in tSnapshot.zones do
+            if tAssault[iEntry] then
+                for _,oEnemy in tZone.pd do tAssaultable[oEnemy] = true end
+            end
+            if tMobile[iEntry] then
+                for _,tEntry in tZone.mobileEntries do table.insert(tDefenses,tEntry) end
             end
         end
+        for _,tDefense in tSnapshot.known do
+            if tDefense.indirect or not(tAssaultable and tAssaultable[tDefense.unit]) then table.insert(tDefenses,tDefense) end
+        end
+        tCached = {defenses=tDefenses, assaultable=tAssaultable}
+        tSnapshot.avoidance[sKey] = tCached
     end
-    for _,tDefense in GetKnownLandDefenses(aiBrain,true) do
-        if tDefense.indirect or not(tAssaultable and tAssaultable[tDefense.unit]) then table.insert(tDefenses,tDefense) end
-    end
-    return tDefenses, iForce, tAssaultable
+    return tCached.defenses, iForce, tCached.assaultable, tCached
+end
+
+function GetLandObjectiveAvoidanceIndex(tCached)
+    if tCached.index == nil then tCached.index = CreateLandDefenseIndex(tCached.defenses) or false end
+    return tCached.index or nil
 end
 
 function GetLandObjectiveWaypoint(tGroup, oUnit)
@@ -520,8 +564,9 @@ end
 
 function IsLandObjectiveRouteSafe(tGroup, tMembers)
     if table.getn(tMembers) == 0 then return false end
-    local tDefenses, _, tAdmitted = GetLandObjectiveAvoidance(tMembers,tGroup.plateau,tGroup.team)
+    local tDefenses, _, tAdmitted, tAvoidanceCache = GetLandObjectiveAvoidance(tMembers,tGroup.plateau,tGroup.team)
     tGroup.admitted = tAdmitted
+    local tDefenseIndex = GetLandObjectiveAvoidanceIndex(tAvoidanceCache)
     local tZones = M28Map.tAllPlateaus[tGroup.plateau][M28Map.subrefPlateauLandZones]
     local iFirst = table.getn(tGroup.path)+1
     local bArrivedSupport = false
@@ -531,11 +576,11 @@ function IsLandObjectiveRouteSafe(tGroup, tMembers)
         else
             local tPoint,iPoint = GetLandObjectiveWaypoint(tGroup,oUnit)
             iFirst = math.min(iFirst,iPoint)
-            if tPoint and not(IsLandSegmentOutsideKnownDefenses(oUnit:GetPosition(),tPoint,tDefenses,10,true)) then return false end
+            if tPoint and not(IsLandEdgeSegmentSafe(oUnit:GetPosition(),tPoint,tDefenses,10,tDefenseIndex)) then return false end
         end
     end
-    for iPoint=iFirst,table.getn(tGroup.path) do
-        if iPoint > iFirst and not(IsLandSegmentOutsideKnownDefenses(tGroup.path[iPoint-1],tGroup.path[iPoint],tDefenses,10,true)) then return false end
+    for iPoint=iFirst+1,table.getn(tGroup.path) do
+        if not(IsLandEdgeSegmentSafe(tGroup.path[iPoint-1],tGroup.path[iPoint],tDefenses,10,tDefenseIndex)) then return false end
     end
     local tTarget = tZones[tGroup.target]
     local tData = tTarget[M28Map.subrefLZTeamData][tGroup.team]
@@ -698,7 +743,7 @@ function SelectLandSupportObjective(tUnits, iPlateau, iSource, iTeam, tPrevious,
     local tZones = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones]
     local tLayers = {}
     for _, oUnit in tUnits do tLayers[M28UnitInfo.GetUnitPathingType(oUnit)] = true end
-    local tDefenses, iForce, tAdmitted = GetLandObjectiveAvoidance(tUnits,iPlateau,iTeam)
+    local tDefenses, iForce, tAdmitted, tAvoidanceCache = GetLandObjectiveAvoidance(tUnits,iPlateau,iTeam)
     local tCommanderPlan,tCommanderZones = GetLandCommanderSupportPlan(tUnits,iPlateau,iSource,iTeam,tLayers,tDefenses,iForce,tPrevious,tExcluded)
     if tCommanderPlan then return tCommanderPlan end
     -- Keep a nearby, affordable battery from splitting the assembled wave into
@@ -750,7 +795,7 @@ function SelectLandSupportObjective(tUnits, iPlateau, iSource, iTeam, tPrevious,
     -- selecting an attractive endpoint and then sending the army through the center.
     -- Threat geometry is a snapshot for this synchronous search only. Never
     -- retain its index on cached native edges or across objective reviews.
-    local tDefenseIndex = CreateLandDefenseIndex(tDefenses)
+    local tDefenseIndex = GetLandObjectiveAvoidanceIndex(tAvoidanceCache)
     local tCost, tParent, tEdges, tClosed = {[iSource]=0}, {}, {}, {}
     local bPathUnavailable = false
     local iSourceForward = tZones[iSource][M28Map.subrefLZTeamData][iTeam][M28Map.refiModDistancePercent] or 0
@@ -933,7 +978,9 @@ function UpdateLandObjectiveProgress(tGroup)
             tProgress.untilTime = tProgress.untilTime or iPreviousExpiry
         end
     end
-    if tGroup.commander and bActive then
+    -- Native join paths per member: evaluate once per tick however many owners ask.
+    if tGroup.commander and bActive and tGroup.arrivalCheckedAt ~= iNow then
+        tGroup.arrivalCheckedAt = iNow
         local iArrival,iThreat = GetLandObjectiveArrivalSeconds(tGroup.units,tGroup.path,tGroup.progress,tGroup)
         tGroup.arrivingThreat = iThreat
         if iNow+iArrival > tGroup.arrivalDeadline then tGroup.cancelled = true end
@@ -1206,14 +1253,14 @@ function GetLandObjectiveAssignments(tUnits, iPlateau, iSource, iTeam)
     return tAssignments
 end
 
-function IssueLandAssemblyOrder(oUnit, tPosition, sDescription, bTravelling, tAvoidance, tKnownDefenses)
+function IssueLandAssemblyOrder(oUnit, tPosition, sDescription, bTravelling, tAvoidance, tKnownDefenses, tKnownDefenseIndex)
     local tPrevious = oUnit.M28AssemblyOrder
     local iNow = GetGameTimeSeconds()
     local iDistance = M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(), tPosition)
     local tLast = (oUnit[M28Orders.reftiLastOrders] or {})[1]
     local tLastPosition = tLast and tLast[M28Orders.subreftOrderPosition]
     local bCurrentSafe = not(tKnownDefenses) or tLastPosition
-        and IsLandSegmentOutsideKnownDefenses(oUnit:GetPosition(),tLastPosition,tKnownDefenses,10,true)
+        and IsLandEdgeSegmentSafe(oUnit:GetPosition(),tLastPosition,tKnownDefenses,10,tKnownDefenseIndex)
     if bCurrentSafe and tPrevious and tPrevious.description == sDescription and tLast and tLast[M28Orders.subrefsOrderDesc] == tPrevious.engineDescription
             and M28Utilities.GetDistanceBetweenPositions(tPrevious.position, tPosition) <= 6
             and (iDistance <= 12 or (iNow - tPrevious.time < 12 and not(oUnit:IsIdleState()))) then return false end
@@ -1222,9 +1269,9 @@ function IssueLandAssemblyOrder(oUnit, tPosition, sDescription, bTravelling, tAv
     local tIssuedPosition, iSpread = tPosition, bTravelling and 4 or nil
     if tKnownDefenses then
         tIssuedPosition = M28Orders.GetSpreadPositionForUnit(oUnit,tPosition,iSpread,tAvoidance)
-        if not(IsLandRouteOutsideKnownDefenses(oUnit,tIssuedPosition,tKnownDefenses,10,true)) then
+        if not(IsLandRouteOutsideKnownDefenses(oUnit,tIssuedPosition,tKnownDefenses,10,true,tKnownDefenseIndex)) then
             tIssuedPosition = tPosition
-            if not(IsLandRouteOutsideKnownDefenses(oUnit,tIssuedPosition,tKnownDefenses,10,true)) then
+            if not(IsLandRouteOutsideKnownDefenses(oUnit,tIssuedPosition,tKnownDefenses,10,true,tKnownDefenseIndex)) then
                 oUnit.M28AssemblyOrder = nil
                 return false
             end
@@ -1305,7 +1352,7 @@ function GetSupportWaveUnits(tUnits, tDestination)
     return tReady,M28UnitInfo.GetCombatThreatRating(tSource),M28UnitInfo.GetCombatThreatRating(tCover)
 end
 
-function GetLandAssemblyPath(tStart, tGoal, tLayers, tDefenses)
+function GetLandAssemblyPath(tStart, tGoal, tLayers, tDefenses, tDefenseIndex)
     local sLayer = next(tLayers)
     if not(sLayer) or not(NavUtils.CanPathTo(sLayer,tStart,tGoal)) then return nil end
     local tPath = NavUtils.PathTo(sLayer,tStart,tGoal)
@@ -1313,7 +1360,7 @@ function GetLandAssemblyPath(tStart, tGoal, tLayers, tDefenses)
     local tPrevious, tDestination = tStart, tGoal
     for i=1,table.getn(tPath)+1 do
         local tPoint = tPath[i] or tGoal
-        if not(IsLandSegmentOutsideKnownDefenses(tPrevious,tPoint,tDefenses,20,true)) then
+        if not(IsLandEdgeSegmentSafe(tPrevious,tPoint,tDefenses,20,tDefenseIndex)) then
             -- Keep the full compact formation (up to 9.4 units) outside the
             -- ten-unit safety margin, including every native route segment.
             local lo,hi = 0,1
@@ -1321,7 +1368,7 @@ function GetLandAssemblyPath(tStart, tGoal, tLayers, tDefenses)
             for n=1,12 do
                 local mid = (lo+hi)*0.5
                 local tProbe = {tPrevious[1]+dx*mid,0,tPrevious[3]+dz*mid}
-                if IsLandSegmentOutsideKnownDefenses(tPrevious,tProbe,tDefenses,20,true) then lo=mid else hi=mid end
+                if IsLandEdgeSegmentSafe(tPrevious,tProbe,tDefenses,20,tDefenseIndex) then lo=mid else hi=mid end
             end
             tDestination = {tPrevious[1]+dx*lo,0,tPrevious[3]+dz*lo}
             tDestination[2] = GetSurfaceHeight(tDestination[1],tDestination[3])
@@ -1330,10 +1377,10 @@ function GetLandAssemblyPath(tStart, tGoal, tLayers, tDefenses)
         tPrevious = tPoint
     end
     if M28Utilities.GetDistanceBetweenPositions(tStart,tDestination) <= 18 then return nil end
-    return GetLandObjectiveEdge(tStart,tDestination,tLayers,tDefenses,nil,20)
+    return GetLandObjectiveEdge(tStart,tDestination,tLayers,tDefenses,nil,20,tDefenseIndex)
 end
 
-function GetLandForwardAssembly(tUnits, iPlateau, iSource, iTeam, tDefenses)
+function GetLandForwardAssembly(tUnits, iPlateau, iSource, iTeam, tDefenses, tDefenseIndex)
     if table.getn(tUnits)==0 or M28Overseer.bNoRushActive then return nil end
     local tZones = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones]
     local tSource = tZones[iSource][M28Map.subrefLZTeamData][iTeam]
@@ -1346,7 +1393,10 @@ function GetLandForwardAssembly(tUnits, iPlateau, iSource, iTeam, tDefenses)
     local tLayers = {}
     for _,oUnit in tUnits do tLayers[M28UnitInfo.GetUnitPathingType(oUnit)] = true end
     -- Gathering does not count a dispersed army as already fighting together.
-    tDefenses = tDefenses or GetLandObjectiveAvoidance(tUnits,iPlateau,iTeam,0)
+    if not(tDefenses) then
+        local tFreshDefenses, _, _, tAvoidanceCache = GetLandObjectiveAvoidance(tUnits,iPlateau,iTeam,0)
+        tDefenses, tDefenseIndex = tFreshDefenses, GetLandObjectiveAvoidanceIndex(tAvoidanceCache)
+    end
     if tPrevious and tPrevious.plateau==iPlateau and UpdateLandObjectiveProgress(tPrevious) then
         local bSafe, iFirst = true, table.getn(tPrevious.path)+1
         for sLayer,_ in tLayers do if not(tPrevious.layers[sLayer]) then bSafe=false end end
@@ -1354,10 +1404,10 @@ function GetLandForwardAssembly(tUnits, iPlateau, iSource, iTeam, tDefenses)
             local tPoint,iPoint = GetLandObjectiveWaypoint(tPrevious,oUnit)
             iFirst = math.min(iFirst,iPoint)
             tPoint = tPoint or tPrevious.path[table.getn(tPrevious.path)]
-            if not(IsLandSegmentOutsideKnownDefenses(oUnit:GetPosition(),tPoint,tDefenses,10,true)) then bSafe=false end
+            if not(IsLandEdgeSegmentSafe(oUnit:GetPosition(),tPoint,tDefenses,10,tDefenseIndex)) then bSafe=false end
         end
         for i=iFirst+1,table.getn(tPrevious.path) do
-            if not(IsLandSegmentOutsideKnownDefenses(tPrevious.path[i-1],tPrevious.path[i],tDefenses,10,true)) then bSafe=false end
+            if not(IsLandEdgeSegmentSafe(tPrevious.path[i-1],tPrevious.path[i],tDefenses,10,tDefenseIndex)) then bSafe=false end
         end
         if bSafe then return tPrevious end
     end
@@ -1400,10 +1450,10 @@ function GetLandForwardAssembly(tUnits, iPlateau, iSource, iTeam, tDefenses)
         local tPath
         if tShared and GetGameTimeSeconds()<tShared.untilTime
                 and M28Utilities.GetDistanceBetweenPositions(tOrigin,tShared.position)>18 then
-            tPath = GetLandObjectiveEdge(tOrigin,tShared.position,tLayers,tDefenses,nil,20)
+            tPath = GetLandObjectiveEdge(tOrigin,tShared.position,tLayers,tDefenses,nil,20,tDefenseIndex)
         end
         if not(tPath) then
-            tPath = GetLandAssemblyPath(tOrigin,tCandidate.position,tLayers,tDefenses)
+            tPath = GetLandAssemblyPath(tOrigin,tCandidate.position,tLayers,tDefenses,tDefenseIndex)
             if tPath then
                 local p = tPath[table.getn(tPath)]
                 tCandidate.data.M28ForwardAssembly = {position={p[1],p[2],p[3]},untilTime=GetGameTimeSeconds()+90}
@@ -1450,7 +1500,11 @@ function IssueLandForwardGathering(tUnits, iPlateau, iLandZone, iTeam, tSpreadAv
             table.insert(tWaiting,oUnit)
         end
     end
-    local tAvoidance = table.getn(tWaiting)>0 and GetLandObjectiveAvoidance(tWaiting,iPlateau,iTeam,0)
+    local tAvoidance, tAvoidanceIndex = false, nil
+    if table.getn(tWaiting)>0 then
+        local tFreshAvoidance, _, _, tAvoidanceCache = GetLandObjectiveAvoidance(tWaiting,iPlateau,iTeam,0)
+        tAvoidance, tAvoidanceIndex = tFreshAvoidance, GetLandObjectiveAvoidanceIndex(tAvoidanceCache)
+    end
     while table.getn(tWaiting)>0 do
         local tCohort,tOther = {},{}
         local tOrigin = tWaiting[1]:GetPosition()
@@ -1459,7 +1513,7 @@ function IssueLandForwardGathering(tUnits, iPlateau, iLandZone, iTeam, tSpreadAv
                 table.insert(tCohort,oUnit)
             else table.insert(tOther,oUnit) end
         end
-        local tAssembly = GetLandForwardAssembly(tCohort,iPlateau,iLandZone,iTeam,tAvoidance)
+        local tAssembly = GetLandForwardAssembly(tCohort,iPlateau,iLandZone,iTeam,tAvoidance,tAvoidanceIndex)
         local bLocalReady = tAssembly and tAssembly.target==iLandZone
             and M28UnitInfo.GetCombatThreatRating(tCohort)>=GetLandObjectiveResponse(
                 M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone],iPlateau,iTeam)*(1.35-GetLandStrategicAttackAdjustment(iTeam))
@@ -1470,21 +1524,21 @@ function IssueLandForwardGathering(tUnits, iPlateau, iLandZone, iTeam, tSpreadAv
             if bLocalReady then
                 oUnit.M28LandAssemblyRoute = nil
                 oUnit.M28LandAssemblyComplete = {plateau=iPlateau,zone=iLandZone,position=oUnit:GetPosition(),front=tAssembly.front}
-            elseif tPoint and IsLandSegmentOutsideKnownDefenses(oUnit:GetPosition(),tPoint,tAvoidance,10,true) then
+            elseif tPoint and IsLandEdgeSegmentSafe(oUnit:GetPosition(),tPoint,tAvoidance,10,tAvoidanceIndex) then
                 if not(tAssembly.travelProgress[oUnit]) then
                     local _, iPoint = GetLandObjectiveWaypoint(tAssembly,oUnit)
                     table.insert(tAssembly.units,oUnit)
                     tAssembly.travelProgress[oUnit] = {point=iPoint, distance=M28Utilities.GetDistanceBetweenPositions(oUnit:GetPosition(),tPoint), untilTime=GetGameTimeSeconds()+90}
                 end
                 oUnit.M28LandAssemblyRoute = tAssembly
-                IssueLandAssemblyOrder(oUnit,tPoint,'DFGather'..tAssembly.target,true,tSpreadAvoidance,tAvoidance)
+                IssueLandAssemblyOrder(oUnit,tPoint,'DFGather'..tAssembly.target,true,tSpreadAvoidance,tAvoidance,tAvoidanceIndex)
                 local tOrder = (oUnit[M28Orders.reftiLastOrders] or {})[1]
                 tAssembly.travelProgress[oUnit].order = tOrder
                 local tAssemblyOrder = oUnit.M28AssemblyOrder
                 tGathered[oUnit] = tOrder and tAssemblyOrder and tOrder[M28Orders.subrefsOrderDesc]==tAssemblyOrder.engineDescription
             elseif bHoldUnassigned then
                 oUnit.M28LandAssemblyRoute = nil
-                IssueLandAssemblyOrder(oUnit,oUnit:GetPosition(),'DFWaitLZ'..iLandZone,false,tSpreadAvoidance,tAvoidance)
+                IssueLandAssemblyOrder(oUnit,oUnit:GetPosition(),'DFWaitLZ'..iLandZone,false,tSpreadAvoidance,tAvoidance,tAvoidanceIndex)
             end
         end
         tWaiting = tOther
@@ -14778,21 +14832,26 @@ function IsLandSegmentOutsideKnownDefenses(tStart, tEnd, tDefenses, iMargin, bAl
     return true
 end
 
-function IsLandRouteOutsideKnownDefenses(oUnit, tDestination, tDefenses, iMargin, bAllowEscape)
+function IsLandRouteOutsideKnownDefenses(oUnit, tDestination, tDefenses, iMargin, bAllowEscape, tOptionalDefenseIndex)
     local tStart = oUnit:GetPosition()
+    -- The spatial index (built for escape-allowed checks) only narrows which weapons are tested.
+    local function SegmentSafe(tA, tB)
+        if tOptionalDefenseIndex and bAllowEscape then return IsLandEdgeSegmentSafe(tA,tB,tDefenses,iMargin,tOptionalDefenseIndex) end
+        return IsLandSegmentOutsideKnownDefenses(tA,tB,tDefenses,iMargin,bAllowEscape)
+    end
     local sLayer = M28UnitInfo.GetUnitPathingType(oUnit)
     if not(NavUtils.CanPathTo(sLayer, tStart, tDestination)) then return false end
     if M28Utilities.IsTableEmpty(tDefenses) then return true end
     -- Native movement can cut corners relative to the Lua route.
-    if not(IsLandSegmentOutsideKnownDefenses(tStart,tDestination,tDefenses,iMargin,bAllowEscape)) then return false end
+    if not(SegmentSafe(tStart,tDestination)) then return false end
     local tPath = NavUtils.PathTo(sLayer, tStart, tDestination)
     if not(tPath) then return false end
     local tPrevious = tStart
     for _, tWaypoint in tPath do
-        if not(IsLandSegmentOutsideKnownDefenses(tPrevious,tWaypoint,tDefenses,iMargin,bAllowEscape)) then return false end
+        if not(SegmentSafe(tPrevious,tWaypoint)) then return false end
         tPrevious = tWaypoint
     end
-    return IsLandSegmentOutsideKnownDefenses(tPrevious,tDestination,tDefenses,iMargin,bAllowEscape)
+    return SegmentSafe(tPrevious,tDestination)
 end
 
 function ShouldPreserveLandExperimental(oUnit)

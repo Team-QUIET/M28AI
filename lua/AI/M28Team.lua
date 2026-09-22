@@ -1478,14 +1478,18 @@ function UpdateUnitLastKnownPosition(aiBrain, oUnit, bDontCheckIfCanSeeUnit, bIn
         local tPosition = oUnit:GetPosition()
         oUnit[M28UnitInfo.reftLastKnownPositionByTeam] = oUnit[M28UnitInfo.reftLastKnownPositionByTeam] or {}
         oUnit[M28UnitInfo.reftLastContactTimeByTeam] = oUnit[M28UnitInfo.reftLastContactTimeByTeam] or {}
+        -- A unit's tech and AA role never change, so register them on first contact only.
+        local bFirstContact = not(oUnit[M28UnitInfo.reftLastContactTimeByTeam][iTeam])
         oUnit[M28UnitInfo.reftLastKnownPositionByTeam][iTeam] = {tPosition[1], tPosition[2], tPosition[3]}
         oUnit[M28UnitInfo.reftLastContactTimeByTeam][iTeam] = GetGameTimeSeconds()
-        if aiBrain.M28AI and IsEnemy(aiBrain:GetArmyIndex(), oUnitBrain:GetArmyIndex()) then
-            UpdateEnemyTechTracking(iTeam, oUnit)
-        end
-        if EntityCategoryContains(M28UnitInfo.refCategoryGroundAA, oUnit.UnitId) then
-            tTeamData[iTeam][reftoKnownGroundAA] = tTeamData[iTeam][reftoKnownGroundAA] or {}
-            tTeamData[iTeam][reftoKnownGroundAA][oUnit.EntityId] = oUnit
+        if bFirstContact then
+            if aiBrain.M28AI and IsEnemy(aiBrain:GetArmyIndex(), oUnitBrain:GetArmyIndex()) then
+                UpdateEnemyTechTracking(iTeam, oUnit)
+            end
+            if EntityCategoryContains(M28UnitInfo.refCategoryGroundAA, oUnit.UnitId) then
+                tTeamData[iTeam][reftoKnownGroundAA] = tTeamData[iTeam][reftoKnownGroundAA] or {}
+                tTeamData[iTeam][reftoKnownGroundAA][oUnit.EntityId] = oUnit
+            end
         end
     end
     -- Friendly units in the same zone cannot reveal where an unseen enemy moved.
