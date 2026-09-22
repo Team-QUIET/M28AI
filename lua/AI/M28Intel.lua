@@ -67,7 +67,11 @@ function GetKnownThreatPosition(aiBrain, oUnit, iMaxAge)
 end
 
 function GetKnownGroundAA(aiBrain)
-    local tKnown = M28Team.tTeamData[aiBrain.M28Team][M28Team.reftoKnownGroundAA] or {}
+    -- Strike route checks run per aircraft; the known list is fixed within a tick.
+    local tTeam = M28Team.tTeamData[aiBrain.M28Team]
+    local tCache = tTeam.M28KnownGroundAACache
+    if tCache and tCache.time == GetGameTimeSeconds() then return tCache.units end
+    local tKnown = tTeam[M28Team.reftoKnownGroundAA] or {}
     local tResult = {}
     for iId, oUnit in tKnown do
         if not(M28UnitInfo.IsUnitValid(oUnit)) or not(IsEnemy(aiBrain:GetArmyIndex(), oUnit:GetArmy())) then
@@ -77,6 +81,7 @@ function GetKnownGroundAA(aiBrain)
         end
     end
     table.sort(tResult, function(a,b) return a.EntityId < b.EntityId end)
+    tTeam.M28KnownGroundAACache = {time = GetGameTimeSeconds(), units = tResult}
     return tResult
 end
 

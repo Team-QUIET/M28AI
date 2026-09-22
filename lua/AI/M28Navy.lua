@@ -2610,7 +2610,36 @@ function GetNavalRouteCost(tRoute)
     return tRoute.length + tRoute.surface * 4 + tRoute.anti * 4 + tRoute.aa * 2
 end
 
+local ComputeNavalOpportunityRoute
+
 function GetNavalOpportunityRoute(tStart, tEnd, iPond, iTeam, tEnemies, tEdgeCache)
+    -- Nearby starts/ends share one native route per tick (4-unit cells).
+    if not(tEdgeCache) then return ComputeNavalOpportunityRoute(tStart, tEnd, iPond, iTeam, tEnemies) end
+    tEdgeCache.routes = tEdgeCache.routes or {}
+    local sKey = math.floor(tStart[1] / 4)..','..math.floor(tStart[3] / 4)..':'..math.floor(tEnd[1] / 4)..','..math.floor(tEnd[3] / 4)
+    local vRoute = tEdgeCache.routes[sKey]
+    if vRoute == nil then
+        vRoute = ComputeNavalOpportunityRoute(tStart, tEnd, iPond, iTeam, tEnemies, tEdgeCache) or false
+        tEdgeCache.routes[sKey] = vRoute
+    end
+    return vRoute or nil
+end
+
+function GetNavalRouteTickCache(iPond, iTeam, bReuse)
+    -- One owner pass (its opportunity and no-target allocations) shares route
+    -- threats and evaluated edges; every new pass sees current intel.
+    local tPond = M28Map.tPondDetails[iPond]
+    tPond.M28NavalRouteCache = tPond.M28NavalRouteCache or {}
+    local tCache = tPond.M28NavalRouteCache[iTeam]
+    local iNow = GetGameTimeSeconds()
+    if not(bReuse and tCache and tCache.time == iNow) then
+        tCache = {time = iNow, enemies = GetNavalRouteEnemies(iPond, iTeam), edges = {}}
+        tPond.M28NavalRouteCache[iTeam] = tCache
+    end
+    return tCache
+end
+
+ComputeNavalOpportunityRoute = function(tStart, tEnd, iPond, iTeam, tEnemies, tEdgeCache)
     local tDirect = EvaluateNavalOpportunityPath(tStart, tEnd, iPond, iTeam, tEnemies)
     if tDirect and tDirect.surface == 0 and tDirect.anti == 0 and tDirect.aa == 0 then return tDirect end
     local iStart = M28Map.GetWaterZoneFromPosition(tStart)
@@ -2737,12 +2766,12 @@ function ReleaseNavalObjective(oUnit)
     oUnit.M28NavalObjective = nil
 end
 
-function AssignNavalOpportunities(tWZData, iPond, iWaterZone, iTeam, tCombat, tSubs, tMissiles, tAA)
+function AssignNavalOpportunities(tWZData, iPond, iWaterZone, iTeam, tCombat, tSubs, tMissiles, tAA, bReuseRouteCache)
     local tZones = M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones]
     local tHome = tWZData[M28Map.subrefWZTeamData][iTeam]
     local tPool, tSeen, tAssigned = {}, {}, {}
-    local tEnemies = GetNavalRouteEnemies(iPond, iTeam)
-    local tEdgeCache = {}
+    local tTickCache = GetNavalRouteTickCache(iPond, iTeam, bReuseRouteCache)
+    local tEnemies, tEdgeCache = tTickCache.enemies, tTickCache.edges
     local tStart = tWZData[M28Map.subrefMidpoint]
     local iNow = GetGameTimeSeconds()
     for _, tUnits in {tCombat or {}, tSubs or {}, tMissiles or {}, tAA or {}} do
@@ -2815,13 +2844,27 @@ function AssignNavalOpportunities(tWZData, iPond, iWaterZone, iTeam, tCombat, tS
         end
     end
     -- One bounded coherent assignment per source pass; other zones see it immediately.
-    local tBest, tBestUnits, tBestRoute, tBestPosition, iBestScore
+    -- Native routing is the expensive step: rank by value and straight-line distance
+    -- first and route only the leading candidates that still want strength.
+    local tRanked = {}
     for _, tObjective in tCandidates do
+        local iKey = tObjective.unit or tObjective.zone
+        local iWanted = tObjective.demand or math.max(120, math.min(1200, tObjective.value * 0.25))
+        local iInbound = tIncoming[iKey] and (tObjective.subSupport and tIncoming[iKey].anti or tIncoming[iKey].surface) or 0
+        if iInbound < iWanted and (not(bOnlySubs) or tObjective.subSupport) then
+            tObjective.rank = (tObjective.value + (tObjective.emergency and 100000 or 0)) / (1 + M28Utilities.GetDistanceBetweenPositions(tStart, tObjective.position) / 180)
+            table.insert(tRanked, tObjective)
+        end
+    end
+    table.sort(tRanked, function(a, b) return a.rank > b.rank end)
+    local tBest, tBestUnits, tBestRoute, tBestPosition, iBestScore
+    for iRank = 1, math.min(6, table.getn(tRanked)) do
+        local tObjective = tRanked[iRank]
         local iKey = tObjective.unit or tObjective.zone
         local iWanted = tObjective.demand or math.max(120, math.min(1200, tObjective.value * 0.25))
         local bSubSupport = tObjective.subSupport
         local iInbound = tIncoming[iKey] and (bSubSupport and tIncoming[iKey].anti or tIncoming[iKey].surface) or 0
-        if iInbound < iWanted and (not(bOnlySubs) or bSubSupport) then
+        do
             local tRoute, tPosition = GetNavalObjectiveApproach(tObjective, tStart, iPond, iTeam, tPool, tEnemies, tEdgeCache)
             if tRoute then
                 local tDemand = {surface = bSubSupport and 0 or math.max(iWanted - iInbound, tRoute.surface), anti = bSubSupport and math.max(iWanted - iInbound, tRoute.surface, tRoute.anti) or tRoute.anti, aa = tRoute.aa}
@@ -2882,7 +2925,7 @@ function AssignNavalOpportunities(tWZData, iPond, iWaterZone, iTeam, tCombat, tS
 end
 
 function ConsiderOrdersForUnitsWithNoTarget(tWZData, iPond, iWaterZone, iTeam, tSubmarinesWithNoTarget, tCombatUnitsWithNoTarget, tMissileShips)
-    local tAssigned = AssignNavalOpportunities(tWZData, iPond, iWaterZone, iTeam, tCombatUnitsWithNoTarget, tSubmarinesWithNoTarget, tMissileShips)
+    local tAssigned = AssignNavalOpportunities(tWZData, iPond, iWaterZone, iTeam, tCombatUnitsWithNoTarget, tSubmarinesWithNoTarget, tMissileShips, nil, true)
     local tLandUnits = {}
     for _, oUnit in tCombatUnitsWithNoTarget or {} do
         if not(tAssigned[oUnit]) and EntityCategoryContains(M28UnitInfo.refCategoryAmphibiousCombat, oUnit.UnitId) then table.insert(tLandUnits, oUnit) end

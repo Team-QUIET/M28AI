@@ -8553,12 +8553,18 @@ function AssignTorpOrBomberTargets(tAvailableAircraft, tCandidateEntries, iAirSu
     local tAssigned, tRejected = {}, {}
     local tFighterRejection
     local iAreasChecked = 0
+    -- Remaining damage only changes when this pass reserves attackers.
+    local tDemand = {}
     while not(M28Utilities.IsTableEmpty(tAircraft)) and iAreasChecked < 12 do
         local tCenter = GetStrikeAircraftCohortData(tAircraft)
         local tAnchor, iBestScore
         for _, tCandidate in tCandidates do
             if not(tRejected[tCandidate]) then
-                local iDemand = M28UnitInfo.GetTargetDamageNeeded(tCandidate.oUnit, iTeam, tCandidate.tShields, bTorp)
+                local iDemand = tDemand[tCandidate]
+                if not(iDemand) then
+                    iDemand = M28UnitInfo.GetTargetDamageNeeded(tCandidate.oUnit, iTeam, tCandidate.tShields, bTorp)
+                    tDemand[tCandidate] = iDemand
+                end
                 if iDemand > 0 then
                     local iDistance = M28Utilities.GetDistanceBetweenPositions(tCenter, tCandidate.oUnit:GetPosition())
                     local iRemainingValue = tCandidate.iUtility * math.min(1, iDemand / math.max(1, tCandidate.oUnit:GetHealth()))
@@ -8675,6 +8681,7 @@ function AssignTorpOrBomberTargets(tAvailableAircraft, tCandidateEntries, iAirSu
                 tAssigned[oAircraft] = true
                 if not(tActiveSet[oTarget]) then tActiveSet[oTarget]=true; table.insert(tActive,oTarget) end
             end
+            tDemand = {}
             for i=table.getn(tAircraft),1,-1 do if tAssigned[tAircraft[i]] then table.remove(tAircraft,i) end end
             if bDebugMessages then M28Profiler.DebugLog(tDebugContext,sFunctionRef..': Objective='..tAnchor.oUnit.UnitId..'; cohort='..table.getn(tCohort)..'; remaining='..table.getn(tAircraft)) end
         end

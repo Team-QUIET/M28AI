@@ -7540,6 +7540,9 @@ end
 
 function GetCombatProductionEnergyDemand(iTeam)
     local tTeamData = M28Team.tTeamData[iTeam]
+    -- Stall managers query this per paused unit; factory demand is fixed within a tick.
+    local tCached = tTeamData.M28CombatEnergyDemandCache
+    if tCached and tCached.time == GetGameTimeSeconds() then return tCached.value end
     local iDemand = 0
     for _, aiBrain in tTeamData[M28Team.subreftoFriendlyActiveM28Brains] or {} do
         for _, oFactory in aiBrain:GetListOfUnits(M28UnitInfo.refCategoryLandFactory + M28UnitInfo.refCategoryAirFactory, false, true) do
@@ -7550,7 +7553,9 @@ function GetCombatProductionEnergyDemand(iTeam)
             end
         end
     end
-    return math.min(iDemand, (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * 0.4)
+    iDemand = math.min(iDemand, (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * 0.4)
+    tTeamData.M28CombatEnergyDemandCache = {time = GetGameTimeSeconds(), value = iDemand}
+    return iDemand
 end
 
 local function HasUnusedT1LandStockpile(aiBrain, oFactory, sBlueprint)
