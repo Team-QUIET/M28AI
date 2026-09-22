@@ -712,6 +712,24 @@ local function CanFundMexUpgradeEnergy(iTeam, oCandidateMex)
     return iCommitted <= iBudget, iBudget
 end
 
+local function OnlyUnfundedMexUpgradesPaused(iTeam)
+    -- A mex held by the upgrade budget is not a team stall; the not-stalling
+    -- redundancy retries it each cycle. Dead entries cannot be unpaused at all.
+    local tTeam = M28Team.tTeamData[iTeam]
+    for _, tUnits in tTeam[M28Team.subreftoPausedUnitsByPriority] or {} do
+        for iUnit = table.getn(tUnits), 1, -1 do
+            local oUnit = tUnits[iUnit]
+            if not(M28UnitInfo.IsUnitValid(oUnit)) then
+                table.remove(tUnits, iUnit)
+                tTeam[M28Team.refiPausedUnitCount] = tTeam[M28Team.refiPausedUnitCount] - 1
+            elseif not(EntityCategoryContains(M28UnitInfo.refCategoryMex, oUnit.UnitId)) or CanFundMexUpgradeEnergy(iTeam, oUnit) then
+                return false
+            end
+        end
+    end
+    return true
+end
+
 local function CanFundAdditionalMexUpgradeMass(iTeam, oCandidateMex)
     local tTeam = M28Team.tTeamData[iTeam]
     local iCommitted, iRefund = GetMexUpgradeResourceDrain(oCandidateMex, true), 0
@@ -2920,12 +2938,12 @@ function ManageMassStalls(iTeam)
                 if bDebugMessages == true then
                     LOG(sFunctionRef .. 'If we have no paused units then will set us as not having a mass stall')
                 end
-                if M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] <= 0 then
+                if M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] <= 0 or not(bPauseNotUnpause) and OnlyUnfundedMexUpgradesPaused(iTeam) then
                     M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] = false
                     if bDebugMessages == true then
-                        LOG(sFunctionRef .. ': We are no longer stalling mass, setting paused unit count to 0 (it was already <=0)')
+                        LOG(sFunctionRef .. ': We are no longer stalling mass')
                     end
-                    M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] = 0
+                    M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] = math.max(0, M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount])
                     M28Team.tTeamData[iTeam][M28Team.refiLastMassStallCategoryAndEngineerTables] = nil
                 else
                     if bDebugMessages == true then
@@ -2953,7 +2971,7 @@ function ManageMassStalls(iTeam)
                                 tUnits = nil
                             end
                         end
-                        if M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] <= 0 then
+                        if M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] <= 0 or OnlyUnfundedMexUpgradesPaused(iTeam) then
                             M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] = false
                             M28Team.tTeamData[iTeam][M28Team.refiLastMassStallCategoryAndEngineerTables] = nil
                         end
@@ -3612,9 +3630,9 @@ function ManageEnergyStalls(iTeam)
                     end
 
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. 'If we have no paused units then will set us as not having an energy stall; M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount]='..M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount]..'; subrefbTeamIsStallingMass ='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass])..'; bPauseNotUnpause='..tostring(bPauseNotUnpause)) end
-                    if M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] <= 0 then
+                    if M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] <= 0 or not(bPauseNotUnpause) and OnlyUnfundedMexUpgradesPaused(iTeam) then
                         M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] = false
-                        M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] = 0
+                        M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] = math.max(0, M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount])
                         M28Team.tTeamData[iTeam][M28Team.refiLastEnergyStallCategoryAndEngineerTables] = nil
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef .. ': We are no longer stalling energy, we had a paused unit count of <= 0') end
                     elseif M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass] and not(bPauseNotUnpause) and not(bHaveWeCappedUnpauseAmount) then
@@ -3655,7 +3673,7 @@ function ManageEnergyStalls(iTeam)
                                     tUnits = nil
                                 end
                             end
-                            if M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] <= 0 then
+                            if M28Team.tTeamData[iTeam][M28Team.refiPausedUnitCount] <= 0 or OnlyUnfundedMexUpgradesPaused(iTeam) then
                                 M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy] = false
                                 M28Team.tTeamData[iTeam][M28Team.refiLastEnergyStallCategoryAndEngineerTables] = nil
                             end
