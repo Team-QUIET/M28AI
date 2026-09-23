@@ -80,7 +80,7 @@ local iFactoryMassStorageReserveRatio = 0.025
 local iFactoryNetEnergyReservePerBrain = 2
 local iFactoryNetMassReservePerBrain = 0.1
 local iFactoryGrossResourceReserveRatio = 0.03
--- Shares of team gross income.
+-- Shares of team gross income. The combat share covers land, air and naval production together.
 local iEngineerMassShare = 0.2
 local iEngineerEnergyShare = 0.25
 local iT1LandMassShare = 0.2
@@ -7457,11 +7457,13 @@ end
 local function IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iMassDrain, iEnergyDrain, oAdditionalEngineer)
     local iCategory = categories.LAND * categories.MOBILE * (categories.DIRECTFIRE + categories.INDIRECTFIRE)
         + M28UnitInfo.refCategoryMAA + categories.AIR * (categories.ANTIAIR + categories.BOMBER + categories.GROUNDATTACK)
+        + categories.NAVAL * categories.MOBILE
     iCategory = iCategory - categories.ENGINEER - categories.SCOUT - categories.EXPERIMENTAL
     local bAir = EntityCategoryContains(categories.AIR, sBlueprint)
     if bAir then iCategory = iCategory + M28UnitInfo.refCategoryFactory end
+    local bLand = not(bAir or EntityCategoryContains(categories.NAVAL, sBlueprint))
     iMassDrain, iEnergyDrain = GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iMassDrain, iEnergyDrain, oAdditionalEngineer)
-    local iLandMass = bAir and 0 or iMassDrain
+    local iLandMass = bLand and iMassDrain or 0
     for _, oOther in GetTeamManagedFactories(aiBrain, aiBrain.M28Team) do
         if oOther ~= oFactory and not(oOther[M28UnitInfo.refbPaused] or oOther:IsPaused()) then
             local sOther = GetFactoryCommittedBlueprint(oOther)
@@ -7470,7 +7472,7 @@ local function IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iM
                 if not(iMass) or not(iEnergy) then return false end
                 iMass, iEnergy = GetFactoryAssistedCombatDrain(oOther, sOther, iMass, iEnergy)
                 iMass = math.max(iMass, oOther:GetConsumptionPerSecondMass() * 0.1)
-                if not(EntityCategoryContains(categories.AIR + M28UnitInfo.refCategoryFactory, sOther)) then iLandMass = iLandMass + iMass end
+                if not(EntityCategoryContains(categories.AIR + categories.NAVAL + M28UnitInfo.refCategoryFactory, sOther)) then iLandMass = iLandMass + iMass end
                 iMassDrain = iMassDrain + iMass
                 iEnergyDrain = iEnergyDrain + math.max(iEnergy, oOther:GetConsumptionPerSecondEnergy() * 0.1)
             end
@@ -7478,8 +7480,8 @@ local function IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iM
     end
     local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
     local iGrossMass = tTeamData[M28Team.subrefiTeamGrossMass] or 0
-    -- Air may use spare resources, not the land stream's still-unused production share.
-    local iLandHeadroom = bAir and aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] and math.max(0, iGrossMass * iLandMassShare - iLandMass) or 0
+    -- Air and navy may use spare resources, not the land stream's still-unused production share.
+    local iLandHeadroom = not(bLand) and aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] and math.max(0, iGrossMass * iLandMassShare - iLandMass) or 0
     local bMassAvailable = iMassDrain + iLandHeadroom <= iGrossMass * iCombatMassShare
     local bEnergyAvailable = iEnergyDrain <= (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * iCombatEnergyShare
     return bMassAvailable and bEnergyAvailable, bMassAvailable, iLandHeadroom, bEnergyAvailable
@@ -7678,9 +7680,11 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint, oAdditio
     end
     local iUnassistedDurationTicks = iBuildDurationTicks
     tDetails.iCandidateMassDrain, tDetails.iCandidateEnergyDrain, iBuildDurationTicks = GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain, oAdditionalEngineer, iBuildDurationTicks)
-    local bCombatAir = EntityCategoryContains(categories.AIR * (categories.ANTIAIR + categories.BOMBER), sBlueprint)
+    -- Air and naval combat share the land stream's combined combat budget.
+    local bSharedCombat = EntityCategoryContains(categories.AIR * (categories.ANTIAIR + categories.BOMBER)
+        + categories.NAVAL * categories.MOBILE - categories.ENGINEER - categories.SCOUT, sBlueprint)
     local bAirMassAvailable, iAirLandHeadroom, bAirEnergyAvailable = false, 0, true
-    if bCombatAir then
+    if bSharedCombat then
         local bAirBudget
         bAirBudget, bAirMassAvailable, iAirLandHeadroom, bAirEnergyAvailable = IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain, oAdditionalEngineer)
     end
@@ -7698,11 +7702,11 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint, oAdditio
             oFactory.M28CombatEnergyDemand = {time = GetGameTimeSeconds(), energy = tDetails.iCandidateEnergyDrain}
         end
     end
-    if tFactoryEco.bStallingEnergy and not(bCombatAir or bEngineerReserve or bInitialT3CombatReserve or bContinuousLandReserve) then
+    if tFactoryEco.bStallingEnergy and not(bSharedCombat or bEngineerReserve or bInitialT3CombatReserve or bContinuousLandReserve) then
         RecordCombatEnergyDemand()
         return FinishAdmission(false, 'EnergyStall')
     end
-    if tFactoryEco.bStallingMass and not(bCombatAir or bEngineerReserve or bInitialT3CombatReserve or bContinuousLandReserve) then
+    if tFactoryEco.bStallingMass and not(bSharedCombat or bEngineerReserve or bInitialT3CombatReserve or bContinuousLandReserve) then
         return FinishAdmission(false, 'MassStall')
     end
     tDetails.iCurrentMassDrain, tDetails.iCurrentEnergyDrain = GetFactoryCurrentProductionResourceDrain(oFactory)
@@ -7724,7 +7728,7 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint, oAdditio
         tDetails.iActiveBrains,
         iResourceMultiplier, iUnassistedDurationTicks, tDetails.iCurrentMassDrain
     )
-    if bCombatAir and not(bAirMassAvailable) then
+    if bSharedCombat and not(bAirMassAvailable) then
         -- Above the ordinary combat share, only real surplus may fund air while
         -- leaving the full unused land stream and economy reserve available.
         bAirMassAvailable = tDetails.iCandidateMassDrain - tDetails.iCurrentMassDrain
@@ -7732,11 +7736,11 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint, oAdditio
             <= (tTeamData[M28Team.subrefiTeamNetMass] or 0)
         if not(bAirMassAvailable) then return FinishAdmission(false, 'AirCombatMassBudget') end
     end
-    if not(bMassAllowed) and (bCombatAir or not(bEngineerReserve or bInitialT3CombatReserve or bContinuousLandReserve)) then
+    if not(bMassAllowed) and (bSharedCombat or not(bEngineerReserve or bInitialT3CombatReserve or bContinuousLandReserve)) then
         return FinishAdmission(false, 'ProjectedMassShortfall')
     end
 
-    if bCombatAir and not(bAirEnergyAvailable) then
+    if bSharedCombat and not(bAirEnergyAvailable) then
         RecordCombatEnergyDemand()
         return FinishAdmission(false, 'AirCombatEnergyBudget')
     end
@@ -7757,7 +7761,7 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint, oAdditio
     if bEnergyAllowed then
         oFactory.M28CombatEnergyDemand = nil
         return FinishAdmission(true, bEngineerReserve and sEngineerReason or bMassAllowed and not(tFactoryEco.bStallingMass) and 'ProjectedAffordable'
-            or (bCombatAir and 'ContinuousAirFunded' or bInitialT3CombatReserve and 'InitialT3CombatReserve' or 'ContinuousLandReserve'))
+            or (bSharedCombat and 'ContinuousAirFunded' or bInitialT3CombatReserve and 'InitialT3CombatReserve' or 'ContinuousLandReserve'))
     end
 
     RecordCombatEnergyDemand()
