@@ -20506,7 +20506,7 @@ function ConsiderMinorLandZoneEngineerAssignment(tLZTeamData, iTeam, iPlateau, i
     iCurPriority = iCurPriority + 1
     if not(bEngineersRecentlyRunFromEnemy) and tLZTeamData[M28Map.subrefMexCountByTech][2] + tLZTeamData[M28Map.subrefMexCountByTech][3] >= 1 and not(tLZTeamData[M28Map.subrefbEnemiesInThisOrAdjacentLZ]) and (not(bHaveLowMass) or tLZTeamData[M28Map.subrefMexCountByTech][3] >= 2) and not(bHaveLowPower) then
         --Are we likely on a small island/plateau (due to having at least 50% of the island's mexes)? Or we have significant value here?
-        if tLZData[M28Map.subrefLZOrWZMexCount] >= 0.5 * M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauIslandMexCount][tLZData[M28Map.subrefLZIslandRef]] or tLZTeamData[M28Map.subrefMexCountByTech][3] >= 1 then
+        if tLZData[M28Map.subrefLZOrWZMexCount] >= 0.5 * (M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauIslandMexCount][tLZData[M28Map.subrefLZIslandRef]] or 0) or tLZTeamData[M28Map.subrefMexCountByTech][3] >= 1 then
             if M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat] >= 300 then
                 local iAAWanted = GetPreemptiveAADemand(tLZTeamData[M28Map.subrefMexCountByTech][2], tLZTeamData[M28Map.subrefMexCountByTech][3],
                     M28Team.tTeamData[iTeam][M28Team.refiEnemyAirToGroundThreat], tLZTeamData[M28Map.refiEnemyAirToGroundThreat] or 0,
