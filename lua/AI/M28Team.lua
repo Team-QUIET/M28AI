@@ -3224,6 +3224,11 @@ local function GetHQGrossMassPerBrain(iSourceTech, sMassBufferBypassReason, iFac
     return nil
 end
 
+local function IsTeamMassOverflowing(iM28Team)
+    -- Banked mass is being wasted; an HQ is a spending outlet that funds itself from storage.
+    return (tTeamData[iM28Team][subrefiTeamAverageMassPercentStored] or 0) >= 0.7
+end
+
 local function GetHQEconomyAdmission(iM28Team, iSourceTech, sMassBufferBypassReason, iFactoryCategory)
     local tCurTeamData = tTeamData[iM28Team]
     local iActiveBrainCount = math.max(1, tCurTeamData[subrefiActiveM28BrainCount] or 1)
@@ -3244,7 +3249,7 @@ local function GetHQEconomyAdmission(iM28Team, iSourceTech, sMassBufferBypassRea
     local iStoredEnergyRequired = 150 * iActiveBrainCount
     local sBlocker = 'Ready'
 
-    if tCurTeamData[subrefiTeamGrossMass] < iGrossMassRequired then
+    if tCurTeamData[subrefiTeamGrossMass] < iGrossMassRequired and not(IsTeamMassOverflowing(iM28Team)) then
         sBlocker = 'GrossMass'
     elseif tCurTeamData[subrefiTeamMassStored] < iStoredMassRequired and tCurTeamData[subrefiTeamNetMass] < iNetMassRequired and not(sMassBufferBypassReason and sMassBufferBypassReason ~= 'None') then
         sBlocker = 'MassBuffer'
@@ -3356,7 +3361,7 @@ local function DoesBrainPassSharedHQAdmission(oBrain, iM28Team, iFactoryCategory
     end
 
     local bPassesMexGate, iRelevantMexes, iRequiredMexes, sMexRequirementRef, sMexGateScope, iTotalMexes = DoesBrainMeetHQMexGate(oBrain, iM28Team, iFactoryCategory, sFunctionRef, bDebugMessages)
-    if not(bPassesMexGate) then
+    if not(bPassesMexGate) and not(IsTeamMassOverflowing(iM28Team)) then
         if bDebugMessages == true then
             LOG(sFunctionRef..': Skipping '..string.lower(tPolicy.sLayer)..' HQ admission for brain '..oBrain.Nickname..' because '..sMexGateScope..' only has '..iRelevantMexes..'/'..iTotalMexes..' '..sMexRequirementRef..' mexes and needs '..iRequiredMexes)
         end

@@ -83,6 +83,7 @@ local iFactoryGrossResourceReserveRatio = 0.03
 -- Shares of team gross income. The combat share covers land, air and naval production together.
 local iEngineerMassShare = 0.2
 local iEngineerEnergyShare = 0.25
+local iEngineerOverflowMassStoredRatio = 0.9 -- above this, mass is wasted unless build power grows
 local iT1LandMassShare = 0.2
 local iLandMassShare = 0.35
 local iCombatMassShare = 0.45
@@ -7411,7 +7412,9 @@ GetEngineerProductionAllocation = function(aiBrain, oFactory, sBlueprint, iMassD
     if EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oFactory.UnitId) and iTech < GetLandProductionTech(oFactory) then
         return false, 'EngineerAwaitingFactoryTransition'
     end
+    -- Mass that would overflow storage is better spent on build power than wasted.
     if iTotalMass > (tTeam[M28Team.subrefiTeamGrossMass] or 0) * iEngineerMassShare
+            and (tTeam[M28Team.subrefiTeamAverageMassPercentStored] or 0) < iEngineerOverflowMassStoredRatio
             or iTotalEnergy > (tTeam[M28Team.subrefiTeamGrossEnergy] or 0) * iEngineerEnergyShare then
         return false, 'EngineerBudgetCommitted'
     end
