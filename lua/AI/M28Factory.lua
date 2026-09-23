@@ -80,6 +80,13 @@ local iFactoryMassStorageReserveRatio = 0.025
 local iFactoryNetEnergyReservePerBrain = 2
 local iFactoryNetMassReservePerBrain = 0.1
 local iFactoryGrossResourceReserveRatio = 0.03
+-- Shares of team gross income.
+local iEngineerMassShare = 0.2
+local iEngineerEnergyShare = 0.25
+local iT1LandMassShare = 0.2
+local iLandMassShare = 0.35
+local iCombatMassShare = 0.45
+local iCombatEnergyShare = 0.55
 
 local tFactoryEcoStateCacheByTeam = {}
 
@@ -7404,8 +7411,8 @@ GetEngineerProductionAllocation = function(aiBrain, oFactory, sBlueprint, iMassD
     if EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oFactory.UnitId) and iTech < GetLandProductionTech(oFactory) then
         return false, 'EngineerAwaitingFactoryTransition'
     end
-    if iTotalMass > (tTeam[M28Team.subrefiTeamGrossMass] or 0) * 0.2
-            or iTotalEnergy > (tTeam[M28Team.subrefiTeamGrossEnergy] or 0) * 0.25 then
+    if iTotalMass > (tTeam[M28Team.subrefiTeamGrossMass] or 0) * iEngineerMassShare
+            or iTotalEnergy > (tTeam[M28Team.subrefiTeamGrossEnergy] or 0) * iEngineerEnergyShare then
         return false, 'EngineerBudgetCommitted'
     end
     return true, 'EngineerWorkReserve', false
@@ -7472,9 +7479,9 @@ local function IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iM
     local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
     local iGrossMass = tTeamData[M28Team.subrefiTeamGrossMass] or 0
     -- Air may use spare resources, not the land stream's still-unused production share.
-    local iLandHeadroom = bAir and aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] and math.max(0, iGrossMass * 0.35 - iLandMass) or 0
-    local bMassAvailable = iMassDrain + iLandHeadroom <= iGrossMass * 0.45
-    local bEnergyAvailable = iEnergyDrain <= (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * 0.55
+    local iLandHeadroom = bAir and aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] and math.max(0, iGrossMass * iLandMassShare - iLandMass) or 0
+    local bMassAvailable = iMassDrain + iLandHeadroom <= iGrossMass * iCombatMassShare
+    local bEnergyAvailable = iEnergyDrain <= (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * iCombatEnergyShare
     return bMassAvailable and bEnergyAvailable, bMassAvailable, iLandHeadroom, bEnergyAvailable
 end
 
@@ -7510,7 +7517,7 @@ local function CanReserveContinuousLandProduction(aiBrain, oFactory, sBlueprint,
     end
     -- Keep a bounded combat stream alongside workers and income upgrades at the unlocked tech.
     local bT1 = M28UnitInfo.GetBlueprintTechLevel(sBlueprint) == 1
-    local bMassAvailable = iMassDrain <= (tTeamData[M28Team.subrefiTeamGrossMass] or 0) * (bT1 and 0.2 or 0.35)
+    local bMassAvailable = iMassDrain <= (tTeamData[M28Team.subrefiTeamGrossMass] or 0) * (bT1 and iT1LandMassShare or iLandMassShare)
     -- Expose funded mass demand even when power prevents starting the queue.
     return bMassAvailable and bCombinedAvailable
         and (tTeamData[M28Team.subrefiTeamAverageEnergyPercentStored] or 0) >= 0.5
