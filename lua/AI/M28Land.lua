@@ -817,18 +817,21 @@ function SelectLandSupportObjective(tUnits, iPlateau, iSource, iTeam, tPrevious,
         local iIncoming = GetLandSupportIncomingThreat(tData, tPrevious)
         local iPresent = (tData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0) + (tData[M28Map.subrefLZThreatAllyMobileIndirectTotal] or 0)
         local iBenefit = M28Map.CalculateZoneValue(iPlateau, iCurrent, iTeam)
+        local iStructureBenefit = 0
+        for _, oEnemy in tData[M28Map.subrefTEnemyUnits] or {} do
+            if M28UnitInfo.IsUnitValid(oEnemy) and EntityCategoryContains(categories.STRUCTURE-categories.DEFENSE,oEnemy.UnitId) then
+                iStructureBenefit = iStructureBenefit + M28UnitInfo.GetUnitMassCost(oEnemy)
+            end
+        end
         if (tData[M28Map.refiModDistancePercent] or 0) < iSourceForward then
             -- Rear reclaim and unbuilt mexes belong to economic workers, not
             -- reasons to turn an advancing combat force back toward home.
-            iBenefit = 0
-            for _, oEnemy in tData[M28Map.subrefTEnemyUnits] or {} do
-                if M28UnitInfo.IsUnitValid(oEnemy) and EntityCategoryContains(categories.STRUCTURE-categories.DEFENSE,oEnemy.UnitId) then
-                    iBenefit = iBenefit + M28UnitInfo.GetUnitMassCost(oEnemy)
-                end
-            end
+            iBenefit = iStructureBenefit
         end
         local iDefense = M28Map.GetLandZoneDefensePriority(tZone, tData, iPlateau, iTeam, iPresent + iIncoming)
-        local iNeeded = math.max(200, iResponse * (1.35-(iDefense > 0 and 0 or GetLandStrategicAttackAdjustment(iTeam))), math.min(1200, iBenefit * 0.5))
+        -- Enemy structures need a full wave; free mexes and reclaim need only enough for the response, or
+        -- valuable empty ground waits for a wave that trickling production never assembles.
+        local iNeeded = math.max(200, iResponse * (1.35-(iDefense > 0 and 0 or GetLandStrategicAttackAdjustment(iTeam))), math.min(1200, iStructureBenefit * 0.5))
         -- The same commander cap as the defence priority, or a raided base with its ACU never needs support.
         local iShortfall = math.max(0, iNeeded - M28Map.GetLandZoneDefendingThreat(tData, iPresent, iResponse) - iIncoming)
         local iRequired = math.max(200, iShortfall)
