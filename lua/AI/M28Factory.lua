@@ -83,7 +83,7 @@ local iFactoryGrossResourceReserveRatio = 0.03
 -- Shares of team gross income. The combat share covers land, air and naval production together.
 local iEngineerMassShare = 0.2
 local iEngineerEnergyShare = 0.25
-local iEngineerOverflowMassStoredRatio = 0.9 -- above this, mass is wasted unless build power grows
+local iOverflowMassStoredRatio = 0.7 -- above this, mass is wasted unless build power or production grows (matches M28Team HQ overflow)
 local iT1LandMassShare = 0.2
 local iLandMassShare = 0.35
 local iCombatMassShare = 0.45
@@ -7343,6 +7343,7 @@ GetEngineerProductionAllocation = function(aiBrain, oFactory, sBlueprint, iMassD
     local tZoneTeam = tZone and tZone[M28Map.subrefLZTeamData][aiBrain.M28Team]
     local iPendingBuildPower = 0
     local iTotalMass, iTotalEnergy = GetFactoryAssistedCombatDrain(oFactory, sBlueprint, iMassDrain, iEnergyDrain)
+    local bOtherWorkerInProduction = false
     for _, oOther in GetTeamManagedFactories(aiBrain, aiBrain.M28Team) do
         if oOther ~= oFactory then
             local tQueue = GetQueuedFactoryBlueprints(oOther) or {}
@@ -7354,6 +7355,7 @@ GetEngineerProductionAllocation = function(aiBrain, oFactory, sBlueprint, iMassD
                 if not(iMass) then return false, 'InvalidEngineerProfile' end
                 iMass, iEnergy = GetFactoryAssistedCombatDrain(oOther, sFirst, iMass, iEnergy)
                 iTotalMass, iTotalEnergy = iTotalMass + iMass, iTotalEnergy + iEnergy
+                bOtherWorkerInProduction = true
             end
             -- Count the active worker once, then the rest of its issued queue.
             local tPending = {}
@@ -7382,6 +7384,9 @@ GetEngineerProductionAllocation = function(aiBrain, oFactory, sBlueprint, iMassD
     if iWorkers + iPendingWorkers < 6 or iTechWorkers + iPendingTechWorkers == 0 then
         return true, 'EngineerRecovery', true
     end
+    local tTeam = M28Team.tTeamData[aiBrain.M28Team]
+    -- Mass that would overflow storage is better spent on build power than wasted.
+    local bMassOverflow = (tTeam[M28Team.subrefiTeamAverageMassPercentStored] or 0) >= iOverflowMassStoredRatio
     if tZoneTeam then
         if iTech >= 2 and ((tZoneTeam[M28Map.subrefTBuildPowerByTechWanted] or {})[iTech] or 0) > 0 and iPendingBuildPower == 0 then
             local bHaveLocalBuilder = false
@@ -7406,15 +7411,15 @@ GetEngineerProductionAllocation = function(aiBrain, oFactory, sBlueprint, iMassD
         if tZoneTeam[M28Map.refbAdjZonesWantEngiForUnbuiltMex] then
             iWanted = math.max(iWanted, (__blueprints[sBlueprint].Economy.BuildRate or 0) * 2)
         end
-        if iWanted <= iPendingBuildPower then return false, 'EngineerWorkCovered' end
+        if iWanted <= iPendingBuildPower and not(bMassOverflow) then return false, 'EngineerWorkCovered' end
     end
-    local tTeam = M28Team.tTeamData[aiBrain.M28Team]
     if EntityCategoryContains(M28UnitInfo.refCategoryLandFactory, oFactory.UnitId) and iTech < GetLandProductionTech(oFactory) then
         return false, 'EngineerAwaitingFactoryTransition'
     end
-    -- Mass that would overflow storage is better spent on build power than wasted.
-    if iTotalMass > (tTeam[M28Team.subrefiTeamGrossMass] or 0) * iEngineerMassShare
-            and (tTeam[M28Team.subrefiTeamAverageMassPercentStored] or 0) < iEngineerOverflowMassStoredRatio
+    -- One worker may always be in production: a single T1 engineer exceeds the share of early mex income.
+    -- The share includes this brain's reclaim and other non-mex income.
+    local iMassIncome = (tTeam[M28Team.subrefiTeamGrossMass] or 0) + math.max(0, aiBrain:GetEconomyIncome('MASS') - (aiBrain[M28Economy.refiGrossMassBaseIncome] or 0))
+    if bOtherWorkerInProduction and not(bMassOverflow) and iTotalMass > iMassIncome * iEngineerMassShare
             or iTotalEnergy > (tTeam[M28Team.subrefiTeamGrossEnergy] or 0) * iEngineerEnergyShare then
         return false, 'EngineerBudgetCommitted'
     end
