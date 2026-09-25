@@ -7385,6 +7385,12 @@ GetEngineerProductionAllocation = function(aiBrain, oFactory, sBlueprint, iMassD
     if iWorkers + iPendingWorkers < 6 or iTechWorkers + iPendingTechWorkers == 0 then
         return true, 'EngineerRecovery', true
     end
+    -- Workers cannot answer a raid inside this base; its factories build combat until defenders match it.
+    -- Armies still approaching are left to the army, or workers would stop whenever the map is contested.
+    if tZone and ((tZoneTeam[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0) + (tZoneTeam[M28Map.subrefLZThreatEnemyMobileIndirectTotal] or 0)) > 0
+            and M28Map.GetLandZoneDefensePriority(tZone, tZoneTeam, iPlateau, aiBrain.M28Team) > 0 then
+        return false, 'EngineerUnderRaid'
+    end
     local tTeam = M28Team.tTeamData[aiBrain.M28Team]
     -- Mass that would overflow storage is better spent on build power than wasted.
     local bMassOverflow = (tTeam[M28Team.subrefiTeamAverageMassPercentStored] or 0) >= iOverflowMassStoredRatio
