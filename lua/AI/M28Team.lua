@@ -242,7 +242,7 @@ tTeamData = {} --[x] is the aiBrain.M28Team number - stores certain team-wide in
     refiStuckMassByPondByTech = 'M28TStMsPn' --[x] is pond ref, [y] is stuck naval unit tech level, returns total mass value, whenever a unit gets stuck it gets recorded in here, when it fires a weapon and isnt in a zone with a high refiNavalPathingStuckCountByZone for its current zone it gets removed
     refiTimeLastNoSurfaceCombatTargetByPond = 'M28TeamLastTimeNoSurfTarget' --[x] is the pond ref, returns gametimeseconds that had surface bomat units with no target
     refiTimeLastNoSubCombatTargetByPond = 'M28TeamLastTimeNoSubTarget' --[x] is the pond ref, returns gametimeseconds that had submersible combat units with no target
-    refiTimeLastHadBombardmentModeByPond = 'M28TeamLastTimeBombardment' --[x] is the pond ref, returns gametimeseconds that had a bombardment target activate (that wasnt for raiders)
+    refiTimeLastHadBombardmentModeByPond = 'M28TeamLastTimeBombardment' --gametimeseconds that the team last had a bombardment target activate (that wasnt for raiders); a team-level number, read by factory and engineer logic
     refiTimeLastHadBattleshipBombardmentByPond = 'M28TeamLastTimeBSBomb' --[x] is the pond ref, returns gametimeseconds if had a battleship firing shots, that wasnt blocked, and had nearby structures, when in bombardment mode
     refoPrimaryPondNavalFactory = 'M28TeamPrimPnNF' --naval factory taht are treatinga s the primary naval fac (meaning we shouldnt pause it when stalling mass)
 

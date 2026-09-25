@@ -2942,7 +2942,7 @@ function AssignBombardmentActions(tWZData, iPond, iWaterZone, iTeam, tPotentialB
 
 
     if not(tObjective) or not(M28UnitInfo.IsUnitValid(tObjective.unit)) then return end
-    M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadBombardmentModeByPond][iPond] = GetGameTimeSeconds()
+    M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadBombardmentModeByPond] = GetGameTimeSeconds()
 
     local tWZTeamData = tWZData[M28Map.subrefWZTeamData][iTeam]
     --Campaign specific - if have pacifist zones adjacent to here then dont do bomardment
@@ -4359,7 +4359,7 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
                         --Seraphim sub and atlantis - make sure are submerged if no enemy AA threat (unless are in bombardment mode for atlantis)
                         if EntityCategoryContains(M28UnitInfo.refCategoryAntiAir, oUnit.UnitId) and not(oUnit[M28UnitInfo.refbSpecialMicroActive]) and
                                 --No enemy air units so want to submerge (unless are in bombardment mode and either have an atlantis, or any enemy air unit)
-                                ((tWZTeamData[M28Map.refiEnemyAirToGroundThreat] == 0 and not(M28UnitInfo.IsUnitUnderwater(oUnit)) and ((GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadBombardmentModeByPond][iPond] or 0)) >= 30 or (M28Utilities.IsTableEmpty(tWZTeamData[M28Map.reftWZEnemyAirUnits]) and not(EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId)))))
+                                ((tWZTeamData[M28Map.refiEnemyAirToGroundThreat] == 0 and not(M28UnitInfo.IsUnitUnderwater(oUnit)) and ((GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadBombardmentModeByPond] or 0)) >= 30 or (M28Utilities.IsTableEmpty(tWZTeamData[M28Map.reftWZEnemyAirUnits]) and not(EntityCategoryContains(categories.EXPERIMENTAL, oUnit.UnitId)))))
                                         or (tWZTeamData[M28Map.refiEnemyAirToGroundThreat] > 0 and M28UnitInfo.IsUnitUnderwater(oUnit))) then
                             M28UnitInfo.ToggleUnitDiveOrSurfaceStatus(oUnit)
                             --Consider kiting logic unless want to use shot blocked override logic
@@ -7685,13 +7685,13 @@ function ManageSACUsInWaterZone(tSACUs, tWZData, tWZTeamData, iPond, iWaterZone,
                             --Arent stalling resources, so consider getting exp if either navy pers, or we dont own that may experimentals
                             if aiBrain[M28Overseer.refbPrioritiseNavy] then
                                 bWantExperimental = true
-                            elseif not(M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadBombardmentModeByPond][iPond]) or GetGameTimeSeconds() - M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadBombardmentModeByPond][iPond] >= 15 then
+                            elseif not(M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadBombardmentModeByPond]) or GetGameTimeSeconds() - M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadBombardmentModeByPond] >= 15 then
                                 bWantExperimental = true
                             elseif aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryExperimentalLevel * categories.NAVAL * categories.MOBILE) <= 1 then
                                 bWantExperimental = true
                             end
                         end
-                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bWantExperimental='..tostring(bWantExperimental)..'; aiBrain='..aiBrain.Nickname..'; StallingE='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])..'; Stalling mass='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass])..'; Time since last bombardment='..GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadBombardmentModeByPond][iPond] or 0)..'; Cur mobile exp naval units='..aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryExperimentalLevel * categories.NAVAL * categories.MOBILE)) end
+                        if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': bWantExperimental='..tostring(bWantExperimental)..'; aiBrain='..aiBrain.Nickname..'; StallingE='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy])..'; Stalling mass='..tostring(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingMass])..'; Time since last bombardment='..GetGameTimeSeconds() - (M28Team.tTeamData[iTeam][M28Team.refiTimeLastHadBombardmentModeByPond] or 0)..'; Cur mobile exp naval units='..aiBrain:GetCurrentUnits(M28UnitInfo.refCategoryExperimentalLevel * categories.NAVAL * categories.MOBILE)) end
                         if bWantExperimental then
                             local toSACUByFaction = {}
                             local tbEngineersOfFactionOrNilIfAlreadyAssigned = {}
