@@ -7673,8 +7673,10 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint, oAdditio
         return FinishAdmission(false, 'MatureHeavyT3Replacement')
     end
 
+    -- An older-tech attacker beats an idle factory once mass would otherwise overflow.
     if IsLandAttackerBlueprint(oFactory, sBlueprint)
-            and M28UnitInfo.GetBlueprintTechLevel(sBlueprint) < GetLandProductionTech(oFactory) then
+            and M28UnitInfo.GetBlueprintTechLevel(sBlueprint) < GetLandProductionTech(oFactory)
+            and (tTeamData[M28Team.subrefiTeamAverageMassPercentStored] or 0) < iOverflowMassStoredRatio then
         return FinishAdmission(false, 'ObsoleteLandAttacker')
     end
 
