@@ -7602,6 +7602,11 @@ function GetACUOrder(aiBrain, oACU)
                 bProceedWithLogic = false
                 GetACUEarlyGameOrders(aiBrain, oACU) --Avoid some scenarios where ACU might get stuck in 'run to core zone' mode
                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': No enemies in LZ and ACU doing initial order so referred to early game order logic') end
+                --A build order reset after building a factory can find no mex or power site it can build; end it rather than leave the ACU idle
+                if not(M28Conditions.DoesACUHaveValidOrder(oACU)) then
+                    oACU[refbDoingInitialBuildOrder] = false
+                    bProceedWithLogic = true
+                end
             elseif (iLandOrWaterZone or 0) == 0 then
                 bProceedWithLogic = false
                 GetACUEarlyGameOrders(aiBrain, oACU) --backup which should ahve ACU move if it doesnt seem to be on a land or water zone
