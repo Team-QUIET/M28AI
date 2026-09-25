@@ -470,7 +470,8 @@ GetLandObjectiveThreatSnapshot = function(aiBrain, iPlateau, iTeam)
     local tZones = tPlateau[M28Map.subrefPlateauLandZones]
     for iZone, tZone in tZones do
         local tData = tZone[M28Map.subrefLZTeamData][iTeam]
-        local tEntry = {mobile=(tData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0) + (tData[M28Map.subrefLZThreatEnemyMobileIndirectTotal] or 0), mobileEntries={}, threats={}}
+        local tEntry = {mobile=(tData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0) + (tData[M28Map.subrefLZThreatEnemyMobileIndirectTotal] or 0), mobileEntries={}, threats={},
+            home=tData[M28Map.subrefLZbCoreBase]}
         tSnapshot.byZone[iZone] = tEntry
         if (tData[M28Map.subrefThreatEnemyDFStructures] or 0) > 0 then
             local iResponse = GetLandObjectiveResponse(tZone,iPlateau,iTeam)
@@ -512,7 +513,8 @@ function GetLandObjectiveAvoidance(tUnits, iPlateau, iTeam, iOptionalForce)
     local tAssault, tMobile, tKey = {}, {}, {iForce > 0 and 'f' or 'z'}
     for iEntry, tZone in tSnapshot.zones do
         tAssault[iEntry] = iForce > 0 and tZone.pd and iForce >= math.max(200,tZone.response*iRatio)
-        tMobile[iEntry] = iForce == 0 or tZone.mobile * iRatio > iForce
+        -- Reinforcements must be able to reach a raided core base; the local fight takes over on contact.
+        tMobile[iEntry] = not(tZone.home) and (iForce == 0 or tZone.mobile * iRatio > iForce)
         tKey[iEntry+1] = (tAssault[iEntry] and 'a' or '-')..(tMobile[iEntry] and 'm' or '-')
     end
     local sKey = table.concat(tKey)
@@ -827,11 +829,15 @@ function SelectLandSupportObjective(tUnits, iPlateau, iSource, iTeam, tPrevious,
         end
         local iDefense = M28Map.GetLandZoneDefensePriority(tZone, tData, iPlateau, iTeam, iPresent + iIncoming)
         local iNeeded = math.max(200, iResponse * (1.35-(iDefense > 0 and 0 or GetLandStrategicAttackAdjustment(iTeam))), math.min(1200, iBenefit * 0.5))
-        local iShortfall = math.max(0, iNeeded - iPresent - iIncoming)
+        -- The same commander cap as the defence priority, or a raided base with its ACU never needs support.
+        local iShortfall = math.max(0, iNeeded - M28Map.GetLandZoneDefendingThreat(tData, iPresent, iResponse) - iIncoming)
         local iRequired = math.max(200, iShortfall)
         if iCurrent ~= iSource and not(tExcluded and tExcluded[iCurrent]) and iShortfall > 0
                 and not(tCommanderZones and tCommanderZones[iCurrent])
-                and (iBenefit > 0 or iDefense > 0) and iForce >= iRequired then
+                and (iBenefit > 0 or iDefense > 0)
+                -- Army groups are planned a few units at a time; any of them may reinforce a raided core base,
+                -- and incoming reinforcements lower its defence value until the raid is covered.
+                and (iForce >= iRequired or iDefense > 0 and tData[M28Map.subrefLZbCoreBase]) then
             local iScore = (iBenefit / (1 + iResponse / math.max(1,iForce)) + iDefense * 3) / (1 + iCost / 300)
             if tPrevious and tPrevious.target == iCurrent then iScore = iScore * 1.25 end
             if not(tBest) or iScore > tBest.score or iScore == tBest.score and iCurrent < tBest.target then
@@ -1151,7 +1157,7 @@ function GetLandObjectiveAssignments(tUnits, iPlateau, iSource, iTeam)
     end
     local iAvailable = M28UnitInfo.GetCombatThreatRating(tAvailable)
     local iLocalDefense = (tSource[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0) + (tSource[M28Map.subrefLZThreatEnemyMobileIndirectTotal] or 0)
-    local iReserve = math.max(0, iLocalDefense * 1.25 - math.max(0,(tSource[M28Map.subrefLZTThreatAllyCombatTotal] or 0)-iAvailable))
+    local iReserve = math.max(0, iLocalDefense * 1.25 - math.max(0,M28Map.GetLandZoneDefendingThreat(tSource, tSource[M28Map.subrefLZTThreatAllyCombatTotal] or 0, iLocalDefense)-iAvailable))
     while iReserve > 0 and table.getn(tAvailable) > 0 do
         iReserve = iReserve - M28UnitInfo.GetCombatThreatRating({table.remove(tAvailable)})
     end

@@ -4381,6 +4381,42 @@ function GetLandZoneEconomicExposure(tZone, tTeamZone, iPlateau, iTeam)
     return iValue
 end
 
+function GetApproachingLandThreat(iPlateau, iTeam, tBaseZone)
+    -- Enemy mobile land threat in other zones on our side of the map (including the midline) whose closest
+    -- friendly base lies in tBaseZone. Shared by every defence evaluation this tick.
+    local tPlateau = tAllPlateaus[iPlateau]
+    tPlateau.M28ApproachThreat = tPlateau.M28ApproachThreat or {}
+    local tCache = tPlateau.M28ApproachThreat[iTeam]
+    local iNow = GetGameTimeSeconds()
+    if not(tCache) or tCache.time ~= iNow then
+        tCache = {time = iNow, byBase = {}}
+        tPlateau.M28ApproachThreat[iTeam] = tCache
+        for iZone, tZone in tPlateau[subrefPlateauLandZones] or {} do
+            local tData = tZone[subrefLZTeamData][iTeam]
+            local iThreat = (tData[subrefLZThreatEnemyMobileDFTotal] or 0) + (tData[subrefLZThreatEnemyMobileIndirectTotal] or 0)
+            if iThreat > 0 and not(tData[subrefLZbCoreBase]) and (tData[refiModDistancePercent] or 1) <= 0.6 and tData[reftClosestFriendlyBase] then
+                local iBasePlateau, iBase = GetPlateauAndLandZoneReferenceFromPosition(tData[reftClosestFriendlyBase])
+                local tBase = iBasePlateau == iPlateau and (iBase or 0) > 0 and tPlateau[subrefPlateauLandZones][iBase]
+                if tBase and tBase ~= tZone then tCache.byBase[tBase] = (tCache.byBase[tBase] or 0) + iThreat end
+            end
+        end
+    end
+    return tCache.byBase[tBaseZone] or 0
+end
+
+function GetLandZoneDefendingThreat(tTeamZone, iDefenders, iRaidThreat)
+    -- A commander cannot hold a base alone: its large rating would otherwise hide a raid
+    -- from the army, so it covers at most half of the raid.
+    if M28Utilities.IsTableEmpty(tTeamZone[subrefAlliedACU]) then return iDefenders end
+    local tACUs = {}
+    for _, oACU in tTeamZone[subrefAlliedACU] do
+        if M28UnitInfo.IsUnitValid(oACU) then table.insert(tACUs, oACU) end
+    end
+    if not(tACUs[1]) then return iDefenders end
+    local iACUThreat = M28UnitInfo.GetCombatThreatRating(tACUs, false)
+    return math.max(0, iDefenders - iACUThreat) + math.min(iACUThreat, iRaidThreat * 0.5)
+end
+
 function GetLandZoneDefensePriority(tZone, tTeamZone, iPlateau, iTeam, iOptionalDefendingThreat)
     if tZone[subrefbPacifistArea] then return 0 end
     if tTeamZone[refbACUInTrouble] then
@@ -4388,11 +4424,23 @@ function GetLandZoneDefensePriority(tZone, tTeamZone, iPlateau, iTeam, iOptional
     end
     local iRaidThreat = (tTeamZone[subrefLZThreatEnemyMobileDFTotal] or 0)
         + (tTeamZone[subrefLZThreatEnemyMobileIndirectTotal] or 0)
+    -- A core base is also raided by armies already crossing our side of the map towards it, so the army can
+    -- gather there before they arrive (any group may reinforce a raided core base).
+    if tTeamZone[subrefLZbCoreBase] then iRaidThreat = iRaidThreat + GetApproachingLandThreat(iPlateau, iTeam, tZone) end
     if iRaidThreat <= 0 then return 0 end
-    local iDefenders = iOptionalDefendingThreat or tTeamZone[subrefLZTThreatAllyCombatTotal] or 0
+    local iDefenders = GetLandZoneDefendingThreat(tTeamZone, iOptionalDefendingThreat or tTeamZone[subrefLZTThreatAllyCombatTotal] or 0, iRaidThreat)
     local iShortfall = math.max(0, 1 - iDefenders / (iRaidThreat * 1.25))
     if iShortfall == 0 then return 0 end
     local iExposure = GetLandZoneEconomicExposure(tZone, tTeamZone, iPlateau, iTeam)
+    -- An army crossing empty ground on our side of the map (including the midline) threatens the closest
+    -- friendly base: value it as that base so it can be intercepted before it arrives.
+    if iExposure < 120 and (tTeamZone[refiModDistancePercent] or 1) <= 0.6 and tTeamZone[reftClosestFriendlyBase] then
+        local iBasePlateau, iBaseZone = GetPlateauAndLandZoneReferenceFromPosition(tTeamZone[reftClosestFriendlyBase])
+        if iBasePlateau == iPlateau and (iBaseZone or 0) > 0 then
+            local tBaseZone = tAllPlateaus[iPlateau][subrefPlateauLandZones][iBaseZone]
+            iExposure = GetLandZoneEconomicExposure(tBaseZone, tBaseZone[subrefLZTeamData][iTeam], iPlateau, iTeam)
+        end
+    end
     if iExposure < 120 then return 0 end
     return math.min(4000, 500 + iExposure * 0.4, iRaidThreat * 2) * iShortfall
 end
