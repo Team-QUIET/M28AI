@@ -88,6 +88,15 @@ local iT1LandMassShare = 0.2
 local iLandMassShare = 0.35
 local iCombatMassShare = 0.45
 local iCombatEnergyShare = 0.55
+local iWaterMapLandShareFactor = 0.25 -- without a land route to the enemy base, land keeps a quarter of its share
+
+-- Without a land route to the enemy base, the rest of land's share moves: half to workers, half from land to naval combat.
+local function GetWaterMapShareShift(aiBrain)
+    if aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] == false and not(M28Map.bIsCampaignMap) then
+        return iLandMassShare * (1 - iWaterMapLandShareFactor) * 0.5
+    end
+    return 0
+end
 
 local tFactoryEcoStateCacheByTeam = {}
 
@@ -7426,7 +7435,7 @@ GetEngineerProductionAllocation = function(aiBrain, oFactory, sBlueprint, iMassD
     -- One worker may always be in production: a single T1 engineer exceeds the share of early mex income.
     -- The share includes this brain's reclaim and other non-mex income.
     local iMassIncome = (tTeam[M28Team.subrefiTeamGrossMass] or 0) + math.max(0, aiBrain:GetEconomyIncome('MASS') - (aiBrain[M28Economy.refiGrossMassBaseIncome] or 0))
-    if bOtherWorkerInProduction and not(bMassOverflow) and iTotalMass > iMassIncome * iEngineerMassShare
+    if bOtherWorkerInProduction and not(bMassOverflow) and iTotalMass > iMassIncome * (iEngineerMassShare + GetWaterMapShareShift(aiBrain))
             or iTotalEnergy > (tTeam[M28Team.subrefiTeamGrossEnergy] or 0) * iEngineerEnergyShare then
         return false, 'EngineerBudgetCommitted'
     end
@@ -7503,7 +7512,11 @@ local function IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iM
         bNavalDefence = tZoneTeam and tZoneTeam[M28Map.subrefbDangerousEnemiesInAdjacentWZ] or false
     end
     local iLandHeadroom = not(bLand) and not(bNavalDefence) and aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] and math.max(0, iGrossMass * iLandMassShare - iLandMass) or 0
-    local bMassAvailable = iMassDrain + iLandHeadroom <= iGrossMass * iCombatMassShare
+    -- The navy's half of a water map's shift is reserved for naval production; air and land stay below it.
+    local iWaterMapShift = GetWaterMapShareShift(aiBrain)
+    local bNaval = not(bLand) and not(bAir)
+    local bMassAvailable = iMassDrain + iLandHeadroom <= iGrossMass * (iCombatMassShare - (bNaval and 0 or iWaterMapShift))
+        and not(bLand and iWaterMapShift > 0 and iLandMass > iGrossMass * iLandMassShare * iWaterMapLandShareFactor)
     local bEnergyAvailable = iEnergyDrain <= (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * iCombatEnergyShare
     return bMassAvailable and bEnergyAvailable, bMassAvailable, iLandHeadroom, bEnergyAvailable
 end
@@ -7691,6 +7704,13 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint, oAdditio
             and (tTeamData[M28Team.subrefiTeamAverageMassPercentStored] or 0) < iOverflowMassStoredRatio then
         return FinishAdmission(false, 'ObsoleteLandAttacker')
     end
+    -- Without a land route to the enemy base, land-only attackers are useful only as combat-drop cargo.
+    local bWaterMapLandAttacker = aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] == false and not(M28Map.bIsCampaignMap) and IsLandAttackerBlueprint(oFactory, sBlueprint)
+    if bWaterMapLandAttacker and not(EntityCategoryContains(categories.HOVER + M28UnitInfo.refCategoryAmphibious, sBlueprint)) then
+        local _, tZoneTeam = M28Map.GetLandOrWaterZoneData(oFactory:GetPosition(), true, iTeam)
+        local _, _, iDropUnitsWanted = M28Air.GetCombatDropTechAndCategoryWantedForZone(iTeam, tZoneTeam or {})
+        if iDropUnitsWanted == 0 then return FinishAdmission(false, 'NoLandRouteToEnemy') end
+    end
 
     local tFactoryEco = GetFactoryEcoState(aiBrain, iTeam)
     if oFactory[M28UnitInfo.refbPaused] or oFactory:IsPaused() then
@@ -7707,6 +7727,10 @@ GetFactoryProductionAdmission = function(aiBrain, oFactory, sBlueprint, oAdditio
     local bSharedCombat = EntityCategoryContains(categories.AIR * (categories.ANTIAIR + categories.BOMBER)
         + categories.NAVAL * categories.MOBILE - categories.ENGINEER - categories.SCOUT, sBlueprint)
     local bAirMassAvailable, iAirLandHeadroom, bAirEnergyAvailable = false, 0, true
+    if bWaterMapLandAttacker then
+        local _, bLandMassAvailable = IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain, oAdditionalEngineer)
+        if not(bLandMassAvailable) then return FinishAdmission(false, 'WaterMapLandShare') end
+    end
     if bSharedCombat then
         local bAirBudget
         bAirBudget, bAirMassAvailable, iAirLandHeadroom, bAirEnergyAvailable = IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iCandidateMassDrain, iCandidateEnergyDrain, oAdditionalEngineer)
