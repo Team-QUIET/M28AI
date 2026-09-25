@@ -4121,10 +4121,11 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
                 if bShareCombatWanted == nil then bShareCombatWanted, iEngineerFactories, iEngineerFactoryLimit = ShouldReserveLandFactoryForCombat(aiBrain, oFactory, tLZTeamData) end
                 if bOpeningCombatWanted or bShareCombatWanted then
                     local sCombatBlueprint = GetBlueprintThatCanBuildOfCategory(aiBrain, (M28UnitInfo.refCategoryMobileDFLand - M28UnitInfo.refCategorySkirmisher - categories.ENGINEER - categories.COMMAND) * categories.TECH1, oFactory)
-                    if sCombatBlueprint then
-                        -- Normal combat affordability still applies; do not refill surplus queues with workers when it fails.
-                        sBPIDToBuild = AdjustBlueprintForOverrides(aiBrain, oFactory, sCombatBlueprint, tLZTeamData, iFactoryTechLevel)
-                        if sBPIDToBuild and M28Diagnostics.ShouldLog('Factory', aiBrain:GetArmyIndex(), 'mix:'..oFactory.EntityId) then
+                    if sCombatBlueprint then sCombatBlueprint = AdjustBlueprintForOverrides(aiBrain, oFactory, sCombatBlueprint, tLZTeamData, iFactoryTechLevel) end
+                    -- Keep the worker when the combat unit cannot be funded; an unfunded swap leaves the factory idle.
+                    if sCombatBlueprint and GetFactoryProductionAdmission(aiBrain, oFactory, sCombatBlueprint) then
+                        sBPIDToBuild = sCombatBlueprint
+                        if M28Diagnostics.ShouldLog('Factory', aiBrain:GetArmyIndex(), 'mix:'..oFactory.EntityId) then
                             M28Diagnostics.Record('Factory', aiBrain:GetArmyIndex(), 'mix:'..oFactory.EntityId, bShareCombatWanted and 'combat-factory-share' or 'opening-combat-balance',
                                 {engineers = iOpeningEngineers, combat = iOpeningCombat, engineer_factories = iEngineerFactories, engineer_factory_limit = iEngineerFactoryLimit, blueprint = sBPIDToBuild})
                         end
