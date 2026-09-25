@@ -7340,7 +7340,12 @@ function ClearReclaimPathTracking(oEngineer, iTeam)
     end
 end
 
-function MonitorReclaimPathEngineer(oEngineer, iTeam)
+function IsMassReclaimWasted(iTeam)
+    --Reclaimed mass is lost while storage is full; leave those engineers for power and construction
+    return (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0) >= 0.9
+end
+
+function MonitorReclaimPathEngineer(oEngineer, iTeam, bWantEnergyNotMass)
     --Monitor thread to clean up reclaim path tracking when engineer finishes or is reassigned
     local sFunctionRef = 'MonitorReclaimPathEngineer'
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelEngineer, sFunctionRef)
@@ -7351,6 +7356,10 @@ function MonitorReclaimPathEngineer(oEngineer, iTeam)
         WaitTicks(20) --Check every 2 seconds
         if oEngineer[reftAssignedReclaimPath] ~= tOwnedPath then return end
         if M28UnitInfo.IsUnitValid(oEngineer) and TryRetreatEngineerFromKnownThreat(oEngineer) then return end
+        if not(bWantEnergyNotMass) and IsMassReclaimWasted(iTeam) then
+            if M28UnitInfo.IsUnitValid(oEngineer) then M28Orders.IssueTrackedClearCommands(oEngineer) end
+            break
+        end
 
 
         --Check if engineer is done reclaiming (idle or has different action)
@@ -7629,7 +7638,7 @@ function QueueReclaimPath(oEngineer, iPriorityOverride, tLZOrWZTeamData, iPlatea
         oEngineer[refbHasReclaimPath] = true
         table.insert(tTeamReclaimPathEngineers[iTeam], oEngineer)
         --Start monitor thread to clean up when done
-        ForkThread(MonitorReclaimPathEngineer, oEngineer, iTeam)
+        ForkThread(MonitorReclaimPathEngineer, oEngineer, iTeam, bWantEnergyNotMass)
         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Successfully queued reclaim path with '..iSortedCount..' targets') end
     end
 
@@ -12211,6 +12220,7 @@ function ConsiderActionToAssign(iActionToAssign, iMinTechWanted, iTotalBuildPowe
                 elseif iActionToAssign == refActionReclaimArea then
                     local bWantEnergyNotMass = vOptionalVariable[1]
                     local bGivenOrder = false
+                    if not(bWantEnergyNotMass) and IsMassReclaimWasted(iTeam) then iTotalBuildPowerWanted = 0 end
                     while iTotalBuildPowerWanted > 0 and iEngiCount > 0 do
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': About to tell engineer '..tEngineersOfTechWanted[iEngiCount].UnitId..M28UnitInfo.GetUnitLifetimeCount(tEngineersOfTechWanted[iEngiCount])..' to reclaim nearby, iTotalBuildPowerWanted='..iTotalBuildPowerWanted..'; iEngiCount='..iEngiCount..'; bWantEnergyNotMass='..tostring(bWantEnergyNotMass)) end
                         --Try to use efficient reclaim path for both mass and energy reclaim
