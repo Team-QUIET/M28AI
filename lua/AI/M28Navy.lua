@@ -4479,7 +4479,7 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
                 if tWZTeamData[M28Map.subrefWZbSubsInScenario2] and tWZTeamData[M28Map.subrefWZbCoreBase] then
 
                     tWZTeamData[M28Map.subrefWZiSuicideIntoEnemyCombatThreat] = math.max((tWZTeamData[M28Map.subrefWZiSuicideIntoEnemyCombatThreat] or 0), iNearbyFriendlySubThreat)
-                    M28Utilities.ForkedDelayedChangedVariable(tWZTeamData, M28Map.subrefWZiSuicideIntoEnemyCombatThreat, nil, 30)
+                    M28Utilities.DelayChangeVariable(tWZTeamData, M28Map.subrefWZiSuicideIntoEnemyCombatThreat, nil, 30)
                     if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Subs Setting suicide flag to iNearbyFriendlySubThreat='..iNearbyFriendlySubThreat..', is table of adj WZs empty='..tostring( M28Utilities.IsTableEmpty(tWZData[M28Map.subrefWZAdjacentWaterZones]))) end
                     if M28Utilities.IsTableEmpty(tWZData[M28Map.subrefWZAdjacentWaterZones]) == false then
                         for _, iAdjWZ in tWZData[M28Map.subrefWZAdjacentWaterZones] do
@@ -4487,14 +4487,14 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
                             if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Considering whether to set Suicide flag to true for iAdjWZ='..iAdjWZ..' (based on base iWZ='..iWaterZone..'); tAdjWZTeamData[M28Map.subrefWZiSuicideIntoEnemyCombatThreat]='..(tAdjWZTeamData[M28Map.subrefWZiSuicideIntoEnemyCombatThreat] or 'nil')) end
                             if not(tAdjWZTeamData[M28Map.subrefWZiSuicideIntoEnemyCombatThreat]) then
                                 tAdjWZTeamData[M28Map.subrefWZiSuicideIntoEnemyCombatThreat] = iNearbyFriendlySubThreat
-                                M28Utilities.ForkedDelayedChangedVariable(tAdjWZTeamData, M28Map.subrefWZiSuicideIntoEnemyCombatThreat, nil, 30)
+                                M28Utilities.DelayChangeVariable(tAdjWZTeamData, M28Map.subrefWZiSuicideIntoEnemyCombatThreat, nil, 30)
                                 if tAdjWZTeamData[M28Map.subrefWZbCoreBase] and M28Utilities.IsTableEmpty(M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones][iAdjWZ]) == false then
                                     for _, iSecondAdjWZ in M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones][iAdjWZ][M28Map.subrefWZAdjacentWaterZones] do
                                         local tSecondAdjWZTeamData = M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones][iSecondAdjWZ][M28Map.subrefWZTeamData][iTeam]
                                         if not(tSecondAdjWZTeamData[M28Map.subrefWZiSuicideIntoEnemyCombatThreat]) then
                                             if tSecondAdjWZTeamData then
                                                 tSecondAdjWZTeamData[M28Map.subrefWZiSuicideIntoEnemyCombatThreat] = iNearbyFriendlySubThreat
-                                                M28Utilities.ForkedDelayedChangedVariable(tSecondAdjWZTeamData, M28Map.subrefWZiSuicideIntoEnemyCombatThreat, nil, 30)
+                                                M28Utilities.DelayChangeVariable(tSecondAdjWZTeamData, M28Map.subrefWZiSuicideIntoEnemyCombatThreat, nil, 30)
                                             else
                                                 M28Utilities.ErrorHandler('Dont have a valid second WZ ref')
                                             end
@@ -5188,7 +5188,7 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
                     end
                     if bAreInScenario2 and tWZTeamData[M28Map.subrefWZbCoreBase] then
                         tWZTeamData[M28Map.subrefWZiSuicideIntoEnemyCombatThreat] = math.max((tWZTeamData[M28Map.subrefWZiSuicideIntoEnemyCombatThreat] or 0), iAdjacentAlliedCombatThreat)
-                        M28Utilities.ForkedDelayedChangedVariable(tWZTeamData, M28Map.subrefWZiSuicideIntoEnemyCombatThreat, nil, 30)
+                        M28Utilities.DelayChangeVariable(tWZTeamData, M28Map.subrefWZiSuicideIntoEnemyCombatThreat, nil, 30)
                         if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Surface setting suicide flag to true, is table of adj WZs empty='..tostring( M28Utilities.IsTableEmpty(tWZData[M28Map.subrefWZAdjacentWaterZones]))) end
                         if M28Utilities.IsTableEmpty(tWZData[M28Map.subrefWZAdjacentWaterZones]) == false then
                             for _, iAdjWZ in tWZData[M28Map.subrefWZAdjacentWaterZones] do
@@ -5196,14 +5196,14 @@ function ManageCombatUnitsInWaterZone(tWZData, tWZTeamData, iTeam, iPond, iWater
                                 if bDebugMessages == true then M28Profiler.DebugLog(tDebugContext, sFunctionRef..': Nonsub suicide flag, considering iAdjWZ='..iAdjWZ..'; tAdjWZTeamData[M28Map.subrefWZiSuicideIntoEnemyCombatThreat]='..(tAdjWZTeamData[M28Map.subrefWZiSuicideIntoEnemyCombatThreat] or 'nil')) end
                                 if not(tAdjWZTeamData[M28Map.subrefWZiSuicideIntoEnemyCombatThreat]) then
                                     tAdjWZTeamData[M28Map.subrefWZiSuicideIntoEnemyCombatThreat] = iAdjacentAlliedCombatThreat
-                                    M28Utilities.ForkedDelayedChangedVariable(tAdjWZTeamData, M28Map.subrefWZiSuicideIntoEnemyCombatThreat, nil, 30)
+                                    M28Utilities.DelayChangeVariable(tAdjWZTeamData, M28Map.subrefWZiSuicideIntoEnemyCombatThreat, nil, 30)
                                     if tAdjWZTeamData[M28Map.subrefWZbCoreBase] and M28Utilities.IsTableEmpty(M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones][iAdjWZ][M28Map.subrefWZAdjacentWaterZones]) == false then
                                         for _, iSecondAdjWZ in M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones][iAdjWZ][M28Map.subrefWZAdjacentWaterZones] do
                                             local tSecondAdjWZTeamData = M28Map.tPondDetails[iPond][M28Map.subrefPondWaterZones][iSecondAdjWZ][M28Map.subrefWZTeamData][iTeam]
                                             if not(tSecondAdjWZTeamData[M28Map.subrefWZiSuicideIntoEnemyCombatThreat]) then
                                                 if tSecondAdjWZTeamData then
                                                     tSecondAdjWZTeamData[M28Map.subrefWZiSuicideIntoEnemyCombatThreat] = iAdjacentAlliedCombatThreat
-                                                    M28Utilities.ForkedDelayedChangedVariable(tSecondAdjWZTeamData, M28Map.subrefWZiSuicideIntoEnemyCombatThreat, nil, 30)
+                                                    M28Utilities.DelayChangeVariable(tSecondAdjWZTeamData, M28Map.subrefWZiSuicideIntoEnemyCombatThreat, nil, 30)
                                                 else
                                                     M28Utilities.ErrorHandler('Dont have a valid second WZ ref')
                                                 end
