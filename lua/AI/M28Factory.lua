@@ -81,7 +81,7 @@ local iFactoryNetEnergyReservePerBrain = 2
 local iFactoryNetMassReservePerBrain = 0.1
 local iFactoryGrossResourceReserveRatio = 0.03
 -- Shares of team gross income. The combat share covers land, air and naval production together.
-local iEngineerMassShare = 0.2
+local tEngineerMassShareByTech = {0.25, 0.3, 0.35} -- higher-tech workers get more; T1 stays close to combat's needs
 local iEngineerEnergyShare = 0.25
 local iOverflowMassStoredRatio = 0.7 -- above this, mass is wasted unless build power or production grows (matches M28Team HQ overflow)
 local iT1LandMassShare = 0.2
@@ -3490,7 +3490,7 @@ function GetBlueprintToBuildForLandFactory(aiBrain, oFactory)
     end
 
     local iCurrentTechMobileUnitLifetimeCount
-    local iMinCurrentTechUnitsBeforeGenericEngineer = (iFactoryTechLevel >= 3 and 3 or 2)
+    local iMinCurrentTechUnitsBeforeGenericEngineer = 1
     local iTeamMassStored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamMassStored] or 0
     local iTeamAverageMassStored = M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageMassPercentStored] or 0
     local iTeamNetMass = M28Team.tTeamData[iTeam][M28Team.subrefiTeamNetMass] or 0
@@ -7435,7 +7435,7 @@ GetEngineerProductionAllocation = function(aiBrain, oFactory, sBlueprint, iMassD
     -- One worker may always be in production: a single T1 engineer exceeds the share of early mex income.
     -- The share includes this brain's reclaim and other non-mex income.
     local iMassIncome = (tTeam[M28Team.subrefiTeamGrossMass] or 0) + math.max(0, aiBrain:GetEconomyIncome('MASS') - (aiBrain[M28Economy.refiGrossMassBaseIncome] or 0))
-    if bOtherWorkerInProduction and not(bMassOverflow) and iTotalMass > iMassIncome * (iEngineerMassShare + GetWaterMapShareShift(aiBrain))
+    if bOtherWorkerInProduction and not(bMassOverflow) and iTotalMass > iMassIncome * (tEngineerMassShareByTech[math.min(3, iTech)] + GetWaterMapShareShift(aiBrain))
             or iTotalEnergy > (tTeam[M28Team.subrefiTeamGrossEnergy] or 0) * iEngineerEnergyShare then
         return false, 'EngineerBudgetCommitted'
     end
