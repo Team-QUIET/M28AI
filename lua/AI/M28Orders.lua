@@ -118,6 +118,9 @@ function IssueTrackedClearCommands(oUnit)
                         --LOG('Just cleared unit '..oUnit.UnitId..M28UnitInfo.GetUnitLifetimeCount(oUnit)..' from being recorded as assistin unit '..tLastOrder[subrefoOrderUnitTarget].UnitId..M28UnitInfo.GetUnitLifetimeCount(tLastOrder[subrefoOrderUnitTarget]))
                     end
                 end
+            elseif tLastOrder[subrefiOrderType] == refiOrderEnhancement and EntityCategoryContains(categories.COMMAND, oUnit.UnitId) then
+                --Clearing commands aborts the enhancement; a stale entry makes teammates keep guarding this ACU
+                M28Team.UpdateUpgradeTrackingOfUnit(oUnit, true, nil, true)
             end
         end
         oUnit[reftiLastOrders] = nil

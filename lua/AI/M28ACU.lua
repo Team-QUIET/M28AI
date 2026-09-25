@@ -8699,7 +8699,7 @@ function AssistNearbyUpgradingACU(iPlateauOrZero, iLandOrWaterZone, tLZOrWZData,
 
         local oClosestUpgradingACU
         for iUpgradingACU, oUpgradingACU in M28Team.tTeamData[iTeam][M28Team.subreftTeamUpgradingACUs] do
-            if not(oUpgradingACU == oACU) then
+            if not(oUpgradingACU == oACU) and oUpgradingACU:IsUnitState('Upgrading') then
                 iCurDist = M28Utilities.GetDistanceBetweenPositions(oUpgradingACU:GetPosition(), oACU:GetPosition())
                 if iCurDist < iClosestDist then
                     if NavUtils.GetLabel(M28Map.refPathingTypeHover, oUpgradingACU:GetPosition()) == iPlateauOrZero or (iPlateauOrZero == 0 and NavUtils.GetLabel(M28Map.refPathingTypeHover, oUpgradingACU:GetPosition()) == NavUtils.GetLabel(M28Map.refPathingTypeHover, oACU:GetPosition())) then
