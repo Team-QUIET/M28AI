@@ -7495,8 +7495,14 @@ local function IsCombinedCombatBudgetAvailable(aiBrain, oFactory, sBlueprint, iM
     end
     local tTeamData = M28Team.tTeamData[aiBrain.M28Team]
     local iGrossMass = tTeamData[M28Team.subrefiTeamGrossMass] or 0
-    -- Air and navy may use spare resources, not the land stream's still-unused production share.
-    local iLandHeadroom = not(bLand) and aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] and math.max(0, iGrossMass * iLandMassShare - iLandMass) or 0
+    -- Air and navy may use spare resources, not the land stream's still-unused production share,
+    -- unless dangerous enemy ships threaten this naval base: land units cannot answer them.
+    local bNavalDefence = false
+    if not(bLand) and not(bAir) then
+        local _, tZoneTeam = M28Map.GetLandOrWaterZoneData(oFactory:GetPosition(), true, aiBrain.M28Team)
+        bNavalDefence = tZoneTeam and tZoneTeam[M28Map.subrefbDangerousEnemiesInAdjacentWZ] or false
+    end
+    local iLandHeadroom = not(bLand) and not(bNavalDefence) and aiBrain[M28Map.refbCanPathToEnemyBaseWithLand] and math.max(0, iGrossMass * iLandMassShare - iLandMass) or 0
     local bMassAvailable = iMassDrain + iLandHeadroom <= iGrossMass * iCombatMassShare
     local bEnergyAvailable = iEnergyDrain <= (tTeamData[M28Team.subrefiTeamGrossEnergy] or 0) * iCombatEnergyShare
     return bMassAvailable and bEnergyAvailable, bMassAvailable, iLandHeadroom, bEnergyAvailable
