@@ -7851,7 +7851,8 @@ GetEconomyAdmittedFactoryProductionBlueprint = function(aiBrain, oFactory, sBlue
         local iTech = GetLandProductionTech(oFactory)
         local sFallback
         if iTech >= 1 then
-            sFallback = GetBlueprintThatCanBuildOfCategory(aiBrain, iRegularCategory * M28UnitInfo.ConvertTechLevelToCategory(iTech), oFactory, nil, nil, true, nil, false)
+            -- Use normal priorities, not the cheapest unit: the cheapest can be a weak specialist (e.g. the 5 DPS Caiman over the Striker).
+            sFallback = GetBlueprintThatCanBuildOfCategory(aiBrain, iRegularCategory * M28UnitInfo.ConvertTechLevelToCategory(iTech), oFactory, nil, nil, nil, nil, false)
         end
         if sFallback and sFallback ~= sBlueprint then
             local bFallbackAllowed, sReason = GetFactoryProductionAdmission(aiBrain, oFactory, sFallback)
@@ -9096,6 +9097,7 @@ function SetPriorityPreferredUnitsByCategory(aiBrain)
             aiBrain[reftBlueprintPriorityOverride]['uel0106'] = -1 --Mechmarine (so prioritise striker instead)
         end
         aiBrain[reftBlueprintPriorityOverride]['xsl0101'] = -1 --Combat scout (so prioritise thaam instead)
+        aiBrain[reftBlueprintPriorityOverride]['uel0107'] = -1 --QUIET Caiman mortar hovercraft is tagged DIRECTFIRE but has 5 DPS (so prioritise striker; still built when only hover/amphibious is wanted)
 
         --Engineers
         aiBrain[reftBlueprintPriorityOverride]['uel0208'] = 1 --T2 Engi (instead of sparky)
