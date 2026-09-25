@@ -13844,11 +13844,12 @@ function ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
     local bDebugMessages, tDebugContext = M28Profiler.GetDebugControl(M28Profiler.refDebugChannelLand, sFunctionRef)
     M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerStart)
 
-    if not(aiBrain) or aiBrain.M28IsDefeated then
+    --A retired brain loses its native methods before its defeat is fully processed
+    if not(aiBrain) or aiBrain.M28IsDefeated or not(aiBrain.GetArmyIndex) then
         --if Brain hasn't died in the last couple of ticks then give error message
         if GetGameTimeSeconds() - (M28Overseer.iTimeLastPlayerDefeat or 0) >= 0.3 then M28Utilities.ErrorHandler('Trying to run M28 logic on a defeated brain') end
         aiBrain = M28Team.GetFirstActiveM28Brain(iTeam)
-        if not(aiBrain) or aiBrain.M28IsDefeated then
+        if not(aiBrain) or aiBrain.M28IsDefeated or not(aiBrain.GetArmyIndex) then
             M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
             return nil
         end
@@ -13857,6 +13858,11 @@ function ManageSpecificLandZone(aiBrain, iTeam, iPlateau, iLandZone)
     --Record enemy threat
     local tLZData = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones][iLandZone]
     local tLZTeamData = tLZData[M28Map.subrefLZTeamData][iTeam]
+    --Zone logic looks up its closest friendly brain; until ReassessPositionsForPlayerDeath runs, a defeated one would be used
+    local oClosestBrain = ArmyBrains[tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex] or 0]
+    if oClosestBrain and (oClosestBrain.M28IsDefeated or not(oClosestBrain.GetArmyIndex)) then
+        tLZTeamData[M28Map.reftiClosestFriendlyM28BrainIndex] = aiBrain:GetArmyIndex()
+    end
 
     --Omni vision AIx - record we have visual of this LZ
     if M28Team.tTeamData[iTeam][M28Team.subrefbTeamHasOmniVision] then
