@@ -740,23 +740,51 @@ function GetLandCommanderSupportPlan(tUnits, iPlateau, iSource, iTeam, tLayers, 
     return tBest,tRequestedZones
 end
 
+-- Each army attacks, marches and gathers on its own side: 1 where our base is the closest friendly base, growing
+-- with how much closer a teammate's base is, so zones on a teammate's side are theirs to take.
+function GetLandZoneSideFactor(tZone, tData, tOwnBase)
+    if not(tData[M28Map.reftClosestFriendlyBase]) then return 1 end
+    local iFactor = 1 + math.max(0, M28Utilities.GetDistanceBetweenPositions(tZone[M28Map.subrefMidpoint], tOwnBase)
+        - M28Utilities.GetDistanceBetweenPositions(tZone[M28Map.subrefMidpoint], tData[M28Map.reftClosestFriendlyBase])) / 200
+    return iFactor * iFactor
+end
+
 function SelectLandSupportObjective(tUnits, iPlateau, iSource, iTeam, tPrevious, tExcluded, tFailureCache, bNearbyOnly)
     if table.getn(tUnits) == 0 then return nil end
     local tZones = M28Map.tAllPlateaus[iPlateau][M28Map.subrefPlateauLandZones]
     local tLayers = {}
     for _, oUnit in tUnits do tLayers[M28UnitInfo.GetUnitPathingType(oUnit)] = true end
-    local tDefenses, iForce, tAdmitted, tAvoidanceCache = GetLandObjectiveAvoidance(tUnits,iPlateau,iTeam)
+    -- Teammates' units that finished gathering beside this wave attack with it, so armies too small alone can
+    -- still commit together; their own planner counts this wave the same way.
+    local iForce = M28UnitInfo.GetCombatThreatRating(tUnits)
+    local aiBrain = tUnits[1]:GetAIBrain()
+    local iCategory = categories.LAND*categories.MOBILE*(categories.DIRECTFIRE+categories.INDIRECTFIRE)
+        - categories.COMMAND - categories.EXPERIMENTAL - categories.ENGINEER - categories.SCOUT
+    for _, oAlly in aiBrain:GetUnitsAroundPoint(iCategory, tUnits[1]:GetPosition(), 45, 'Ally') do
+        if oAlly.M28LandAssemblyComplete and not(oAlly.M28LandObjective) and oAlly:GetAIBrain() ~= aiBrain
+                and oAlly:GetAIBrain().M28Team == iTeam and M28UnitInfo.IsUnitValid(oAlly) then
+            iForce = iForce + M28UnitInfo.GetCombatThreatRating({oAlly})
+        end
+    end
+    local tDefenses, _, tAdmitted, tAvoidanceCache = GetLandObjectiveAvoidance(tUnits,iPlateau,iTeam,iForce)
     local tCommanderPlan,tCommanderZones = GetLandCommanderSupportPlan(tUnits,iPlateau,iSource,iTeam,tLayers,tDefenses,iForce,tPrevious,tExcluded)
     if tCommanderPlan then return tCommanderPlan end
     -- Keep a nearby, affordable battery from splitting the assembled wave into
     -- small economic errands. Physical contact distance, not zone membership,
     -- determines which fight the cohort is already approaching.
-    local bUrgentDefense = false
+    local bUrgentDefense, bOwnSideInvaded = false, false
+    local tOwnBase = M28Map.GetPlayerStartPosition(aiBrain)
     for iZone, tZone in tZones do
         local tData = tZone[M28Map.subrefLZTeamData][iTeam]
-        if M28Map.GetLandZoneDefensePriority(tZone,tData,iPlateau,iTeam)>500 or tData[M28Map.refbACUInTrouble] then
+        local iPriority = M28Map.GetLandZoneDefensePriority(tZone,tData,iPlateau,iTeam)
+        if iPriority>500 or tData[M28Map.refbACUInTrouble] then
             bUrgentDefense = true
-            break
+            -- Invading armies are usually avoided by the route search below, so record the invasion here. A larger
+            -- invasion further toward a teammate's side also counts, so both armies gather against it.
+            if iPriority > 500 * GetLandZoneSideFactor(tZone,tData,tOwnBase) then
+                bOwnSideInvaded = true
+                break
+            end
         end
     end
     if not(bUrgentDefense) then
@@ -798,7 +826,7 @@ function SelectLandSupportObjective(tUnits, iPlateau, iSource, iTeam, tPrevious,
     -- Threat geometry is a snapshot for this synchronous search only. Never
     -- retain its index on cached native edges or across objective reviews.
     local tDefenseIndex = GetLandObjectiveAvoidanceIndex(tAvoidanceCache)
-    local tCost, tParent, tEdges, tClosed = {[iSource]=0}, {}, {}, {}
+    local tCost, tParent, tEdges, tClosed, tRouteFriendly = {[iSource]=0}, {}, {}, {}, {[iSource]=0}
     local bPathUnavailable = false
     local iSourceForward = tZones[iSource][M28Map.subrefLZTeamData][iTeam][M28Map.refiModDistancePercent] or 0
     local tBest, tAdvance
@@ -816,6 +844,9 @@ function SelectLandSupportObjective(tUnits, iPlateau, iSource, iTeam, tPrevious,
         local iResponse = GetLandObjectiveResponse(tZone, iPlateau, iTeam)
         local iIncoming = GetLandSupportIncomingThreat(tData, tPrevious)
         local iPresent = (tData[M28Map.subrefLZThreatAllyMobileDFTotal] or 0) + (tData[M28Map.subrefLZThreatAllyMobileIndirectTotal] or 0)
+        if iCurrent ~= iSource then tRouteFriendly[iCurrent] = tRouteFriendly[tParent[iCurrent]] + iPresent + iIncoming end
+        -- Defence is not scaled by side, so teammates still reinforce each other.
+        local iSide = GetLandZoneSideFactor(tZone, tData, tOwnBase)
         local iBenefit = M28Map.CalculateZoneValue(iPlateau, iCurrent, iTeam)
         local iStructureBenefit = 0
         for _, oEnemy in tData[M28Map.subrefTEnemyUnits] or {} do
@@ -838,10 +869,14 @@ function SelectLandSupportObjective(tUnits, iPlateau, iSource, iTeam, tPrevious,
         if iCurrent ~= iSource and not(tExcluded and tExcluded[iCurrent]) and iShortfall > 0
                 and not(tCommanderZones and tCommanderZones[iCurrent])
                 and (iBenefit > 0 or iDefense > 0)
+                -- While our side is invaded, only our side's objectives or defence anywhere.
+                and (not(bOwnSideInvaded) or iSide < 1.5 or iDefense > 0)
                 -- Army groups are planned a few units at a time; any of them may reinforce a raided core base,
-                -- and incoming reinforcements lower its defence value until the raid is covered.
-                and (iForce >= iRequired or iDefense > 0 and tData[M28Map.subrefLZbCoreBase]) then
-            local iScore = (iBenefit / (1 + iResponse / math.max(1,iForce)) + iDefense * 3) / (1 + iCost / 300)
+                -- and incoming reinforcements lower its defence value until the raid is covered. An army still
+                -- approaching is met by the gathered wave instead, not by groups waiting at home.
+                and (iForce >= iRequired or iDefense > 0 and tData[M28Map.subrefLZbCoreBase]
+                    and (tData[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0) + (tData[M28Map.subrefLZThreatEnemyMobileIndirectTotal] or 0) > 0) then
+            local iScore = (iBenefit / (1 + iResponse / math.max(1,iForce)) / iSide + iDefense * 3) / (1 + iCost / 300)
             if tPrevious and tPrevious.target == iCurrent then iScore = iScore * 1.25 end
             if not(tBest) or iScore > tBest.score or iScore == tBest.score and iCurrent < tBest.target then
                 tBest = {target=iCurrent, score=iScore, required=iRequired, response=iResponse,
@@ -850,9 +885,12 @@ function SelectLandSupportObjective(tUnits, iPlateau, iSource, iTeam, tPrevious,
         end
         -- A covered or exhausted economy is not a reason to park the army.
         -- Keep a coherent forward march as the fallback to specific objectives.
-        local iProgress = (tData[M28Map.refiModDistancePercent] or 0)-iSourceForward
+        -- Progress stops at the enemy base line, or marches head for the corners behind enemy bases.
+        local iProgress = math.min(1, tData[M28Map.refiModDistancePercent] or 0)-iSourceForward
         if iProgress > 0.01 and not(tExcluded and tExcluded[iCurrent]) and not(tCommanderZones and tCommanderZones[iCurrent]) then
-            local iScore = iProgress/(1+iCost/300)
+            -- Friendly units along the route or on their way lower the score, so marching groups spread over
+            -- the map instead of every group taking the same best route.
+            local iScore = iProgress/(1+iCost/300)/(1+tRouteFriendly[iCurrent]/math.max(1,iForce))/iSide
             if tPrevious and tPrevious.advance and tPrevious.target == iCurrent then iScore = iScore*1.25 end
             if not(tAdvance) or iScore > tAdvance.score or iScore == tAdvance.score and iCurrent < tAdvance.target then
                 tAdvance = {target=iCurrent, score=iScore, required=iForce, response=iResponse, advance=true,
@@ -893,7 +931,9 @@ function SelectLandSupportObjective(tUnits, iPlateau, iSource, iTeam, tPrevious,
             end
         end
     end
-    tBest = tBest or tAdvance
+    -- While our own side is invaded, groups too small to answer it gather (IssueLandForwardGathering) instead of
+    -- marching away one by one.
+    tBest = tBest or not(bOwnSideInvaded) and tAdvance or nil
     if tBest then
         local tReverse, iZone = {}, tBest.target
         while iZone ~= iSource do table.insert(tReverse,{zone=iZone,path=tEdges[iZone]}); iZone = tParent[iZone] end
@@ -1396,8 +1436,10 @@ function GetLandForwardAssembly(tUnits, iPlateau, iSource, iTeam, tDefenses, tDe
     local tPrevious = tUnits[1].M28LandAssemblyRoute
     -- Entering the contested zone does not make an undersized cohort ready.
     -- Keep its safe rendezvous, but let commander rescue or another front preempt it.
+    -- Only enemies inside the zone hold it; an army still approaching is met by the gathered wave.
     if tZones[iSource][M28Map.subrefbPacifistArea]
-            or M28Map.GetLandZoneDefensePriority(tZones[iSource],tSource,iPlateau,iTeam)>0
+            or (tSource[M28Map.subrefLZThreatEnemyMobileDFTotal] or 0) + (tSource[M28Map.subrefLZThreatEnemyMobileIndirectTotal] or 0) > 0
+                and M28Map.GetLandZoneDefensePriority(tZones[iSource],tSource,iPlateau,iTeam)>0
                 and (not(tPrevious) or tPrevious.target~=iSource or tSource[M28Map.refbACUInTrouble]) then return nil end
     local tLayers = {}
     for _,oUnit in tUnits do tLayers[M28UnitInfo.GetUnitPathingType(oUnit)] = true end
@@ -1424,11 +1466,13 @@ function GetLandForwardAssembly(tUnits, iPlateau, iSource, iTeam, tDefenses, tDe
     local aiBrain = tUnits[1]:GetAIBrain()
     local iForce = M28UnitInfo.GetCombatThreatRating(tUnits)
     local iForward = tSource[M28Map.refiModDistancePercent] or 0
+    local tOwnBase = M28Map.GetPlayerStartPosition(aiBrain)
     local tCandidates = {}
     for iZone,tZone in tZones do
         local tData = tZone[M28Map.subrefLZTeamData][iTeam]
         local iProgress = (tData[M28Map.refiModDistancePercent] or 0)-iForward
-        if iProgress >= -0.01 and not(tZone[M28Map.subrefbPacifistArea])
+        local iDefense = M28Map.GetLandZoneDefensePriority(tZone,tData,iPlateau,iTeam)
+        if (iProgress >= -0.01 or iDefense > 0) and not(tZone[M28Map.subrefbPacifistArea])
                 and (not(M28Map.bIsCampaignMap) or M28Conditions.IsLocationInPlayableArea(tZone[M28Map.subrefMidpoint])) then
             local tGoal, iEnemyDistance, oFrontEnemy = tZone[M28Map.subrefMidpoint]
             for _,oEnemy in tData[M28Map.subrefTEnemyUnits] or {} do
@@ -1445,11 +1489,19 @@ function GetLandForwardAssembly(tUnits, iPlateau, iSource, iTeam, tDefenses, tDe
                 local iValue = M28Map.CalculateZoneValue(iPlateau,iZone,iTeam)
                     + (iEnemyDistance and math.min(600,iResponse) or 0) + math.max(0,iProgress)*400
                 local iScore = iValue / (1+M28Utilities.GetDistanceBetweenPositions(tOrigin,tGoal)/300)
-                    / (1+iResponse/math.max(200,iForce))
-                -- Prefer a front that can activate with less reinforcement,
-                -- rather than gathering forever opposite the largest fortress.
-                iScore = iScore*math.min(1,iForce/math.max(200,iResponse*(1.35-GetLandStrategicAttackAdjustment(iTeam))))
-                if iScore > 0 then table.insert(tCandidates,{zone=iZone,data=tData,position=tGoal,enemy=oFrontEnemy,score=iScore}) end
+                    / (1+iResponse/math.max(200,iForce)) / GetLandZoneSideFactor(tZone,tData,tOwnBase)
+                if iDefense > 0 then
+                    -- An invading army is gathered against however large it is; that is what the wave is for.
+                    iScore = iScore + iDefense / (1+M28Utilities.GetDistanceBetweenPositions(tOrigin,tGoal)/300)
+                else
+                    -- Prefer a front that can activate with less reinforcement,
+                    -- rather than gathering forever opposite the largest fortress.
+                    iScore = iScore*math.min(1,iForce/math.max(200,iResponse*(1.35-GetLandStrategicAttackAdjustment(iTeam))))
+                end
+                -- Against an invasion every cohort, from any army, rallies at the base it threatens: a shared point
+                -- reached through friendly ground, where the joined wave can attack together (or defend the base).
+                local tRally = iDefense > 0 and tData[M28Map.reftClosestFriendlyBase] or tGoal
+                if iScore > 0 then table.insert(tCandidates,{zone=iZone,data=tData,position=tGoal,rally=tRally,enemy=oFrontEnemy,score=iScore}) end
             end
         end
     end
@@ -1462,7 +1514,7 @@ function GetLandForwardAssembly(tUnits, iPlateau, iSource, iTeam, tDefenses, tDe
             tPath = GetLandObjectiveEdge(tOrigin,tShared.position,tLayers,tDefenses,nil,20,tDefenseIndex)
         end
         if not(tPath) then
-            tPath = GetLandAssemblyPath(tOrigin,tCandidate.position,tLayers,tDefenses,tDefenseIndex)
+            tPath = GetLandAssemblyPath(tOrigin,tCandidate.rally,tLayers,tDefenses,tDefenseIndex)
             if tPath then
                 local p = tPath[table.getn(tPath)]
                 tCandidate.data.M28ForwardAssembly = {position={p[1],p[2],p[3]},untilTime=GetGameTimeSeconds()+90}
