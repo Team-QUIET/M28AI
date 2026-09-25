@@ -1309,6 +1309,11 @@ function WantMorePower(iTeam)
         M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
         return false
     end
+    --Overflowing mass with under 70% energy needs power even when refused/paused production keeps net energy positive
+    if iTeamAvgMassStored >= 0.7 and iTeamAvgEnergyStored <= 0.7 then
+        M28Profiler.FunctionProfiler(sFunctionRef, M28Profiler.refProfilerEnd)
+        return true
+    end
     if M28Team.tTeamData[iTeam][M28Team.subrefiTeamGrossEnergy] >= 100000 and M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.5 and not(M28Team.tTeamData[iTeam][M28Team.subrefbTeamIsStallingEnergy]) and (M28Team.tTeamData[iTeam][M28Team.refbBuiltParagon] or (M28Team.tTeamData[iTeam][M28Team.subrefiTeamAverageEnergyPercentStored] >= 0.95)) then
         bWantMorePower = false
     elseif iCombatEnergyDemand > 0 and iProjectedNetEnergy < iCombatEnergyDemand + math.max(6 * iActiveBrains, iTeamGrossEnergy * 0.08) then
